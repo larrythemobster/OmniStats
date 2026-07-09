@@ -1,0 +1,60 @@
+name: Bug report
+description: Report a reproducible problem in OmniStats.
+title: "[Bug]: "
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting a problem. Do not include tokens, local configuration, logs, crash dumps, player data, or personal paths. Use SECURITY.md for vulnerabilities and privacy-sensitive reports.
+  - type: input
+    id: version
+    attributes:
+      label: OmniStats version
+      description: Include the app version and whether this is a local build.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to reproduce
+      description: List the smallest reliable sequence that triggers the problem.
+      placeholder: |
+        1. ...
+        2. ...
+        3. ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+    validations:
+      required: true
+  - type: dropdown
+    id: component
+    attributes:
+      label: Affected area
+      options:
+        - Live telemetry
+        - Overlay or dashboard
+        - Settings or local data
+        - MMR lookup
+        - Update or installer
+        - Build or tests
+        - Other
+    validations:
+      required: true
+  - type: checkboxes
+    id: safety
+    attributes:
+      label: Public report safety
+      options:
+        - label: I removed secrets, personal data, local paths, logs, crash dumps, and private configuration.
+          required: true
