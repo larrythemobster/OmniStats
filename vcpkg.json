@@ -1,0 +1,23 @@
+{
+  "name": "omnistats",
+  "version": "2.0.4",
+  "dependencies": [
+    "asio",
+    "curl",
+    "nlohmann-json",
+    {
+      "name": "imgui",
+      "features": [
+        "dx11-binding",
+        "win32-binding"
+      ]
+    },
+    "implot",
+    "sdl2",
+    "sqlite3",
+    "discord-rpc",
+    "zlib",
+    "gtest",
+    "benchmark"
+  ]
+}

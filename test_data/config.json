@@ -1,0 +1,179 @@
+{
+    "auto_save_replays": false,
+    "auto_upload_replays": false,
+    "ballchasing_token": "",
+    "client_uuid": "",
+    "controller_default_back_migrated": true,
+    "crossbar_display_mode": "raw",
+    "dashboard_layout": {
+        "left_column_weight": 0.47999998927116394,
+        "version": 2,
+        "widgets": [
+            {
+                "collapsed": false,
+                "height": 0.0,
+                "id": "live_roster",
+                "order": 0,
+                "zone": "left"
+            },
+            {
+                "collapsed": false,
+                "height": 0.0,
+                "id": "live_match_stats",
+                "order": 1,
+                "zone": "left"
+            },
+            {
+                "collapsed": false,
+                "height": 0.0,
+                "id": "lobby_ranks",
+                "order": 2,
+                "zone": "left"
+            },
+            {
+                "collapsed": false,
+                "height": 220.0,
+                "id": "mmr_graph",
+                "order": 0,
+                "zone": "top"
+            },
+            {
+                "collapsed": false,
+                "height": 0.0,
+                "id": "session_stats",
+                "order": 0,
+                "zone": "right"
+            },
+            {
+                "collapsed": false,
+                "height": 0.0,
+                "id": "demo_tracker",
+                "order": 1,
+                "zone": "right"
+            },
+            {
+                "collapsed": false,
+                "height": 0.0,
+                "id": "streaks_stats",
+                "order": 2,
+                "zone": "right"
+            },
+            {
+                "collapsed": false,
+                "height": 0.0,
+                "id": "gamemode_breakdown",
+                "order": 3,
+                "zone": "right"
+            }
+        ]
+    },
+    "discord_rpc_enabled": true,
+    "enable_auto_updates": false,
+    "enable_mmr_tracking": true,
+    "gamemode_breakdown_scope": "current_session",
+    "gamepad_overlay": 4,
+    "host": "test_host",
+    "imperial_units": false,
+    "key_cycle": 117,
+    "key_expand": 118,
+    "key_menu": 116,
+    "key_overlay": 9,
+    "key_save_replay": 8,
+    "key_session": 119,
+    "known_primary_ids": [],
+    "last_primary_id": "",
+    "mmr_category": "best",
+    "overlay_fps_cap": 60,
+    "port": 12345,
+    "position": "top-right",
+    "require_rl_focus": true,
+    "reset_session_on_close": true,
+    "run_on_startup": false,
+    "second_monitor_h": 768,
+    "second_monitor_has_bounds": false,
+    "second_monitor_mode": false,
+    "second_monitor_show_roster": true,
+    "second_monitor_show_session": true,
+    "second_monitor_show_settings": true,
+    "second_monitor_w": 1024,
+    "second_monitor_x": 0,
+    "second_monitor_y": 0,
+    "show_account_wins_overlay": true,
+    "show_demo_tracker_overlay": false,
+    "show_gamemode_breakdown": true,
+    "show_gamemode_record_1v1": true,
+    "show_gamemode_record_2v2": true,
+    "show_gamemode_record_3v3": true,
+    "show_lobby_ranks_overlay": false,
+    "show_longest_loss_streak": false,
+    "show_match_summary": true,
+    "show_running_indicator": true,
+    "show_session_assists": true,
+    "show_session_boost": true,
+    "show_session_demos": true,
+    "show_session_goal_participation": true,
+    "show_session_goals": true,
+    "show_session_mmr_change": true,
+    "show_session_record": true,
+    "show_session_saves": true,
+    "show_streaks_stats": true,
+    "theme": {
+        "accent": [
+            1.0,
+            0.0,
+            0.12999999523162842,
+            1.0
+        ],
+        "bg": [
+            0.05000000074505806,
+            0.05999999865889549,
+            0.07999999821186066,
+            0.8999999761581421
+        ],
+        "dim": [
+            0.44999998807907104,
+            0.5,
+            0.550000011920929,
+            0.6000000238418579
+        ],
+        "graph_baseline": [
+            0.913241446018219,
+            0.9516128897666931,
+            0.0,
+            1.0
+        ],
+        "graph_line": [
+            0.20201940834522247,
+            0.36447927355766296,
+            0.7056452035903931,
+            1.0
+        ],
+        "loss": [
+            1.0,
+            0.012096762657165527,
+            0.012096762657165527,
+            1.0
+        ],
+        "muted": [
+            0.6499999761581421,
+            0.699999988079071,
+            0.75,
+            1.0
+        ],
+        "text": [
+            0.9200000166893005,
+            0.9399999976158142,
+            0.9599999785423279,
+            1.0
+        ],
+        "win": [
+            0.2629031836986542,
+            0.8500000238418579,
+            0.15000000596046448,
+            1.0
+        ]
+    },
+    "ui_scale": 1.0,
+    "use_roman_numerals": true,
+    "vsync": false
+}

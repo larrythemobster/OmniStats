@@ -1,0 +1,34 @@
+#include <windows.h>
+
+VS_VERSION_INFO VERSIONINFO
+FILEVERSION     @OMNISTATS_VERSION_COMMA@
+PRODUCTVERSION  @OMNISTATS_VERSION_COMMA@
+FILEFLAGSMASK   VS_FFI_FILEFLAGSMASK
+#ifdef _DEBUG
+FILEFLAGS       VS_FF_DEBUG
+#else
+FILEFLAGS       0
+#endif
+FILEOS          VOS_NT_WINDOWS32
+FILETYPE        VFT_APP
+FILESUBTYPE     VFT2_UNKNOWN
+BEGIN
+    BLOCK "StringFileInfo"
+    BEGIN
+        BLOCK "040904b0" // US English, Unicode
+        BEGIN
+            VALUE "CompanyName",      "OmniStats Project"
+            VALUE "FileDescription",  "OmniStats Background Update Tool"
+            VALUE "FileVersion",      "@PROJECT_VERSION@.0"
+            VALUE "InternalName",     "OmniStatsUpdater.exe"
+            VALUE "LegalCopyright",   "Copyright (C) 2026 OmniStats Project. All rights reserved."
+            VALUE "OriginalFilename", "OmniStatsUpdater.exe"
+            VALUE "ProductName",      "OmniStatsUpdater"
+            VALUE "ProductVersion",   "@PROJECT_VERSION@.0"
+        END
+    END
+    BLOCK "VarFileInfo"
+    BEGIN
+        VALUE "Translation", 0x409, 1200
+    END
+END
