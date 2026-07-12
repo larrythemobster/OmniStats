@@ -1,0 +1,55 @@
+name: Build and test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  windows:
+    runs-on: windows-2022
+    env:
+      VCPKG_DEFAULT_BINARY_CACHE: ${{ github.workspace }}\vcpkg-cache
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install vcpkg release
+        shell: pwsh
+        run: |
+          $root = Join-Path $env:RUNNER_TEMP 'vcpkg'
+          git clone --filter=blob:none https://github.com/microsoft/vcpkg.git $root
+          git -C $root checkout 2026.03.18
+          & (Join-Path $root 'bootstrap-vcpkg.bat') -disableMetrics
+          "VCPKG_ROOT=$root" | Out-File -FilePath $env:GITHUB_ENV -Append
+          New-Item -ItemType Directory -Force $env:VCPKG_DEFAULT_BINARY_CACHE | Out-Null
+
+      - name: Cache vcpkg binaries
+        uses: actions/cache@v4
+        with:
+          path: vcpkg-cache
+          key: vcpkg-${{ runner.os }}-${{ hashFiles('vcpkg.json', '.github/workflows/build.yml') }}
+          restore-keys: |
+            vcpkg-${{ runner.os }}-
+
+
+      - name: Configure
+        shell: pwsh
+        run: |
+          cmake -S . -B out -G "Visual Studio 17 2022" -A x64 `
+            -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_ROOT\scripts\buildsystems\vcpkg.cmake" `
+            -DVCPKG_TARGET_TRIPLET=x64-windows-static `
+            -DOMNISTATS_BUILD_UPDATER=ON `
+            -DOMNISTATS_BUILD_INSTALLER=OFF `
+            -DOMNISTATS_BUILD_BENCHMARKS=OFF `
+            -DOMNISTATS_BUILD_FUZZER=OFF `
+            -DBUILD_TESTING=ON
+
+      - name: Build
+        run: cmake --build out --config Release --parallel
+
+      - name: Test
+        run: ctest --test-dir out -C Release --output-on-failure
