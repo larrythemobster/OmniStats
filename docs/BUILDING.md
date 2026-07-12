@@ -19,7 +19,7 @@ CI checks out the official `2026.03.18` vcpkg release before configuring the pro
 ```powershell
 cmake --preset windows-release
 cmake --build --preset windows-release
-ctest --preset windows-release
+ctest --preset windows-release --output-on-failure
 ```
 
 The normal test suite is offline and deterministic. Tracker parsing and worker behavior remain covered without making live third-party requests during tests.
