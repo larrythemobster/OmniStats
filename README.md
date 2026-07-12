@@ -4,6 +4,17 @@ OmniStats is a native Windows companion for Rocket League. It reads the local St
 
 **Project status:** source available under the PolyForm Internal Use License 1.0.0. The source can be inspected, built for internal use, modified locally, and contributed back under the narrow exception in [CONTRIBUTION_EXCEPTION.md](CONTRIBUTION_EXCEPTION.md). Redistribution, unofficial release builds, public rebrands, mirrors, and competing distributions require written permission.
 
+## Get OmniStats
+
+Official builds and installation information are available from
+[omnistats.org](https://omnistats.org/). For setup help, bug-report guidance,
+or general support, join the
+[OmniStats Discord](https://discord.gg/4KBW35ApvF).
+
+This repository contains the OmniStats source tree. Builds distributed through
+forks, mirrors, or unofficial download pages are not official OmniStats
+releases.
+
 ## Features
 
 - Live match telemetry from Rocket League's loopback Stats API.
