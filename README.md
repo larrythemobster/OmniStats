@@ -1,17 +1,20 @@
 # OmniStats
 
-OmniStats is a Windows desktop companion for Rocket League. It reads Rocket League's local Stats API, tracks live match and session statistics, shows roster rank/MMR context, and provides an in-game overlay or second-monitor dashboard.
+OmniStats is a native Windows companion for Rocket League. It reads the local Stats API, tracks live match and session statistics, stores history locally, and renders a click-through overlay or second-monitor dashboard.
 
-OmniStats is source-available and contributor-friendly under the PolyForm Internal Use License 1.0.0 with the contribution exception in [CONTRIBUTION_EXCEPTION.md](CONTRIBUTION_EXCEPTION.md). Personal and internal use, local modification, and contributions to the official OmniStats project are allowed. Redistribution, mirrors, public rebrands, competing releases, and unofficial release builds require written permission.
+**Project status:** source available under the PolyForm Internal Use License 1.0.0. The source can be inspected, built for internal use, modified locally, and contributed back under the narrow exception in [CONTRIBUTION_EXCEPTION.md](CONTRIBUTION_EXCEPTION.md). Redistribution, unofficial release builds, public rebrands, mirrors, and competing distributions require written permission.
 
 ## Features
 
-- Live Rocket League match telemetry from the local Stats API.
-- Roster rank, MMR, division, platform, encounter-history, and Tracker.gg context.
-- Session and match statistics, including score, goals, assists, saves, shots, demos, streaks, and match records.
-- Local SQLite and JSONL history storage.
-- Click-through in-game overlay and second-monitor dashboard.
-- Optional Tracker.gg MMR lookup, Discord Rich Presence, Ballchasing replay uploads, update checks, and crash reports.
+- Live match telemetry from Rocket League's loopback Stats API.
+- Session and match statistics including score, goals, assists, saves, shots, demos, streaks, and records.
+- Optional live public-rank lookup through Tracker Network.
+- Local SQLite and JSONL history.
+- Click-through overlay and second-monitor dashboard.
+- Player roster context and browser links to public player profiles.
+- Required startup diagnostics plus optional Discord Rich Presence, Ballchasing replay uploads, update checks, and crash reports.
+
+OmniStats does not inject into Rocket League. Tracker rank lookup is an optional third-party integration and may stop working when Tracker Network changes its service.
 
 ## Screenshots
 
@@ -19,52 +22,55 @@ OmniStats is source-available and contributor-friendly under the PolyForm Intern
 
 ![OmniStats dashboard](docs/screenshots/01_dashboard.png)
 
-### Match History
+### Match history
 
 ![OmniStats previous games and match history](docs/screenshots/02_previous_games.png)
 
-### Lobby Ranks
+### Lobby
 
-![OmniStats lobby ranks](docs/screenshots/03_lobby_ranks.png)
+![OmniStats lobby](docs/screenshots/03_lobby_ranks.png)
 
-### Main Overlay
+### Overlay
 
 ![OmniStats in-game overlay](docs/screenshots/04_overlay.png)
 
-### Settings
+## Build and test
 
-![OmniStats settings](docs/screenshots/05_settings.png)
+OmniStats targets Windows 10 or newer and uses C++20, CMake, MSVC, and vcpkg manifest mode. CI uses a fixed vcpkg release for consistent validation.
 
+```powershell
+$env:VCPKG_ROOT = 'C:\src\vcpkg'
+cmake --preset windows-release
+cmake --build --preset windows-release
+ctest --preset windows-release
+```
 
-## Requirements and build
-
-OmniStats targets Windows 10 or newer and uses C++20, CMake, MSVC, and vcpkg. Follow the complete [build guide](docs/BUILDING.md).
-
-For Rocket League telemetry, OmniStats defaults to `127.0.0.1:49123`; see [configuration](docs/CONFIGURATION.md) for the required Stats API settings.
+See [docs/BUILDING.md](docs/BUILDING.md) for setup details. Official packages use the WiX MSI; the old bootstrap installer has been retired. Current releases may be unsigned, so Windows can display an **Unknown publisher** or SmartScreen warning.
 
 ## Documentation
 
+- [Architecture](docs/ARCHITECTURE.md)
 - [Building](docs/BUILDING.md)
 - [Configuration](docs/CONFIGURATION.md)
 - [Privacy](docs/PRIVACY.md)
+- [Releasing](docs/RELEASING.md)
 - [Troubleshooting](docs/TROUBLESHOOTING.md)
 - [Security policy](SECURITY.md)
+- [Third-party notices](THIRD_PARTY_NOTICES.md)
 - [Trademark policy](TRADEMARKS.md)
+- [Changelog](CHANGELOG.md)
 
 ## Contributing
 
-Contributions to the official OmniStats project are welcome. Read [CONTRIBUTING.md](CONTRIBUTING.md), keep changes focused, run relevant tests, and never include secrets, logs, crash dumps, local configuration, generated binaries, or personal machine paths.
+Read [CONTRIBUTING.md](CONTRIBUTING.md), keep changes focused, and run the Release test preset. CI builds and tests every pull request.
 
-## License and project identity
+## Privacy and updates
 
-The source code is licensed under the [PolyForm Internal Use License 1.0.0](LICENSE). The contribution exception permits the limited forks and patches needed to send changes to the official project. The OmniStats name, logo, icons, official services, and support channels are governed by [TRADEMARKS.md](TRADEMARKS.md).
+After the privacy notice is accepted, OmniStats sends required startup diagnostics containing the app version, a pseudonymous installation identifier, and feature-toggle status. Match data and player names are not included. Tracker rank lookup sends lobby player names and platform identifiers to Tracker Network only when enabled. Updates are downloaded over HTTPS and checked against published SHA-256 values.
 
-## Privacy and security
+## Official links
 
-OmniStats stores runtime data locally and keeps optional external integrations disabled until enabled by the user. Read [docs/PRIVACY.md](docs/PRIVACY.md) before enabling those features. Do not report vulnerabilities, exposed credentials, private logs, crash dumps, or privacy-sensitive bugs in public issues; follow [SECURITY.md](SECURITY.md).
+- Website: <https://omnistats.org/>
+- Support: <https://discord.gg/4KBW35ApvF>
 
-## Official support
-
-Community support: <https://discord.gg/4KBW35ApvF>
-
-Rocket League, Tracker.gg, Discord, GitHub, and ballchasing.com are trademarks of their respective owners. OmniStats is not affiliated with or endorsed by those services.
+Rocket League, Psyonix, Epic Games, Tracker Network, Discord, GitHub, and ballchasing.com are marks of their respective owners. OmniStats is independent and is not affiliated with or endorsed by those services.

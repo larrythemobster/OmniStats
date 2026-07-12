@@ -1,28 +1,21 @@
 # Troubleshooting
 
-## No live match data
+## Windows says “Unknown publisher” or shows SmartScreen
 
-1. In Rocket League, verify that the local Stats API is enabled with `PacketSendRate=30` and `Port=49123`.
-2. Confirm OmniStats is configured for `127.0.0.1:49123` unless you intentionally changed the local endpoint.
-3. Restart Rocket League after changing `DefaultStatsAPI.ini`.
-4. Use the startup repair prompt or the Settings UI to recheck the configuration.
+Current OmniStats releases may be unsigned because commercial code signing has a recurring cost. Download only from the official OmniStats website or official release page, compare the published SHA-256 value when available, and do not use mirrors or re-uploaded installers.
 
-## MMR data is missing
+## An update is rejected
 
-Tracker.gg lookups are optional. Enable MMR tracking in Settings, verify internet access, and expect external service rate limits or schema changes to affect the result. Do not retry aggressively.
+The updater rejects files whose SHA-256 value does not match the published checksum. Reinstall from the official MSI rather than bypassing the check.
 
-## Update or installer failure
+## MMR tracking is unavailable
 
-Update downloads are verified with SHA-256. If an update fails, keep automatic updates disabled until a later retry or reinstall from an official OmniStats release source. Do not substitute binaries from mirrors or unofficial builds.
+Confirm **Enable MMR Tracking (Tracker Network)** is enabled. Run the updater's repair mode if `libcurl-impersonate.dll` or `zlib.dll` is missing. The rank service is third-party and can temporarily rate limit requests or change behavior without notice; local match and session tracking should continue normally.
 
-## Build configuration fails
+## Diagnostics do not send
 
-Verify that `VCPKG_ROOT` or `VCPKG_TOOLCHAIN_FILE` points to a bootstrapped vcpkg installation, then rerun CMake from a clean `out/` directory. See [BUILDING.md](BUILDING.md).
+Startup diagnostics are required after privacy acceptance and are sent once when OmniStats starts. Crash-report uploads remain optional. If startup diagnostics fail because the service is unavailable, OmniStats logs the failure and continues running.
 
-## Tests fail offline
+## Build problems
 
-Most tests should be local. The curl-impersonate tests intentionally perform network requests; run the reported failing test by name or exclude that test group for an offline check.
-
-## Reporting a problem
-
-Use the repository issue forms for reproducible bugs and feature requests. Remove secrets, local configuration, logs, minidumps, databases, player data, and machine paths before attaching anything. Follow [SECURITY.md](../SECURITY.md) instead of opening a public issue for a vulnerability or privacy-sensitive report.
+Use a current bootstrapped vcpkg checkout, Visual Studio 2022, the x64 static triplet, and the commands in [BUILDING.md](BUILDING.md). Delete the build directory before retrying after toolchain or manifest changes.

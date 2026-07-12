@@ -146,7 +146,7 @@ struct ConfigData {
 
 #include <functional>
 namespace Config {
-    inline constexpr const char* CurrentPrivacyPolicyVersion = "2026-05-31";
+    inline constexpr const char* CurrentPrivacyPolicyVersion = "2026-07-12";
     inline constexpr const char* CurrentTermsVersion = "2026-05-31";
 
     // Safely reads a point-in-time snapshot of the configuration under a shared lock

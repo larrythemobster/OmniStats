@@ -1,53 +1,41 @@
-# Building OmniStats
+# Building
 
-OmniStats targets Windows 10 or newer and requires a C++20-capable MSVC toolchain, CMake 3.22 or newer, Git, and vcpkg. The repository contains a vcpkg manifest (`vcpkg.json`); it does not vendor a vcpkg checkout.
+OmniStats targets Windows 10 or newer and requires Visual Studio 2022 with the Desktop development with C++ workload, a Windows SDK, CMake 3.22 or newer, Git, and vcpkg.
 
 ## Set up vcpkg
 
-Install vcpkg outside this repository, then set `VCPKG_ROOT` for the current PowerShell session:
+Use a current bootstrapped vcpkg checkout. Local builds intentionally do not force the repository to contain a particular historical vcpkg commit, so existing developer installations continue to work.
 
 ```powershell
 git clone https://github.com/microsoft/vcpkg.git "$HOME\src\vcpkg"
-& "$HOME\src\vcpkg\bootstrap-vcpkg.bat"
+& "$HOME\src\vcpkg\bootstrap-vcpkg.bat" -disableMetrics
 $env:VCPKG_ROOT = "$HOME\src\vcpkg"
 ```
 
-Alternatively, set `VCPKG_TOOLCHAIN_FILE` directly to vcpkg's `scripts\buildsystems\vcpkg.cmake` file.
+CI checks out the official `2026.03.18` vcpkg release before configuring the project.
 
-## Configure and build
-
-```powershell
-cmake -S . -B out `
-  -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_ROOT\scripts\buildsystems\vcpkg.cmake" `
-  -DVCPKG_TARGET_TRIPLET=x64-windows-static
-cmake --build out --config Release
-```
-
-vcpkg installs the manifest dependencies during CMake configuration. Build output stays under `out/`.
-
-## Run
+## Configure, build, and test
 
 ```powershell
-.\out\Release\OmniStats.exe
+cmake --preset windows-release
+cmake --build --preset windows-release
+ctest --preset windows-release
 ```
 
-## Test
-
-```powershell
-ctest --test-dir out -C Release --output-on-failure
-```
-
-Some curl-impersonate tests intentionally contact an external test service. Keep those tests separate from an offline verification run when necessary.
+The normal test suite is offline and deterministic. Tracker parsing and worker behavior remain covered without making live third-party requests during tests.
 
 ## Useful CMake options
 
 | Option | Default | Purpose |
 | --- | --- | --- |
-| `BUILD_TESTING` | `ON` | Builds tests, benchmarks, and fuzz targets. |
+| `BUILD_TESTING` | `ON` | Builds the unit and integration test executable. |
+| `OMNISTATS_BUILD_BENCHMARKS` | `OFF` | Builds the Google Benchmark executable. |
+| `OMNISTATS_BUILD_FUZZER` | `OFF` | Builds the fuzzing executable. |
 | `OMNISTATS_BUILD_UPDATER` | `ON` | Builds `OmniStatsUpdater.exe`. |
-| `OMNISTATS_BUILD_INSTALLER` | `ON` | Builds `OmniStatsInstaller.exe`. |
-| `OMNISTATS_ENABLE_IN_APP_UPDATE_LOGIC` | `OFF` | Enables the legacy in-app update path. |
-| `OMNISTATS_ENABLE_LOW_LEVEL_HOOK` | `OFF` | Enables the legacy low-level keyboard hook. |
-| `ENABLE_SANITIZERS` | `OFF` | Enables address/undefined behavior sanitizers where supported. |
+| `OMNISTATS_BUILD_INSTALLER` | `OFF` | Deprecated compatibility switch. Enabling it fails with instructions to use the WiX MSI. |
+| `OMNISTATS_ENABLE_LOW_LEVEL_HOOK` | `OFF` | Enables the retired low-level keyboard-hook path for local testing only. |
+| `ENABLE_SANITIZERS` | `OFF` | Enables supported sanitizer instrumentation. |
 | `ENABLE_TSAN` | `OFF` | Enables ThreadSanitizer on supported non-MSVC toolchains. |
 | `ENABLE_COVERAGE` | `OFF` | Enables coverage instrumentation on supported non-MSVC toolchains. |
+
+For packaging, checksums, and optional signing, follow [RELEASING.md](RELEASING.md).

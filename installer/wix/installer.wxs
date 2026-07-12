@@ -2,24 +2,26 @@
      xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui">
   <Package Name="OmniStats"
            Version="$(var.Version)"
-           Manufacturer="OmniStats Development Team"
+           Manufacturer="OmniStats Project"
            UpgradeCode="bf1ea8b0-8c2f-48eb-bf8c-1e24bc30cdff"
            Scope="perUser">
 
     <MajorUpgrade DowngradeErrorMessage="A newer version of OmniStats is already installed." />
-
     <MediaTemplate EmbedCab="yes" />
 
     <Icon Id="LogoIcon" SourceFile="$(var.ResourceDir)\Logo.ico" />
     <Property Id="ARPPRODUCTICON" Value="LogoIcon" />
+    <Property Id="ARPHELPLINK" Value="https://omnistats.org/support" />
+    <Property Id="ARPURLINFOABOUT" Value="https://omnistats.org" />
 
     <ui:WixUI Id="WixUI_Minimal" />
     <WixVariable Id="WixUILicenseRtf" Value="installer/wix/license.rtf" />
 
     <StandardDirectory Id="LocalAppDataFolder">
       <Directory Id="INSTALLFOLDER" Name="OmniStats">
-        <Component Id="MainAppBin" Guid="A7A9073A-EE86-4F2F-B955-C178D0B7583D">
+        <Component Id="ApplicationFiles" Guid="A7A9073A-EE86-4F2F-B955-C178D0B7583D">
           <File Id="OmniStatsExe" Source="$(var.SourceDir)\OmniStats.exe" KeyPath="yes" />
+          <File Id="OmniStatsUpdaterExe" Source="$(var.SourceDir)\OmniStatsUpdater.exe" />
           <Shortcut Id="StartMenuShortcut"
                     Directory="ProgramMenuFolder"
                     Name="OmniStats"
@@ -39,10 +41,6 @@
 
     <StandardDirectory Id="AppDataFolder">
       <Directory Id="AppDataOmniStatsFolder" Name="omnistats">
-        <Component Id="UpdaterBin" Guid="B8A9073A-EE86-4F2F-B955-C178D0B7583E">
-          <File Id="OmniStatsUpdaterExe" Source="$(var.SourceDir)\OmniStatsUpdater.exe" KeyPath="yes" />
-          <RegistryValue Root="HKCU" Key="Software\OmniStats" Name="updater_installed" Type="integer" Value="1" />
-        </Component>
         <Component Id="CurlDll" Guid="C9A9073A-EE86-4F2F-B955-C178D0B7583F">
           <File Id="CurlImpersonateDll" Source="$(var.SourceDir)\libcurl-impersonate.dll" KeyPath="yes" />
           <RegistryValue Root="HKCU" Key="Software\OmniStats" Name="curl_installed" Type="integer" Value="1" />
@@ -55,8 +53,7 @@
     </StandardDirectory>
 
     <Feature Id="MainFeature" Title="OmniStats Application" Level="1">
-      <ComponentRef Id="MainAppBin" />
-      <ComponentRef Id="UpdaterBin" />
+      <ComponentRef Id="ApplicationFiles" />
       <ComponentRef Id="CurlDll" />
       <ComponentRef Id="ZlibDll" />
     </Feature>

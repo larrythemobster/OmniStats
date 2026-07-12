@@ -1,5 +1,6 @@
 # Build outputs
 out/
+dist/
 build/
 build_*/
 bin/

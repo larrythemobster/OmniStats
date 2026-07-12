@@ -17,11 +17,11 @@ BEGIN
     BEGIN
         BLOCK "040904b0" // US English, Unicode
         BEGIN
-            VALUE "CompanyName",      "OmniStats Development Team"
+            VALUE "CompanyName",      "OmniStats Project"
             VALUE "FileDescription",  "OmniStats Background Update Tool"
             VALUE "FileVersion",      "@PROJECT_VERSION@.0"
             VALUE "InternalName",     "OmniStatsUpdater.exe"
-            VALUE "LegalCopyright",   "Copyright (C) 2026 OmniStats. All rights reserved."
+            VALUE "LegalCopyright",   "Copyright (C) 2026 OmniStats Project. All rights reserved."
             VALUE "OriginalFilename", "OmniStatsUpdater.exe"
             VALUE "ProductName",      "OmniStatsUpdater"
             VALUE "ProductVersion",   "@PROJECT_VERSION@.0"

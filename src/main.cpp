@@ -48,8 +48,8 @@ static bool ShowRequiredPrivacyDialog() {
   config.pszMainIcon = TD_INFORMATION_ICON;
   config.pszMainInstruction = L"Accept the Privacy Policy and Terms of Use to continue.";
   config.pszContent =
-      L"Required startup diagnostics: app version, anonymous client UUID, and feature-toggle status.\n\n"
-      L"Optional integrations like Tracker.gg, Discord, Ballchasing, and crash reports stay off unless enabled.\n\n"
+      L"Required startup diagnostics: app version, a pseudonymous installation ID, and feature-toggle status. Match data and player names are not included.\n\n"
+      L"Tracker rank lookup, Discord, Ballchasing, crash reports, and update checks stay off unless enabled.\n\n"
       L"<a href=\"https://omnistats.org/privacy\">Privacy Policy</a>\n"
       L"<a href=\"https://omnistats.org/terms\">Terms of Use</a>\n\n"
       L"Accept to continue, or Exit to close OmniStats.";
@@ -70,8 +70,8 @@ static bool ShowRequiredPrivacyDialog() {
   }
   std::string message =
       "Accept the Privacy Policy and Terms of Use to continue.\n\n"
-      "Required startup diagnostics: app version, anonymous client UUID, and feature-toggle status.\n\n"
-      "Optional integrations like Tracker.gg, Discord, Ballchasing, and crash reports stay off unless enabled.\n\n"
+      "Required startup diagnostics: app version, a pseudonymous installation ID, and feature-toggle status. Match data and player names are not included.\n\n"
+      "Tracker rank lookup, Discord, Ballchasing, crash reports, and update checks stay off unless enabled.\n\n"
       "Privacy Policy: https://omnistats.org/privacy\n"
       "Terms of Use: https://omnistats.org/terms\n\n"
       "Choose Yes to accept, or No to exit.";
@@ -92,13 +92,16 @@ static bool EnsureRequiredPrivacyAcceptance() {
   bool enableMmrTracking = conf.enable_mmr_tracking;
   bool enableDiscordRpc = conf.discord_rpc_enabled;
   bool enableCrashReports = conf.crash_reports_enabled;
+
+
   if (firstAcceptance) {
     int mmr = MessageBoxA(
         NULL,
-        "Enable live MMR tracking with Tracker.gg?\n\nThis sends lobby player names/platform IDs to Tracker.gg to fetch ranks and MMR. The overlay is most useful with this enabled, but it is optional.",
-        "Optional Tracker.gg MMR Tracking",
+        "Enable live MMR tracking with Tracker Network?\n\nThis sends lobby player names and platform identifiers to Tracker Network to retrieve public rank information. The integration is optional and may stop working if the third-party service changes.",
+        "Optional Tracker Rank Lookup",
         MB_YESNO | MB_ICONQUESTION | MB_DEFBUTTON2 | MB_SETFOREGROUND);
     enableMmrTracking = (mmr == IDYES);
+
     int discord = MessageBoxA(
         NULL,
         "Enable Discord Rich Presence?\n\nThis shares your current match/session status with your local Discord client for display on your Discord profile.",

@@ -75,7 +75,7 @@ void Initialize(std::shared_ptr<DatabaseManager> db) {
     g_isTestMode = false;
   }
 
-  // Load or generate client UUID
+  // Load or generate the pseudonymous installation ID used for required startup diagnostics.
   std::string uuid = db->GetSetting("client_uuid");
   if (uuid.empty()) {
     ConfigData conf = Config::Read();
@@ -95,13 +95,13 @@ void Initialize(std::shared_ptr<DatabaseManager> db) {
     c.client_uuid = uuid;
   });
 
-  std::cout << "[Telemetry] Telemetry is active. Scheduling background checks.\n";
+  std::cout << "[Telemetry] Scheduling required startup diagnostics.\n";
   g_isRunning.store(true);
   if (!g_workerThread) {
       g_workerThread = std::make_unique<std::jthread>([]() {
           try {
               SendTelemetryAsync();
-              CheckAndReportCrashes();
+              if (Config::Read().crash_reports_enabled) CheckAndReportCrashes();
           } catch (const std::exception& e) {
               std::cerr << "[Telemetry] Worker error: " << e.what() << "\n";
           } catch (...) {
@@ -161,6 +161,9 @@ void SendTelemetryAsync() {
     curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
     curl_easy_setopt(curl, CURLOPT_USERAGENT, userAgent.c_str());
     curl_easy_setopt(curl, CURLOPT_TIMEOUT, 10L);
+    curl_easy_setopt(curl, CURLOPT_SSL_OPTIONS, CURLSSLOPT_NATIVE_CA);
+    curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 1L);
+    curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 2L);
 
     curl_easy_setopt(curl, CURLOPT_XFERINFOFUNCTION, TelemetryProgressCallback);
     curl_easy_setopt(curl, CURLOPT_XFERINFODATA, &g_isRunning);
@@ -223,6 +226,9 @@ void SendCrashAsync(const std::string &crashFilePath) {
     }
     curl_easy_setopt(curl, CURLOPT_USERAGENT, userAgent.c_str());
     curl_easy_setopt(curl, CURLOPT_TIMEOUT, 15L);
+    curl_easy_setopt(curl, CURLOPT_SSL_OPTIONS, CURLSSLOPT_NATIVE_CA);
+    curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 1L);
+    curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 2L);
 
     curl_easy_setopt(curl, CURLOPT_XFERINFOFUNCTION, TelemetryProgressCallback);
     curl_easy_setopt(curl, CURLOPT_XFERINFODATA, &g_isRunning);
