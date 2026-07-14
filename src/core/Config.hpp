@@ -32,11 +32,22 @@ struct ConfigData {
     int key_expand = VK_F7;
     int key_session = VK_F8;
     int key_menu = VK_F5;
-    
+
     int gamepad_overlay = 4; // SDL_CONTROLLER_BUTTON_BACK
     bool gamepad_overlay_raw = false;
     int gamepad_overlay_raw_button = 4;
-    
+    int gamepad_cycle = -1;
+    bool gamepad_cycle_raw = false;
+    int gamepad_cycle_raw_button = -1;
+    int gamepad_expand = -1;
+    bool gamepad_expand_raw = false;
+    int gamepad_expand_raw_button = -1;
+    int gamepad_session = -1;
+    bool gamepad_session_raw = false;
+    int gamepad_session_raw_button = -1;
+    int gamepad_menu = -1;
+    bool gamepad_menu_raw = false;
+    int gamepad_menu_raw_button = -1;
     std::string mmr_category = "best";
     std::string last_primary_id = "";
     std::vector<std::string> known_primary_ids; // previously used/seen accounts for faster identity detection

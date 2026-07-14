@@ -7,6 +7,16 @@
 #include <cstring>
 
 namespace {
+constexpr int STICK_DEADZONE = 20000;
+constexpr int GAMEPAD_STICK_LS_UP = 22;
+constexpr int GAMEPAD_STICK_LS_DOWN = 23;
+constexpr int GAMEPAD_STICK_LS_LEFT = 24;
+constexpr int GAMEPAD_STICK_LS_RIGHT = 25;
+constexpr int GAMEPAD_STICK_RS_UP = 26;
+constexpr int GAMEPAD_STICK_RS_DOWN = 27;
+constexpr int GAMEPAD_STICK_RS_LEFT = 28;
+constexpr int GAMEPAD_STICK_RS_RIGHT = 29;
+constexpr int MAX_TRACKED_BUTTONS = 35;
 
 enum HotKeyId {
   HotKeyMenu = 1,
@@ -147,6 +157,21 @@ void InputManager::RefreshConfigCache() {
   m_gamepadOverlay.store(conf.gamepad_overlay, std::memory_order_relaxed);
   m_gamepadOverlayRaw.store(conf.gamepad_overlay_raw, std::memory_order_relaxed);
   m_gamepadOverlayRawButton.store(conf.gamepad_overlay_raw_button, std::memory_order_relaxed);
+  m_gamepadCycle.store(conf.gamepad_cycle, std::memory_order_relaxed);
+  m_gamepadCycleRaw.store(conf.gamepad_cycle_raw, std::memory_order_relaxed);
+  m_gamepadCycleRawButton.store(conf.gamepad_cycle_raw_button, std::memory_order_relaxed);
+
+  m_gamepadExpand.store(conf.gamepad_expand, std::memory_order_relaxed);
+  m_gamepadExpandRaw.store(conf.gamepad_expand_raw, std::memory_order_relaxed);
+  m_gamepadExpandRawButton.store(conf.gamepad_expand_raw_button, std::memory_order_relaxed);
+
+  m_gamepadSession.store(conf.gamepad_session, std::memory_order_relaxed);
+  m_gamepadSessionRaw.store(conf.gamepad_session_raw, std::memory_order_relaxed);
+  m_gamepadSessionRawButton.store(conf.gamepad_session_raw_button, std::memory_order_relaxed);
+
+  m_gamepadMenu.store(conf.gamepad_menu, std::memory_order_relaxed);
+  m_gamepadMenuRaw.store(conf.gamepad_menu_raw, std::memory_order_relaxed);
+  m_gamepadMenuRawButton.store(conf.gamepad_menu_raw_button, std::memory_order_relaxed);
   m_secondMonitorMode.store(conf.second_monitor_mode, std::memory_order_relaxed);
   m_showExtraPlaylists.store(conf.show_extra_playlists, std::memory_order_relaxed);
 }
@@ -310,11 +335,21 @@ void InputManager::KeyboardThreadLoop() {
 
   while (m_isRunning) {
     RefreshConfigCache();
-    registerHotKeyIfNeeded(HotKeyMenu, m_keyMenu.load(std::memory_order_relaxed), registeredMenuKey);
-    registerHotKeyIfNeeded(HotKeyCycle, m_keyCycle.load(std::memory_order_relaxed), registeredCycleKey);
-    registerHotKeyIfNeeded(HotKeyExpand, m_keyExpand.load(std::memory_order_relaxed), registeredExpandKey);
-    registerHotKeyIfNeeded(HotKeySession, m_keySession.load(std::memory_order_relaxed), registeredSessionKey);
-    registerDashboardEditIfNeeded();
+
+    bool inputCaptureActive = false;
+    if (m_state) {
+      inputCaptureActive = m_state->ui.inputCaptureActive.load(std::memory_order_relaxed);
+    }
+
+    if (inputCaptureActive) {
+      unregisterRegisteredHotkeys();
+    } else {
+      registerHotKeyIfNeeded(HotKeyMenu, m_keyMenu.load(std::memory_order_relaxed), registeredMenuKey);
+      registerHotKeyIfNeeded(HotKeyCycle, m_keyCycle.load(std::memory_order_relaxed), registeredCycleKey);
+      registerHotKeyIfNeeded(HotKeyExpand, m_keyExpand.load(std::memory_order_relaxed), registeredExpandKey);
+      registerHotKeyIfNeeded(HotKeySession, m_keySession.load(std::memory_order_relaxed), registeredSessionKey);
+      registerDashboardEditIfNeeded();
+    }
 
     while (PeekMessage(&msg, nullptr, 0, 0, PM_REMOVE)) {
       if (msg.message == WM_QUIT) {
@@ -335,7 +370,6 @@ void InputManager::KeyboardThreadLoop() {
 
     if (m_state) {
       auto& state = *m_state;
-      const bool inputCaptureActive = state.ui.inputCaptureActive.load(std::memory_order_relaxed);
       const bool controllerConnected = state.ui.controllerConnected.load(std::memory_order_relaxed);
       if (!inputCaptureActive && IsRocketLeagueForeground()) {
         if ((GetAsyncKeyState(VK_MENU) & 0x8000) == 0 &&
@@ -454,7 +488,10 @@ void InputManager::GamepadThreadLoop() {
   auto lastScan = std::chrono::steady_clock::now();
   int lastLoggedDeviceCount = -1;
 
-  // Helper to update controller debug info in SessionState
+  bool prevControllerStates[MAX_TRACKED_BUTTONS] = {false};
+  bool prevRawControllerStates[256] = {false};
+  bool prevFallbackStates[256] = {false};
+
   auto updateDebugInfo = [&](const char* name, bool isGameController, bool connected) {
     auto* self = g_instance.load(std::memory_order_acquire);
     if (self && self->m_state) {
@@ -475,7 +512,6 @@ void InputManager::GamepadThreadLoop() {
     }
     auto now = std::chrono::steady_clock::now();
 
-    // Scan for controllers every 2 seconds when none is connected
     if (controller == nullptr && fallbackJoystick == nullptr &&
         std::chrono::duration_cast<std::chrono::seconds>(now - lastScan).count() >= 2) {
       lastScan = now;
@@ -483,64 +519,25 @@ void InputManager::GamepadThreadLoop() {
       bool deviceListChanged = deviceCount != lastLoggedDeviceCount;
       if (deviceListChanged) {
         lastLoggedDeviceCount = deviceCount;
-        std::cout << "[Input] SDL joystick count: " << deviceCount << "\n";
       }
 
-      // First pass: try to open as SDL_GameController (preferred)
       for (int i = 0; i < deviceCount; ++i) {
-        const char* joyName = SDL_JoystickNameForIndex(i);
         const bool isCtrl = SDL_IsGameController(i) == SDL_TRUE;
-
-        if (deviceListChanged) {
-          std::cout << "[Input] SDL device " << i
-                    << ": name=" << (joyName ? joyName : "Unknown")
-                    << ", is_game_controller=" << (isCtrl ? "true" : "false")
-                    << "\n";
-        }
-
         if (isCtrl) {
           controller = SDL_GameControllerOpen(i);
           if (controller) {
-            const char* controllerName = SDL_GameControllerName(controller);
-            std::cout << "[Input] Opened game controller: "
-                      << (controllerName ? controllerName : "Unknown")
-                      << "\n";
-            std::cout << "[Input] Controller overlay button id: "
-                      << (self ? self->m_gamepadOverlay.load(std::memory_order_relaxed) : 4)
-                      << "\n";
-            updateDebugInfo(controllerName, true, true);
+            updateDebugInfo(SDL_GameControllerName(controller), true, true);
             break;
-          }
-
-          if (deviceListChanged) {
-            std::cout << "[Input] Failed to open SDL game controller index " << i
-                      << ": " << SDL_GetError() << "\n";
           }
         }
       }
 
-      // Second pass: if no game controller found, try legacy joystick fallback
       if (!controller) {
         for (int i = 0; i < deviceCount; ++i) {
           fallbackJoystick = SDL_JoystickOpen(i);
           if (fallbackJoystick) {
-            const char* joyName = SDL_JoystickName(fallbackJoystick);
-            std::cout << "[Input] Opened fallback joystick: "
-                      << (joyName ? joyName : "Unknown")
-                      << ", buttons=" << SDL_JoystickNumButtons(fallbackJoystick)
-                      << ", axes=" << SDL_JoystickNumAxes(fallbackJoystick)
-                      << ", hats=" << SDL_JoystickNumHats(fallbackJoystick)
-                      << "\n";
-            std::cout << "[Input] Controller overlay button id: "
-                      << (self ? self->m_gamepadOverlay.load(std::memory_order_relaxed) : 4)
-                      << "\n";
-            updateDebugInfo(joyName, false, true);
+            updateDebugInfo(SDL_JoystickName(fallbackJoystick), false, true);
             break;
-          }
-
-          if (deviceListChanged) {
-            std::cout << "[Input] Failed to open fallback joystick index " << i
-                      << ": " << SDL_GetError() << "\n";
           }
         }
       }
@@ -554,7 +551,6 @@ void InputManager::GamepadThreadLoop() {
       const int keyOverlay = self->m_keyOverlay.load(std::memory_order_relaxed);
       const bool inputCaptureActive = st->ui.inputCaptureActive.load(std::memory_order_relaxed);
 
-      // Prefer SDL's GameController API when available.
       if (controller != nullptr) {
         if (!SDL_GameControllerGetAttached(controller)) {
           SDL_GameControllerClose(controller);
@@ -563,41 +559,93 @@ void InputManager::GamepadThreadLoop() {
         } else {
           SDL_GameControllerUpdate();
 
-          // Track last pressed button for debug readout
+          bool currentStates[MAX_TRACKED_BUTTONS] = {false};
+          bool currentRawControllerStates[256] = {false};
+
           for (int b = 0; b < SDL_CONTROLLER_BUTTON_MAX; ++b) {
-            if (SDL_GameControllerGetButton(controller, static_cast<SDL_GameControllerButton>(b))) {
-              st->ui.lastControllerButtonPressed.store(b);
-            }
+            currentStates[b] = SDL_GameControllerGetButton(controller, static_cast<SDL_GameControllerButton>(b)) != 0;
+            if (currentStates[b]) st->ui.lastControllerButtonPressed.store(b);
+          }
+
+          currentStates[GAMEPAD_STICK_LS_UP] = SDL_GameControllerGetAxis(controller, SDL_CONTROLLER_AXIS_LEFTY) < -STICK_DEADZONE;
+          currentStates[GAMEPAD_STICK_LS_DOWN] = SDL_GameControllerGetAxis(controller, SDL_CONTROLLER_AXIS_LEFTY) > STICK_DEADZONE;
+          currentStates[GAMEPAD_STICK_LS_LEFT] = SDL_GameControllerGetAxis(controller, SDL_CONTROLLER_AXIS_LEFTX) < -STICK_DEADZONE;
+          currentStates[GAMEPAD_STICK_LS_RIGHT] = SDL_GameControllerGetAxis(controller, SDL_CONTROLLER_AXIS_LEFTX) > STICK_DEADZONE;
+          currentStates[GAMEPAD_STICK_RS_UP] = SDL_GameControllerGetAxis(controller, SDL_CONTROLLER_AXIS_RIGHTY) < -STICK_DEADZONE;
+          currentStates[GAMEPAD_STICK_RS_DOWN] = SDL_GameControllerGetAxis(controller, SDL_CONTROLLER_AXIS_RIGHTY) > STICK_DEADZONE;
+          currentStates[GAMEPAD_STICK_RS_LEFT] = SDL_GameControllerGetAxis(controller, SDL_CONTROLLER_AXIS_RIGHTX) < -STICK_DEADZONE;
+          currentStates[GAMEPAD_STICK_RS_RIGHT] = SDL_GameControllerGetAxis(controller, SDL_CONTROLLER_AXIS_RIGHTX) > STICK_DEADZONE;
+
+          for (int i = GAMEPAD_STICK_LS_UP; i <= GAMEPAD_STICK_RS_RIGHT; ++i) {
+            if (currentStates[i]) st->ui.lastControllerButtonPressed.store(i);
           }
 
           SDL_Joystick* rawJoystick = SDL_GameControllerGetJoystick(controller);
           const int rawButtonCount = rawJoystick ? SDL_JoystickNumButtons(rawJoystick) : 0;
-          for (int b = 0; b < rawButtonCount; ++b) {
+          for (int b = 0; b < rawButtonCount && b < 256; ++b) {
             if (SDL_JoystickGetButton(rawJoystick, b)) {
+              currentRawControllerStates[b] = true;
               st->ui.lastRawControllerButtonPressed.store(b);
             }
           }
 
+          auto isPressed = [&](int bind, bool isRaw, int rawBind) {
+              if (isRaw) {
+                  if (rawBind < 0 || rawBind >= 256) return false;
+                  return currentRawControllerStates[rawBind] && !prevRawControllerStates[rawBind];
+              }
+              if (bind < 0 || bind >= MAX_TRACKED_BUTTONS) return false;
+              return currentStates[bind] && !prevControllerStates[bind];
+          };
+
           bool buttonHeld = false;
           if (gamepadOverlayRaw) {
-            buttonHeld = rawJoystick && gamepadOverlayRawButton >= 0 && gamepadOverlayRawButton < rawButtonCount &&
-                SDL_JoystickGetButton(rawJoystick, gamepadOverlayRawButton) != 0;
-          } else if (gamepadOverlay >= 0 && gamepadOverlay < SDL_CONTROLLER_BUTTON_MAX) {
-            buttonHeld = SDL_GameControllerGetButton(
-                controller,
-                static_cast<SDL_GameControllerButton>(gamepadOverlay)) != 0;
+            buttonHeld = currentRawControllerStates[gamepadOverlayRawButton];
+          } else if (gamepadOverlay >= 0 && gamepadOverlay < MAX_TRACKED_BUTTONS) {
+            buttonHeld = currentStates[gamepadOverlay];
           }
 
-          if (!inputCaptureActive && buttonHeld) {
-            st->ui.showOverlay = true;
-          } else if (!inputCaptureActive) {
-            if (!(GetAsyncKeyState(keyOverlay) & 0x8000)) {
+          if (!inputCaptureActive) {
+            if (buttonHeld) {
+              st->ui.showOverlay = true;
+            } else if (!(GetAsyncKeyState(keyOverlay) & 0x8000)) {
               st->ui.showOverlay = false;
             }
+
+            if (isPressed(self->m_gamepadCycle.load(std::memory_order_relaxed),
+                          self->m_gamepadCycleRaw.load(std::memory_order_relaxed),
+                          self->m_gamepadCycleRawButton.load(std::memory_order_relaxed))) {
+              MmrCategory next = NextMmrCategory(st->ui.rosterMmrCategory.load(), self->m_showExtraPlaylists.load(std::memory_order_relaxed));
+              st->ui.rosterMmrCategory.store(next);
+              if (!self->m_secondMonitorMode.load(std::memory_order_relaxed)) st->ui.graphMmrCategory.store(next);
+              Config::Update([next](ConfigData& conf) { conf.mmr_category = MmrCategoryToString(next); });
+            }
+
+            if (isPressed(self->m_gamepadExpand.load(std::memory_order_relaxed),
+                          self->m_gamepadExpandRaw.load(std::memory_order_relaxed),
+                          self->m_gamepadExpandRawButton.load(std::memory_order_relaxed))) {
+              if (st->ui.showSessionView) st->ui.showGraphView = !st->ui.showGraphView;
+              else st->ui.h2hExpanded = !st->ui.h2hExpanded;
+            }
+
+            if (isPressed(self->m_gamepadSession.load(std::memory_order_relaxed),
+                          self->m_gamepadSessionRaw.load(std::memory_order_relaxed),
+                          self->m_gamepadSessionRawButton.load(std::memory_order_relaxed))) {
+              st->ui.showSessionView = !st->ui.showSessionView;
+              if (!st->ui.showSessionView) st->ui.showGraphView = false;
+            }
+
+            if (isPressed(self->m_gamepadMenu.load(std::memory_order_relaxed),
+                          self->m_gamepadMenuRaw.load(std::memory_order_relaxed),
+                          self->m_gamepadMenuRawButton.load(std::memory_order_relaxed))) {
+              ToggleSettingsMenu(*st);
+            }
           }
+
+          for (int i = 0; i < MAX_TRACKED_BUTTONS; ++i) prevControllerStates[i] = currentStates[i];
+          for (int i = 0; i < 256; ++i) prevRawControllerStates[i] = currentRawControllerStates[i];
         }
       }
-      // Fall back to the raw joystick API.
       else if (fallbackJoystick != nullptr) {
         if (!SDL_JoystickGetAttached(fallbackJoystick)) {
           SDL_JoystickClose(fallbackJoystick);
@@ -605,27 +653,64 @@ void InputManager::GamepadThreadLoop() {
           updateDebugInfo("", false, false);
         } else {
           SDL_JoystickUpdate();
-
-          // Track last pressed button for debug readout
           const int numButtons = SDL_JoystickNumButtons(fallbackJoystick);
-          for (int b = 0; b < numButtons; ++b) {
-            if (SDL_JoystickGetButton(fallbackJoystick, b)) {
+
+          bool currentStates[256] = {false};
+          for (int b = 0; b < numButtons && b < 256; ++b) {
+            currentStates[b] = SDL_JoystickGetButton(fallbackJoystick, b) != 0;
+            if (currentStates[b]) {
               st->ui.lastControllerButtonPressed.store(b);
               st->ui.lastRawControllerButtonPressed.store(b);
             }
           }
 
-          const int overlayButton = gamepadOverlayRaw ? gamepadOverlayRawButton : gamepadOverlay;
-          const bool buttonHeld = overlayButton >= 0 && overlayButton < numButtons &&
-              (SDL_JoystickGetButton(fallbackJoystick, overlayButton) != 0);
+          auto isPressed = [&](int bind, bool isRaw, int rawBind) {
+              int activeBind = isRaw ? rawBind : bind;
+              if (activeBind < 0 || activeBind >= 256) return false;
+              return currentStates[activeBind] && !prevFallbackStates[activeBind];
+          };
 
-          if (!inputCaptureActive && buttonHeld) {
-            st->ui.showOverlay = true;
-          } else if (!inputCaptureActive) {
-            if (!(GetAsyncKeyState(keyOverlay) & 0x8000)) {
+          const int overlayButton = gamepadOverlayRaw ? gamepadOverlayRawButton : gamepadOverlay;
+          const bool buttonHeld = overlayButton >= 0 && overlayButton < 256 && currentStates[overlayButton];
+
+          if (!inputCaptureActive) {
+            if (buttonHeld) {
+              st->ui.showOverlay = true;
+            } else if (!(GetAsyncKeyState(keyOverlay) & 0x8000)) {
               st->ui.showOverlay = false;
             }
+
+            if (isPressed(self->m_gamepadCycle.load(std::memory_order_relaxed),
+                          self->m_gamepadCycleRaw.load(std::memory_order_relaxed),
+                          self->m_gamepadCycleRawButton.load(std::memory_order_relaxed))) {
+              MmrCategory next = NextMmrCategory(st->ui.rosterMmrCategory.load(), self->m_showExtraPlaylists.load(std::memory_order_relaxed));
+              st->ui.rosterMmrCategory.store(next);
+              if (!self->m_secondMonitorMode.load(std::memory_order_relaxed)) st->ui.graphMmrCategory.store(next);
+              Config::Update([next](ConfigData& conf) { conf.mmr_category = MmrCategoryToString(next); });
+            }
+
+            if (isPressed(self->m_gamepadExpand.load(std::memory_order_relaxed),
+                          self->m_gamepadExpandRaw.load(std::memory_order_relaxed),
+                          self->m_gamepadExpandRawButton.load(std::memory_order_relaxed))) {
+              if (st->ui.showSessionView) st->ui.showGraphView = !st->ui.showGraphView;
+              else st->ui.h2hExpanded = !st->ui.h2hExpanded;
+            }
+
+            if (isPressed(self->m_gamepadSession.load(std::memory_order_relaxed),
+                          self->m_gamepadSessionRaw.load(std::memory_order_relaxed),
+                          self->m_gamepadSessionRawButton.load(std::memory_order_relaxed))) {
+              st->ui.showSessionView = !st->ui.showSessionView;
+              if (!st->ui.showSessionView) st->ui.showGraphView = false;
+            }
+
+            if (isPressed(self->m_gamepadMenu.load(std::memory_order_relaxed),
+                          self->m_gamepadMenuRaw.load(std::memory_order_relaxed),
+                          self->m_gamepadMenuRawButton.load(std::memory_order_relaxed))) {
+              ToggleSettingsMenu(*st);
+            }
           }
+
+          for (int i = 0; i < 256; ++i) prevFallbackStates[i] = currentStates[i];
         }
       }
     }
@@ -633,10 +718,6 @@ void InputManager::GamepadThreadLoop() {
     std::this_thread::sleep_for(hasController ? std::chrono::milliseconds(16) : std::chrono::milliseconds(250));
   }
 
-  if (controller) {
-    SDL_GameControllerClose(controller);
-  }
-  if (fallbackJoystick) {
-    SDL_JoystickClose(fallbackJoystick);
-  }
+  if (controller) SDL_GameControllerClose(controller);
+  if (fallbackJoystick) SDL_JoystickClose(fallbackJoystick);
 }

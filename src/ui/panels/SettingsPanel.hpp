@@ -22,7 +22,11 @@ private:
         KeySession,
         KeyMenu,
         KeySaveReplay,
-        GamepadOverlay
+        GamepadOverlay,
+        GamepadCycle,
+        GamepadExpand,
+        GamepadSession,
+        GamepadMenu
     };
 
     RenderContext ctx;

@@ -202,6 +202,18 @@ namespace Config {
             }
             if (j.contains("gamepad_overlay_raw")) Current.gamepad_overlay_raw = j["gamepad_overlay_raw"];
             if (j.contains("gamepad_overlay_raw_button")) Current.gamepad_overlay_raw_button = j["gamepad_overlay_raw_button"];
+            if (j.contains("gamepad_cycle")) Current.gamepad_cycle = j["gamepad_cycle"];
+            if (j.contains("gamepad_cycle_raw")) Current.gamepad_cycle_raw = j["gamepad_cycle_raw"];
+            if (j.contains("gamepad_cycle_raw_button")) Current.gamepad_cycle_raw_button = j["gamepad_cycle_raw_button"];
+            if (j.contains("gamepad_expand")) Current.gamepad_expand = j["gamepad_expand"];
+            if (j.contains("gamepad_expand_raw")) Current.gamepad_expand_raw = j["gamepad_expand_raw"];
+            if (j.contains("gamepad_expand_raw_button")) Current.gamepad_expand_raw_button = j["gamepad_expand_raw_button"];
+            if (j.contains("gamepad_session")) Current.gamepad_session = j["gamepad_session"];
+            if (j.contains("gamepad_session_raw")) Current.gamepad_session_raw = j["gamepad_session_raw"];
+            if (j.contains("gamepad_session_raw_button")) Current.gamepad_session_raw_button = j["gamepad_session_raw_button"];
+            if (j.contains("gamepad_menu")) Current.gamepad_menu = j["gamepad_menu"];
+            if (j.contains("gamepad_menu_raw")) Current.gamepad_menu_raw = j["gamepad_menu_raw"];
+            if (j.contains("gamepad_menu_raw_button")) Current.gamepad_menu_raw_button = j["gamepad_menu_raw_button"];
             if (j.contains("mmr_category")) Current.mmr_category = j["mmr_category"];
             if (j.contains("last_primary_id")) Current.last_primary_id = j["last_primary_id"];
             if (j.contains("require_rl_focus")) Current.require_rl_focus = j["require_rl_focus"];
@@ -397,6 +409,18 @@ namespace Config {
         j["gamepad_overlay"] = Current.gamepad_overlay;
         j["gamepad_overlay_raw"] = Current.gamepad_overlay_raw;
         j["gamepad_overlay_raw_button"] = Current.gamepad_overlay_raw_button;
+        j["gamepad_cycle"] = Current.gamepad_cycle;
+        j["gamepad_cycle_raw"] = Current.gamepad_cycle_raw;
+        j["gamepad_cycle_raw_button"] = Current.gamepad_cycle_raw_button;
+        j["gamepad_expand"] = Current.gamepad_expand;
+        j["gamepad_expand_raw"] = Current.gamepad_expand_raw;
+        j["gamepad_expand_raw_button"] = Current.gamepad_expand_raw_button;
+        j["gamepad_session"] = Current.gamepad_session;
+        j["gamepad_session_raw"] = Current.gamepad_session_raw;
+        j["gamepad_session_raw_button"] = Current.gamepad_session_raw_button;
+        j["gamepad_menu"] = Current.gamepad_menu;
+        j["gamepad_menu_raw"] = Current.gamepad_menu_raw;
+        j["gamepad_menu_raw_button"] = Current.gamepad_menu_raw_button;
         j["controller_default_back_migrated"] = true;
         j["mmr_category"] = Current.mmr_category;
         j["last_primary_id"] = Current.last_primary_id;

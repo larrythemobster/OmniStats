@@ -40,6 +40,18 @@ private:
     std::atomic<int> m_gamepadOverlay{4};
     std::atomic<bool> m_gamepadOverlayRaw{false};
     std::atomic<int> m_gamepadOverlayRawButton{4};
+    std::atomic<int> m_gamepadCycle{-1};
+    std::atomic<bool> m_gamepadCycleRaw{false};
+    std::atomic<int> m_gamepadCycleRawButton{-1};
+    std::atomic<int> m_gamepadExpand{-1};
+    std::atomic<bool> m_gamepadExpandRaw{false};
+    std::atomic<int> m_gamepadExpandRawButton{-1};
+    std::atomic<int> m_gamepadSession{-1};
+    std::atomic<bool> m_gamepadSessionRaw{false};
+    std::atomic<int> m_gamepadSessionRawButton{-1};
+    std::atomic<int> m_gamepadMenu{-1};
+    std::atomic<bool> m_gamepadMenuRaw{false};
+    std::atomic<int> m_gamepadMenuRawButton{-1};
     std::atomic<bool> m_secondMonitorMode{false};
     std::atomic<bool> m_showExtraPlaylists{true};
 #if OMNISTATS_ENABLE_LOW_LEVEL_HOOK
