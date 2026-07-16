@@ -7,6 +7,7 @@ inline constexpr int kKeyCodes[] = {VK_TAB, VK_F1, VK_F2, VK_F3, VK_F4, VK_F5, V
 inline constexpr int kNumKeys = 15;
 
 inline const char* GetKeyName(int vk) {
+    if (vk <= 0) return "None";
     for (int i = 0; i < kNumKeys; ++i) {
         if (kKeyCodes[i] == vk) return kKeyNames[i];
     }

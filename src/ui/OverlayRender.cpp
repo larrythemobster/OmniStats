@@ -1904,8 +1904,15 @@ void Overlay::RenderUI() {
 }
 
 void Overlay::RenderWidgetContent(DashboardLayout::WidgetId id, const char* suffix) {
+    auto getBindLabel = [&](int vk) {
+        return (vk <= 0) ? "Unbound" : GetKeyDisplayName(vk);
+    };
+
     switch (id) {
         case DashboardLayout::WidgetId::LiveRoster: {
+            std::string keyCycleName = getBindLabel(m_frameConfig.key_cycle);
+            std::string keyExpandName = getBindLabel(m_frameConfig.key_expand);
+            std::string keySessionName = getBindLabel(m_frameConfig.key_session);
             std::string suffixStr = suffix ? suffix : "";
             std::string headerId = "HeaderTbl_" + suffixStr;
             if (ImGui::BeginTable(headerId.c_str(), 2, ImGuiTableFlags_None)) {
@@ -1969,7 +1976,7 @@ void Overlay::RenderWidgetContent(DashboardLayout::WidgetId id, const char* suff
 
                 ImGui::TableNextRow();
                 ImGui::TableNextColumn();
-                std::string keyCycleName = GetKeyDisplayName(m_frameConfig.key_cycle);
+
                 ImGui::PushFont(fontSmallBold); ImGui::TextColored(Format::C(m_frameConfig.themeMuted), "%s", keyCycleName.c_str()); ImGui::PopFont();
                 ImGui::SameLine(0, 4.0f); ImGui::PushFont(fontSmall); ImGui::TextColored(Format::C(m_frameConfig.themeMuted), "cycle MMR"); ImGui::PopFont();
 
@@ -1990,13 +1997,11 @@ void Overlay::RenderWidgetContent(DashboardLayout::WidgetId id, const char* suff
 
                 ImGui::TableNextRow();
                 ImGui::TableNextColumn();
-                std::string keyExpandName = GetKeyDisplayName(m_frameConfig.key_expand);
                 const char* expandLabel = m_state->ui.h2hExpanded.load() ? "shrink" : "expand";
                 ImGui::PushFont(fontSmallBold); ImGui::TextColored(Format::C(m_frameConfig.themeMuted), "%s", keyExpandName.c_str()); ImGui::PopFont();
                 ImGui::SameLine(0, 4.0f); ImGui::PushFont(fontSmall); ImGui::TextColored(Format::C(m_frameConfig.themeMuted), "%s", expandLabel); ImGui::PopFont();
 
                 ImGui::TableNextColumn();
-                std::string keySessionName = GetKeyDisplayName(m_frameConfig.key_session);
                 ImGui::PushFont(fontSmallBold); ImGui::TextColored(Format::C(m_frameConfig.themeMuted), "%s", keySessionName.c_str()); ImGui::PopFont();
                 ImGui::SameLine(0, 4.0f); ImGui::PushFont(fontSmall); ImGui::TextColored(Format::C(m_frameConfig.themeMuted), "session"); ImGui::PopFont();
 
