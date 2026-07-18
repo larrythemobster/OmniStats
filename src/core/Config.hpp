@@ -26,7 +26,7 @@ struct ColorRGBA {
 struct ConfigData {
     std::string host = "127.0.0.1";
     int port = 49123;
-    
+
     int key_overlay = VK_TAB;
     int key_cycle = VK_F6;
     int key_expand = VK_F7;
@@ -51,7 +51,7 @@ struct ConfigData {
     std::string mmr_category = "best";
     std::string last_primary_id = "";
     std::vector<std::string> known_primary_ids; // previously used/seen accounts for faster identity detection
-    
+
     bool require_rl_focus = true;
     bool show_match_summary = true;
     bool discord_rpc_enabled = false;
@@ -68,7 +68,7 @@ struct ConfigData {
     std::string privacy_policy_accepted_version = "";
     std::string terms_accepted_version = "";
     std::string privacy_accepted_at = "";
-    
+
     std::string position = "top-right";
     bool show_running_indicator = true;
     bool use_roman_numerals = true;
@@ -80,24 +80,24 @@ struct ConfigData {
 
     // Ballchasing uploader settings
     std::string ballchasing_token = ""; // API token for ballchasing.com
-    bool auto_upload_replays = false;     // Toggle background auto-uploading of replays
+    bool auto_upload_replays = false;   // Toggle background auto-uploading of replays
     bool ballchasing_upload_notice_accepted = false;
     std::string ballchasing_visibility = "unlisted";
-    
+
     // Replay auto-save settings
-    bool auto_save_replays = false;       // Automatically trigger the "Save Replay" keybind mid-game
-    int key_save_replay = VK_BACK;        // Key code for saving replays in Rocket League
-    
+    bool auto_save_replays = false; // Automatically trigger the "Save Replay" keybind mid-game
+    int key_save_replay = VK_BACK;  // Key code for saving replays in Rocket League
+
     // Theme colors
-    ColorRGBA themeBg      = { 0.05f, 0.06f, 0.08f, 0.90f };
-    ColorRGBA themeText    = { 0.92f, 0.94f, 0.96f, 1.00f };
-    ColorRGBA themeAccent  = { 1.00f, 0.00f, 0.13f, 1.00f };
-    ColorRGBA themeWin     = { 0.2629031836986542f, 0.85f, 0.15f, 1.00f };
-    ColorRGBA themeLoss    = { 1.00f, 0.012096762657165527f, 0.012096762657165527f, 1.00f };
-    ColorRGBA themeDim     = { 0.45f, 0.50f, 0.55f, 0.60f };
-    ColorRGBA themeMuted   = { 0.65f, 0.70f, 0.75f, 1.00f };
-    ColorRGBA themeGraphLine = { 0.20201940834522247f, 0.36447927355766296f, 0.7056452035903931f, 1.00f };
-    ColorRGBA themeGraphBaseline = { 0.913241446018219f, 0.9516128897666931f, 0.0f, 1.00f };
+    ColorRGBA themeBg = {0.05f, 0.06f, 0.08f, 0.90f};
+    ColorRGBA themeText = {0.92f, 0.94f, 0.96f, 1.00f};
+    ColorRGBA themeAccent = {1.00f, 0.00f, 0.13f, 1.00f};
+    ColorRGBA themeWin = {0.2629031836986542f, 0.85f, 0.15f, 1.00f};
+    ColorRGBA themeLoss = {1.00f, 0.012096762657165527f, 0.012096762657165527f, 1.00f};
+    ColorRGBA themeDim = {0.45f, 0.50f, 0.55f, 0.60f};
+    ColorRGBA themeMuted = {0.65f, 0.70f, 0.75f, 1.00f};
+    ColorRGBA themeGraphLine = {0.20201940834522247f, 0.36447927355766296f, 0.7056452035903931f, 1.00f};
+    ColorRGBA themeGraphBaseline = {0.913241446018219f, 0.9516128897666931f, 0.0f, 1.00f};
 
     // Session Card Visibility Toggles
     bool show_session_card_in_game = true;
@@ -150,7 +150,7 @@ struct ConfigData {
 
     int overlay_fps_cap = 60;
     bool vsync = false;
-    
+
     DashboardLayout::LayoutConfig dashboard_layout = DashboardLayout::DefaultLayout();
     OverlayLayout::LayoutConfig overlay_layout = OverlayLayout::DefaultOverlayLayout();
 };

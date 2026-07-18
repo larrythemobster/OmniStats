@@ -8,7 +8,7 @@
 #include <memory>
 
 class OverlayDbFetchTest : public ::testing::Test {
-protected:
+  protected:
     void SetUp() override {
         Storage::InitializeEnvironment();
         IMGUI_CHECKVERSION();

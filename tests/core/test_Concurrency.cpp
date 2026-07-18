@@ -12,7 +12,7 @@ TEST(ConcurrencyTest, ConfigConcurrentReadWrite) {
     Storage::InitializeEnvironment();
     Config::Update([](ConfigData& c) { c.port = 1000; });
     std::atomic<bool> running{true};
-    
+
     // Writer thread
     std::thread writer([&running]() {
         int i = 0;
@@ -59,8 +59,7 @@ TEST(ConcurrencyTest, SessionStateConcurrentRoster) {
                 session->game.roster[id] = PlayerData{
                     .primaryId = id,
                     .name = "Player" + std::to_string(i % 10),
-                    .team = i % 2
-                };
+                    .team = i % 2};
             }
             std::this_thread::yield();
             i++;

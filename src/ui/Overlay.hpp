@@ -62,7 +62,7 @@ enum class RecordFormat {
 };
 
 class Overlay {
-public:
+  public:
     friend LRESULT WINAPI WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
     friend class HeadlessOverlayTest;
     Overlay(std::shared_ptr<SessionState> state, std::shared_ptr<DatabaseManager> dbManager = nullptr);
@@ -71,11 +71,16 @@ public:
     bool Initialize();
     void RunLoop();
     void Shutdown();
-    void UpdateWindowStyle() { if (m_window) { ConfigData c = Config::Read(); m_window->UpdateStyle(c.second_monitor_mode, m_state->ui.showMenu); } }
+    void UpdateWindowStyle() {
+        if (m_window) {
+            ConfigData c = Config::Read();
+            m_window->UpdateStyle(c.second_monitor_mode, m_state->ui.showMenu);
+        }
+    }
     void ResizeSwapChain(int width, int height);
     void RenderUI();
 
-private:
+  private:
     void RenderSessionCard();
     void RenderPreviousGamesOverlay();
     void RenderDemoTrackerOverlay();
@@ -90,7 +95,9 @@ private:
     void HandleDpiChanged(UINT dpi, const RECT* suggestedRect);
     bool RecreateD3DDevice();
     bool HandleDeviceLost(const char* reason, HRESULT hr);
-    RECT GetSecondaryMonitorRect() const { return m_window ? m_window->GetSecondaryMonitorRect() : RECT{}; }
+    RECT GetSecondaryMonitorRect() const {
+        return m_window ? m_window->GetSecondaryMonitorRect() : RECT{};
+    }
 
     // Shared state for panels and render helpers
     RenderContext MakeCtx();

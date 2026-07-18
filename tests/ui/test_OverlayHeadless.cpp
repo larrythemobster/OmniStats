@@ -9,21 +9,21 @@
 #include <vector>
 
 class HeadlessOverlayTest : public ::testing::Test {
-protected:
+  protected:
     void SetUp() override {
         // Initialize headless ImGui
         IMGUI_CHECKVERSION();
         ImGui::CreateContext();
         ImGuiIO& io = ImGui::GetIO();
-        
+
         unsigned char* pixels;
         int width, height;
         io.Fonts->GetTexDataAsRGBA32(&pixels, &width, &height);
-        
+
         io.DisplaySize = ImVec2(1920.0f, 1080.0f);
         io.DeltaTime = 1.0f / 60.0f;
     }
-    
+
     void TearDown() override {
         ImGui::DestroyContext();
     }
@@ -70,18 +70,30 @@ protected:
         return o.RebuildFontsForCurrentScale();
     }
 
-    ImFont* GetFontRegular(const Overlay& o) const { return o.fontRegular; }
-    ImFont* GetFontBold(const Overlay& o) const { return o.fontBold; }
-    ImFont* GetFontSmall(const Overlay& o) const { return o.fontSmall; }
-    ImFont* GetFontSmallBold(const Overlay& o) const { return o.fontSmallBold; }
-    ImFont* GetFontMono(const Overlay& o) const { return o.fontMono; }
-    ImFont* GetLobbyFontSmall(const Overlay& o) const { return o.lobbyFontSmall; }
+    ImFont* GetFontRegular(const Overlay& o) const {
+        return o.fontRegular;
+    }
+    ImFont* GetFontBold(const Overlay& o) const {
+        return o.fontBold;
+    }
+    ImFont* GetFontSmall(const Overlay& o) const {
+        return o.fontSmall;
+    }
+    ImFont* GetFontSmallBold(const Overlay& o) const {
+        return o.fontSmallBold;
+    }
+    ImFont* GetFontMono(const Overlay& o) const {
+        return o.fontMono;
+    }
+    ImFont* GetLobbyFontSmall(const Overlay& o) const {
+        return o.lobbyFontSmall;
+    }
 };
 
 TEST_F(HeadlessOverlayTest, RenderOverlayDoesNotCrash) {
     auto state = std::make_shared<SessionState>();
     Overlay overlay(state);
-    
+
     // Simulate one frame
     ImGui::NewFrame();
     EXPECT_NO_THROW(overlay.RenderUI());
@@ -151,8 +163,7 @@ TEST_F(HeadlessOverlayTest, InvalidUiScaleClampsSafely) {
         std::numeric_limits<float>::infinity(),
         -10.0f,
         0.01f,
-        100.0f
-    };
+        100.0f};
 
     for (float scale : testScales) {
         Config::Update([scale](ConfigData& c) { c.ui_scale = scale; });

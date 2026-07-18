@@ -92,7 +92,7 @@ static nlohmann::json ColorToJson(const ColorRGBA& c) {
 // Helper: deserialize JSON array [r, g, b, a] to ColorRGBA
 static ColorRGBA JsonToColor(const nlohmann::json& j, const ColorRGBA& fallback) {
     if (!j.is_array() || j.size() < 4) return fallback;
-    return { j[0].get<float>(), j[1].get<float>(), j[2].get<float>(), j[3].get<float>() };
+    return {j[0].get<float>(), j[1].get<float>(), j[2].get<float>(), j[3].get<float>()};
 }
 
 namespace Config {
@@ -278,7 +278,7 @@ namespace Config {
             if (j.contains("show_lobby_rank_dropshot")) Current.show_lobby_rank_dropshot = j["show_lobby_rank_dropshot"];
             if (j.contains("show_lobby_rank_snowday")) Current.show_lobby_rank_snowday = j["show_lobby_rank_snowday"];
             if (j.contains("show_lobby_rank_heatseeker")) Current.show_lobby_rank_heatseeker = j["show_lobby_rank_heatseeker"];
-            
+
             // Fallback: Prevent the user from disabling every column.
             if (!Current.show_lobby_rank_1v1 && !Current.show_lobby_rank_2v2 &&
                 !Current.show_lobby_rank_3v3 && !Current.show_lobby_rank_casual && !Current.show_lobby_rank_tourny &&
@@ -314,13 +314,13 @@ namespace Config {
             // Theme colors
             if (j.contains("theme")) {
                 auto& t = j["theme"];
-                if (t.contains("bg"))      Current.themeBg     = JsonToColor(t["bg"],     Current.themeBg);
-                if (t.contains("text"))    Current.themeText   = JsonToColor(t["text"],   Current.themeText);
-                if (t.contains("accent"))  Current.themeAccent = JsonToColor(t["accent"], Current.themeAccent);
-                if (t.contains("win"))     Current.themeWin    = JsonToColor(t["win"],    Current.themeWin);
-                if (t.contains("loss"))    Current.themeLoss   = JsonToColor(t["loss"],   Current.themeLoss);
-                if (t.contains("dim"))     Current.themeDim    = JsonToColor(t["dim"],    Current.themeDim);
-                if (t.contains("muted"))   Current.themeMuted  = JsonToColor(t["muted"],  Current.themeMuted);
+                if (t.contains("bg")) Current.themeBg = JsonToColor(t["bg"], Current.themeBg);
+                if (t.contains("text")) Current.themeText = JsonToColor(t["text"], Current.themeText);
+                if (t.contains("accent")) Current.themeAccent = JsonToColor(t["accent"], Current.themeAccent);
+                if (t.contains("win")) Current.themeWin = JsonToColor(t["win"], Current.themeWin);
+                if (t.contains("loss")) Current.themeLoss = JsonToColor(t["loss"], Current.themeLoss);
+                if (t.contains("dim")) Current.themeDim = JsonToColor(t["dim"], Current.themeDim);
+                if (t.contains("muted")) Current.themeMuted = JsonToColor(t["muted"], Current.themeMuted);
                 if (t.contains("graph_line")) Current.themeGraphLine = JsonToColor(t["graph_line"], Current.themeGraphLine);
                 if (t.contains("graph_baseline")) Current.themeGraphBaseline = JsonToColor(t["graph_baseline"], Current.themeGraphBaseline);
             }
@@ -398,7 +398,7 @@ namespace Config {
 
     static void SaveInternal() {
         nlohmann::json j;
-        
+
         j["host"] = Current.host;
         j["port"] = Current.port;
         j["key_overlay"] = Current.key_overlay;
@@ -454,7 +454,7 @@ namespace Config {
         j["ballchasing_visibility"] = Current.ballchasing_visibility;
         j["auto_save_replays"] = Current.auto_save_replays;
         j["key_save_replay"] = Current.key_save_replay;
-        
+
         // Save session visibility flags
         j["show_session_card_in_game"] = Current.show_session_card_in_game;
         j["show_session_record"] = Current.show_session_record;
@@ -536,15 +536,15 @@ namespace Config {
         }
         jol["containers"] = jc_arr;
         j["overlay_layout"] = jol;
-        
+
         // Theme colors
-        j["theme"]["bg"]     = ColorToJson(Current.themeBg);
-        j["theme"]["text"]   = ColorToJson(Current.themeText);
+        j["theme"]["bg"] = ColorToJson(Current.themeBg);
+        j["theme"]["text"] = ColorToJson(Current.themeText);
         j["theme"]["accent"] = ColorToJson(Current.themeAccent);
-        j["theme"]["win"]    = ColorToJson(Current.themeWin);
-        j["theme"]["loss"]   = ColorToJson(Current.themeLoss);
-        j["theme"]["dim"]    = ColorToJson(Current.themeDim);
-        j["theme"]["muted"]  = ColorToJson(Current.themeMuted);
+        j["theme"]["win"] = ColorToJson(Current.themeWin);
+        j["theme"]["loss"] = ColorToJson(Current.themeLoss);
+        j["theme"]["dim"] = ColorToJson(Current.themeDim);
+        j["theme"]["muted"] = ColorToJson(Current.themeMuted);
         j["theme"]["graph_line"] = ColorToJson(Current.themeGraphLine);
         j["theme"]["graph_baseline"] = ColorToJson(Current.themeGraphBaseline);
 

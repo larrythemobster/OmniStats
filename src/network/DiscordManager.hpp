@@ -11,7 +11,7 @@
 #include "core/DiscordPresenceSnapshot.hpp"
 
 class DiscordManager {
-public:
+  public:
     DiscordManager(std::shared_ptr<SessionState> state);
     virtual ~DiscordManager();
 
@@ -21,7 +21,7 @@ public:
     // Call whenever match state changes to push an update to Discord
     virtual void PushPresenceUpdate(const DiscordPresenceSnapshot& snapshot);
 
-private:
+  private:
     void CallbackThread();
     void ApplyPresence(const DiscordPresenceSnapshot& snapshot);
 

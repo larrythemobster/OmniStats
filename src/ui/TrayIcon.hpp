@@ -13,14 +13,14 @@
 HICON LoadAppIcon(int width = 0, int height = 0);
 
 class TrayIcon {
-public:
+  public:
     TrayIcon(HWND mainHwnd);
     ~TrayIcon();
 
     bool Initialize();
     void Shutdown();
 
-private:
+  private:
     void ThreadFunc();
     void AddIcon(HWND hwnd);
     void RemoveIcon();

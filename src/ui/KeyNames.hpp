@@ -22,46 +22,68 @@ inline std::string GetKeyDisplayName(int vk) {
     if (vk >= '0' && vk <= '9') return std::string(1, static_cast<char>(vk));
 
     switch (vk) {
-        case VK_SPACE: return "Space";
-        case VK_RETURN: return "Enter";
-        case VK_ESCAPE: return "Escape";
-        case VK_SHIFT: return "Shift";
-        case VK_CONTROL: return "Ctrl";
-        case VK_MENU: return "Alt";
-        case VK_LSHIFT: return "Left Shift";
-        case VK_RSHIFT: return "Right Shift";
-        case VK_LCONTROL: return "Left Ctrl";
-        case VK_RCONTROL: return "Right Ctrl";
-        case VK_LMENU: return "Left Alt";
-        case VK_RMENU: return "Right Alt";
-        case VK_LEFT: return "Left Arrow";
-        case VK_RIGHT: return "Right Arrow";
-        case VK_UP: return "Up Arrow";
-        case VK_DOWN: return "Down Arrow";
-        case VK_INSERT: return "Insert";
-        case VK_DELETE: return "Delete";
-        case VK_HOME: return "Home";
-        case VK_END: return "End";
-        case VK_PRIOR: return "Page Up";
-        case VK_NEXT: return "Page Down";
+    case VK_SPACE:
+        return "Space";
+    case VK_RETURN:
+        return "Enter";
+    case VK_ESCAPE:
+        return "Escape";
+    case VK_SHIFT:
+        return "Shift";
+    case VK_CONTROL:
+        return "Ctrl";
+    case VK_MENU:
+        return "Alt";
+    case VK_LSHIFT:
+        return "Left Shift";
+    case VK_RSHIFT:
+        return "Right Shift";
+    case VK_LCONTROL:
+        return "Left Ctrl";
+    case VK_RCONTROL:
+        return "Right Ctrl";
+    case VK_LMENU:
+        return "Left Alt";
+    case VK_RMENU:
+        return "Right Alt";
+    case VK_LEFT:
+        return "Left Arrow";
+    case VK_RIGHT:
+        return "Right Arrow";
+    case VK_UP:
+        return "Up Arrow";
+    case VK_DOWN:
+        return "Down Arrow";
+    case VK_INSERT:
+        return "Insert";
+    case VK_DELETE:
+        return "Delete";
+    case VK_HOME:
+        return "Home";
+    case VK_END:
+        return "End";
+    case VK_PRIOR:
+        return "Page Up";
+    case VK_NEXT:
+        return "Page Down";
     }
 
     UINT scanCode = MapVirtualKeyA(static_cast<UINT>(vk), MAPVK_VK_TO_VSC);
     if (scanCode != 0) {
         LONG keyNameParam = static_cast<LONG>(scanCode << 16);
         switch (vk) {
-            case VK_LEFT:
-            case VK_RIGHT:
-            case VK_UP:
-            case VK_DOWN:
-            case VK_INSERT:
-            case VK_DELETE:
-            case VK_HOME:
-            case VK_END:
-            case VK_PRIOR:
-            case VK_NEXT:
-                keyNameParam |= static_cast<LONG>(1 << 24);
-                break;
+        case VK_LEFT:
+        case VK_RIGHT:
+        case VK_UP:
+        case VK_DOWN:
+        case VK_INSERT:
+        case VK_DELETE:
+        case VK_HOME:
+        case VK_END:
+        case VK_PRIOR:
+        case VK_NEXT:
+            keyNameParam |= static_cast<LONG>(1 << 24);
+            break;
         }
 
         char name[64] = {};

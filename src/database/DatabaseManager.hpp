@@ -16,14 +16,14 @@
 #include "core/MatchSaveSnapshot.hpp"
 
 class DatabaseManager {
-public:
+  public:
     DatabaseManager(std::shared_ptr<SessionState> state);
     ~DatabaseManager();
 
     [[nodiscard]] bool Initialize(const std::string& dbPath);
     void SaveMatch(const MatchSaveSnapshot& snapshot);
     void AsyncSaveMatch(MatchSaveSnapshot snapshot);
-    
+
     void GetLifetimeMmrHistory(const std::string& primaryId, const std::string& playlist, std::vector<float>& outX, std::vector<float>& outY);
     void AsyncGetLifetimeMmrHistory(const std::string& primaryId, const std::string& playlist);
     void GetRecentMatchHistory(const std::string& primaryId, std::vector<SessionMatchSummary>& outMatches, int limit = kPreviousGamesDefaultLimit);
@@ -41,10 +41,14 @@ public:
     [[nodiscard]] bool SetSetting(const std::string& key, const std::string& value);
     void AsyncSetSetting(std::string key, std::string value);
     std::string GetSetting(const std::string& key, const std::string& defaultValue = "");
-    sqlite3* GetRawDb() { return m_db; }
-    std::string GetDatabasePath() const { return m_dbPath; }
+    sqlite3* GetRawDb() {
+        return m_db;
+    }
+    std::string GetDatabasePath() const {
+        return m_dbPath;
+    }
 
-private:
+  private:
     enum class DbJobPriority {
         Critical,
         Normal,
@@ -60,12 +64,12 @@ private:
     [[nodiscard]] bool EnqueueDbJob(std::function<void()> job, DbJobPriority priority = DbJobPriority::Normal, std::string coalesceKey = "");
     bool CreateTables();
     std::string InferGamemode(int playerCount);
-    
+
     std::shared_ptr<SessionState> m_state;
     sqlite3* m_db = nullptr;
     std::string m_dbPath;
     std::mutex m_dbMutex;
-    
+
     std::deque<DbJob> m_jobs;
     std::unordered_set<std::string> m_pendingCoalescedJobs;
     std::mutex m_queueMutex;
@@ -73,7 +77,7 @@ private:
     std::jthread m_worker;
     bool m_stopWorker = false;
 
-public:
+  public:
     // Testing instrumentation (unit tests read these to assert Async calls)
     static std::atomic<int> s_test_async_get_lifetime_calls;
     static std::atomic<int> s_test_async_refresh_calls;

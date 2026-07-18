@@ -4,25 +4,31 @@
 #include <string>
 
 class RankIconAssets {
-public:
+  public:
     RankIconAssets() = default;
-    ~RankIconAssets() { Shutdown(); }
+    ~RankIconAssets() {
+        Shutdown();
+    }
 
     RankIconAssets(const RankIconAssets&) = delete;
     RankIconAssets& operator=(const RankIconAssets&) = delete;
 
     bool Load(ID3D11Device* device);
     void Shutdown();
-    bool IsLoaded() const { return m_loaded; }
+    bool IsLoaded() const {
+        return m_loaded;
+    }
 
     ID3D11ShaderResourceView* PlaylistTexture(const std::string& playlist) const;
     ID3D11ShaderResourceView* TierTexture(const std::string& tier) const;
     ID3D11ShaderResourceView* UnsyncedTierTexture() const;
     ID3D11ShaderResourceView* DivisionTexture(const std::string& tier, bool filled) const;
-    ID3D11ShaderResourceView* LogoTexture() const { return m_logo.view; }
+    ID3D11ShaderResourceView* LogoTexture() const {
+        return m_logo.view;
+    }
     static int DivisionLevel(const std::string& tier);
 
-private:
+  private:
     struct Texture {
         ID3D11ShaderResourceView* view = nullptr;
         int width = 0;

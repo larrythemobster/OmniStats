@@ -13,116 +13,114 @@
 
 namespace {
 
-struct TournamentRankThreshold {
-    int minMmr;
-    const char* tier;
-    const char* division;
-};
+    struct TournamentRankThreshold {
+        int minMmr;
+        const char* tier;
+        const char* division;
+    };
 
-static constexpr std::array<TournamentRankThreshold, 85> TournamentRankThresholds = {{
-    {-4, "Bronze I", "Div I"},
-    {119, "Bronze I", "Div II"},
-    {138, "Bronze I", "Div III"},
-    {157, "Bronze I", "Div IV"},
-    {162, "Bronze II", "Div I"},
-    {179, "Bronze II", "Div II"},
-    {198, "Bronze II", "Div III"},
-    {217, "Bronze II", "Div IV"},
-    {221, "Bronze III", "Div I"},
-    {239, "Bronze III", "Div II"},
-    {258, "Bronze III", "Div III"},
-    {277, "Bronze III", "Div IV"},
-    {283, "Silver I", "Div I"},
-    {299, "Silver I", "Div II"},
-    {318, "Silver I", "Div III"},
-    {337, "Silver I", "Div IV"},
-    {342, "Silver II", "Div I"},
-    {359, "Silver II", "Div II"},
-    {378, "Silver II", "Div III"},
-    {397, "Silver II", "Div IV"},
-    {403, "Silver III", "Div I"},
-    {419, "Silver III", "Div II"},
-    {438, "Silver III", "Div III"},
-    {457, "Silver III", "Div IV"},
-    {461, "Gold I", "Div I"},
-    {478, "Gold I", "Div II"},
-    {498, "Gold I", "Div III"},
-    {517, "Gold I", "Div IV"},
-    {521, "Gold II", "Div I"},
-    {539, "Gold II", "Div II"},
-    {558, "Gold II", "Div III"},
-    {577, "Gold II", "Div IV"},
-    {581, "Gold III", "Div I"},
-    {598, "Gold III", "Div II"},
-    {618, "Gold III", "Div III"},
-    {637, "Gold III", "Div IV"},
-    {641, "Platinum I", "Div I"},
-    {659, "Platinum I", "Div II"},
-    {678, "Platinum I", "Div III"},
-    {697, "Platinum I", "Div IV"},
-    {701, "Platinum II", "Div I"},
-    {719, "Platinum II", "Div II"},
-    {738, "Platinum II", "Div III"},
-    {757, "Platinum II", "Div IV"},
-    {761, "Platinum III", "Div I"},
-    {779, "Platinum III", "Div II"},
-    {798, "Platinum III", "Div III"},
-    {817, "Platinum III", "Div IV"},
-    {824, "Diamond I", "Div I"},
-    {844, "Diamond I", "Div II"},
-    {868, "Diamond I", "Div III"},
-    {892, "Diamond I", "Div IV"},
-    {901, "Diamond II", "Div I"},
-    {924, "Diamond II", "Div II"},
-    {948, "Diamond II", "Div III"},
-    {972, "Diamond II", "Div IV"},
-    {981, "Diamond III", "Div I"},
-    {1004, "Diamond III", "Div II"},
-    {1028, "Diamond III", "Div III"},
-    {1052, "Diamond III", "Div IV"},
-    {1061, "Champion I", "Div I"},
-    {1096, "Champion I", "Div II"},
-    {1128, "Champion I", "Div III"},
-    {1162, "Champion I", "Div IV"},
-    {1181, "Champion II", "Div I"},
-    {1215, "Champion II", "Div II"},
-    {1254, "Champion II", "Div III"},
-    {1282, "Champion II", "Div IV"},
-    {1301, "Champion III", "Div I"},
-    {1337, "Champion III", "Div II"},
-    {1368, "Champion III", "Div III"},
-    {1402, "Champion III", "Div IV"},
-    {1421, "Grand Champion I", "Div I"},
-    {1460, "Grand Champion I", "Div II"},
-    {1498, "Grand Champion I", "Div III"},
-    {1537, "Grand Champion I", "Div IV"},
-    {1561, "Grand Champion II", "Div I"},
-    {1600, "Grand Champion II", "Div II"},
-    {1638, "Grand Champion II", "Div III"},
-    {1677, "Grand Champion II", "Div IV"},
-    {1701, "Grand Champion III", "Div I"},
-    {1745, "Grand Champion III", "Div II"},
-    {1788, "Grand Champion III", "Div III"},
-    {1832, "Grand Champion III", "Div IV"},
-    {1861, "Supersonic Legend", ""}
-}};
+    static constexpr std::array<TournamentRankThreshold, 85> TournamentRankThresholds = {{{-4, "Bronze I", "Div I"},
+                                                                                          {119, "Bronze I", "Div II"},
+                                                                                          {138, "Bronze I", "Div III"},
+                                                                                          {157, "Bronze I", "Div IV"},
+                                                                                          {162, "Bronze II", "Div I"},
+                                                                                          {179, "Bronze II", "Div II"},
+                                                                                          {198, "Bronze II", "Div III"},
+                                                                                          {217, "Bronze II", "Div IV"},
+                                                                                          {221, "Bronze III", "Div I"},
+                                                                                          {239, "Bronze III", "Div II"},
+                                                                                          {258, "Bronze III", "Div III"},
+                                                                                          {277, "Bronze III", "Div IV"},
+                                                                                          {283, "Silver I", "Div I"},
+                                                                                          {299, "Silver I", "Div II"},
+                                                                                          {318, "Silver I", "Div III"},
+                                                                                          {337, "Silver I", "Div IV"},
+                                                                                          {342, "Silver II", "Div I"},
+                                                                                          {359, "Silver II", "Div II"},
+                                                                                          {378, "Silver II", "Div III"},
+                                                                                          {397, "Silver II", "Div IV"},
+                                                                                          {403, "Silver III", "Div I"},
+                                                                                          {419, "Silver III", "Div II"},
+                                                                                          {438, "Silver III", "Div III"},
+                                                                                          {457, "Silver III", "Div IV"},
+                                                                                          {461, "Gold I", "Div I"},
+                                                                                          {478, "Gold I", "Div II"},
+                                                                                          {498, "Gold I", "Div III"},
+                                                                                          {517, "Gold I", "Div IV"},
+                                                                                          {521, "Gold II", "Div I"},
+                                                                                          {539, "Gold II", "Div II"},
+                                                                                          {558, "Gold II", "Div III"},
+                                                                                          {577, "Gold II", "Div IV"},
+                                                                                          {581, "Gold III", "Div I"},
+                                                                                          {598, "Gold III", "Div II"},
+                                                                                          {618, "Gold III", "Div III"},
+                                                                                          {637, "Gold III", "Div IV"},
+                                                                                          {641, "Platinum I", "Div I"},
+                                                                                          {659, "Platinum I", "Div II"},
+                                                                                          {678, "Platinum I", "Div III"},
+                                                                                          {697, "Platinum I", "Div IV"},
+                                                                                          {701, "Platinum II", "Div I"},
+                                                                                          {719, "Platinum II", "Div II"},
+                                                                                          {738, "Platinum II", "Div III"},
+                                                                                          {757, "Platinum II", "Div IV"},
+                                                                                          {761, "Platinum III", "Div I"},
+                                                                                          {779, "Platinum III", "Div II"},
+                                                                                          {798, "Platinum III", "Div III"},
+                                                                                          {817, "Platinum III", "Div IV"},
+                                                                                          {824, "Diamond I", "Div I"},
+                                                                                          {844, "Diamond I", "Div II"},
+                                                                                          {868, "Diamond I", "Div III"},
+                                                                                          {892, "Diamond I", "Div IV"},
+                                                                                          {901, "Diamond II", "Div I"},
+                                                                                          {924, "Diamond II", "Div II"},
+                                                                                          {948, "Diamond II", "Div III"},
+                                                                                          {972, "Diamond II", "Div IV"},
+                                                                                          {981, "Diamond III", "Div I"},
+                                                                                          {1004, "Diamond III", "Div II"},
+                                                                                          {1028, "Diamond III", "Div III"},
+                                                                                          {1052, "Diamond III", "Div IV"},
+                                                                                          {1061, "Champion I", "Div I"},
+                                                                                          {1096, "Champion I", "Div II"},
+                                                                                          {1128, "Champion I", "Div III"},
+                                                                                          {1162, "Champion I", "Div IV"},
+                                                                                          {1181, "Champion II", "Div I"},
+                                                                                          {1215, "Champion II", "Div II"},
+                                                                                          {1254, "Champion II", "Div III"},
+                                                                                          {1282, "Champion II", "Div IV"},
+                                                                                          {1301, "Champion III", "Div I"},
+                                                                                          {1337, "Champion III", "Div II"},
+                                                                                          {1368, "Champion III", "Div III"},
+                                                                                          {1402, "Champion III", "Div IV"},
+                                                                                          {1421, "Grand Champion I", "Div I"},
+                                                                                          {1460, "Grand Champion I", "Div II"},
+                                                                                          {1498, "Grand Champion I", "Div III"},
+                                                                                          {1537, "Grand Champion I", "Div IV"},
+                                                                                          {1561, "Grand Champion II", "Div I"},
+                                                                                          {1600, "Grand Champion II", "Div II"},
+                                                                                          {1638, "Grand Champion II", "Div III"},
+                                                                                          {1677, "Grand Champion II", "Div IV"},
+                                                                                          {1701, "Grand Champion III", "Div I"},
+                                                                                          {1745, "Grand Champion III", "Div II"},
+                                                                                          {1788, "Grand Champion III", "Div III"},
+                                                                                          {1832, "Grand Champion III", "Div IV"},
+                                                                                          {1861, "Supersonic Legend", ""}}};
 
-static bool TryReadStatValue(const nlohmann::json& stats, std::initializer_list<const char*> keys, int& out) {
-    for (const char* key : keys) {
-        if (!stats.contains(key) || !stats[key].is_object()) continue;
-        const auto& stat = stats[key];
-        if (stat.contains("value") && stat["value"].is_number()) {
-            out = stat["value"].get<int>();
-            return true;
+    static bool TryReadStatValue(const nlohmann::json& stats, std::initializer_list<const char*> keys, int& out) {
+        for (const char* key : keys) {
+            if (!stats.contains(key) || !stats[key].is_object()) continue;
+            const auto& stat = stats[key];
+            if (stat.contains("value") && stat["value"].is_number()) {
+                out = stat["value"].get<int>();
+                return true;
+            }
         }
+        return false;
     }
-    return false;
-}
 
-static bool ShouldReplacePlaylistBucket(const std::map<std::string, int>& playlistMMRs, const std::string& playlistName, int mmr) {
-    auto it = playlistMMRs.find(playlistName);
-    return it == playlistMMRs.end() || mmr > it->second;
-}
+    static bool ShouldReplacePlaylistBucket(const std::map<std::string, int>& playlistMMRs, const std::string& playlistName, int mmr) {
+        auto it = playlistMMRs.find(playlistName);
+        return it == playlistMMRs.end() || mmr > it->second;
+    }
 
 } // namespace
 
@@ -162,17 +160,28 @@ std::string MMRFetcher::GetTournamentTierForMmr(int mmr) {
 
 std::string MMRFetcher::PlaylistNameForTrackerId(int playlistId) {
     switch (playlistId) {
-        case 10: return "1v1";
-        case 11: return "2v2";
-        case 13: return "3v3";
-        case 27: return "hoops";
-        case 28: return "rumble";
-        case 29: return "dropshot";
-        case 30: return "snowday";
-        case 34: return "t";
-        case 43: return "heatseeker";
-        case 0: return "casual";
-        default: return "";
+    case 10:
+        return "1v1";
+    case 11:
+        return "2v2";
+    case 13:
+        return "3v3";
+    case 27:
+        return "hoops";
+    case 28:
+        return "rumble";
+    case 29:
+        return "dropshot";
+    case 30:
+        return "snowday";
+    case 34:
+        return "t";
+    case 43:
+        return "heatseeker";
+    case 0:
+        return "casual";
+    default:
+        return "";
     }
 }
 
@@ -231,7 +240,7 @@ std::string MMRFetcher::GetTRNPlatform(const std::string& primaryId) {
     // Trim potential spaces
     plat.erase(0, plat.find_first_not_of(" \t\r\n"));
     plat.erase(plat.find_last_not_of(" \t\r\n") + 1);
-    
+
     // Convert to lowercase for case-insensitive matching
     std::transform(plat.begin(), plat.end(), plat.begin(), ::tolower);
 
@@ -256,7 +265,7 @@ void MMRFetcher::WorkerLoop() {
         {
             std::unique_lock<std::mutex> lock(m_queueMutex);
             m_cv.wait(lock, [this] { return !m_queue.empty() || !m_isRunning; });
-            
+
             if (!m_isRunning && m_queue.empty()) break;
 
             req = m_queue.front();
@@ -309,10 +318,10 @@ void MMRFetcher::FetchProfile(const MMRRequest& req, bool& rateLimited) {
     } else {
         ident = req.name;
     }
-    
+
     char* escaped_ident = ci.easy_escape(ci_curl, ident.c_str(), (int)ident.length());
     std::string final_ident = escaped_ident;
-    ci.free_ptr(escaped_ident); 
+    ci.free_ptr(escaped_ident);
 
     std::string url = "https://api.tracker.gg/api/v2/rocket-league/standard/profile/" + plat + "/" + final_ident;
 
@@ -343,15 +352,12 @@ void MMRFetcher::FetchProfile(const MMRRequest& req, bool& rateLimited) {
     ci.easy_setopt(ci_curl, CI_CURLOPT_XFERINFODATA, &m_isRunning);
     ci.easy_setopt(ci_curl, CI_CURLOPT_NOPROGRESS, 0L);
 
-
     int res = ci.easy_perform(ci_curl);
     long http_code = 0;
     ci.easy_getinfo(ci_curl, CI_CURLINFO_RESPONSE_CODE, &http_code);
-    
+
     ci.slist_free_all(headers);
     ci.easy_cleanup(ci_curl);
-
-
 
     if (res != 0 || http_code != 200) {
         std::cout << "[MMRFetcher] Failed to fetch " << PrivacyLog::Sensitive(req.name, "player name")
@@ -364,7 +370,7 @@ void MMRFetcher::FetchProfile(const MMRRequest& req, bool& rateLimited) {
                 m_cv.wait_for(lock, std::chrono::seconds(15), [this] { return !m_isRunning; });
             }
             if (!m_isRunning) return;
-            
+
             // Re-enqueue the failed request
             std::lock_guard<std::mutex> lock(m_queueMutex);
             m_queue.push(req);
@@ -385,9 +391,9 @@ void MMRFetcher::FetchProfile(const MMRRequest& req, bool& rateLimited) {
     try {
         nlohmann::json jsonResp = nlohmann::json::parse(readBuffer);
         MMRProfileTotals profileTotals = ExtractProfileTotals(jsonResp);
-        if (jsonResp.contains("data") && jsonResp["data"].is_object() && 
+        if (jsonResp.contains("data") && jsonResp["data"].is_object() &&
             jsonResp["data"].contains("segments") && jsonResp["data"]["segments"].is_array()) {
-            
+
             int bestMMR = 0;
             std::string bestTier = "Unranked";
             std::string bestPlaylistName = "best";
@@ -396,14 +402,14 @@ void MMRFetcher::FetchProfile(const MMRRequest& req, bool& rateLimited) {
             std::map<std::string, int> playlistMatches;
 
             for (const auto& seg : jsonResp["data"]["segments"]) {
-                if (seg.is_object() && 
-                    seg.contains("type") && seg["type"].is_string() && seg["type"] == "playlist" && 
+                if (seg.is_object() &&
+                    seg.contains("type") && seg["type"].is_string() && seg["type"] == "playlist" &&
                     seg.contains("attributes") && seg["attributes"].is_object()) {
-                    
+
                     auto attrs = seg["attributes"];
                     if (attrs.contains("playlistId") && attrs["playlistId"].is_number_integer()) {
                         int playlistId = attrs["playlistId"].get<int>();
-                        
+
                         std::string playlistName = PlaylistNameForTrackerId(playlistId);
 
                         if (!playlistName.empty() && seg.contains("stats") && seg["stats"].is_object()) {
@@ -412,7 +418,7 @@ void MMRFetcher::FetchProfile(const MMRRequest& req, bool& rateLimited) {
                                 auto rating = stats["rating"];
                                 if (rating.contains("value") && rating["value"].is_number()) {
                                     int mmr = rating["value"].get<int>();
-                                    
+
                                     std::string tier = "Unranked";
                                     if (stats.contains("tier") && stats["tier"].is_object()) {
                                         auto tierObj = stats["tier"];
@@ -438,10 +444,14 @@ void MMRFetcher::FetchProfile(const MMRRequest& req, bool& rateLimited) {
                                         }
                                         if (division.empty() && divObj.contains("value") && divObj["value"].is_number()) {
                                             int divVal = divObj["value"].get<int>();
-                                            if (divVal == 1) division = "Div I";
-                                            else if (divVal == 2) division = "Div II";
-                                            else if (divVal == 3) division = "Div III";
-                                            else if (divVal == 4) division = "Div IV";
+                                            if (divVal == 1)
+                                                division = "Div I";
+                                            else if (divVal == 2)
+                                                division = "Div II";
+                                            else if (divVal == 3)
+                                                division = "Div III";
+                                            else if (divVal == 4)
+                                                division = "Div IV";
                                         }
                                     }
 
@@ -509,7 +519,7 @@ void MMRFetcher::FetchProfile(const MMRRequest& req, bool& rateLimited) {
 
                 if (req.primaryId == m_state->game.myPrimaryId) {
                     if (m_state->history.initialMmr == -1 && bestMMR > 0) {
-                        m_state->history.initialMmr = bestMMR; 
+                        m_state->history.initialMmr = bestMMR;
                     }
                     if (bestMMR > 0) {
                         m_state->history.mmrHistoryY.push_back((float)bestMMR);
@@ -527,7 +537,7 @@ void MMRFetcher::FetchProfile(const MMRRequest& req, bool& rateLimited) {
                             if (m_state->history.playlistInitialMmr.count(playlistName) == 0) {
                                 m_state->history.playlistInitialMmr[playlistName] = mmr;
                             }
-                            
+
                             // Calculate playlist-specific MMR change
                             m_state->game.sessionTotals.mmrChangeByPlaylist[playlistName] = mmr - m_state->history.playlistInitialMmr[playlistName];
 
@@ -546,8 +556,7 @@ void MMRFetcher::FetchProfile(const MMRRequest& req, bool& rateLimited) {
                         static_cast<int>(m_state->game.roster.size()),
                         m_state->ui.rosterMmrCategory.load(),
                         m_state->ui.graphMmrCategory.load(),
-                        arenaKey
-                    );
+                        arenaKey);
 
                     // If active playlist is valid, set totalMmrChange from that playlist's delta,
                     // otherwise fall back to the active graph category's delta.

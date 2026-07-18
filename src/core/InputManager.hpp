@@ -10,7 +10,7 @@
 #endif
 
 class InputManager {
-public:
+  public:
     InputManager(std::shared_ptr<SessionState> state);
     ~InputManager();
 
@@ -22,11 +22,11 @@ public:
     static LRESULT CALLBACK LowLevelKeyboardProc(int nCode, WPARAM wParam, LPARAM lParam);
 #endif
 
-private:
+  private:
     void KeyboardThreadLoop();
     void GamepadThreadLoop();
     void RefreshConfigCache();
-    
+
     std::shared_ptr<SessionState> m_state;
     std::jthread m_keyboardThread;
     std::jthread m_gamepadThread;

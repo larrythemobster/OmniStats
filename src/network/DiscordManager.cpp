@@ -115,15 +115,15 @@ void DiscordManager::ApplyPresence(const DiscordPresenceSnapshot& snapshot) {
     std::string stateStr;
     std::string detailsStr;
     std::time_t timestamp = std::time(nullptr);
-    
+
     if (snapshot.inMatch) {
         // In a match — show arena and score
         detailsStr = snapshot.arenaName.empty() ? "Unknown Arena" : snapshot.arenaName;
-        
+
         // Show score in details
         int team0 = snapshot.score[0];
         int team1 = snapshot.score[1];
-        
+
         if (snapshot.myTeam == 0) {
             stateStr = "Score: " + std::to_string(team0) + " - " + std::to_string(team1);
         } else if (snapshot.myTeam == 1) {
@@ -131,14 +131,14 @@ void DiscordManager::ApplyPresence(const DiscordPresenceSnapshot& snapshot) {
         } else {
             stateStr = "Score: " + std::to_string(team0) + " - " + std::to_string(team1);
         }
-        
+
         // Add session record to state
         int wins = snapshot.sessionWins;
         int losses = snapshot.sessionLosses;
         if (wins > 0 || losses > 0) {
             stateStr += " | Session: " + std::to_string(wins) + "W - " + std::to_string(losses) + "L";
         }
-        
+
         presence.startTimestamp = timestamp;
     } else {
         // In menus
@@ -146,7 +146,7 @@ void DiscordManager::ApplyPresence(const DiscordPresenceSnapshot& snapshot) {
 
         int wins = snapshot.sessionWins;
         int losses = snapshot.sessionLosses;
-        
+
         if (wins > 0 || losses > 0) {
             float winRate = wins > 0 ? (float)wins / (wins + losses) * 100.0f : 0.0f;
             stateStr = "Session: " + std::to_string(wins) + "W - " + std::to_string(losses) + "L";
@@ -154,7 +154,7 @@ void DiscordManager::ApplyPresence(const DiscordPresenceSnapshot& snapshot) {
         } else {
             stateStr = "Warming up...";
         }
-        
+
         presence.startTimestamp = timestamp;
     }
 

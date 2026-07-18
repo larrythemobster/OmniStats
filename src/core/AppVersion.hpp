@@ -5,5 +5,5 @@
 #endif
 
 namespace AppVersion {
-inline constexpr const char* Current = OMNISTATS_VERSION;
+    inline constexpr const char* Current = OMNISTATS_VERSION;
 }

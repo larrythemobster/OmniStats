@@ -16,16 +16,14 @@ TEST(TelemetryReducerStats, CountsEpicSaveAsSave) {
         state->game.roster["Steam|1"] = PlayerData{
             .primaryId = "Steam|1",
             .name = "P1",
-            .team = 0
-        };
+            .team = 0};
     }
 
     nlohmann::json statFeedData;
     statFeedData["EventName"] = "EpicSave";
     statFeedData["Player"] = {
         {"PrimaryId", "Steam|1"},
-        {"Name", "P1"}
-    };
+        {"Name", "P1"}};
 
     reducer.Reduce(std::string(Constants::EVT_STATFEED), statFeedData);
 
@@ -53,13 +51,11 @@ TEST(TelemetryReducerStats, AddsDemoedSelfToSessionTotalsOnMatchEnd) {
         state->game.roster["Steam|1"] = PlayerData{
             .primaryId = "Steam|1",
             .name = "P1",
-            .team = 0
-        };
+            .team = 0};
         state->game.roster["Steam|2"] = PlayerData{
             .primaryId = "Steam|2",
             .name = "P2",
-            .team = 1
-        };
+            .team = 1};
     }
     state->ui.rosterMmrCategory.store(MmrCategory::OneVOne);
 
@@ -67,12 +63,10 @@ TEST(TelemetryReducerStats, AddsDemoedSelfToSessionTotalsOnMatchEnd) {
     statFeedData["EventName"] = "Demolish";
     statFeedData["MainTarget"] = {
         {"PrimaryId", "Steam|2"},
-        {"Name", "P2"}
-    };
+        {"Name", "P2"}};
     statFeedData["SecondaryTarget"] = {
         {"PrimaryId", "Steam|1"},
-        {"Name", "P1"}
-    };
+        {"Name", "P1"}};
     reducer.Reduce(std::string(Constants::EVT_STATFEED), statFeedData);
 
     nlohmann::json matchEndedData;

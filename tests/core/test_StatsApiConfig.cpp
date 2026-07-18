@@ -4,7 +4,7 @@
 #include <filesystem>
 
 class StatsApiConfigTest : public ::testing::Test {
-protected:
+  protected:
     void SetUp() override {
         tempDir = std::filesystem::temp_directory_path() / "OmniStatsTest";
         std::filesystem::create_directories(tempDir);
@@ -30,7 +30,7 @@ protected:
 };
 
 TEST_F(StatsApiConfigTest, VerifyValidConfig) {
-    std::string content = 
+    std::string content =
         "[StatsAPI]\r\n"
         "PacketSendRate=30\r\n"
         "Port=49123\r\n";
@@ -43,7 +43,7 @@ TEST_F(StatsApiConfigTest, VerifyValidConfig) {
 }
 
 TEST_F(StatsApiConfigTest, VerifyDisabledPacketSendRate) {
-    std::string content = 
+    std::string content =
         "[StatsAPI]\r\n"
         "PacketSendRate=0\r\n"
         "Port=49123\r\n";
@@ -54,7 +54,7 @@ TEST_F(StatsApiConfigTest, VerifyDisabledPacketSendRate) {
 }
 
 TEST_F(StatsApiConfigTest, VerifyWrongPacketSendRate) {
-    std::string content = 
+    std::string content =
         "[StatsAPI]\r\n"
         "PacketSendRate=10\r\n"
         "Port=49123\r\n";
@@ -65,7 +65,7 @@ TEST_F(StatsApiConfigTest, VerifyWrongPacketSendRate) {
 }
 
 TEST_F(StatsApiConfigTest, VerifyMissingPacketSendRate) {
-    std::string content = 
+    std::string content =
         "[StatsAPI]\r\n"
         "Port=49123\r\n";
     WriteFile(content);
@@ -75,7 +75,7 @@ TEST_F(StatsApiConfigTest, VerifyMissingPacketSendRate) {
 }
 
 TEST_F(StatsApiConfigTest, VerifyMissingPort) {
-    std::string content = 
+    std::string content =
         "[StatsAPI]\r\n"
         "PacketSendRate=30\r\n";
     WriteFile(content);
@@ -85,7 +85,7 @@ TEST_F(StatsApiConfigTest, VerifyMissingPort) {
 }
 
 TEST_F(StatsApiConfigTest, VerifyWrongPort) {
-    std::string content = 
+    std::string content =
         "[StatsAPI]\r\n"
         "PacketSendRate=30\r\n"
         "Port=55555\r\n";
@@ -97,7 +97,7 @@ TEST_F(StatsApiConfigTest, VerifyWrongPort) {
 }
 
 TEST_F(StatsApiConfigTest, VerifyWhitespaceAndCaseInsensitive) {
-    std::string content = 
+    std::string content =
         " [statsapi] \r\n"
         " packetsendrate = 30 \r\n"
         " port = 49123 \r\n";
@@ -110,7 +110,7 @@ TEST_F(StatsApiConfigTest, VerifyWhitespaceAndCaseInsensitive) {
 }
 
 TEST_F(StatsApiConfigTest, FixConfigPreservesCommentsAndFormat) {
-    std::string content = 
+    std::string content =
         "; Some initial comment\r\n"
         "[StatsAPI]\r\n"
         "PacketSendRate=0\r\n"
@@ -149,7 +149,7 @@ TEST_F(StatsApiConfigTest, FixConfigDoesNotOverwriteExistingBackup) {
         bakFile.write(existingBackupContent.data(), existingBackupContent.size());
     }
 
-    std::string modifiedContent = 
+    std::string modifiedContent =
         "[StatsAPI]\r\n"
         "PacketSendRate=0\r\n"
         "Port=12345\r\n";

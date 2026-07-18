@@ -5,7 +5,7 @@
 #include <filesystem>
 
 class DatabaseManagerTest : public ::testing::Test {
-protected:
+  protected:
     void SetUp() override {
         sessionState = std::make_shared<SessionState>();
         dbManager = std::make_shared<DatabaseManager>(sessionState);
@@ -60,7 +60,7 @@ TEST_F(DatabaseManagerTest, QueueShutdownAndSnapshotCorrectness) {
     {
         auto fileDb = std::make_shared<DatabaseManager>(sessionState);
         ASSERT_TRUE(fileDb->Initialize(testDbPath));
-        
+
         int wins = 0, losses = 0, games = 0;
         fileDb->GetGamemodeStats("Steam|123456", "1v1", wins, losses, games);
         EXPECT_EQ(wins, 1);

@@ -109,7 +109,9 @@ InputManager::InputManager(std::shared_ptr<SessionState> state)
     g_instance.store(this, std::memory_order_release);
 }
 
-InputManager::~InputManager() { Stop(); }
+InputManager::~InputManager() {
+    Stop();
+}
 
 void InputManager::Start() {
     m_isRunning = true;
@@ -404,7 +406,7 @@ LRESULT CALLBACK InputManager::LowLevelKeyboardProc(int nCode, WPARAM wParam,
 
     if (nCode == HC_ACTION && self->m_state) {
         auto& st = self->m_state;
-        KBDLLHOOKSTRUCT *kb = (KBDLLHOOKSTRUCT *)lParam;
+        KBDLLHOOKSTRUCT* kb = (KBDLLHOOKSTRUCT*)lParam;
         const bool keyDown = wParam == WM_KEYDOWN || wParam == WM_SYSKEYDOWN;
         if (keyDown) {
             st->ui.lastKeyboardKeyPressed.store(static_cast<int>(kb->vkCode));
@@ -475,8 +477,8 @@ LRESULT CALLBACK InputManager::LowLevelKeyboardProc(int nCode, WPARAM wParam,
 #endif
 
 void InputManager::GamepadThreadLoop() {
-    SDL_GameController *controller = nullptr;
-    SDL_Joystick *fallbackJoystick = nullptr;
+    SDL_GameController* controller = nullptr;
+    SDL_Joystick* fallbackJoystick = nullptr;
     auto lastScan = std::chrono::steady_clock::now();
     int lastLoggedDeviceCount = -1;
 
@@ -607,8 +609,8 @@ void InputManager::GamepadThreadLoop() {
                         const bool overlayVisible = st->ui.showOverlay.load();
 
                         if (overlayVisible && isPressed(self->m_gamepadCycle.load(std::memory_order_relaxed),
-                                      self->m_gamepadCycleRaw.load(std::memory_order_relaxed),
-                                      self->m_gamepadCycleRawButton.load(std::memory_order_relaxed))) {
+                                                        self->m_gamepadCycleRaw.load(std::memory_order_relaxed),
+                                                        self->m_gamepadCycleRawButton.load(std::memory_order_relaxed))) {
                             MmrCategory next = NextMmrCategory(st->ui.rosterMmrCategory.load(), self->m_showExtraPlaylists.load(std::memory_order_relaxed));
                             st->ui.rosterMmrCategory.store(next);
                             if (!self->m_secondMonitorMode.load(std::memory_order_relaxed)) st->ui.graphMmrCategory.store(next);
@@ -616,15 +618,17 @@ void InputManager::GamepadThreadLoop() {
                         }
 
                         if (overlayVisible && isPressed(self->m_gamepadExpand.load(std::memory_order_relaxed),
-                                      self->m_gamepadExpandRaw.load(std::memory_order_relaxed),
-                                      self->m_gamepadExpandRawButton.load(std::memory_order_relaxed))) {
-                            if (st->ui.showSessionView) st->ui.showGraphView = !st->ui.showGraphView;
-                            else st->ui.h2hExpanded = !st->ui.h2hExpanded;
+                                                        self->m_gamepadExpandRaw.load(std::memory_order_relaxed),
+                                                        self->m_gamepadExpandRawButton.load(std::memory_order_relaxed))) {
+                            if (st->ui.showSessionView)
+                                st->ui.showGraphView = !st->ui.showGraphView;
+                            else
+                                st->ui.h2hExpanded = !st->ui.h2hExpanded;
                         }
 
                         if (overlayVisible && isPressed(self->m_gamepadSession.load(std::memory_order_relaxed),
-                                      self->m_gamepadSessionRaw.load(std::memory_order_relaxed),
-                                      self->m_gamepadSessionRawButton.load(std::memory_order_relaxed))) {
+                                                        self->m_gamepadSessionRaw.load(std::memory_order_relaxed),
+                                                        self->m_gamepadSessionRawButton.load(std::memory_order_relaxed))) {
                             st->ui.showSessionView = !st->ui.showSessionView;
                             if (!st->ui.showSessionView) st->ui.showGraphView = false;
                         }
@@ -636,8 +640,10 @@ void InputManager::GamepadThreadLoop() {
                         }
                     }
 
-                    for (int i = 0; i < MAX_TRACKED_BUTTONS; ++i) prevControllerStates[i] = currentStates[i];
-                    for (int i = 0; i < 256; ++i) prevRawControllerStates[i] = currentRawControllerStates[i];
+                    for (int i = 0; i < MAX_TRACKED_BUTTONS; ++i)
+                        prevControllerStates[i] = currentStates[i];
+                    for (int i = 0; i < 256; ++i)
+                        prevRawControllerStates[i] = currentRawControllerStates[i];
                 }
             } else if (fallbackJoystick != nullptr) {
                 if (!SDL_JoystickGetAttached(fallbackJoystick)) {
@@ -676,8 +682,8 @@ void InputManager::GamepadThreadLoop() {
                         const bool overlayVisible = st->ui.showOverlay.load();
 
                         if (overlayVisible && isPressed(self->m_gamepadCycle.load(std::memory_order_relaxed),
-                                      self->m_gamepadCycleRaw.load(std::memory_order_relaxed),
-                                      self->m_gamepadCycleRawButton.load(std::memory_order_relaxed))) {
+                                                        self->m_gamepadCycleRaw.load(std::memory_order_relaxed),
+                                                        self->m_gamepadCycleRawButton.load(std::memory_order_relaxed))) {
                             MmrCategory next = NextMmrCategory(st->ui.rosterMmrCategory.load(), self->m_showExtraPlaylists.load(std::memory_order_relaxed));
                             st->ui.rosterMmrCategory.store(next);
                             if (!self->m_secondMonitorMode.load(std::memory_order_relaxed)) st->ui.graphMmrCategory.store(next);
@@ -685,15 +691,17 @@ void InputManager::GamepadThreadLoop() {
                         }
 
                         if (overlayVisible && isPressed(self->m_gamepadExpand.load(std::memory_order_relaxed),
-                                      self->m_gamepadExpandRaw.load(std::memory_order_relaxed),
-                                      self->m_gamepadExpandRawButton.load(std::memory_order_relaxed))) {
-                            if (st->ui.showSessionView) st->ui.showGraphView = !st->ui.showGraphView;
-                            else st->ui.h2hExpanded = !st->ui.h2hExpanded;
+                                                        self->m_gamepadExpandRaw.load(std::memory_order_relaxed),
+                                                        self->m_gamepadExpandRawButton.load(std::memory_order_relaxed))) {
+                            if (st->ui.showSessionView)
+                                st->ui.showGraphView = !st->ui.showGraphView;
+                            else
+                                st->ui.h2hExpanded = !st->ui.h2hExpanded;
                         }
 
                         if (overlayVisible && isPressed(self->m_gamepadSession.load(std::memory_order_relaxed),
-                                      self->m_gamepadSessionRaw.load(std::memory_order_relaxed),
-                                      self->m_gamepadSessionRawButton.load(std::memory_order_relaxed))) {
+                                                        self->m_gamepadSessionRaw.load(std::memory_order_relaxed),
+                                                        self->m_gamepadSessionRawButton.load(std::memory_order_relaxed))) {
                             st->ui.showSessionView = !st->ui.showSessionView;
                             if (!st->ui.showSessionView) st->ui.showGraphView = false;
                         }
@@ -705,7 +713,8 @@ void InputManager::GamepadThreadLoop() {
                         }
                     }
 
-                    for (int i = 0; i < 256; ++i) prevFallbackStates[i] = currentStates[i];
+                    for (int i = 0; i < 256; ++i)
+                        prevFallbackStates[i] = currentStates[i];
                 }
             }
         }

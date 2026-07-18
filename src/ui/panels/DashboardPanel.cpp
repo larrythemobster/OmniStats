@@ -16,62 +16,64 @@
 
 namespace {
 
-bool IsPointInRect(const ImVec2& point, const ImVec2& min, const ImVec2& max) {
-    return point.x >= min.x && point.x <= max.x && point.y >= min.y && point.y <= max.y;
-}
+    bool IsPointInRect(const ImVec2& point, const ImVec2& min, const ImVec2& max) {
+        return point.x >= min.x && point.x <= max.x && point.y >= min.y && point.y <= max.y;
+    }
 
-void MoveDashboardWidget(DashboardLayout::WidgetId droppedId, DashboardLayout::Zone zone, int insertIndex) {
-    Config::Update([droppedId, zone, insertIndex](ConfigData& c) {
-        DashboardLayout::Sanitize(c.dashboard_layout);
+    void MoveDashboardWidget(DashboardLayout::WidgetId droppedId, DashboardLayout::Zone zone, int insertIndex) {
+        Config::Update([droppedId, zone, insertIndex](ConfigData& c) {
+            DashboardLayout::Sanitize(c.dashboard_layout);
 
-        std::vector<DashboardLayout::WidgetId> zoneIds;
-        int currentIndex = -1;
-        int sourceIndex = 0;
-        for (const auto& w : c.dashboard_layout.widgets) {
-            if (w.zone == zone) {
-                if (w.id == droppedId) currentIndex = sourceIndex;
-                else zoneIds.push_back(w.id);
-                sourceIndex++;
+            std::vector<DashboardLayout::WidgetId> zoneIds;
+            int currentIndex = -1;
+            int sourceIndex = 0;
+            for (const auto& w : c.dashboard_layout.widgets) {
+                if (w.zone == zone) {
+                    if (w.id == droppedId)
+                        currentIndex = sourceIndex;
+                    else
+                        zoneIds.push_back(w.id);
+                    sourceIndex++;
+                }
             }
-        }
 
-        int targetIndex = insertIndex;
-        if (currentIndex >= 0 && currentIndex < targetIndex) targetIndex--;
-        targetIndex = std::clamp(targetIndex, 0, static_cast<int>(zoneIds.size()));
-        zoneIds.insert(zoneIds.begin() + targetIndex, droppedId);
+            int targetIndex = insertIndex;
+            if (currentIndex >= 0 && currentIndex < targetIndex) targetIndex--;
+            targetIndex = std::clamp(targetIndex, 0, static_cast<int>(zoneIds.size()));
+            zoneIds.insert(zoneIds.begin() + targetIndex, droppedId);
 
-        for (auto& w : c.dashboard_layout.widgets) {
-            if (w.id == droppedId) {
-                w.zone = zone;
-                break;
-            }
-        }
-
-        for (int i = 0; i < static_cast<int>(zoneIds.size()); ++i) {
             for (auto& w : c.dashboard_layout.widgets) {
-                if (w.id == zoneIds[i]) {
-                    w.order = i;
+                if (w.id == droppedId) {
+                    w.zone = zone;
                     break;
                 }
             }
-        }
 
-        DashboardLayout::Sanitize(c.dashboard_layout);
-    });
-}
+            for (int i = 0; i < static_cast<int>(zoneIds.size()); ++i) {
+                for (auto& w : c.dashboard_layout.widgets) {
+                    if (w.id == zoneIds[i]) {
+                        w.order = i;
+                        break;
+                    }
+                }
+            }
 
-std::string FormatRelativeMatchTime(int64_t endedAtUnix) {
-    if (endedAtUnix <= 0) return "--";
+            DashboardLayout::Sanitize(c.dashboard_layout);
+        });
+    }
 
-    int64_t now = static_cast<int64_t>(std::time(nullptr));
-    int64_t diff = now - endedAtUnix;
-    if (diff < 0) diff = 0;
+    std::string FormatRelativeMatchTime(int64_t endedAtUnix) {
+        if (endedAtUnix <= 0) return "--";
 
-    if (diff < 60) return "now";
-    if (diff < 3600) return std::to_string(diff / 60) + "m ago";
-    if (diff < 86400) return std::to_string(diff / 3600) + "h ago";
-    return std::to_string(diff / 86400) + "d ago";
-}
+        int64_t now = static_cast<int64_t>(std::time(nullptr));
+        int64_t diff = now - endedAtUnix;
+        if (diff < 0) diff = 0;
+
+        if (diff < 60) return "now";
+        if (diff < 3600) return std::to_string(diff / 60) + "m ago";
+        if (diff < 86400) return std::to_string(diff / 3600) + "h ago";
+        return std::to_string(diff / 86400) + "d ago";
+    }
 
 } // namespace
 
@@ -109,8 +111,8 @@ void DashboardPanel::Render() {
         bool isWindowed = ctx.config.second_monitor_mode;
 
         // Prompt user for update if available and auto-update is disabled
-        if (ctx.state.ui.updateAvailable.load() && 
-            !ctx.config.enable_auto_updates && 
+        if (ctx.state.ui.updateAvailable.load() &&
+            !ctx.config.enable_auto_updates &&
             !ctx.state.ui.updatePromptShown.load()) {
             ImGui::OpenPopup("Update Available Dialog");
             ctx.state.ui.updatePromptShown.store(true);
@@ -250,8 +252,7 @@ void DashboardPanel::Render() {
             drawList->AddLine(
                 ImVec2(windowPos.x + 24.0f * ctx.dpiScale, windowPos.y + io.DisplaySize.y - 44.0f * ctx.dpiScale),
                 ImVec2(windowPos.x + io.DisplaySize.x - 24.0f * ctx.dpiScale, windowPos.y + io.DisplaySize.y - 44.0f * ctx.dpiScale),
-                ImGui::GetColorU32(Format::C(ctx.config.themeMuted))
-            );
+                ImGui::GetColorU32(Format::C(ctx.config.themeMuted)));
             ImGui::SetCursorPos(ImVec2(24.0f * ctx.dpiScale, io.DisplaySize.y - 32.0f * ctx.dpiScale));
             if (ctx.state.ui.showMenu) {
                 ImGui::PushFont(ctx.fontBold);
@@ -373,14 +374,14 @@ void DashboardPanel::RenderCustomTitleBar() {
     bool clicked = ImGui::IsItemClicked();
     bool hovered = ImGui::IsItemHovered();
     bool mouseDown = ImGui::IsMouseDown(0);
-    
+
     if (hovered) {
         ImGui::SetTooltip("Click to toggle edit mode");
     }
 
     static bool lastMouseDown = false;
     bool triggered = false;
-    
+
     if (clicked) {
         triggered = true;
     } else if (hovered && mouseDown && !lastMouseDown) {
@@ -395,7 +396,7 @@ void DashboardPanel::RenderCustomTitleBar() {
             Config::RequestSave();
         }
     }
-    
+
     ImGui::SameLine(0, 0);
     if (ImGui::Button("_##Minimize", ImVec2(btnWidth, btnHeight))) {
         ShowWindow(m_hwnd, SW_MINIMIZE);
@@ -404,8 +405,10 @@ void DashboardPanel::RenderCustomTitleBar() {
     bool isMax = IsZoomed(m_hwnd) != 0;
     const char* maxSymbol = isMax ? "[]" : "[ ]";
     if (ImGui::Button(maxSymbol, ImVec2(btnWidth, btnHeight))) {
-        if (isMax) ShowWindow(m_hwnd, SW_RESTORE);
-        else ShowWindow(m_hwnd, SW_MAXIMIZE);
+        if (isMax)
+            ShowWindow(m_hwnd, SW_RESTORE);
+        else
+            ShowWindow(m_hwnd, SW_MAXIMIZE);
     }
     ImGui::SameLine(0, 0);
     ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.85f, 0.15f, 0.15f, 1.0f));
@@ -495,7 +498,7 @@ void DashboardPanel::RenderDashboardZones(const DashboardLayout::LayoutConfig& l
             topAny = true;
         }
     }
-    
+
     if (topAny) {
         ImGui::Dummy(ImVec2(0, 8));
         ImGui::Separator();
@@ -565,9 +568,9 @@ void DashboardPanel::RenderDashboardZones(const DashboardLayout::LayoutConfig& l
 
 void DashboardPanel::RenderWidget(DashboardLayout::WidgetId id, const char* idSuffix) {
     bool editMode = ctx.state.ui.dashboardLayoutEditMode.load();
-    
+
     ImGui::BeginGroup();
-    
+
     if (editMode) {
         // Draw a handle for dragging
         ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.2f, 0.2f, 0.2f, 0.6f));
@@ -585,37 +588,37 @@ void DashboardPanel::RenderWidget(DashboardLayout::WidgetId id, const char* idSu
     }
 
     switch (id) {
-        case DashboardLayout::WidgetId::LiveRoster:
-            RenderLiveRosterWidget(idSuffix);
-            break;
-        case DashboardLayout::WidgetId::LiveMatchStats:
-            RenderLiveMatchStatsWidget(idSuffix);
-            break;
-        case DashboardLayout::WidgetId::SessionStats:
-            RenderSessionStatsWidget(idSuffix);
-            break;
-        case DashboardLayout::WidgetId::MmrGraph:
-            RenderMmrGraphWidget(idSuffix);
-            break;
-        case DashboardLayout::WidgetId::StreaksStats:
-            RenderStreaksStatsWidget(idSuffix);
-            break;
-        case DashboardLayout::WidgetId::GamemodeBreakdown:
-            RenderGamemodeBreakdownWidget(idSuffix);
-            break;
-        case DashboardLayout::WidgetId::LobbyRanks:
-            RenderLobbyRanksWidget(idSuffix);
-            break;
-        case DashboardLayout::WidgetId::DemoTracker:
-            RenderDemoTrackerWidget(idSuffix);
-            break;
-        case DashboardLayout::WidgetId::PreviousGames:
-            RenderPreviousGamesWidget(idSuffix);
-            break;
+    case DashboardLayout::WidgetId::LiveRoster:
+        RenderLiveRosterWidget(idSuffix);
+        break;
+    case DashboardLayout::WidgetId::LiveMatchStats:
+        RenderLiveMatchStatsWidget(idSuffix);
+        break;
+    case DashboardLayout::WidgetId::SessionStats:
+        RenderSessionStatsWidget(idSuffix);
+        break;
+    case DashboardLayout::WidgetId::MmrGraph:
+        RenderMmrGraphWidget(idSuffix);
+        break;
+    case DashboardLayout::WidgetId::StreaksStats:
+        RenderStreaksStatsWidget(idSuffix);
+        break;
+    case DashboardLayout::WidgetId::GamemodeBreakdown:
+        RenderGamemodeBreakdownWidget(idSuffix);
+        break;
+    case DashboardLayout::WidgetId::LobbyRanks:
+        RenderLobbyRanksWidget(idSuffix);
+        break;
+    case DashboardLayout::WidgetId::DemoTracker:
+        RenderDemoTrackerWidget(idSuffix);
+        break;
+    case DashboardLayout::WidgetId::PreviousGames:
+        RenderPreviousGamesWidget(idSuffix);
+        break;
     }
-    
+
     ImGui::EndGroup();
-    
+
     // Add a separator or space between widgets
     ImGui::Dummy(ImVec2(0, 16));
     ImGui::Separator();
@@ -646,17 +649,13 @@ void DashboardPanel::RenderLiveRosterWidget(const char* idSuffix) {
     ImGui::SetCursorPosX(posCombo);
     ImGui::SetNextItemWidth(comboW);
     std::vector<std::pair<const char*, MmrCategory>> rosterCategories = {
-        {"Best", MmrCategory::Best}, {"1v1", MmrCategory::OneVOne}, {"2v2", MmrCategory::TwoVTwo},
-        {"3v3", MmrCategory::ThreeVThree}, {"Casual", MmrCategory::Casual}, {"Tournament", MmrCategory::Tourny}
-    };
+        {"Best", MmrCategory::Best}, {"1v1", MmrCategory::OneVOne}, {"2v2", MmrCategory::TwoVTwo}, {"3v3", MmrCategory::ThreeVThree}, {"Casual", MmrCategory::Casual}, {"Tournament", MmrCategory::Tourny}};
     if (ctx.config.show_extra_playlists) {
-        rosterCategories.insert(rosterCategories.begin() + 4, {
-            {"Hoops", MmrCategory::Hoops}, {"Rumble", MmrCategory::Rumble},
-            {"Dropshot", MmrCategory::Dropshot}, {"Snow Day", MmrCategory::SnowDay}
-        });
+        rosterCategories.insert(rosterCategories.begin() + 4, {{"Hoops", MmrCategory::Hoops}, {"Rumble", MmrCategory::Rumble}, {"Dropshot", MmrCategory::Dropshot}, {"Snow Day", MmrCategory::SnowDay}});
     }
     std::vector<const char*> rosterLabels;
-    for (const auto& category : rosterCategories) rosterLabels.push_back(category.first);
+    for (const auto& category : rosterCategories)
+        rosterLabels.push_back(category.first);
     int currentRosterCat = 0;
     MmrCategory loadedRosterCat = ctx.state.ui.rosterMmrCategory.load();
     for (int i = 0; i < static_cast<int>(rosterCategories.size()); ++i) {
@@ -757,10 +756,14 @@ void DashboardPanel::RenderPreviousGamesWidget(const char* idSuffix) {
 
                     const size_t matchIndex = static_cast<size_t>(set * rowsPerColumn + row);
                     if (matchIndex >= displayCount) {
-                        ImGui::TableNextColumn(); ImGui::TextUnformatted("");
-                        ImGui::TableNextColumn(); ImGui::TextUnformatted("");
-                        ImGui::TableNextColumn(); ImGui::TextUnformatted("");
-                        ImGui::TableNextColumn(); ImGui::TextUnformatted("");
+                        ImGui::TableNextColumn();
+                        ImGui::TextUnformatted("");
+                        ImGui::TableNextColumn();
+                        ImGui::TextUnformatted("");
+                        ImGui::TableNextColumn();
+                        ImGui::TextUnformatted("");
+                        ImGui::TableNextColumn();
+                        ImGui::TextUnformatted("");
                         continue;
                     }
 
@@ -775,8 +778,10 @@ void DashboardPanel::RenderPreviousGamesWidget(const char* idSuffix) {
                     ImGui::TableNextColumn();
                     ImGui::TextColored(rowColor, "%s", score.c_str());
                     ImGui::TableNextColumn();
-                    if (match.mmr > 0) ImGui::TextColored(rowColor, "%d", match.mmr);
-                    else ImGui::TextColored(Format::C(ctx.config.themeMuted), "--");
+                    if (match.mmr > 0)
+                        ImGui::TextColored(rowColor, "%d", match.mmr);
+                    else
+                        ImGui::TextColored(Format::C(ctx.config.themeMuted), "--");
                     ImGui::TableNextColumn();
                     ImGui::TextColored(rowColor, "%s", time.c_str());
                 }
@@ -798,13 +803,13 @@ void DashboardPanel::RenderMmrGraphWidget(const char* idSuffix) {
     std::transform(playlistUpper.begin(), playlistUpper.end(), playlistUpper.begin(), ::toupper);
 
     auto& t = ctx.config;
-    ImColor colorBg     = Format::C(t.themeBg);
-    ImColor colorText   = Format::C(t.themeText);
+    ImColor colorBg = Format::C(t.themeBg);
+    ImColor colorText = Format::C(t.themeText);
     ImColor colorAccent = Format::C(t.themeAccent);
-    ImColor colorDim    = Format::C(t.themeDim);
-    ImColor colorMuted  = Format::C(t.themeMuted);
-    ImColor colorWin    = Format::C(t.themeWin);
-    ImColor colorLoss   = Format::C(t.themeLoss);
+    ImColor colorDim = Format::C(t.themeDim);
+    ImColor colorMuted = Format::C(t.themeMuted);
+    ImColor colorWin = Format::C(t.themeWin);
+    ImColor colorLoss = Format::C(t.themeLoss);
     ImColor colorGraphLine = Format::C(t.themeGraphLine);
     ImColor colorGraphBaseline = Format::C(t.themeGraphBaseline);
 
@@ -851,19 +856,15 @@ void DashboardPanel::RenderMmrGraphWidget(const char* idSuffix) {
 
     ImGui::SetCursorPosX(posX);
     ImGui::SetNextItemWidth(comboW_graph);
-    
+
     std::vector<std::pair<const char*, MmrCategory>> graphCategories = {
-        {"1v1", MmrCategory::OneVOne}, {"2v2", MmrCategory::TwoVTwo}, {"3v3", MmrCategory::ThreeVThree},
-        {"Casual", MmrCategory::Casual}, {"Tournament", MmrCategory::Tourny}
-    };
+        {"1v1", MmrCategory::OneVOne}, {"2v2", MmrCategory::TwoVTwo}, {"3v3", MmrCategory::ThreeVThree}, {"Casual", MmrCategory::Casual}, {"Tournament", MmrCategory::Tourny}};
     if (ctx.config.show_extra_playlists) {
-        graphCategories.insert(graphCategories.begin() + 3, {
-            {"Hoops", MmrCategory::Hoops}, {"Rumble", MmrCategory::Rumble},
-            {"Dropshot", MmrCategory::Dropshot}, {"Snow Day", MmrCategory::SnowDay}
-        });
+        graphCategories.insert(graphCategories.begin() + 3, {{"Hoops", MmrCategory::Hoops}, {"Rumble", MmrCategory::Rumble}, {"Dropshot", MmrCategory::Dropshot}, {"Snow Day", MmrCategory::SnowDay}});
     }
     std::vector<const char*> graphLabels;
-    for (const auto& category : graphCategories) graphLabels.push_back(category.first);
+    for (const auto& category : graphCategories)
+        graphLabels.push_back(category.first);
     int currentGraphCat = 1;
     MmrCategory loadedGraphCat = ctx.state.ui.graphMmrCategory.load();
     for (int i = 0; i < static_cast<int>(graphCategories.size()); ++i) {
@@ -872,7 +873,7 @@ void DashboardPanel::RenderMmrGraphWidget(const char* idSuffix) {
             break;
         }
     }
-    
+
     if (ImGui::Combo("##GraphCatCombo", &currentGraphCat, graphLabels.data(), static_cast<int>(graphLabels.size()))) {
         MmrCategory selectedGraphCat = graphCategories[currentGraphCat].second;
         ctx.state.ui.graphMmrCategory.store(selectedGraphCat);
@@ -896,8 +897,7 @@ void DashboardPanel::RenderMmrGraphWidget(const char* idSuffix) {
     ImVec2 badgePos = ImVec2(cursorScreen.x + ImGui::GetContentRegionAvail().x - 44.0f * ctx.dpiScale, cursorScreen.y - 24.0f * ctx.dpiScale);
     Widgets::RenderMmrDeltaBadge(badgePos, delta, colorWin, colorLoss, colorMuted, ctx.fontSmallBold);
 
-    const auto& history = ctx.snap->showLifetimeGraph ? ctx.snap->lifetimeMmrY :
-                         (ctx.snap->playlistHistoryY.count(playlist) ? ctx.snap->playlistHistoryY.at(playlist) : std::vector<float>{});
+    const auto& history = ctx.snap->showLifetimeGraph ? ctx.snap->lifetimeMmrY : (ctx.snap->playlistHistoryY.count(playlist) ? ctx.snap->playlistHistoryY.at(playlist) : std::vector<float>{});
     if (history.empty()) {
         ImGui::Dummy(ImVec2(0.0f, 25.0f));
         ImGui::PushFont(ctx.fontRegular);
@@ -925,8 +925,7 @@ void DashboardPanel::RenderMmrGraphWidget(const char* idSuffix) {
             .colorGraphBaseline = colorGraphBaseline,
             .fontSmall = ctx.fontSmall,
             .fontSmallBold = ctx.fontSmallBold,
-            .fontBold = ctx.fontBold
-        };
+            .fontBold = ctx.fontBold};
         Widgets::RenderMmrGraph(params);
     }
 }
@@ -947,13 +946,13 @@ void DashboardPanel::RenderGamemodeBreakdownWidget(const char* idSuffix) {
     ImGui::PushFont(ctx.fontBold);
     ImGui::TextColored(Format::C(ctx.config.themeAccent), "GAMEMODE BREAKDOWN");
     ImGui::PopFont();
-    
+
     ImGui::SameLine(ImGui::GetContentRegionAvail().x - 120.0f * ctx.dpiScale);
     ImGui::SetNextItemWidth(120.0f * ctx.dpiScale);
-    const char* scopes[] = { "Current Session", "All-Time" };
+    const char* scopes[] = {"Current Session", "All-Time"};
     GamemodeBreakdownScope currentScope = ScopeFromConfigString(ctx.config.gamemode_breakdown_scope);
     int currentScopeIdx = (currentScope == GamemodeBreakdownScope::AllTime) ? 1 : 0;
-    
+
     ImGui::PushFont(ctx.fontSmall);
     if (ImGui::Combo("##GamemodeScopeCombo", &currentScopeIdx, scopes, 2)) {
         std::string newScopeStr = (currentScopeIdx == 1) ? "all_time" : "current_session";

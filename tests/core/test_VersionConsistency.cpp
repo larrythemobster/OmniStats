@@ -30,7 +30,7 @@ std::string ReadVersionFromVcpkgJson(const std::filesystem::path& vcpkgPath) {
 TEST(VersionConsistencyTest, VerifyDynamicVersionAlignment) {
     std::filesystem::path sourceDir(OMNISTATS_SOURCE_DIR);
     std::filesystem::path binaryDir(OMNISTATS_BINARY_DIR);
-    
+
     // Read the single source of truth version from vcpkg.json
     std::filesystem::path vcpkgPath = sourceDir / "vcpkg.json";
     std::string expectedVersion = ReadVersionFromVcpkgJson(vcpkgPath);

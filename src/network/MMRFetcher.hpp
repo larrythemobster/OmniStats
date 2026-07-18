@@ -20,13 +20,13 @@ struct MMRProfileTotals {
 };
 
 class MMRFetcher {
-public:
+  public:
     MMRFetcher(std::shared_ptr<SessionState> state);
     ~MMRFetcher();
 
     void Start();
     void Stop();
-    
+
     // Pushes a player into the queue to be fetched
     void Enqueue(const std::string& primaryId, const std::string& name);
 
@@ -34,18 +34,18 @@ public:
     static std::string PlaylistNameForTrackerId(int playlistId);
     static MMRProfileTotals ExtractProfileTotals(const nlohmann::json& jsonResp);
 
-private:
+  private:
     void WorkerLoop();
     void FetchProfile(const MMRRequest& req, bool& rateLimited);
     std::string GetTRNPlatform(const std::string& primaryId);
 
     std::shared_ptr<SessionState> m_state;
-    
+
     std::queue<MMRRequest> m_queue;
     std::unordered_set<std::string> m_queuedOrInFlight;
     std::mutex m_queueMutex;
     std::condition_variable m_cv;
-    
+
     std::jthread m_workerThread;
     std::atomic<bool> m_isRunning{false};
 };

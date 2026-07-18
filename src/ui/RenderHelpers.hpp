@@ -6,7 +6,9 @@
 
 struct ConfigData;
 struct RenderSnapshot;
-namespace std { class mutex; }
+namespace std {
+    class mutex;
+}
 struct CachedDbStats;
 
 struct MmrDeltaResult {
@@ -25,34 +27,32 @@ struct RenderFonts {
 
 namespace RenderHelper {
 
-void Record(int winsWith, int lossesWith, int winsAgainst, int lossesAgainst,
-            const ConfigData& cfg, const RenderFonts& fonts);
+    void Record(int winsWith, int lossesWith, int winsAgainst, int lossesAgainst,
+                const ConfigData& cfg, const RenderFonts& fonts);
 
-void PlayerRoster(int teamNum, const char* label, ImColor color, const char* tableId,
-                  const RenderSnapshot& snap, const ConfigData& cfg,
-                  const std::string& activeMmrCategory, float dpiScale,
-                  const RenderFonts& fonts);
+    void PlayerRoster(int teamNum, const char* label, ImColor color, const char* tableId,
+                      const RenderSnapshot& snap, const ConfigData& cfg,
+                      const std::string& activeMmrCategory, float dpiScale,
+                      const RenderFonts& fonts);
 
-void StatSection(const std::string& title, const std::string& tableId,
-                 const std::vector<std::pair<std::string, std::string>>& rows,
-                 const ConfigData& cfg, const RenderFonts& fonts);
+    void StatSection(const std::string& title, const std::string& tableId,
+                     const std::vector<std::pair<std::string, std::string>>& rows,
+                     const ConfigData& cfg, const RenderFonts& fonts);
 
-void LiveMatchStats(const char* tableIdPrefix,
-                    const RenderSnapshot& snap, const ConfigData& cfg,
-                    const RenderFonts& fonts);
+    void LiveMatchStats(const char* tableIdPrefix,
+                        const RenderSnapshot& snap, const ConfigData& cfg,
+                        const RenderFonts& fonts);
 
-void StreaksStatsTable(const char* tableId, const CachedDbStats& dbStats,
-                       const ConfigData& cfg, const RenderFonts& fonts);
+    void StreaksStatsTable(const char* tableId, const CachedDbStats& dbStats,
+                           const ConfigData& cfg, const RenderFonts& fonts);
 
-void GamemodeBreakdownTable(const char* tableId, const CachedDbStats& dbStats,
-                            const ConfigData& cfg);
+    void GamemodeBreakdownTable(const char* tableId, const CachedDbStats& dbStats,
+                                const ConfigData& cfg);
 
-void SessionStatsTable(const char* tableId, bool isDashboard, bool showStreak,
-                       const RenderSnapshot& snap, const ConfigData& cfg,
-                       const RenderFonts& fonts);
+    void SessionStatsTable(const char* tableId, bool isDashboard, bool showStreak,
+                           const RenderSnapshot& snap, const ConfigData& cfg,
+                           const RenderFonts& fonts);
 
-MmrDeltaResult ComputeMmrDelta(const RenderSnapshot& snap, const std::string& playlist);
+    MmrDeltaResult ComputeMmrDelta(const RenderSnapshot& snap, const std::string& playlist);
 
 } // namespace RenderHelper
-
-

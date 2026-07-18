@@ -27,8 +27,10 @@ static std::string CsvEscape(const std::string& value) {
 
     std::string escaped = "\"";
     for (char c : value) {
-        if (c == '\"') escaped += "\"\"";
-        else escaped += c;
+        if (c == '\"')
+            escaped += "\"\"";
+        else
+            escaped += c;
     }
     escaped += "\"";
     return escaped;
@@ -242,8 +244,7 @@ void DatabaseManager::SaveMatch(const MatchSaveSnapshot& snapshot) {
         static_cast<int>(snapshot.roster.size()),
         snapshot.rosterMmrCategory,
         snapshot.graphMmrCategory,
-        arenaKey
-    );
+        arenaKey);
 
     char* errMsg = nullptr;
     if (sqlite3_exec(m_db, "BEGIN IMMEDIATE;", nullptr, nullptr, &errMsg) != SQLITE_OK) {
@@ -254,7 +255,7 @@ void DatabaseManager::SaveMatch(const MatchSaveSnapshot& snapshot) {
 
     std::string sqlMatches = "INSERT INTO Matches (arena, our_score, their_score, win, match_guid, gamemode, player_count) VALUES (?, ?, ?, ?, ?, ?, ?);";
     sqlite3_stmt* stmtMatches;
-    
+
     if (sqlite3_prepare_v2(m_db, sqlMatches.c_str(), -1, &stmtMatches, nullptr) != SQLITE_OK) {
         std::cerr << "Failed to prepare insert statement\n";
         sqlite3_exec(m_db, "ROLLBACK;", nullptr, nullptr, nullptr);
@@ -296,7 +297,7 @@ void DatabaseManager::SaveMatch(const MatchSaveSnapshot& snapshot) {
 
     for (const auto& [id, p] : snapshot.roster) {
         bool isOpponent = (p.team != snapshot.myTeam);
-        
+
         sqlite3_bind_int64(stmtPlayers, 1, matchId);
         sqlite3_bind_text(stmtPlayers, 2, p.primaryId.c_str(), -1, SQLITE_TRANSIENT);
         sqlite3_bind_text(stmtPlayers, 3, p.name.c_str(), -1, SQLITE_TRANSIENT);
@@ -342,8 +343,8 @@ void DatabaseManager::GetLifetimeMmrHistory(const std::string& primaryId, const 
 
     const char* sql;
     bool filtered = (playlist == "1v1" || playlist == "2v2" || playlist == "3v3" || playlist == "casual" || playlist == "t" ||
-        playlist == "hoops" || playlist == "rumble" || playlist == "dropshot" || playlist == "snowday");
-    
+                     playlist == "hoops" || playlist == "rumble" || playlist == "dropshot" || playlist == "snowday");
+
     if (filtered) {
         sql = R"(
             SELECT strftime('%s', Matches.timestamp) as epoch, MatchPlayers.mmr 
@@ -778,8 +779,9 @@ std::string DatabaseManager::GetSetting(const std::string& key, const std::strin
 
 void DatabaseManager::AsyncSetSetting(std::string key, std::string value) {
     if (!EnqueueDbJob([this, key = std::move(key), value = std::move(value)]() {
-        (void)SetSetting(key, value);
-    }, DbJobPriority::Critical)) {
+            (void)SetSetting(key, value);
+        },
+                      DbJobPriority::Critical)) {
         std::cerr << "[Database] Failed to enqueue setting write for " << key << ".\n";
     }
 }
@@ -810,7 +812,7 @@ bool DatabaseManager::EnqueueDbJob(std::function<void()> job, DbJobPriority prio
             std::cerr << "[Database] Queue full, preserving critical job.\n";
         }
 
-        m_jobs.push_back({ std::move(job), priority, std::move(coalesceKey) });
+        m_jobs.push_back({std::move(job), priority, std::move(coalesceKey)});
     }
 
     m_cv.notify_one();
@@ -836,7 +838,8 @@ void DatabaseManager::AsyncGetLifetimeMmrHistory(const std::string& primaryId, c
             m_state->history.lifetimeMmrY = std::move(tempY);
             m_state->history.version++;
         }
-    }, DbJobPriority::Coalescable, "lifetime:" + pid + "|" + pl);
+    },
+                       DbJobPriority::Coalescable, "lifetime:" + pid + "|" + pl);
 }
 
 void DatabaseManager::AsyncGetRecentMatchHistory(const std::string& primaryId, int limit) {
@@ -851,7 +854,8 @@ void DatabaseManager::AsyncGetRecentMatchHistory(const std::string& primaryId, i
             m_state->history.recentSavedMatchesLoaded = true;
             m_state->history.version++;
         }
-    }, DbJobPriority::Coalescable, "recent_matches:" + pid + "|" + std::to_string(rowLimit));
+    },
+                       DbJobPriority::Coalescable, "recent_matches:" + pid + "|" + std::to_string(rowLimit));
 }
 
 // Testing instrumentation defaults
@@ -886,7 +890,8 @@ void DatabaseManager::AsyncRefreshDbStats(const std::string& primaryId) {
     s_test_async_refresh_calls.fetch_add(1);
     (void)EnqueueDbJob([this, pid]() {
         RefreshDbStatsSync(pid);
-    }, DbJobPriority::Coalescable, "refresh:" + pid);
+    },
+                       DbJobPriority::Coalescable, "refresh:" + pid);
 }
 
 void DatabaseManager::AsyncGetPlayerEncounterRecord(const std::string& primaryId) {
@@ -908,25 +913,27 @@ void DatabaseManager::AsyncGetPlayerEncounterRecord(const std::string& primaryId
                 }
             }
         }
-    }, DbJobPriority::Coalescable, "encounter:" + pid);
+    },
+                       DbJobPriority::Coalescable, "encounter:" + pid);
 }
 
 void DatabaseManager::AsyncSaveMatch(MatchSaveSnapshot snapshot) {
     if (!EnqueueDbJob([this, snap = std::move(snapshot)]() {
-        SaveMatch(snap);
-        RefreshDbStatsSync(snap.myPrimaryId);
-        ConfigData conf = Config::Read();
-        std::string primaryId = conf.last_primary_id.empty() ? snap.myPrimaryId : conf.last_primary_id;
-        std::vector<SessionMatchSummary> matches;
-        GetRecentMatchHistory(primaryId, matches, conf.previous_games_limit);
-        if (m_state) {
-            std::unique_lock<std::shared_mutex> lock(m_state->history.mutex);
-            m_state->history.recentSavedMatches = std::move(matches);
-            m_state->history.recentSavedMatchesLoaded = true;
-            m_state->history.version++;
-        }
-        if (m_state) m_state->ui.dbStatsDirty.store(true);
-    }, DbJobPriority::Critical)) {
+            SaveMatch(snap);
+            RefreshDbStatsSync(snap.myPrimaryId);
+            ConfigData conf = Config::Read();
+            std::string primaryId = conf.last_primary_id.empty() ? snap.myPrimaryId : conf.last_primary_id;
+            std::vector<SessionMatchSummary> matches;
+            GetRecentMatchHistory(primaryId, matches, conf.previous_games_limit);
+            if (m_state) {
+                std::unique_lock<std::shared_mutex> lock(m_state->history.mutex);
+                m_state->history.recentSavedMatches = std::move(matches);
+                m_state->history.recentSavedMatchesLoaded = true;
+                m_state->history.version++;
+            }
+            if (m_state) m_state->ui.dbStatsDirty.store(true);
+        },
+                      DbJobPriority::Critical)) {
         std::cerr << "[Database] Failed to enqueue match save during shutdown.\n";
     }
 }

@@ -16,24 +16,9 @@ static std::string FormatArenaName(const std::string& asset) {
         base = base.substr(0, base.length() - 2);
     }
     static const std::unordered_map<std::string, std::string> ARENA_BASE = {
-        {"stadium", "DFH Stadium"}, {"park", "Beckwith Park"}, {"mannfield", "Mannfield"}, {"trainstation", "Urban Central"},
-        {"haunted_trainstation", "Urban Central (Haunted)"}, {"underwater", "AquaDome"},
-        {"wasteland", "Wasteland"}, {"neotokyo", "Neo Tokyo"}, {"neotokyo_standard", "Neo Tokyo"},
-        {"eurostadium", "Champions Field"}, {"beach", "Salty Shores"}, {"beachvolley", "Salty Shores"},
-        {"chinastadium", "Forbidden Temple"}, {"temple", "Forbidden Temple"}, {"cosmic", "Starbase ARC"}, {"arc_standard", "Starbase ARC"},
-        {"throwback_stadium", "Throwback Stadium"}, {"hoops_dunkhouse", "DunkHouse"},
-        {"music", "Estadio Vida"}, {"estadio_vida", "Estadio Vida"}, {"farm", "Farmstead"},
-        {"outlaw_oasis", "Deadeye Canyon"}, {"canyon", "Deadeye Canyon"}, {"shattershot", "Core 707"},
-        {"labs_octagon", "Octagon"}, {"labs_pillars", "Pillars"}, {"labs_cosmic", "Cosmic"},
-        {"labs_double_goal", "Double Goal"}, {"labs_underpass", "Underpass"},
-        {"labs_utopia", "Utopia Retro"}, {"neoasphalt", "Neon Fields"}, {"neon", "Neon Fields"},
-        {"utopia", "Utopia Coliseum"}, {"sovereign", "Sovereign Heights"}
-    };
+        {"stadium", "DFH Stadium"}, {"park", "Beckwith Park"}, {"mannfield", "Mannfield"}, {"trainstation", "Urban Central"}, {"haunted_trainstation", "Urban Central (Haunted)"}, {"underwater", "AquaDome"}, {"wasteland", "Wasteland"}, {"neotokyo", "Neo Tokyo"}, {"neotokyo_standard", "Neo Tokyo"}, {"eurostadium", "Champions Field"}, {"beach", "Salty Shores"}, {"beachvolley", "Salty Shores"}, {"chinastadium", "Forbidden Temple"}, {"temple", "Forbidden Temple"}, {"cosmic", "Starbase ARC"}, {"arc_standard", "Starbase ARC"}, {"throwback_stadium", "Throwback Stadium"}, {"hoops_dunkhouse", "DunkHouse"}, {"music", "Estadio Vida"}, {"estadio_vida", "Estadio Vida"}, {"farm", "Farmstead"}, {"outlaw_oasis", "Deadeye Canyon"}, {"canyon", "Deadeye Canyon"}, {"shattershot", "Core 707"}, {"labs_octagon", "Octagon"}, {"labs_pillars", "Pillars"}, {"labs_cosmic", "Cosmic"}, {"labs_double_goal", "Double Goal"}, {"labs_underpass", "Underpass"}, {"labs_utopia", "Utopia Retro"}, {"neoasphalt", "Neon Fields"}, {"neon", "Neon Fields"}, {"utopia", "Utopia Coliseum"}, {"sovereign", "Sovereign Heights"}};
     static const std::unordered_map<std::string, std::string> ARENA_VARIANT = {
-        {"night", "Night"}, {"day", "Day"}, {"rainy", "Stormy"}, {"stormy", "Stormy"},
-        {"race_day", "Stormy"}, {"snowy", "Snowy"}, {"snowfall", "Snowy"}, {"dawn", "Dawn"},
-        {"spring", "Spring"}, {"spooky", "Spooky"}, {"circuit", "Circuit"}
-    };
+        {"night", "Night"}, {"day", "Day"}, {"rainy", "Stormy"}, {"stormy", "Stormy"}, {"race_day", "Stormy"}, {"snowy", "Snowy"}, {"snowfall", "Snowy"}, {"dawn", "Dawn"}, {"spring", "Spring"}, {"spooky", "Spooky"}, {"circuit", "Circuit"}};
     auto baseIt = ARENA_BASE.find(base);
     if (baseIt != ARENA_BASE.end()) return baseIt->second;
     size_t lastUnderscore = base.find_last_of('_');
@@ -44,7 +29,10 @@ static std::string FormatArenaName(const std::string& asset) {
         if (candIt != ARENA_BASE.end()) {
             auto varIt = ARENA_VARIANT.find(variant);
             if (varIt != ARENA_VARIANT.end()) return candIt->second + " (" + varIt->second + ")";
-            if (!variant.empty()) { variant[0] = toupper(variant[0]); return candIt->second + " (" + variant + ")"; }
+            if (!variant.empty()) {
+                variant[0] = toupper(variant[0]);
+                return candIt->second + " (" + variant + ")";
+            }
             return candIt->second;
         }
     }
@@ -77,8 +65,7 @@ static std::string InferModeFromMatchState(const GameState& game, MmrCategory ro
         static_cast<int>(game.roster.size()),
         rosterCat,
         graphCat,
-        arenaKey
-    );
+        arenaKey);
 }
 
 static MmrCategory CategoryFromMatchContext(const GameState& game) {
@@ -152,7 +139,7 @@ SideEffects TelemetryReducer::Reduce(const std::string& eventName, const nlohman
                 m_state->game.roundEverStarted &&
                 m_state->game.localPlayerWasActive &&
                 (m_state->game.myTeam == 0 || m_state->game.myTeam == 1)) {
-                
+
                 int winnerTeam = -1;
                 if (m_state->game.score[0] != m_state->game.score[1]) {
                     winnerTeam = (m_state->game.score[0] > m_state->game.score[1]) ? 0 : 1;
@@ -271,8 +258,7 @@ void TelemetryReducer::HandleUpdateState(const nlohmann::json& data, SideEffects
                             .name = p["Name"].get<std::string>(),
                             .team = team,
                             .fetched = isBot,
-                            .enqueued = true
-                        };
+                            .enqueued = true};
                         effects.fetchMmrQueue.emplace_back(pid, p["Name"].get<std::string>());
                         effects.fetchEncounterQueue.push_back(pid);
                     } else {
@@ -336,112 +322,112 @@ void TelemetryReducer::HandleUpdateState(const nlohmann::json& data, SideEffects
                 }
             }
 
-                if (hasLocalPlayerFeeds) {
-                    // If we already have a saved id but we do NOT see it in the lobby and
-                    // we observe exactly one local feed candidate, assume the user switched
-                    // accounts and update immediately to that candidate.
-                    if (!mySavedId.empty() && !seenMyIdInLobby && !currentCandidates.empty()) {
-                        // Deterministically pick a candidate (lexicographically smallest) to avoid
-                        // non-determinism from unordered_set iteration order.
-                        std::string newId = *std::min_element(currentCandidates.begin(), currentCandidates.end());
-                        if (newId != mySavedId) {
-                            m_state->game.myPrimaryId = newId;
-                            // Try to pick up team info from the current players array
-                            for (const auto& p : data["Players"]) {
-                                if (p.contains("PrimaryId") && p["PrimaryId"].is_string() && p["PrimaryId"].get<std::string>() == newId) {
-                                    if (p.contains("TeamNum") && p["TeamNum"].is_number_integer())
-                                        m_state->game.myTeam = p["TeamNum"].get<int>();
-                                    break;
-                                }
+            if (hasLocalPlayerFeeds) {
+                // If we already have a saved id but we do NOT see it in the lobby and
+                // we observe exactly one local feed candidate, assume the user switched
+                // accounts and update immediately to that candidate.
+                if (!mySavedId.empty() && !seenMyIdInLobby && !currentCandidates.empty()) {
+                    // Deterministically pick a candidate (lexicographically smallest) to avoid
+                    // non-determinism from unordered_set iteration order.
+                    std::string newId = *std::min_element(currentCandidates.begin(), currentCandidates.end());
+                    if (newId != mySavedId) {
+                        m_state->game.myPrimaryId = newId;
+                        // Try to pick up team info from the current players array
+                        for (const auto& p : data["Players"]) {
+                            if (p.contains("PrimaryId") && p["PrimaryId"].is_string() && p["PrimaryId"].get<std::string>() == newId) {
+                                if (p.contains("TeamNum") && p["TeamNum"].is_number_integer())
+                                    m_state->game.myTeam = p["TeamNum"].get<int>();
+                                break;
                             }
-                            Config::Update([&newId](ConfigData& c) { c.last_primary_id = newId; });
-                            std::cout << "[Identity] Detected account switch. New ID: " << PrivacyLog::Sensitive(newId, "player ID") << "\n";
-                            m_identityCandidates.clear();
-                            if (m_state->game.roster.count(newId)) {
-                                auto& self = m_state->game.roster[newId];
-                                if (!self.enqueued && self.mmr == 0) {
-                                    self.enqueued = true;
-                                    std::cout << "[Identity] Identified local player: " << PrivacyLog::Sensitive(self.name, "player name") << ". Fetching self MMR...\n";
-                                    effects.fetchMmrQueue.emplace_back(newId, self.name);
-                                }
-                            }
-                            effects.fetchLifetimeHistory = true;
-                            effects.lifetimePrimaryId = newId;
-                            effects.lifetimeCategory = MmrCategoryToString(m_state->ui.graphMmrCategory.load());
-                            effects.refreshDbStats = true;
-                            effects.refreshStatsPrimaryId = newId;
-                            // reset missed count since we resolved identity
-                            m_missedMyIdCount = 0;
                         }
+                        Config::Update([&newId](ConfigData& c) { c.last_primary_id = newId; });
+                        std::cout << "[Identity] Detected account switch. New ID: " << PrivacyLog::Sensitive(newId, "player ID") << "\n";
+                        m_identityCandidates.clear();
+                        if (m_state->game.roster.count(newId)) {
+                            auto& self = m_state->game.roster[newId];
+                            if (!self.enqueued && self.mmr == 0) {
+                                self.enqueued = true;
+                                std::cout << "[Identity] Identified local player: " << PrivacyLog::Sensitive(self.name, "player name") << ". Fetching self MMR...\n";
+                                effects.fetchMmrQueue.emplace_back(newId, self.name);
+                            }
+                        }
+                        effects.fetchLifetimeHistory = true;
+                        effects.lifetimePrimaryId = newId;
+                        effects.lifetimeCategory = MmrCategoryToString(m_state->ui.graphMmrCategory.load());
+                        effects.refreshDbStats = true;
+                        effects.refreshStatsPrimaryId = newId;
+                        // reset missed count since we resolved identity
+                        m_missedMyIdCount = 0;
                     }
+                }
 
-                    if (!mySavedId.empty()) {
-                        if (seenMyIdInLobby) {
+                if (!mySavedId.empty()) {
+                    if (seenMyIdInLobby) {
+                        m_missedMyIdCount = 0;
+                    } else {
+                        m_missedMyIdCount++;
+                        if (m_missedMyIdCount >= 2) {
+                            std::cout << "[Identity] Missed saved ID " << PrivacyLog::Sensitive(mySavedId, "player ID") << " for 2 matches. Resetting...\n";
+                            m_state->game.myPrimaryId = "";
+                            m_state->game.myTeam = -1;
+                            mySavedId = "";
                             m_missedMyIdCount = 0;
-                        } else {
-                            m_missedMyIdCount++;
-                            if (m_missedMyIdCount >= 2) {
-                                std::cout << "[Identity] Missed saved ID " << PrivacyLog::Sensitive(mySavedId, "player ID") << " for 2 matches. Resetting...\n";
-                                m_state->game.myPrimaryId = "";
-                                m_state->game.myTeam = -1;
-                                mySavedId = "";
-                                m_missedMyIdCount = 0;
-                                m_identityCandidates.clear();
-                                Config::Update([](ConfigData& c) { c.last_primary_id = ""; });
-                            }
-                        }
-                    }
-
-                    if (mySavedId.empty() && !currentCandidates.empty()) {
-                        // Standard process-of-elimination flow when we don't already have a saved identity.
-                        if (m_identityCandidates.empty()) {
-                            m_identityCandidates = currentCandidates;
-                            std::cout << "[Identity] Process of elimination started. Candidates: " << m_identityCandidates.size() << "\n";
-                        } else {
-                            std::unordered_set<std::string> intersection;
-                            for (const auto& cand : m_identityCandidates)
-                                if (currentCandidates.count(cand)) intersection.insert(cand);
-                            m_identityCandidates = intersection;
-                            std::cout << "[Identity] Intersected candidates. Remaining: " << m_identityCandidates.size() << "\n";
-                        }
-
-                        if (m_identityCandidates.size() == 1) {
-                            std::string identifiedId = *m_identityCandidates.begin();
-                            m_state->game.myPrimaryId = identifiedId;
-                            for (const auto& p : data["Players"]) {
-                                if (p.contains("PrimaryId") && p["PrimaryId"].is_string() && p["PrimaryId"].get<std::string>() == identifiedId) {
-                                    if (p.contains("TeamNum") && p["TeamNum"].is_number_integer())
-                                        m_state->game.myTeam = p["TeamNum"].get<int>();
-                                    break;
-                                }
-                            }
-                            Config::Update([&identifiedId](ConfigData& c) { c.last_primary_id = identifiedId; });
-                            std::cout << "[Identity] Identified local player: " << PrivacyLog::Sensitive(identifiedId, "player ID") << "\n";
                             m_identityCandidates.clear();
-                            if (m_state->game.roster.count(identifiedId)) {
-                                auto& self = m_state->game.roster[identifiedId];
-                                if (!self.enqueued && self.mmr == 0) {
-                                    self.enqueued = true;
-                                    std::cout << "[Identity] Identified local player: " << PrivacyLog::Sensitive(self.name, "player name") << ". Fetching self MMR...\n";
-                                    effects.fetchMmrQueue.emplace_back(identifiedId, self.name);
-                                }
-                            }
-                            effects.fetchLifetimeHistory = true;
-                            effects.lifetimePrimaryId = identifiedId;
-                            effects.lifetimeCategory = MmrCategoryToString(m_state->ui.graphMmrCategory.load());
-                            effects.refreshDbStats = true;
-                            effects.refreshStatsPrimaryId = identifiedId;
-                        } else if (m_identityCandidates.empty()) {
-                            m_identityCandidates = currentCandidates;
+                            Config::Update([](ConfigData& c) { c.last_primary_id = ""; });
                         }
                     }
                 }
+
+                if (mySavedId.empty() && !currentCandidates.empty()) {
+                    // Standard process-of-elimination flow when we don't already have a saved identity.
+                    if (m_identityCandidates.empty()) {
+                        m_identityCandidates = currentCandidates;
+                        std::cout << "[Identity] Process of elimination started. Candidates: " << m_identityCandidates.size() << "\n";
+                    } else {
+                        std::unordered_set<std::string> intersection;
+                        for (const auto& cand : m_identityCandidates)
+                            if (currentCandidates.count(cand)) intersection.insert(cand);
+                        m_identityCandidates = intersection;
+                        std::cout << "[Identity] Intersected candidates. Remaining: " << m_identityCandidates.size() << "\n";
+                    }
+
+                    if (m_identityCandidates.size() == 1) {
+                        std::string identifiedId = *m_identityCandidates.begin();
+                        m_state->game.myPrimaryId = identifiedId;
+                        for (const auto& p : data["Players"]) {
+                            if (p.contains("PrimaryId") && p["PrimaryId"].is_string() && p["PrimaryId"].get<std::string>() == identifiedId) {
+                                if (p.contains("TeamNum") && p["TeamNum"].is_number_integer())
+                                    m_state->game.myTeam = p["TeamNum"].get<int>();
+                                break;
+                            }
+                        }
+                        Config::Update([&identifiedId](ConfigData& c) { c.last_primary_id = identifiedId; });
+                        std::cout << "[Identity] Identified local player: " << PrivacyLog::Sensitive(identifiedId, "player ID") << "\n";
+                        m_identityCandidates.clear();
+                        if (m_state->game.roster.count(identifiedId)) {
+                            auto& self = m_state->game.roster[identifiedId];
+                            if (!self.enqueued && self.mmr == 0) {
+                                self.enqueued = true;
+                                std::cout << "[Identity] Identified local player: " << PrivacyLog::Sensitive(self.name, "player name") << ". Fetching self MMR...\n";
+                                effects.fetchMmrQueue.emplace_back(identifiedId, self.name);
+                            }
+                        }
+                        effects.fetchLifetimeHistory = true;
+                        effects.lifetimePrimaryId = identifiedId;
+                        effects.lifetimeCategory = MmrCategoryToString(m_state->ui.graphMmrCategory.load());
+                        effects.refreshDbStats = true;
+                        effects.refreshStatsPrimaryId = identifiedId;
+                    } else if (m_identityCandidates.empty()) {
+                        m_identityCandidates = currentCandidates;
+                    }
+                }
+            }
 
             MmrCategory inferredPlaylistCat = CategoryFromMatchContext(m_state->game);
             MmrCategory lastAutoCat = m_autoSwitchedPlaylistCategory;
             bool inferredCategoryIsHiddenExtra = IsExtraMmrCategory(inferredPlaylistCat) && !m_cachedConf.show_extra_playlists;
             bool userChangedAfterAutoSwitch = lastAutoCat != MmrCategory::Best &&
-                (m_state->ui.rosterMmrCategory.load() != lastAutoCat || m_state->ui.graphMmrCategory.load() != lastAutoCat);
+                                              (m_state->ui.rosterMmrCategory.load() != lastAutoCat || m_state->ui.graphMmrCategory.load() != lastAutoCat);
 
             if (m_cachedConf.auto_switch_mmr_category && !inferredCategoryIsHiddenExtra && !userChangedAfterAutoSwitch &&
                 inferredPlaylistCat != MmrCategory::Best && inferredPlaylistCat != lastAutoCat) {
@@ -684,8 +670,8 @@ TelemetryReducer::MatchEndDecision TelemetryReducer::ClassifyMatchEndLocked(int 
 
     if (m_state->game.myTeam != 0 && m_state->game.myTeam != 1) {
         decision.voidReason = m_state->game.localPlayerWasSpectator
-            ? "local_player_spectator_bug"
-            : "local_player_team_unknown";
+                                  ? "local_player_spectator_bug"
+                                  : "local_player_team_unknown";
         return decision;
     }
 
@@ -696,8 +682,8 @@ TelemetryReducer::MatchEndDecision TelemetryReducer::ClassifyMatchEndLocked(int 
 
     if (!m_state->game.localPlayerWasActive) {
         decision.voidReason = m_state->game.localPlayerWasSpectator
-            ? "local_player_spectator_bug"
-            : "local_player_never_active";
+                                  ? "local_player_spectator_bug"
+                                  : "local_player_never_active";
         return decision;
     }
 
@@ -770,9 +756,8 @@ void TelemetryReducer::FinalizeMatchLocked(int winnerTeam, MatchFinalizeSource s
     m_state->ui.showMatchSummary = true;
     m_state->ui.matchSummaryStartMs.store(
         std::chrono::duration_cast<std::chrono::milliseconds>(
-            std::chrono::steady_clock::now().time_since_epoch()
-        ).count()
-    );
+            std::chrono::steady_clock::now().time_since_epoch())
+            .count());
 
     auto fullRoster = m_state->game.matchRoster;
     for (const auto& [pid, player] : m_state->game.roster) {
@@ -782,15 +767,25 @@ void TelemetryReducer::FinalizeMatchLocked(int winnerTeam, MatchFinalizeSource s
     if (decision.shouldCount) {
         const bool iWon = decision.iWon;
 
-        if (iWon) m_state->game.sessionTotals.wins++;
-        else m_state->game.sessionTotals.losses++;
+        if (iWon)
+            m_state->game.sessionTotals.wins++;
+        else
+            m_state->game.sessionTotals.losses++;
 
         auto& cm = m_state->game.currentMatch;
         auto& st = m_state->game.sessionTotals;
-        st.goals += cm.goalsSelf; st.saves += cm.savesSelf; st.savesTotal += cm.saves;
-        st.shots += cm.shotsSelf; st.shotsTotal += cm.shots; st.demos += cm.demosSelf;
-        st.demosTotal += cm.demos; st.demoed += cm.demoedSelf; st.crossbars += cm.crossbarsSelf; st.crossbarsTotal += cm.crossbars;
-        st.assists += cm.assistsSelf; st.assistsTotal += cm.assists;
+        st.goals += cm.goalsSelf;
+        st.saves += cm.savesSelf;
+        st.savesTotal += cm.saves;
+        st.shots += cm.shotsSelf;
+        st.shotsTotal += cm.shots;
+        st.demos += cm.demosSelf;
+        st.demosTotal += cm.demos;
+        st.demoed += cm.demoedSelf;
+        st.crossbars += cm.crossbarsSelf;
+        st.crossbarsTotal += cm.crossbars;
+        st.assists += cm.assistsSelf;
+        st.assistsTotal += cm.assists;
         st.boostPickedUp += cm.boostPickedUp;
         st.maxGoalSpeed = std::max(st.maxGoalSpeed, cm.maxGoalSpeed);
         st.maxGoalSpeedSelf = std::max(st.maxGoalSpeedSelf, cm.maxGoalSpeedSelf);
@@ -802,7 +797,8 @@ void TelemetryReducer::FinalizeMatchLocked(int winnerTeam, MatchFinalizeSource s
             st.fastestGoalTime = cm.fastestGoalTime;
         if (cm.fastestGoalTimeSelf > 0.0f && (st.fastestGoalTimeSelf == 0.0f || cm.fastestGoalTimeSelf < st.fastestGoalTimeSelf))
             st.fastestGoalTimeSelf = cm.fastestGoalTimeSelf;
-        st.ownGoals += cm.ownGoals; st.ownGoalsSelf += cm.ownGoalsSelf;
+        st.ownGoals += cm.ownGoals;
+        st.ownGoalsSelf += cm.ownGoalsSelf;
 
         const MmrCategory rosterCat = m_state->ui.rosterMmrCategory.load();
         const MmrCategory graphCat = m_state->ui.graphMmrCategory.load();
@@ -826,8 +822,7 @@ void TelemetryReducer::FinalizeMatchLocked(int winnerTeam, MatchFinalizeSource s
             const int participationThisMatch = std::clamp(
                 rawParticipationThisMatch,
                 0,
-                std::max(0, teamGoalsThisMatch)
-            );
+                std::max(0, teamGoalsThisMatch));
             st.teamGoals += std::max(0, teamGoalsThisMatch);
             st.goalParticipations += participationThisMatch;
         }
@@ -844,8 +839,17 @@ void TelemetryReducer::FinalizeMatchLocked(int winnerTeam, MatchFinalizeSource s
 
         for (auto& [pid, player] : fullRoster) {
             bool isTeammate = (player.team == m_state->game.myTeam);
-            if (isTeammate) { if (iWon) player.lifetimeWinsWith++; else player.lifetimeLossesWith++; }
-            else { if (iWon) player.lifetimeWinsAgainst++; else player.lifetimeLossesAgainst++; }
+            if (isTeammate) {
+                if (iWon)
+                    player.lifetimeWinsWith++;
+                else
+                    player.lifetimeLossesWith++;
+            } else {
+                if (iWon)
+                    player.lifetimeWinsAgainst++;
+                else
+                    player.lifetimeLossesAgainst++;
+            }
             player.hasLifetimeData = true;
 
             if (m_state->game.roster.count(pid)) {
@@ -884,10 +888,8 @@ void TelemetryReducer::FinalizeMatchLocked(int winnerTeam, MatchFinalizeSource s
             {"arena", m_state->game.arenaName},
             {"result", (winnerTeam == m_state->game.myTeam) ? "Win" : "Loss"},
             {"score", {m_state->game.score[0], m_state->game.score[1]}},
-            {"stats", {{"goals", myGoals}, {"saves", mySaves}, {"demos", myDemos},
-                       {"fastest_goal", myFastest}, {"max_ball_speed", myMaxSpeed}}},
-            {"timestamp", std::chrono::system_clock::to_time_t(std::chrono::system_clock::now())}
-        };
+            {"stats", {{"goals", myGoals}, {"saves", mySaves}, {"demos", myDemos}, {"fastest_goal", myFastest}, {"max_ball_speed", myMaxSpeed}}},
+            {"timestamp", std::chrono::system_clock::to_time_t(std::chrono::system_clock::now())}};
 
         const MmrCategory rosterCat = m_state->ui.rosterMmrCategory.load();
         const MmrCategory graphCat = m_state->ui.graphMmrCategory.load();
@@ -924,8 +926,8 @@ void TelemetryReducer::HandleMatchEnded(const nlohmann::json& data, SideEffects&
     m_roundActive = false;
 
     int winner = (data.contains("WinnerTeamNum") && data["WinnerTeamNum"].is_number_integer())
-        ? data["WinnerTeamNum"].get<int>()
-        : -1;
+                     ? data["WinnerTeamNum"].get<int>()
+                     : -1;
 
     // Parse final scores if present in MatchEnded event
     if (data.contains("Teams") && data["Teams"].is_array()) {

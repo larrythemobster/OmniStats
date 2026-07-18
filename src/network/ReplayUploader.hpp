@@ -12,14 +12,14 @@
 class SessionState;
 
 class ReplayUploader {
-public:
+  public:
     ReplayUploader(std::shared_ptr<SessionState> state = nullptr);
     ~ReplayUploader();
 
     void Start();
     void Stop();
 
-private:
+  private:
     void WorkerLoop();
     bool IsFileReady(const std::string& path);
     void UploadReplay(const std::string& path);
@@ -33,7 +33,7 @@ private:
     std::condition_variable m_cv;
     std::unordered_set<std::string> m_processed;
     std::queue<std::string> m_processedQueue;
-    
+
     std::shared_ptr<SessionState> m_state;
     bool m_wasInMatch = false;
     std::chrono::steady_clock::time_point m_lastSaveAttempt;

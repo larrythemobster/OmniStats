@@ -33,7 +33,9 @@ inline void ComputeWindowStyles(bool secondMonitorMode, bool showMenu, LONG& sty
 
         exStyle |= WS_EX_TOPMOST | WS_EX_LAYERED | WS_EX_TOOLWINDOW;
         exStyle &= ~WS_EX_APPWINDOW;
-        if (!showMenu) exStyle |= WS_EX_TRANSPARENT;
-        else exStyle &= ~WS_EX_TRANSPARENT;
+        if (!showMenu)
+            exStyle |= WS_EX_TRANSPARENT;
+        else
+            exStyle &= ~WS_EX_TRANSPARENT;
     }
 }

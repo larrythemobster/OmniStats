@@ -11,16 +11,18 @@
 #include "network/DiscordManager.hpp"
 
 class StatsClient {
-public:
+  public:
     StatsClient(std::shared_ptr<SessionState> state, std::shared_ptr<MMRFetcher> mmrFetcher, std::shared_ptr<DatabaseManager> dbManager);
     ~StatsClient();
 
     void Start();
     void Stop();
-    void SetDiscordManager(std::shared_ptr<DiscordManager> dm) { m_discordManager = dm; }
+    void SetDiscordManager(std::shared_ptr<DiscordManager> dm) {
+        m_discordManager = dm;
+    }
     void HandleLine(const std::string& line);
 
-private:
+  private:
     void RunLoop();
     void OnJsonLine(const std::string& jsonStr);
 

@@ -13,7 +13,8 @@ TEST(WindowUtils, ComputeCenteredRect_CentersCorrectly) {
 TEST(WindowUtils, ComputeWindowStyles_Overlay) {
     LONG style = 0, ex = 0;
     // Start with neutral values
-    style = WS_OVERLAPPEDWINDOW; ex = 0;
+    style = WS_OVERLAPPEDWINDOW;
+    ex = 0;
     ComputeWindowStyles(false, false, style, ex);
     // Overlay should set WS_POPUP and layered/topmost flags
     EXPECT_TRUE((style & WS_POPUP) != 0);

@@ -47,11 +47,15 @@ static int int_mock_easy_getinfo(void* curl, int info, ...) {
 
 static void int_mock_easy_cleanup(void* curl) {}
 static void int_mock_slist_free_all(void* list) {}
-static void* int_mock_slist_append(void* list, const char* str) { return (void*)1; }
-static void* int_mock_easy_init() { return (void*)1; }
+static void* int_mock_slist_append(void* list, const char* str) {
+    return (void*)1;
+}
+static void* int_mock_easy_init() {
+    return (void*)1;
+}
 
 class OmniStatsPipelineTest : public ::testing::Test {
-protected:
+  protected:
     void SetUp() override {
         session = std::make_shared<SessionState>();
         fetcher = std::make_shared<MMRFetcher>(session);

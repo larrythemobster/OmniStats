@@ -24,8 +24,7 @@ HICON LoadAppIcon(int width, int height) {
             IMAGE_ICON,
             width,
             height,
-            LR_DEFAULTCOLOR | LR_SHARED
-        ));
+            LR_DEFAULTCOLOR | LR_SHARED));
     }
     if (!hIcon) {
         hIcon = LoadIconW(hModule, MAKEINTRESOURCEW(1));
@@ -41,7 +40,9 @@ HICON LoadAppIcon(int width, int height) {
 #define ID_TRAY_TOGGLE_MODE 1002
 TrayIcon::TrayIcon(HWND mainHwnd) : m_mainHwnd(mainHwnd) {}
 
-TrayIcon::~TrayIcon() { Shutdown(); }
+TrayIcon::~TrayIcon() {
+    Shutdown();
+}
 
 bool TrayIcon::Initialize() {
     {
@@ -178,15 +179,19 @@ void TrayIcon::AddIcon(HWND hwnd) {
     if (!setver) {
         std::cout << "[Tray] Failed to set tray icon version. Error=" << GetLastError() << "\n";
     }
-
 }
 
 void TrayIcon::RemoveIcon() {
     Shell_NotifyIconW(NIM_DELETE, &m_nid);
-    if (m_appIcon && m_appIconOwned) { DestroyIcon(m_appIcon); }
+    if (m_appIcon && m_appIconOwned) {
+        DestroyIcon(m_appIcon);
+    }
     m_appIcon = nullptr;
     m_appIconOwned = false;
-    if (m_gdiplusToken) { Gdiplus::GdiplusShutdown(m_gdiplusToken); m_gdiplusToken = 0; }
+    if (m_gdiplusToken) {
+        Gdiplus::GdiplusShutdown(m_gdiplusToken);
+        m_gdiplusToken = 0;
+    }
 }
 
 void TrayIcon::ThreadFunc() {
@@ -199,7 +204,7 @@ void TrayIcon::ThreadFunc() {
     WNDCLASSEXW wcx = {};
     wcx.cbSize = sizeof(wcx);
     wcx.lpfnWndProc = [](HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) -> LRESULT {
-    static UINT taskbarCreatedMsg = RegisterWindowMessageW(L"TaskbarCreated");
+        static UINT taskbarCreatedMsg = RegisterWindowMessageW(L"TaskbarCreated");
         if (msg == taskbarCreatedMsg) {
             TrayIcon* self = reinterpret_cast<TrayIcon*>(GetWindowLongPtrW(hWnd, GWLP_USERDATA));
             if (self) self->AddIcon(hWnd);
@@ -207,61 +212,60 @@ void TrayIcon::ThreadFunc() {
         }
 
         switch (msg) {
-            case WM_TRAYICON: {
-                UINT event = LOWORD(lParam);
-                if (event == WM_RBUTTONUP || event == WM_CONTEXTMENU || event == WM_LBUTTONUP || event == WM_LBUTTONDBLCLK || event == 0x0400 /*NIN_SELECT*/) {
-                    POINT pt{};
-                    GetCursorPos(&pt);
+        case WM_TRAYICON: {
+            UINT event = LOWORD(lParam);
+            if (event == WM_RBUTTONUP || event == WM_CONTEXTMENU || event == WM_LBUTTONUP || event == WM_LBUTTONDBLCLK || event == 0x0400 /*NIN_SELECT*/) {
+                POINT pt{};
+                GetCursorPos(&pt);
 
-                    HMENU hMenu = CreatePopupMenu();
-                    if (!hMenu) {
-                        std::cout << "[Tray] CreatePopupMenu failed. Error=" << GetLastError() << "\n";
-                        return 0;
-                    }
+                HMENU hMenu = CreatePopupMenu();
+                if (!hMenu) {
+                    std::cout << "[Tray] CreatePopupMenu failed. Error=" << GetLastError() << "\n";
+                    return 0;
+                }
 
-                    ConfigData conf = Config::Read();
-                    UINT modeFlags = MF_STRING;
-                    if (conf.second_monitor_mode) modeFlags |= MF_CHECKED;
-                    std::wstring menuText = conf.second_monitor_mode ? L"Second Monitor Dashboard: On" : L"Second Monitor Dashboard: Off";
-                    AppendMenuW(hMenu, modeFlags, ID_TRAY_TOGGLE_MODE, menuText.c_str());
-                    AppendMenuW(hMenu, MF_SEPARATOR, 0, nullptr);
-                    AppendMenuW(hMenu, MF_STRING, ID_TRAY_EXIT, L"Exit");
+                ConfigData conf = Config::Read();
+                UINT modeFlags = MF_STRING;
+                if (conf.second_monitor_mode) modeFlags |= MF_CHECKED;
+                std::wstring menuText = conf.second_monitor_mode ? L"Second Monitor Dashboard: On" : L"Second Monitor Dashboard: Off";
+                AppendMenuW(hMenu, modeFlags, ID_TRAY_TOGGLE_MODE, menuText.c_str());
+                AppendMenuW(hMenu, MF_SEPARATOR, 0, nullptr);
+                AppendMenuW(hMenu, MF_STRING, ID_TRAY_EXIT, L"Exit");
 
-                    ShowWindow(hWnd, SW_SHOW);
-                    SetForegroundWindow(hWnd);
-                    UINT cmd = TrackPopupMenuEx(
-                        hMenu,
-                        TPM_RETURNCMD | TPM_RIGHTBUTTON | TPM_LEFTALIGN | TPM_BOTTOMALIGN,
-                        pt.x, pt.y, hWnd, nullptr
-                    );
-                    ShowWindow(hWnd, SW_HIDE);
+                ShowWindow(hWnd, SW_SHOW);
+                SetForegroundWindow(hWnd);
+                UINT cmd = TrackPopupMenuEx(
+                    hMenu,
+                    TPM_RETURNCMD | TPM_RIGHTBUTTON | TPM_LEFTALIGN | TPM_BOTTOMALIGN,
+                    pt.x, pt.y, hWnd, nullptr);
+                ShowWindow(hWnd, SW_HIDE);
 
-                    DestroyMenu(hMenu);
-                    PostMessageW(hWnd, WM_NULL, 0, 0);
+                DestroyMenu(hMenu);
+                PostMessageW(hWnd, WM_NULL, 0, 0);
 
-                    TrayIcon* self = reinterpret_cast<TrayIcon*>(GetWindowLongPtrW(hWnd, GWLP_USERDATA));
-                    if (cmd == ID_TRAY_EXIT) {
-                        if (self && self->m_mainHwnd) {
-                            if (!PostMessageW(self->m_mainHwnd, WM_CLOSE, 0, 0)) {
-                                std::cout << "[Tray] Failed to post close message. Error=" << GetLastError() << "\n";
-                            }
+                TrayIcon* self = reinterpret_cast<TrayIcon*>(GetWindowLongPtrW(hWnd, GWLP_USERDATA));
+                if (cmd == ID_TRAY_EXIT) {
+                    if (self && self->m_mainHwnd) {
+                        if (!PostMessageW(self->m_mainHwnd, WM_CLOSE, 0, 0)) {
+                            std::cout << "[Tray] Failed to post close message. Error=" << GetLastError() << "\n";
                         }
-                    } else if (cmd == ID_TRAY_TOGGLE_MODE) {
-                        if (self && self->m_mainHwnd) {
-                            if (!PostMessageW(self->m_mainHwnd, WM_TOGGLE_MODE, 0, 0)) {
-                                std::cout << "[Tray] Failed to post toggle message. Error=" << GetLastError() << "\n";
-                            }
+                    }
+                } else if (cmd == ID_TRAY_TOGGLE_MODE) {
+                    if (self && self->m_mainHwnd) {
+                        if (!PostMessageW(self->m_mainHwnd, WM_TOGGLE_MODE, 0, 0)) {
+                            std::cout << "[Tray] Failed to post toggle message. Error=" << GetLastError() << "\n";
                         }
                     }
                 }
-                return 0;
             }
-            case WM_CLOSE:
-                DestroyWindow(hWnd);
-                return 0;
-            case WM_DESTROY:
-                PostQuitMessage(0);
-                return 0;
+            return 0;
+        }
+        case WM_CLOSE:
+            DestroyWindow(hWnd);
+            return 0;
+        case WM_DESTROY:
+            PostQuitMessage(0);
+            return 0;
         }
         return DefWindowProcW(hWnd, msg, wParam, lParam);
     };
@@ -286,8 +290,7 @@ void TrayIcon::ThreadFunc() {
     HWND hwnd = CreateWindowExW(
         WS_EX_TOOLWINDOW,
         wcx.lpszClassName, L"OmniStatsTray",
-        WS_POPUP, 0, 0, 1, 1, nullptr, nullptr, wcx.hInstance, nullptr
-    );
+        WS_POPUP, 0, 0, 1, 1, nullptr, nullptr, wcx.hInstance, nullptr);
 
     if (!hwnd) {
         std::cout << "[Tray] Failed to create tray window.\n";

@@ -61,8 +61,7 @@ static void BM_ParseStatFeed(benchmark::State& state) {
         session->game.roster["steam|123456789"] = PlayerData{
             .primaryId = "steam|123456789",
             .name = "Player1",
-            .team = 0
-        };
+            .team = 0};
     }
 
     std::string line = R"({

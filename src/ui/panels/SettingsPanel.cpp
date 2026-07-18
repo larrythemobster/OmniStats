@@ -22,30 +22,54 @@
 namespace {
     const char* GetGamepadButtonName(int button) {
         switch (button) {
-        case SDL_CONTROLLER_BUTTON_A: return "A";
-        case SDL_CONTROLLER_BUTTON_B: return "B";
-        case SDL_CONTROLLER_BUTTON_X: return "X";
-        case SDL_CONTROLLER_BUTTON_Y: return "Y";
-        case SDL_CONTROLLER_BUTTON_BACK: return "Select/Back";
-        case SDL_CONTROLLER_BUTTON_GUIDE: return "Guide";
-        case SDL_CONTROLLER_BUTTON_START: return "Start";
-        case SDL_CONTROLLER_BUTTON_LEFTSTICK: return "Left Thumb";
-        case SDL_CONTROLLER_BUTTON_RIGHTSTICK: return "Right Thumb";
-        case SDL_CONTROLLER_BUTTON_LEFTSHOULDER: return "Left Bumper";
-        case SDL_CONTROLLER_BUTTON_RIGHTSHOULDER: return "Right Bumper";
-        case SDL_CONTROLLER_BUTTON_DPAD_UP: return "D-Pad Up";
-        case SDL_CONTROLLER_BUTTON_DPAD_DOWN: return "D-Pad Down";
-        case SDL_CONTROLLER_BUTTON_DPAD_LEFT: return "D-Pad Left";
-        case SDL_CONTROLLER_BUTTON_DPAD_RIGHT: return "D-Pad Right";
-        case 22: return "Left Stick Up";
-        case 23: return "Left Stick Down";
-        case 24: return "Left Stick Left";
-        case 25: return "Left Stick Right";
-        case 26: return "Right Stick Up";
-        case 27: return "Right Stick Down";
-        case 28: return "Right Stick Left";
-        case 29: return "Right Stick Right";
-        default: return nullptr;
+        case SDL_CONTROLLER_BUTTON_A:
+            return "A";
+        case SDL_CONTROLLER_BUTTON_B:
+            return "B";
+        case SDL_CONTROLLER_BUTTON_X:
+            return "X";
+        case SDL_CONTROLLER_BUTTON_Y:
+            return "Y";
+        case SDL_CONTROLLER_BUTTON_BACK:
+            return "Select/Back";
+        case SDL_CONTROLLER_BUTTON_GUIDE:
+            return "Guide";
+        case SDL_CONTROLLER_BUTTON_START:
+            return "Start";
+        case SDL_CONTROLLER_BUTTON_LEFTSTICK:
+            return "Left Thumb";
+        case SDL_CONTROLLER_BUTTON_RIGHTSTICK:
+            return "Right Thumb";
+        case SDL_CONTROLLER_BUTTON_LEFTSHOULDER:
+            return "Left Bumper";
+        case SDL_CONTROLLER_BUTTON_RIGHTSHOULDER:
+            return "Right Bumper";
+        case SDL_CONTROLLER_BUTTON_DPAD_UP:
+            return "D-Pad Up";
+        case SDL_CONTROLLER_BUTTON_DPAD_DOWN:
+            return "D-Pad Down";
+        case SDL_CONTROLLER_BUTTON_DPAD_LEFT:
+            return "D-Pad Left";
+        case SDL_CONTROLLER_BUTTON_DPAD_RIGHT:
+            return "D-Pad Right";
+        case 22:
+            return "Left Stick Up";
+        case 23:
+            return "Left Stick Down";
+        case 24:
+            return "Left Stick Left";
+        case 25:
+            return "Left Stick Right";
+        case 26:
+            return "Right Stick Up";
+        case 27:
+            return "Right Stick Down";
+        case 28:
+            return "Right Stick Left";
+        case 29:
+            return "Right Stick Right";
+        default:
+            return nullptr;
         }
     }
 
@@ -92,7 +116,7 @@ SettingsResult SettingsPanel::Render() {
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(14.0f * ctx.dpiScale, 14.0f * ctx.dpiScale));
     ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(6.0f * ctx.dpiScale, 6.0f * ctx.dpiScale));
     ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 8.0f * ctx.dpiScale);
-    
+
     ImGui::SetNextWindowSizeConstraints(ImVec2(390.0f * ctx.dpiScale, -1.0f), ImVec2(FLT_MAX, -1.0f));
 
     ImGuiWindowFlags flags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_AlwaysAutoResize;
@@ -172,43 +196,54 @@ void SettingsPanel::RenderContent(const std::string& idSuffix, bool& styleChange
 
         Config::Update([target](ConfigData& c) {
             switch (target) {
-                case BindCaptureTarget::KeyOverlay: c.key_overlay = -1; break;
-                case BindCaptureTarget::KeyCycle: c.key_cycle = -1; break;
-                case BindCaptureTarget::KeyExpand: c.key_expand = -1; break;
-                case BindCaptureTarget::KeySession: c.key_session = -1; break;
-                case BindCaptureTarget::KeySaveReplay: c.key_save_replay = -1; break;
-                case BindCaptureTarget::GamepadOverlay:
-                    c.gamepad_overlay = -1;
-                    c.gamepad_overlay_raw = false;
-                    c.gamepad_overlay_raw_button = -1;
-                    break;
-                case BindCaptureTarget::GamepadCycle:
-                    c.gamepad_cycle = -1;
-                    c.gamepad_cycle_raw = false;
-                    c.gamepad_cycle_raw_button = -1;
-                    break;
-                case BindCaptureTarget::GamepadExpand:
-                    c.gamepad_expand = -1;
-                    c.gamepad_expand_raw = false;
-                    c.gamepad_expand_raw_button = -1;
-                    break;
-                case BindCaptureTarget::GamepadSession:
-                    c.gamepad_session = -1;
-                    c.gamepad_session_raw = false;
-                    c.gamepad_session_raw_button = -1;
-                    break;
-                case BindCaptureTarget::GamepadMenu:
-                    c.gamepad_menu = -1;
-                    c.gamepad_menu_raw = false;
-                    c.gamepad_menu_raw_button = -1;
-                    break;
-                default: break;
+            case BindCaptureTarget::KeyOverlay:
+                c.key_overlay = -1;
+                break;
+            case BindCaptureTarget::KeyCycle:
+                c.key_cycle = -1;
+                break;
+            case BindCaptureTarget::KeyExpand:
+                c.key_expand = -1;
+                break;
+            case BindCaptureTarget::KeySession:
+                c.key_session = -1;
+                break;
+            case BindCaptureTarget::KeySaveReplay:
+                c.key_save_replay = -1;
+                break;
+            case BindCaptureTarget::GamepadOverlay:
+                c.gamepad_overlay = -1;
+                c.gamepad_overlay_raw = false;
+                c.gamepad_overlay_raw_button = -1;
+                break;
+            case BindCaptureTarget::GamepadCycle:
+                c.gamepad_cycle = -1;
+                c.gamepad_cycle_raw = false;
+                c.gamepad_cycle_raw_button = -1;
+                break;
+            case BindCaptureTarget::GamepadExpand:
+                c.gamepad_expand = -1;
+                c.gamepad_expand_raw = false;
+                c.gamepad_expand_raw_button = -1;
+                break;
+            case BindCaptureTarget::GamepadSession:
+                c.gamepad_session = -1;
+                c.gamepad_session_raw = false;
+                c.gamepad_session_raw_button = -1;
+                break;
+            case BindCaptureTarget::GamepadMenu:
+                c.gamepad_menu = -1;
+                c.gamepad_menu_raw = false;
+                c.gamepad_menu_raw_button = -1;
+                break;
+            default:
+                break;
             }
         });
         ctx.config = Config::Read();
     };
 
-   if (m_bindCaptureTarget != BindCaptureTarget::None) {
+    if (m_bindCaptureTarget != BindCaptureTarget::None) {
         const int vk = ctx.state.ui.lastKeyboardKeyPressed.load();
         if (vk == VK_ESCAPE) {
             finishBindCapture();
@@ -224,27 +259,28 @@ void SettingsPanel::RenderContent(const std::string& idSuffix, bool& styleChange
                 const BindCaptureTarget target = m_bindCaptureTarget;
                 Config::Update([target, mappedButton](ConfigData& c) {
                     switch (target) {
-                        case BindCaptureTarget::GamepadOverlay:
-                            c.gamepad_overlay_raw = false;
-                            c.gamepad_overlay = mappedButton;
-                            break;
-                        case BindCaptureTarget::GamepadCycle:
-                            c.gamepad_cycle_raw = false;
-                            c.gamepad_cycle = mappedButton;
-                            break;
-                        case BindCaptureTarget::GamepadExpand:
-                            c.gamepad_expand_raw = false;
-                            c.gamepad_expand = mappedButton;
-                            break;
-                        case BindCaptureTarget::GamepadSession:
-                            c.gamepad_session_raw = false;
-                            c.gamepad_session = mappedButton;
-                            break;
-                        case BindCaptureTarget::GamepadMenu:
-                            c.gamepad_menu_raw = false;
-                            c.gamepad_menu = mappedButton;
-                            break;
-                        default: break;
+                    case BindCaptureTarget::GamepadOverlay:
+                        c.gamepad_overlay_raw = false;
+                        c.gamepad_overlay = mappedButton;
+                        break;
+                    case BindCaptureTarget::GamepadCycle:
+                        c.gamepad_cycle_raw = false;
+                        c.gamepad_cycle = mappedButton;
+                        break;
+                    case BindCaptureTarget::GamepadExpand:
+                        c.gamepad_expand_raw = false;
+                        c.gamepad_expand = mappedButton;
+                        break;
+                    case BindCaptureTarget::GamepadSession:
+                        c.gamepad_session_raw = false;
+                        c.gamepad_session = mappedButton;
+                        break;
+                    case BindCaptureTarget::GamepadMenu:
+                        c.gamepad_menu_raw = false;
+                        c.gamepad_menu = mappedButton;
+                        break;
+                    default:
+                        break;
                     }
                 });
                 ctx.config = Config::Read();
@@ -253,27 +289,28 @@ void SettingsPanel::RenderContent(const std::string& idSuffix, bool& styleChange
                 const BindCaptureTarget target = m_bindCaptureTarget;
                 Config::Update([target, rawButton](ConfigData& c) {
                     switch (target) {
-                        case BindCaptureTarget::GamepadOverlay:
-                            c.gamepad_overlay_raw = true;
-                            c.gamepad_overlay_raw_button = rawButton;
-                            break;
-                        case BindCaptureTarget::GamepadCycle:
-                            c.gamepad_cycle_raw = true;
-                            c.gamepad_cycle_raw_button = rawButton;
-                            break;
-                        case BindCaptureTarget::GamepadExpand:
-                            c.gamepad_expand_raw = true;
-                            c.gamepad_expand_raw_button = rawButton;
-                            break;
-                        case BindCaptureTarget::GamepadSession:
-                            c.gamepad_session_raw = true;
-                            c.gamepad_session_raw_button = rawButton;
-                            break;
-                        case BindCaptureTarget::GamepadMenu:
-                            c.gamepad_menu_raw = true;
-                            c.gamepad_menu_raw_button = rawButton;
-                            break;
-                        default: break;
+                    case BindCaptureTarget::GamepadOverlay:
+                        c.gamepad_overlay_raw = true;
+                        c.gamepad_overlay_raw_button = rawButton;
+                        break;
+                    case BindCaptureTarget::GamepadCycle:
+                        c.gamepad_cycle_raw = true;
+                        c.gamepad_cycle_raw_button = rawButton;
+                        break;
+                    case BindCaptureTarget::GamepadExpand:
+                        c.gamepad_expand_raw = true;
+                        c.gamepad_expand_raw_button = rawButton;
+                        break;
+                    case BindCaptureTarget::GamepadSession:
+                        c.gamepad_session_raw = true;
+                        c.gamepad_session_raw_button = rawButton;
+                        break;
+                    case BindCaptureTarget::GamepadMenu:
+                        c.gamepad_menu_raw = true;
+                        c.gamepad_menu_raw_button = rawButton;
+                        break;
+                    default:
+                        break;
                     }
                 });
                 ctx.config = Config::Read();
@@ -283,13 +320,26 @@ void SettingsPanel::RenderContent(const std::string& idSuffix, bool& styleChange
             const BindCaptureTarget target = m_bindCaptureTarget;
             Config::Update([target, vk](ConfigData& c) {
                 switch (target) {
-                    case BindCaptureTarget::KeyOverlay: c.key_overlay = vk; break;
-                    case BindCaptureTarget::KeyCycle: c.key_cycle = vk; break;
-                    case BindCaptureTarget::KeyExpand: c.key_expand = vk; break;
-                    case BindCaptureTarget::KeySession: c.key_session = vk; break;
-                    case BindCaptureTarget::KeyMenu: c.key_menu = vk; break;
-                    case BindCaptureTarget::KeySaveReplay: c.key_save_replay = vk; break;
-                    default: break;
+                case BindCaptureTarget::KeyOverlay:
+                    c.key_overlay = vk;
+                    break;
+                case BindCaptureTarget::KeyCycle:
+                    c.key_cycle = vk;
+                    break;
+                case BindCaptureTarget::KeyExpand:
+                    c.key_expand = vk;
+                    break;
+                case BindCaptureTarget::KeySession:
+                    c.key_session = vk;
+                    break;
+                case BindCaptureTarget::KeyMenu:
+                    c.key_menu = vk;
+                    break;
+                case BindCaptureTarget::KeySaveReplay:
+                    c.key_save_replay = vk;
+                    break;
+                default:
+                    break;
                 }
             });
             ctx.config = Config::Read();
@@ -325,7 +375,7 @@ void SettingsPanel::RenderContent(const std::string& idSuffix, bool& styleChange
                 }
             }
         }
-   };
+    };
 
     auto renderControllerBind = [&](BindCaptureTarget target, const char* label, int mappedButton, bool isRaw, int rawButton) {
         const bool active = m_bindCaptureTarget == target;
@@ -781,7 +831,7 @@ void SettingsPanel::RenderContent(const std::string& idSuffix, bool& styleChange
             }
             if (showPreviousGames) {
                 ImGui::Indent(16.0f);
-                static const int matchCounts[] = { 10, 20, 30, 40, 50 };
+                static const int matchCounts[] = {10, 20, 30, 40, 50};
                 const int matchCountCount = static_cast<int>(sizeof(matchCounts) / sizeof(matchCounts[0]));
                 int currentMatchCountIdx = 1;
                 for (int i = 0; i < matchCountCount; ++i) {
@@ -791,7 +841,7 @@ void SettingsPanel::RenderContent(const std::string& idSuffix, bool& styleChange
                     }
                 }
                 std::string previousGamesLimitLabel = "Matches to Show##" + idSuffix;
-                const char* matchCountLabels[] = { "10", "20", "30", "40", "50" };
+                const char* matchCountLabels[] = {"10", "20", "30", "40", "50"};
                 if (ImGui::Combo(previousGamesLimitLabel.c_str(), &currentMatchCountIdx, matchCountLabels, matchCountCount)) {
                     int newLimit = matchCounts[currentMatchCountIdx];
                     Config::Update([newLimit](ConfigData& c) { c.previous_games_limit = newLimit; });
@@ -855,10 +905,10 @@ void SettingsPanel::RenderContent(const std::string& idSuffix, bool& styleChange
                     Config::Update([show3v3](ConfigData& c) { c.show_gamemode_record_3v3 = show3v3; });
                 }
 
-                static const char* scopes[] = { "Current Session", "All-Time" };
+                static const char* scopes[] = {"Current Session", "All-Time"};
                 GamemodeBreakdownScope currentScope = ScopeFromConfigString(ctx.config.gamemode_breakdown_scope);
                 int currentScopeIdx = (currentScope == GamemodeBreakdownScope::AllTime) ? 1 : 0;
-                
+
                 std::string scopeLabel = "Scope##" + idSuffix;
                 ImGui::SetNextItemWidth(150.0f * ctx.dpiScale);
                 if (ImGui::Combo(scopeLabel.c_str(), &currentScopeIdx, scopes, 2)) {
@@ -961,7 +1011,7 @@ void SettingsPanel::RenderContent(const std::string& idSuffix, bool& styleChange
             auto colorPicker = [&](const char* label, ColorRGBA& color) -> bool {
                 std::string pickerLabel = std::string(label) + "##" + idSuffix;
                 return ImGui::ColorEdit4(pickerLabel.c_str(), &color.r,
-                    ImGuiColorEditFlags_NoInputs | ImGuiColorEditFlags_AlphaPreviewHalf);
+                                         ImGuiColorEditFlags_NoInputs | ImGuiColorEditFlags_AlphaPreviewHalf);
             };
 
             bool changed = false;
@@ -1050,7 +1100,10 @@ void SettingsPanel::RenderContent(const std::string& idSuffix, bool& styleChange
             static constexpr float kScalePresets[] = {1.00f, 1.25f, 1.50f};
             int scaleIdx = 0;
             for (int i = 0; i < 3; ++i) {
-                if (fabsf(ctx.config.ui_scale - kScalePresets[i]) < 0.01f) { scaleIdx = i; break; }
+                if (fabsf(ctx.config.ui_scale - kScalePresets[i]) < 0.01f) {
+                    scaleIdx = i;
+                    break;
+                }
             }
             ImGui::Text("UI Scale");
             ImGui::SameLine();
@@ -1097,7 +1150,7 @@ void SettingsPanel::RenderContent(const std::string& idSuffix, bool& styleChange
                 }
             }
 
-            static const char* visibilityOptions[] = { "private", "unlisted", "public" };
+            static const char* visibilityOptions[] = {"private", "unlisted", "public"};
             int currentVisibility = 1;
             for (int i = 0; i < 3; ++i) {
                 if (ctx.config.ballchasing_visibility == visibilityOptions[i]) {

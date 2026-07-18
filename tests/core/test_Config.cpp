@@ -7,7 +7,7 @@
 #include <shared_mutex>
 
 class ConfigTest : public ::testing::Test {
-protected:
+  protected:
     void SetUp() override {
         // Ensure the data directory exists (required on CI runners)
         Storage::InitializeEnvironment();
@@ -28,7 +28,7 @@ TEST_F(ConfigTest, ReadAndWriteState) {
         c.port = 9999;
         c.host = "127.0.0.99";
     });
-    
+
     ConfigData readData = Config::Read();
     EXPECT_EQ(readData.port, 9999);
     EXPECT_EQ(readData.host, "127.0.0.99");
@@ -40,13 +40,14 @@ TEST_F(ConfigTest, SaveAndLoad) {
         c.host = "test_host";
     });
     Config::Save();
-    
+
     // Modify memory to ensure load overwrites
     Config::Update([](ConfigData& c) {
         c.port = 0;
         c.host = "";
-    }, false);
-    
+    },
+                   false);
+
     Config::Load();
     ConfigData loadedData = Config::Read();
     EXPECT_EQ(loadedData.port, 12345);
@@ -56,9 +57,10 @@ TEST_F(ConfigTest, SaveAndLoad) {
 TEST_F(ConfigTest, ConcurrencyReadUpdate) {
     std::atomic<bool> start{false};
     std::atomic<int> completed{0};
-    
+
     auto reader = [&]() {
-        while (!start) {}
+        while (!start) {
+        }
         for (int i = 0; i < 1000; ++i) {
             ConfigData c = Config::Read();
             EXPECT_GE(c.port, 0);
@@ -67,11 +69,13 @@ TEST_F(ConfigTest, ConcurrencyReadUpdate) {
     };
 
     auto updater = [&]() {
-        while (!start) {}
+        while (!start) {
+        }
         for (int i = 0; i < 1000; ++i) {
             Config::Update([i](ConfigData& c) {
                 c.port = i;
-            }, false);
+            },
+                           false);
         }
         completed++;
     };
@@ -79,7 +83,7 @@ TEST_F(ConfigTest, ConcurrencyReadUpdate) {
     std::thread t1(reader);
     std::thread t2(updater);
     std::thread t3(reader);
-    
+
     start = true;
     t1.join();
     t2.join();
@@ -114,7 +118,8 @@ TEST_F(ConfigTest, LobbyRanksConfigVisibility) {
         c.show_lobby_rank_dropshot = false;
         c.show_lobby_rank_snowday = true;
         c.show_lobby_rank_heatseeker = false;
-    }, false);
+    },
+                   false);
 
     Config::Load();
     ConfigData loaded = Config::Read();
@@ -143,9 +148,9 @@ TEST_F(ConfigTest, LobbyRanksConfigFallback) {
         c.show_lobby_rank_dropshot = false;
         c.show_lobby_rank_snowday = false;
         c.show_lobby_rank_heatseeker = false;
-    }, false);
+    },
+                   false);
 
     ConfigData loaded = Config::Read();
     EXPECT_TRUE(loaded.show_lobby_rank_2v2);
 }
-

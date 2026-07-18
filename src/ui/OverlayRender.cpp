@@ -56,7 +56,7 @@ static void RenderInlineIcon(ID3D11ShaderResourceView* texture, const ImVec2& si
     if (!texture) {
         return;
     }
-    
+
     float reserveHeight = ImGui::GetTextLineHeight();
     ImVec2 cursor = ImGui::GetCursorScreenPos();
     float iconY = cursor.y + (reserveHeight - size.y) * 0.5f;
@@ -69,8 +69,7 @@ static void RenderInlineIcon(ID3D11ShaderResourceView* texture, const ImVec2& si
     ImGui::GetWindowDrawList()->AddImage(
         reinterpret_cast<ImTextureID>(texture),
         clipMin,
-        clipMax
-    );
+        clipMax);
     ImGui::GetWindowDrawList()->PopClipRect();
 
     ImGui::Dummy(ImVec2(size.x, reserveHeight));
@@ -84,8 +83,7 @@ static void RenderDrawListIcon(ID3D11ShaderResourceView* texture, const ImVec2& 
     ImGui::GetWindowDrawList()->AddImage(
         reinterpret_cast<ImTextureID>(texture),
         min,
-        ImVec2(min.x + size.x, min.y + size.y)
-    );
+        ImVec2(min.x + size.x, min.y + size.y));
 }
 
 static void RenderDivisionStack(RankIconAssets* icons, const std::string& tier, const ImVec2& min, float dpiScale) {
@@ -174,13 +172,16 @@ void Overlay::RenderRecord(int winsWith, int lossesWith, int winsAgainst, int lo
         ImGui::TextColored(Format::C(m_frameConfig.themeText), "%d", totalWins);
         ImGui::PopFont();
         ImGui::PushFont(fontSmall);
-        ImGui::SameLine(0, 0); ImGui::TextColored(Format::C(m_frameConfig.themeMuted), "W ");
+        ImGui::SameLine(0, 0);
+        ImGui::TextColored(Format::C(m_frameConfig.themeMuted), "W ");
         ImGui::PopFont();
         ImGui::PushFont(fontMono);
-        ImGui::SameLine(0, 0); ImGui::TextColored(Format::C(m_frameConfig.themeText), "%d", totalLosses);
+        ImGui::SameLine(0, 0);
+        ImGui::TextColored(Format::C(m_frameConfig.themeText), "%d", totalLosses);
         ImGui::PopFont();
         ImGui::PushFont(fontSmall);
-        ImGui::SameLine(0, 0); ImGui::TextColored(Format::C(m_frameConfig.themeMuted), "L");
+        ImGui::SameLine(0, 0);
+        ImGui::TextColored(Format::C(m_frameConfig.themeMuted), "L");
         ImGui::PopFont();
     } else {
         if (hasWith) {
@@ -188,19 +189,23 @@ void Overlay::RenderRecord(int winsWith, int lossesWith, int winsAgainst, int lo
             ImGui::TextColored(Format::C(m_frameConfig.themeText), "%d", winsWith);
             ImGui::PopFont();
             ImGui::PushFont(fontSmall);
-            ImGui::SameLine(0, 0); ImGui::TextColored(Format::C(m_frameConfig.themeMuted), "W ");
+            ImGui::SameLine(0, 0);
+            ImGui::TextColored(Format::C(m_frameConfig.themeMuted), "W ");
             ImGui::PopFont();
             ImGui::PushFont(fontMono);
-            ImGui::SameLine(0, 0); ImGui::TextColored(Format::C(m_frameConfig.themeText), "%d", lossesWith);
+            ImGui::SameLine(0, 0);
+            ImGui::TextColored(Format::C(m_frameConfig.themeText), "%d", lossesWith);
             ImGui::PopFont();
             ImGui::PushFont(fontSmall);
-            ImGui::SameLine(0, 0); ImGui::TextColored(Format::C(m_frameConfig.themeMuted), fmt == RecordFormat::Full ? "L with" : "L");
+            ImGui::SameLine(0, 0);
+            ImGui::TextColored(Format::C(m_frameConfig.themeMuted), fmt == RecordFormat::Full ? "L with" : "L");
             ImGui::PopFont();
         }
 
         if (hasWith && hasAgainst) {
             ImGui::PushFont(fontSmall);
-            ImGui::SameLine(0, 4.0f); ImGui::TextColored(Format::C(m_frameConfig.themeMuted), " / ");
+            ImGui::SameLine(0, 4.0f);
+            ImGui::TextColored(Format::C(m_frameConfig.themeMuted), " / ");
             ImGui::PopFont();
         }
 
@@ -210,13 +215,16 @@ void Overlay::RenderRecord(int winsWith, int lossesWith, int winsAgainst, int lo
             ImGui::TextColored(Format::C(m_frameConfig.themeText), "%d", winsAgainst);
             ImGui::PopFont();
             ImGui::PushFont(fontSmall);
-            ImGui::SameLine(0, 0); ImGui::TextColored(Format::C(m_frameConfig.themeMuted), "W ");
+            ImGui::SameLine(0, 0);
+            ImGui::TextColored(Format::C(m_frameConfig.themeMuted), "W ");
             ImGui::PopFont();
             ImGui::PushFont(fontMono);
-            ImGui::SameLine(0, 0); ImGui::TextColored(Format::C(m_frameConfig.themeText), "%d", lossesAgainst);
+            ImGui::SameLine(0, 0);
+            ImGui::TextColored(Format::C(m_frameConfig.themeText), "%d", lossesAgainst);
             ImGui::PopFont();
             ImGui::PushFont(fontSmall);
-            ImGui::SameLine(0, 0); ImGui::TextColored(Format::C(m_frameConfig.themeMuted), fmt == RecordFormat::Full ? "L vs" : "L");
+            ImGui::SameLine(0, 0);
+            ImGui::TextColored(Format::C(m_frameConfig.themeMuted), fmt == RecordFormat::Full ? "L vs" : "L");
             ImGui::PopFont();
         }
     }
@@ -322,8 +330,8 @@ void Overlay::RenderPlayerRoster(int teamNum, const char* label, ImColor color, 
             return w;
         }
         bool hasRecord = pData.hasLifetimeData &&
-            (pData.lifetimeWinsWith > 0 || pData.lifetimeLossesWith > 0 ||
-             pData.lifetimeWinsAgainst > 0 || pData.lifetimeLossesAgainst > 0);
+                         (pData.lifetimeWinsWith > 0 || pData.lifetimeLossesWith > 0 ||
+                          pData.lifetimeWinsAgainst > 0 || pData.lifetimeLossesAgainst > 0);
         if (!hasRecord) {
             ImGui::PushFont(fontSmallBold);
             float w = ImGui::CalcTextSize("NEW").x;
@@ -505,11 +513,16 @@ void Overlay::RenderPlayerRoster(int teamNum, const char* label, ImColor color, 
                         std::string rawPlatLower = platform;
                         std::transform(rawPlatLower.begin(), rawPlatLower.end(), rawPlatLower.begin(), ::tolower);
 
-                        if (rawPlatLower == "epic" || rawPlatLower == "epicgames") trnPlat = "epic";
-                        else if (rawPlatLower == "steam") trnPlat = "steam";
-                        else if (rawPlatLower == "ps4" || rawPlatLower == "psn" || rawPlatLower == "playstation") trnPlat = "psn";
-                        else if (rawPlatLower == "xboxone" || rawPlatLower == "xbox" || rawPlatLower == "xbl") trnPlat = "xbl";
-                        else if (rawPlatLower == "switch" || rawPlatLower == "nintendo") trnPlat = "switch";
+                        if (rawPlatLower == "epic" || rawPlatLower == "epicgames")
+                            trnPlat = "epic";
+                        else if (rawPlatLower == "steam")
+                            trnPlat = "steam";
+                        else if (rawPlatLower == "ps4" || rawPlatLower == "psn" || rawPlatLower == "playstation")
+                            trnPlat = "psn";
+                        else if (rawPlatLower == "xboxone" || rawPlatLower == "xbox" || rawPlatLower == "xbl")
+                            trnPlat = "xbl";
+                        else if (rawPlatLower == "switch" || rawPlatLower == "nintendo")
+                            trnPlat = "switch";
                     } else {
                         std::cout << "[Overlay] WARNING: No delimiter found in primaryId: " << PrivacyLog::Sensitive(pData.primaryId, "player ID") << "\n";
                     }
@@ -602,28 +615,38 @@ void Overlay::RenderPlayerRoster(int teamNum, const char* label, ImColor color, 
                 }
 
                 ImGui::PushFont(fontSmall);
-                ImGui::SameLine(0, 0); ImGui::TextColored(Format::C(m_frameConfig.themeMuted), " \xC2\xB7 ");
+                ImGui::SameLine(0, 0);
+                ImGui::TextColored(Format::C(m_frameConfig.themeMuted), " \xC2\xB7 ");
                 ImGui::PopFont();
 
                 ImGui::PushFont(fontMono);
-                ImGui::SameLine(0, 0); ImGui::TextColored(Format::C(m_frameConfig.themeDim), "%d", pData.playlists.at(activeCat));
+                ImGui::SameLine(0, 0);
+                ImGui::TextColored(Format::C(m_frameConfig.themeDim), "%d", pData.playlists.at(activeCat));
                 ImGui::PopFont();
 
                 std::string displayMode = "";
                 if (activeCat == "best") {
                     int bestMmr = pData.playlists.at("best");
-                    if (pData.playlists.count("2v2") && pData.playlists.at("2v2") == bestMmr) displayMode = "2V2";
-                    else if (pData.playlists.count("3v3") && pData.playlists.at("3v3") == bestMmr) displayMode = "3V3";
-                    else if (pData.playlists.count("1v1") && pData.playlists.at("1v1") == bestMmr) displayMode = "1V1";
+                    if (pData.playlists.count("2v2") && pData.playlists.at("2v2") == bestMmr)
+                        displayMode = "2V2";
+                    else if (pData.playlists.count("3v3") && pData.playlists.at("3v3") == bestMmr)
+                        displayMode = "3V3";
+                    else if (pData.playlists.count("1v1") && pData.playlists.at("1v1") == bestMmr)
+                        displayMode = "1V1";
                     else if (m_frameConfig.show_extra_playlists &&
-                             pData.playlists.count("hoops") && pData.playlists.at("hoops") == bestMmr) displayMode = "HOOPS";
+                             pData.playlists.count("hoops") && pData.playlists.at("hoops") == bestMmr)
+                        displayMode = "HOOPS";
                     else if (m_frameConfig.show_extra_playlists &&
-                             pData.playlists.count("rumble") && pData.playlists.at("rumble") == bestMmr) displayMode = "RUMBLE";
+                             pData.playlists.count("rumble") && pData.playlists.at("rumble") == bestMmr)
+                        displayMode = "RUMBLE";
                     else if (m_frameConfig.show_extra_playlists &&
-                             pData.playlists.count("dropshot") && pData.playlists.at("dropshot") == bestMmr) displayMode = "DROPSHOT";
+                             pData.playlists.count("dropshot") && pData.playlists.at("dropshot") == bestMmr)
+                        displayMode = "DROPSHOT";
                     else if (m_frameConfig.show_extra_playlists &&
-                             pData.playlists.count("snowday") && pData.playlists.at("snowday") == bestMmr) displayMode = "SNOW DAY";
-                    else displayMode = "BEST";
+                             pData.playlists.count("snowday") && pData.playlists.at("snowday") == bestMmr)
+                        displayMode = "SNOW DAY";
+                    else
+                        displayMode = "BEST";
                 } else {
                     displayMode = activeCat;
                     std::transform(displayMode.begin(), displayMode.end(), displayMode.begin(), ::toupper);
@@ -634,7 +657,8 @@ void Overlay::RenderPlayerRoster(int teamNum, const char* label, ImColor color, 
 
                 if (!displayMode.empty()) {
                     ImGui::PushFont(fontSmall);
-                    ImGui::SameLine(0, 0); ImGui::TextColored(Format::C(m_frameConfig.themeMuted), " \xC2\xB7 ");
+                    ImGui::SameLine(0, 0);
+                    ImGui::TextColored(Format::C(m_frameConfig.themeMuted), " \xC2\xB7 ");
                     ImGui::PopFont();
                     if (drawRankIcons) {
                         ID3D11ShaderResourceView* playlistIcon = m_rankIcons->PlaylistTexture(PlaylistKeyFromLabel(displayMode));
@@ -643,12 +667,14 @@ void Overlay::RenderPlayerRoster(int teamNum, const char* label, ImColor color, 
                             RenderInlineIcon(playlistIcon, ImVec2(28.0f * m_dpiScale, 28.0f * m_dpiScale), displayMode.c_str());
                         } else {
                             ImGui::PushFont(fontSmallBold);
-                            ImGui::SameLine(0, 0); ImGui::TextColored(Format::C(m_frameConfig.themeMuted), "%s", displayMode.c_str());
+                            ImGui::SameLine(0, 0);
+                            ImGui::TextColored(Format::C(m_frameConfig.themeMuted), "%s", displayMode.c_str());
                             ImGui::PopFont();
                         }
                     } else {
                         ImGui::PushFont(fontSmallBold);
-                        ImGui::SameLine(0, 0); ImGui::TextColored(Format::C(m_frameConfig.themeMuted), "%s", displayMode.c_str());
+                        ImGui::SameLine(0, 0);
+                        ImGui::TextColored(Format::C(m_frameConfig.themeMuted), "%s", displayMode.c_str());
                         ImGui::PopFont();
                     }
                 }
@@ -656,10 +682,12 @@ void Overlay::RenderPlayerRoster(int teamNum, const char* label, ImColor color, 
                 if (pData.playlistMatches.count(activeCat) && pData.playlistMatches.at(activeCat) > 0) {
                     int matches = pData.playlistMatches.at(activeCat);
                     ImGui::PushFont(fontSmall);
-                    ImGui::SameLine(0, 0); ImGui::TextColored(Format::C(m_frameConfig.themeMuted), " \xC2\xB7 ");
+                    ImGui::SameLine(0, 0);
+                    ImGui::TextColored(Format::C(m_frameConfig.themeMuted), " \xC2\xB7 ");
                     ImGui::PopFont();
                     ImGui::PushFont(fontSmall);
-                    ImGui::SameLine(0, 0); ImGui::TextColored(Format::C(m_frameConfig.themeDim), "%d matches", matches);
+                    ImGui::SameLine(0, 0);
+                    ImGui::TextColored(Format::C(m_frameConfig.themeDim), "%d matches", matches);
                     ImGui::PopFont();
                 }
             } else if (pData.fetched) {
@@ -700,10 +728,12 @@ void Overlay::RenderPlayerRoster(int teamNum, const char* label, ImColor color, 
                 }
 
                 ImGui::PushFont(fontSmall);
-                ImGui::SameLine(0, 0); ImGui::TextColored(Format::C(m_frameConfig.themeMuted), " \xC2\xB7 ");
+                ImGui::SameLine(0, 0);
+                ImGui::TextColored(Format::C(m_frameConfig.themeMuted), " \xC2\xB7 ");
                 ImGui::PopFont();
                 ImGui::PushFont(fontSmall);
-                ImGui::SameLine(0, 0); ImGui::TextColored(winsColor, "%d wins", pData.totalWins);
+                ImGui::SameLine(0, 0);
+                ImGui::TextColored(winsColor, "%d wins", pData.totalWins);
                 ImGui::PopFont();
             }
             ImGui::EndGroup();
@@ -724,8 +754,8 @@ void Overlay::RenderPlayerRoster(int teamNum, const char* label, ImColor color, 
                 ImGui::PopFont();
             } else {
                 bool hasRecord = pData.hasLifetimeData &&
-                    (pData.lifetimeWinsWith > 0 || pData.lifetimeLossesWith > 0 ||
-                     pData.lifetimeWinsAgainst > 0 || pData.lifetimeLossesAgainst > 0);
+                                 (pData.lifetimeWinsWith > 0 || pData.lifetimeLossesWith > 0 ||
+                                  pData.lifetimeWinsAgainst > 0 || pData.lifetimeLossesAgainst > 0);
 
                 if (hasRecord) {
                     RenderRecord(pData.lifetimeWinsWith, pData.lifetimeLossesWith, pData.lifetimeWinsAgainst, pData.lifetimeLossesAgainst, recordFormat);
@@ -919,13 +949,17 @@ void Overlay::RenderGamemodeBreakdownTable(const char* tableId, GamemodeBreakdow
             if (scope == GamemodeBreakdownScope::CurrentSession) {
                 if (m_snap.sessionGamemodes.count(gamemode)) {
                     const auto& gm = m_snap.sessionGamemodes.at(gamemode);
-                    wins = gm.wins; losses = gm.losses; total = gm.total;
+                    wins = gm.wins;
+                    losses = gm.losses;
+                    total = gm.total;
                 }
             } else {
                 std::lock_guard<std::mutex> lock(m_state->ui.dbStatsMutex);
                 if (m_state->ui.cachedDbStats.gamemodes.count(gamemode)) {
                     const auto& gm = m_state->ui.cachedDbStats.gamemodes.at(gamemode);
-                    wins = gm.wins; losses = gm.losses; total = gm.total;
+                    wins = gm.wins;
+                    losses = gm.losses;
+                    total = gm.total;
                 }
             }
 
@@ -958,20 +992,39 @@ void Overlay::RenderSessionStatsTable(const char* tableId, bool isDashboard, boo
             ImGui::TableSetupColumn("R", ImGuiTableColumnFlags_WidthFixed);
 
             if (m_frameConfig.show_session_record) {
-                ImGui::TableNextRow(); ImGui::TableNextColumn(); ImGui::Text("Record"); ImGui::TableNextColumn(); ImGui::Text("%d - %d", m_snap.sessionTotals.wins, m_snap.sessionTotals.losses);
+                ImGui::TableNextRow();
+                ImGui::TableNextColumn();
+                ImGui::Text("Record");
+                ImGui::TableNextColumn();
+                ImGui::Text("%d - %d", m_snap.sessionTotals.wins, m_snap.sessionTotals.losses);
             }
             if (m_frameConfig.show_session_goals) {
-                ImGui::TableNextRow(); ImGui::TableNextColumn(); ImGui::Text("Goals"); ImGui::TableNextColumn(); ImGui::Text("%d", m_snap.sessionTotals.goals);
+                ImGui::TableNextRow();
+                ImGui::TableNextColumn();
+                ImGui::Text("Goals");
+                ImGui::TableNextColumn();
+                ImGui::Text("%d", m_snap.sessionTotals.goals);
             }
             if (m_frameConfig.show_session_saves) {
-                ImGui::TableNextRow(); ImGui::TableNextColumn(); ImGui::Text("Saves"); ImGui::TableNextColumn(); ImGui::Text("%d", m_snap.sessionTotals.saves);
+                ImGui::TableNextRow();
+                ImGui::TableNextColumn();
+                ImGui::Text("Saves");
+                ImGui::TableNextColumn();
+                ImGui::Text("%d", m_snap.sessionTotals.saves);
             }
             if (m_frameConfig.show_session_assists) {
-                ImGui::TableNextRow(); ImGui::TableNextColumn(); ImGui::Text("Assists"); ImGui::TableNextColumn(); ImGui::Text("%d", m_snap.sessionTotals.assists);
+                ImGui::TableNextRow();
+                ImGui::TableNextColumn();
+                ImGui::Text("Assists");
+                ImGui::TableNextColumn();
+                ImGui::Text("%d", m_snap.sessionTotals.assists);
             }
             if (m_frameConfig.show_session_goal_participation) {
                 const float gp = CalcGoalParticipationPercent(m_snap.sessionTotals);
-                ImGui::TableNextRow(); ImGui::TableNextColumn(); ImGui::Text("Goal Participation"); ImGui::TableNextColumn();
+                ImGui::TableNextRow();
+                ImGui::TableNextColumn();
+                ImGui::Text("Goal Participation");
+                ImGui::TableNextColumn();
                 if (m_snap.sessionTotals.teamGoals > 0) {
                     ImGui::Text("%.0f%%", gp);
                 } else {
@@ -979,20 +1032,38 @@ void Overlay::RenderSessionStatsTable(const char* tableId, bool isDashboard, boo
                 }
             }
             if (m_frameConfig.show_session_demos) {
-                ImGui::TableNextRow(); ImGui::TableNextColumn(); ImGui::Text("Demos"); ImGui::TableNextColumn(); ImGui::Text("%d", m_snap.sessionTotals.demos);
+                ImGui::TableNextRow();
+                ImGui::TableNextColumn();
+                ImGui::Text("Demos");
+                ImGui::TableNextColumn();
+                ImGui::Text("%d", m_snap.sessionTotals.demos);
             }
             if (m_frameConfig.show_session_boost) {
-                ImGui::TableNextRow(); ImGui::TableNextColumn(); ImGui::Text("Boost Picked Up"); ImGui::TableNextColumn(); ImGui::Text("%d", m_snap.sessionTotals.boostPickedUp);
+                ImGui::TableNextRow();
+                ImGui::TableNextColumn();
+                ImGui::Text("Boost Picked Up");
+                ImGui::TableNextColumn();
+                ImGui::Text("%d", m_snap.sessionTotals.boostPickedUp);
             }
             if (m_frameConfig.show_session_mmr_change) {
-                ImGui::TableNextRow(); ImGui::TableNextColumn(); ImGui::Text("MMR Change"); ImGui::TableNextColumn();
+                ImGui::TableNextRow();
+                ImGui::TableNextColumn();
+                ImGui::Text("MMR Change");
+                ImGui::TableNextColumn();
                 float deltaVal = m_snap.sessionTotals.totalMmrChange;
-                if (deltaVal > 0) ImGui::TextColored(Format::C(m_frameConfig.themeWin), "+%.0f", deltaVal);
-                else if (deltaVal < 0) ImGui::TextColored(Format::C(m_frameConfig.themeLoss), "%.0f", deltaVal);
-                else ImGui::TextColored(Format::C(m_frameConfig.themeDim), "+0");
+                if (deltaVal > 0)
+                    ImGui::TextColored(Format::C(m_frameConfig.themeWin), "+%.0f", deltaVal);
+                else if (deltaVal < 0)
+                    ImGui::TextColored(Format::C(m_frameConfig.themeLoss), "%.0f", deltaVal);
+                else
+                    ImGui::TextColored(Format::C(m_frameConfig.themeDim), "+0");
             }
             if (showStreak && m_frameConfig.show_streaks_stats) {
-                ImGui::TableNextRow(); ImGui::TableNextColumn(); ImGui::Text("Streak"); ImGui::TableNextColumn(); ImGui::Text("%d", m_snap.sessionTotals.wins - m_snap.sessionTotals.losses);
+                ImGui::TableNextRow();
+                ImGui::TableNextColumn();
+                ImGui::Text("Streak");
+                ImGui::TableNextColumn();
+                ImGui::Text("%d", m_snap.sessionTotals.wins - m_snap.sessionTotals.losses);
             }
 
             ImGui::EndTable();
@@ -1003,10 +1074,21 @@ void Overlay::RenderSessionStatsTable(const char* tableId, bool isDashboard, boo
             ImGui::TableSetupColumn("L", ImGuiTableColumnFlags_WidthStretch);
             ImGui::TableSetupColumn("R", ImGuiTableColumnFlags_WidthFixed);
 
-            ImGui::TableNextRow(); ImGui::TableNextColumn(); ImGui::Text("Record"); ImGui::TableNextColumn(); ImGui::Text("%d - %d", m_snap.sessionTotals.wins, m_snap.sessionTotals.losses);
-            ImGui::TableNextRow(); ImGui::TableNextColumn(); ImGui::Text("Goals"); ImGui::TableNextColumn(); ImGui::Text("%d", m_snap.sessionTotals.goals);
+            ImGui::TableNextRow();
+            ImGui::TableNextColumn();
+            ImGui::Text("Record");
+            ImGui::TableNextColumn();
+            ImGui::Text("%d - %d", m_snap.sessionTotals.wins, m_snap.sessionTotals.losses);
+            ImGui::TableNextRow();
+            ImGui::TableNextColumn();
+            ImGui::Text("Goals");
+            ImGui::TableNextColumn();
+            ImGui::Text("%d", m_snap.sessionTotals.goals);
 
-            ImGui::TableNextRow(); ImGui::TableNextColumn(); ImGui::Text("Goal Participation"); ImGui::TableNextColumn();
+            ImGui::TableNextRow();
+            ImGui::TableNextColumn();
+            ImGui::Text("Goal Participation");
+            ImGui::TableNextColumn();
             const float gp = CalcGoalParticipationPercent(m_snap.sessionTotals);
             if (m_snap.sessionTotals.teamGoals > 0) {
                 ImGui::Text("%.0f%%", gp);
@@ -1014,14 +1096,24 @@ void Overlay::RenderSessionStatsTable(const char* tableId, bool isDashboard, boo
                 ImGui::TextColored(Format::C(m_frameConfig.themeDim), "--");
             }
 
-            ImGui::TableNextRow(); ImGui::TableNextColumn(); ImGui::Text("MMR Change"); ImGui::TableNextColumn();
+            ImGui::TableNextRow();
+            ImGui::TableNextColumn();
+            ImGui::Text("MMR Change");
+            ImGui::TableNextColumn();
             float deltaVal = m_snap.sessionTotals.totalMmrChange;
-            if (deltaVal > 0) ImGui::TextColored(Format::C(m_frameConfig.themeWin), "+%.0f", deltaVal);
-            else if (deltaVal < 0) ImGui::TextColored(Format::C(m_frameConfig.themeLoss), "%.0f", deltaVal);
-            else ImGui::TextColored(Format::C(m_frameConfig.themeDim), "+0");
+            if (deltaVal > 0)
+                ImGui::TextColored(Format::C(m_frameConfig.themeWin), "+%.0f", deltaVal);
+            else if (deltaVal < 0)
+                ImGui::TextColored(Format::C(m_frameConfig.themeLoss), "%.0f", deltaVal);
+            else
+                ImGui::TextColored(Format::C(m_frameConfig.themeDim), "+0");
 
             if (showStreak) {
-                ImGui::TableNextRow(); ImGui::TableNextColumn(); ImGui::Text("Streak"); ImGui::TableNextColumn(); ImGui::Text("%d", m_snap.sessionTotals.wins - m_snap.sessionTotals.losses);
+                ImGui::TableNextRow();
+                ImGui::TableNextColumn();
+                ImGui::Text("Streak");
+                ImGui::TableNextColumn();
+                ImGui::Text("%d", m_snap.sessionTotals.wins - m_snap.sessionTotals.losses);
             }
 
             ImGui::EndTable();
@@ -1077,13 +1169,13 @@ void Overlay::RenderSessionCard() {
     ImGuiWindowFlags flags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_AlwaysAutoResize;
 
     bool hasVisibleItems = m_frameConfig.show_session_record ||
-                          m_frameConfig.show_session_goals ||
-                          m_frameConfig.show_session_saves ||
-                          m_frameConfig.show_session_assists ||
-                          m_frameConfig.show_session_goal_participation ||
-                          m_frameConfig.show_session_demos ||
-                          m_frameConfig.show_session_mmr_change ||
-                          m_frameConfig.show_session_boost;
+                           m_frameConfig.show_session_goals ||
+                           m_frameConfig.show_session_saves ||
+                           m_frameConfig.show_session_assists ||
+                           m_frameConfig.show_session_goal_participation ||
+                           m_frameConfig.show_session_demos ||
+                           m_frameConfig.show_session_mmr_change ||
+                           m_frameConfig.show_session_boost;
 
     if (hasVisibleItems && ImGui::Begin("SessionSummary", nullptr, flags)) {
         ImGui::TextColored(Format::C(m_frameConfig.themeAccent), "SESSION");
@@ -1147,10 +1239,14 @@ void Overlay::RenderPreviousGamesOverlay() {
 
                         const size_t matchIndex = static_cast<size_t>(set * rowsPerColumn + row);
                         if (matchIndex >= displayCount) {
-                            ImGui::TableNextColumn(); ImGui::TextUnformatted("");
-                            ImGui::TableNextColumn(); ImGui::TextUnformatted("");
-                            ImGui::TableNextColumn(); ImGui::TextUnformatted("");
-                            ImGui::TableNextColumn(); ImGui::TextUnformatted("");
+                            ImGui::TableNextColumn();
+                            ImGui::TextUnformatted("");
+                            ImGui::TableNextColumn();
+                            ImGui::TextUnformatted("");
+                            ImGui::TableNextColumn();
+                            ImGui::TextUnformatted("");
+                            ImGui::TableNextColumn();
+                            ImGui::TextUnformatted("");
                             continue;
                         }
 
@@ -1165,8 +1261,10 @@ void Overlay::RenderPreviousGamesOverlay() {
                         ImGui::TableNextColumn();
                         ImGui::TextColored(rowColor, "%s", score.c_str());
                         ImGui::TableNextColumn();
-                        if (match.mmr > 0) ImGui::TextColored(rowColor, "%d", match.mmr);
-                        else ImGui::TextColored(Format::C(m_frameConfig.themeMuted), "--");
+                        if (match.mmr > 0)
+                            ImGui::TextColored(rowColor, "%d", match.mmr);
+                        else
+                            ImGui::TextColored(Format::C(m_frameConfig.themeMuted), "--");
                         ImGui::TableNextColumn();
                         ImGui::TextColored(rowColor, "%s", time.c_str());
                     }
@@ -1272,8 +1370,10 @@ void Overlay::RenderMatchSummary() {
             int winner = m_snap.matchSummaryWinnerTeam;
             if (winner != 0 && winner != 1) {
                 winner = -1;
-                if (summaryScore0 > summaryScore1) winner = 0;
-                else if (summaryScore1 > summaryScore0) winner = 1;
+                if (summaryScore0 > summaryScore1)
+                    winner = 0;
+                else if (summaryScore1 > summaryScore0)
+                    winner = 1;
             }
 
             std::string resultStr = "DRAW";
@@ -1386,13 +1486,13 @@ void Overlay::RenderSessionView() {
         if (m_state->ui.showGraphView) {
             // Theme colors mapped to ImColor.
             auto& t = m_frameConfig;
-            ImColor colorBg     = Format::C(t.themeBg);
-            ImColor colorText   = Format::C(t.themeText);
+            ImColor colorBg = Format::C(t.themeBg);
+            ImColor colorText = Format::C(t.themeText);
             ImColor colorAccent = Format::C(t.themeAccent);
-            ImColor colorDim    = Format::C(t.themeDim);
-            ImColor colorMuted  = Format::C(t.themeMuted);
-            ImColor colorWin    = Format::C(t.themeWin);
-            ImColor colorLoss   = Format::C(t.themeLoss);
+            ImColor colorDim = Format::C(t.themeDim);
+            ImColor colorMuted = Format::C(t.themeMuted);
+            ImColor colorWin = Format::C(t.themeWin);
+            ImColor colorLoss = Format::C(t.themeLoss);
             ImColor colorGraphLine = Format::C(t.themeGraphLine);
             ImColor colorGraphBaseline = Format::C(t.themeGraphBaseline);
 
@@ -1416,8 +1516,7 @@ void Overlay::RenderSessionView() {
             Widgets::RenderMmrDeltaBadge(badgePos, delta, colorWin, colorLoss, colorMuted, fontSmallBold);
 
             // Render Plot Area
-            const auto& history = m_snap.showLifetimeGraph ? m_snap.lifetimeMmrY :
-                                 (m_snap.playlistHistoryY.count(playlist) ? m_snap.playlistHistoryY.at(playlist) : std::vector<float>{});
+            const auto& history = m_snap.showLifetimeGraph ? m_snap.lifetimeMmrY : (m_snap.playlistHistoryY.count(playlist) ? m_snap.playlistHistoryY.at(playlist) : std::vector<float>{});
             if (history.empty()) {
                 ImGui::Dummy(ImVec2(0.0f, 25.0f));
                 ImGui::PushFont(fontRegular);
@@ -1445,8 +1544,7 @@ void Overlay::RenderSessionView() {
                     .colorGraphBaseline = colorGraphBaseline,
                     .fontSmall = fontSmall,
                     .fontSmallBold = fontSmallBold,
-                    .fontBold = fontBold
-                };
+                    .fontBold = fontBold};
                 Widgets::RenderMmrGraph(params);
             }
         } else {
@@ -1495,194 +1593,195 @@ void Overlay::RenderLobbyRanksTable(const char* tableId) {
     }
 
     if (ImGui::BeginTable(tableId, static_cast<int>(playlists.size()) + 1, ImGuiTableFlags_BordersInnerV)) {
-            ImGui::TableSetupColumn("Name", ImGuiTableColumnFlags_WidthFixed, 110.0f * m_dpiScale);
-            for (const auto& playlist : playlists) {
-                ImGui::TableSetupColumn(playlist.second.c_str(), ImGuiTableColumnFlags_WidthFixed, 54.0f * m_dpiScale);
+        ImGui::TableSetupColumn("Name", ImGuiTableColumnFlags_WidthFixed, 110.0f * m_dpiScale);
+        for (const auto& playlist : playlists) {
+            ImGui::TableSetupColumn(playlist.second.c_str(), ImGuiTableColumnFlags_WidthFixed, 54.0f * m_dpiScale);
+        }
+
+        // Header Row background derived from theme background
+        ImVec4 baseColor = Format::C(m_frameConfig.themeBg);
+        float alpha = 0.8f;
+        ImU32 bgHeader = IM_COL32(
+            (int)(baseColor.x * 0.70f * 255),
+            (int)(baseColor.y * 0.70f * 255),
+            (int)(baseColor.z * 0.70f * 255),
+            (int)(alpha * 255));
+        float rEven = baseColor.x * 1.15f;
+        if (rEven > 1.0f) rEven = 1.0f;
+        float gEven = baseColor.y * 1.15f;
+        if (gEven > 1.0f) gEven = 1.0f;
+        float bEven = baseColor.z * 1.15f;
+        if (bEven > 1.0f) bEven = 1.0f;
+        ImU32 bgEven = IM_COL32(
+            (int)(rEven * 255),
+            (int)(gEven * 255),
+            (int)(bEven * 255),
+            (int)(alpha * 255));
+        ImU32 bgOdd = IM_COL32(
+            (int)(baseColor.x * 0.85f * 255),
+            (int)(baseColor.y * 0.85f * 255),
+            (int)(baseColor.z * 0.85f * 255),
+            (int)(alpha * 255));
+
+        // Header Row
+        ImGui::TableNextRow();
+        ImGui::TableSetBgColor(ImGuiTableBgTarget_RowBg0, bgHeader);
+
+        auto CenterText = [](const char* text, ImColor color, ImFont* font) {
+            ImGui::PushFont(font);
+            float posX = ImGui::GetCursorPosX() + (ImGui::GetColumnWidth() - ImGui::CalcTextSize(text).x) * 0.5f;
+            if (posX > ImGui::GetCursorPosX()) ImGui::SetCursorPosX(posX);
+            ImGui::TextColored(color, "%s", text);
+            ImGui::PopFont();
+        };
+
+        ImGui::TableNextColumn();
+        ImGui::PushFont(lobbyFontSmall);
+        ImGui::SetCursorPosX(ImGui::GetCursorPosX() + 6.0f * m_dpiScale);
+        ImGui::TextColored(Format::C(m_frameConfig.themeMuted), "Name");
+        ImGui::PopFont();
+
+        for (const auto& playlist : playlists) {
+            ImGui::TableNextColumn();
+            CenterText(playlist.second.c_str(), Format::C(m_frameConfig.themeMuted), lobbyFontSmall);
+        }
+
+        std::vector<const PlayerData*> allPlayers;
+        for (const auto& [id, pData] : m_snap.roster) {
+            allPlayers.push_back(&pData);
+        }
+
+        // Sort players: Blue first (0), Orange (1), then MMR in 2v2
+        std::sort(allPlayers.begin(), allPlayers.end(), [&](const PlayerData* a, const PlayerData* b) {
+            if (a->team != b->team) return a->team < b->team;
+            int mmrA = a->playlists.count("2v2") ? a->playlists.at("2v2") : a->mmr;
+            int mmrB = b->playlists.count("2v2") ? b->playlists.at("2v2") : b->mmr;
+            if (mmrA != mmrB) return mmrA > mmrB;
+            return a->name < b->name;
+        });
+
+        bool even = false;
+        for (const auto* pDataPtr : allPlayers) {
+            const auto& pData = *pDataPtr;
+
+            ImU32 rowBgColor = even ? bgEven : bgOdd;
+            even = !even;
+
+            // Color player name: White if it's the local player, else team colored
+            ImColor nameColor;
+            if (pData.primaryId == m_snap.myPrimaryId) {
+                nameColor = ImColor(255, 255, 255, 255); // White
+            } else if (pData.team == 0) {
+                nameColor = ImColor(59, 158, 255, 255); // Blue
+            } else if (pData.team == 1) {
+                nameColor = ImColor(235, 140, 36, 255); // Orange
+            } else {
+                nameColor = Format::C(m_frameConfig.themeText);
             }
-            
-            // Header Row background derived from theme background
-            ImVec4 baseColor = Format::C(m_frameConfig.themeBg);
-            float alpha = 0.8f;
-            ImU32 bgHeader = IM_COL32(
-                (int)(baseColor.x * 0.70f * 255),
-                (int)(baseColor.y * 0.70f * 255),
-                (int)(baseColor.z * 0.70f * 255),
-                (int)(alpha * 255)
-            );
-            float rEven = baseColor.x * 1.15f; if (rEven > 1.0f) rEven = 1.0f;
-            float gEven = baseColor.y * 1.15f; if (gEven > 1.0f) gEven = 1.0f;
-            float bEven = baseColor.z * 1.15f; if (bEven > 1.0f) bEven = 1.0f;
-            ImU32 bgEven = IM_COL32(
-                (int)(rEven * 255),
-                (int)(gEven * 255),
-                (int)(bEven * 255),
-                (int)(alpha * 255)
-            );
-            ImU32 bgOdd = IM_COL32(
-                (int)(baseColor.x * 0.85f * 255),
-                (int)(baseColor.y * 0.85f * 255),
-                (int)(baseColor.z * 0.85f * 255),
-                (int)(alpha * 255)
-            );
- 
-            // Header Row
+
+            ImColor platformColor = Format::C(m_frameConfig.themeMuted);
+            std::string platform = "";
+            size_t delim = pData.primaryId.find('|');
+            if (delim != std::string::npos) {
+                platform = pData.primaryId.substr(0, delim);
+            }
+            std::string displayPlat = platform;
+            if (platform == "Steam") {
+                displayPlat = "Steam";
+                platformColor = ImColor(110, 115, 128); // Grey-blue
+            } else if (platform == "Epic") {
+                displayPlat = "Epic";
+                platformColor = ImColor(164, 164, 164); // Light grey
+            } else if (platform.rfind("PS", 0) == 0) {
+                displayPlat = "PlayStation";
+                platformColor = ImColor(21, 80, 150); // Darker blue
+            } else if (platform.rfind("Xbox", 0) == 0) {
+                displayPlat = "Xbox";
+                platformColor = ImColor(60, 120, 60); // Green
+            } else if (platform == "Switch" || platform == "Nintendo") {
+                displayPlat = "Nintendo";
+                platformColor = ImColor(200, 40, 30); // Red
+            }
+
+            // Truncate player name if too long for compact layout
+            std::string displayName = pData.name;
+            if (displayName.length() > 14) {
+                displayName = displayName.substr(0, 12) + "..";
+            }
+
             ImGui::TableNextRow();
-            ImGui::TableSetBgColor(ImGuiTableBgTarget_RowBg0, bgHeader);
-            
-            auto CenterText = [](const char* text, ImColor color, ImFont* font) {
-                ImGui::PushFont(font);
-                float posX = ImGui::GetCursorPosX() + (ImGui::GetColumnWidth() - ImGui::CalcTextSize(text).x) * 0.5f;
-                if (posX > ImGui::GetCursorPosX()) ImGui::SetCursorPosX(posX);
-                ImGui::TextColored(color, "%s", text);
-                ImGui::PopFont();
-            };
- 
+            ImGui::TableSetBgColor(ImGuiTableBgTarget_RowBg0, rowBgColor);
+
             ImGui::TableNextColumn();
             ImGui::PushFont(lobbyFontSmall);
             ImGui::SetCursorPosX(ImGui::GetCursorPosX() + 6.0f * m_dpiScale);
-            ImGui::TextColored(Format::C(m_frameConfig.themeMuted), "Name");
+            ImGui::TextColored(nameColor, "%s", displayName.c_str());
             ImGui::PopFont();
-            
-            for (const auto& playlist : playlists) {
-                ImGui::TableNextColumn(); CenterText(playlist.second.c_str(), Format::C(m_frameConfig.themeMuted), lobbyFontSmall);
-            }
- 
-            std::vector<const PlayerData*> allPlayers;
-            for (const auto& [id, pData] : m_snap.roster) {
-                allPlayers.push_back(&pData);
-            }
- 
-            // Sort players: Blue first (0), Orange (1), then MMR in 2v2
-            std::sort(allPlayers.begin(), allPlayers.end(), [&](const PlayerData* a, const PlayerData* b) {
-                if (a->team != b->team) return a->team < b->team;
-                int mmrA = a->playlists.count("2v2") ? a->playlists.at("2v2") : a->mmr;
-                int mmrB = b->playlists.count("2v2") ? b->playlists.at("2v2") : b->mmr;
-                if (mmrA != mmrB) return mmrA > mmrB;
-                return a->name < b->name;
-            });
- 
-            bool even = false;
-            for (const auto* pDataPtr : allPlayers) {
-                const auto& pData = *pDataPtr;
- 
-                ImU32 rowBgColor = even ? bgEven : bgOdd;
-                even = !even;
- 
-                // Color player name: White if it's the local player, else team colored
-                ImColor nameColor;
-                if (pData.primaryId == m_snap.myPrimaryId) {
-                    nameColor = ImColor(255, 255, 255, 255); // White
-                } else if (pData.team == 0) {
-                    nameColor = ImColor(59, 158, 255, 255); // Blue
-                } else if (pData.team == 1) {
-                    nameColor = ImColor(235, 140, 36, 255); // Orange
-                } else {
-                    nameColor = Format::C(m_frameConfig.themeText);
-                }
-                
-                ImColor platformColor = Format::C(m_frameConfig.themeMuted);
-                std::string platform = "";
-                size_t delim = pData.primaryId.find('|');
-                if (delim != std::string::npos) {
-                    platform = pData.primaryId.substr(0, delim);
-                }
-                std::string displayPlat = platform;
-                if (platform == "Steam") {
-                    displayPlat = "Steam";
-                    platformColor = ImColor(110, 115, 128); // Grey-blue
-                } else if (platform == "Epic") {
-                    displayPlat = "Epic";
-                    platformColor = ImColor(164, 164, 164); // Light grey
-                } else if (platform.rfind("PS", 0) == 0) {
-                    displayPlat = "PlayStation";
-                    platformColor = ImColor(21, 80, 150); // Darker blue
-                } else if (platform.rfind("Xbox", 0) == 0) {
-                    displayPlat = "Xbox";
-                    platformColor = ImColor(60, 120, 60); // Green
-                } else if (platform == "Switch" || platform == "Nintendo") {
-                    displayPlat = "Nintendo";
-                    platformColor = ImColor(200, 40, 30); // Red
-                }
 
-                // Truncate player name if too long for compact layout
-                std::string displayName = pData.name;
-                if (displayName.length() > 14) {
-                    displayName = displayName.substr(0, 12) + "..";
-                }
- 
-                ImGui::TableNextRow();
-                ImGui::TableSetBgColor(ImGuiTableBgTarget_RowBg0, rowBgColor);
-                
+            for (const auto& playlist : playlists) {
+                const std::string& pl = playlist.first;
                 ImGui::TableNextColumn();
-                ImGui::PushFont(lobbyFontSmall);
-                ImGui::SetCursorPosX(ImGui::GetCursorPosX() + 6.0f * m_dpiScale);
-                ImGui::TextColored(nameColor, "%s", displayName.c_str());
-                ImGui::PopFont();
-                
-                for (const auto& playlist : playlists) {
-                    const std::string& pl = playlist.first;
-                    ImGui::TableNextColumn();
-                    if (pData.playlists.count(pl) && pData.playlists.at(pl) > 0) {
-                        std::string tier = pData.playlistTiers.count(pl) ? pData.playlistTiers.at(pl) : "Unranked";
-                        std::string abbr = Format::AbbreviateRank(tier);
-                        CenterText(abbr.c_str(), Format::RankColor(tier), lobbyFontSmall);
-                        if (ImGui::IsItemHovered()) {
-                            ImGui::BeginTooltip();
-                            int matches = pData.playlistMatches.count(pl) ? pData.playlistMatches.at(pl) : 0;
-                            ImGui::Text("%s", tier.c_str());
-                            ImGui::Text("MMR: %d", pData.playlists.at(pl));
-                            ImGui::Text("Matches: %d", matches);
-                            ImGui::EndTooltip();
-                        }
-                    } else if (pData.fetched) {
-                        CenterText("-", Format::C(m_frameConfig.themeMuted), lobbyFontSmall);
-                    } else {
-                        CenterText("...", Format::C(m_frameConfig.themeMuted), lobbyFontSmall);
-                    }
-                }
- 
-                ImGui::TableNextRow();
-                ImGui::TableSetBgColor(ImGuiTableBgTarget_RowBg0, rowBgColor);
-                
-                ImGui::TableNextColumn();
-                ImGui::PushFont(lobbyFontSmall);
-                ImGui::SetCursorPosX(ImGui::GetCursorPosX() + 6.0f * m_dpiScale);
-                if (!displayPlat.empty()) {
-                    ImGui::TextColored(platformColor, "%s", displayPlat.c_str());
-                } else {
-                    ImGui::TextDisabled(" ");
-                }
-                ImGui::PopFont();
-                
-                for (const auto& playlist : playlists) {
-                    const std::string& pl = playlist.first;
-                    ImGui::TableNextColumn();
-                    if (pData.playlists.count(pl) && pData.playlists.at(pl) > 0) {
-                        int mmr = pData.playlists.at(pl);
+                if (pData.playlists.count(pl) && pData.playlists.at(pl) > 0) {
+                    std::string tier = pData.playlistTiers.count(pl) ? pData.playlistTiers.at(pl) : "Unranked";
+                    std::string abbr = Format::AbbreviateRank(tier);
+                    CenterText(abbr.c_str(), Format::RankColor(tier), lobbyFontSmall);
+                    if (ImGui::IsItemHovered()) {
+                        ImGui::BeginTooltip();
                         int matches = pData.playlistMatches.count(pl) ? pData.playlistMatches.at(pl) : 0;
-                        std::string tier = pData.playlistTiers.count(pl) ? pData.playlistTiers.at(pl) : "Unranked";
-                        std::string text = std::to_string(mmr);
-                        if (matches > 0) {
-                            text += " (" + std::to_string(matches) + ")";
-                        }
-                        CenterText(text.c_str(), Format::RankColor(tier), lobbyFontSmall);
-                        if (ImGui::IsItemHovered()) {
-                            ImGui::BeginTooltip();
-                            int matches = pData.playlistMatches.count(pl) ? pData.playlistMatches.at(pl) : 0;
-                            ImGui::Text("%s", tier.c_str());
-                            ImGui::Text("MMR: %d", mmr);
-                            ImGui::Text("Matches: %d", matches);
-                            ImGui::EndTooltip();
-                        }
-                    } else if (pData.fetched) {
-                        CenterText("-", Format::C(m_frameConfig.themeMuted), lobbyFontSmall);
-                    } else {
-                        CenterText("...", Format::C(m_frameConfig.themeMuted), lobbyFontSmall);
+                        ImGui::Text("%s", tier.c_str());
+                        ImGui::Text("MMR: %d", pData.playlists.at(pl));
+                        ImGui::Text("Matches: %d", matches);
+                        ImGui::EndTooltip();
                     }
+                } else if (pData.fetched) {
+                    CenterText("-", Format::C(m_frameConfig.themeMuted), lobbyFontSmall);
+                } else {
+                    CenterText("...", Format::C(m_frameConfig.themeMuted), lobbyFontSmall);
                 }
             }
-            ImGui::EndTable();
+
+            ImGui::TableNextRow();
+            ImGui::TableSetBgColor(ImGuiTableBgTarget_RowBg0, rowBgColor);
+
+            ImGui::TableNextColumn();
+            ImGui::PushFont(lobbyFontSmall);
+            ImGui::SetCursorPosX(ImGui::GetCursorPosX() + 6.0f * m_dpiScale);
+            if (!displayPlat.empty()) {
+                ImGui::TextColored(platformColor, "%s", displayPlat.c_str());
+            } else {
+                ImGui::TextDisabled(" ");
+            }
+            ImGui::PopFont();
+
+            for (const auto& playlist : playlists) {
+                const std::string& pl = playlist.first;
+                ImGui::TableNextColumn();
+                if (pData.playlists.count(pl) && pData.playlists.at(pl) > 0) {
+                    int mmr = pData.playlists.at(pl);
+                    int matches = pData.playlistMatches.count(pl) ? pData.playlistMatches.at(pl) : 0;
+                    std::string tier = pData.playlistTiers.count(pl) ? pData.playlistTiers.at(pl) : "Unranked";
+                    std::string text = std::to_string(mmr);
+                    if (matches > 0) {
+                        text += " (" + std::to_string(matches) + ")";
+                    }
+                    CenterText(text.c_str(), Format::RankColor(tier), lobbyFontSmall);
+                    if (ImGui::IsItemHovered()) {
+                        ImGui::BeginTooltip();
+                        int matches = pData.playlistMatches.count(pl) ? pData.playlistMatches.at(pl) : 0;
+                        ImGui::Text("%s", tier.c_str());
+                        ImGui::Text("MMR: %d", mmr);
+                        ImGui::Text("Matches: %d", matches);
+                        ImGui::EndTooltip();
+                    }
+                } else if (pData.fetched) {
+                    CenterText("-", Format::C(m_frameConfig.themeMuted), lobbyFontSmall);
+                } else {
+                    CenterText("...", Format::C(m_frameConfig.themeMuted), lobbyFontSmall);
+                }
+            }
         }
+        ImGui::EndTable();
+    }
     ImGui::PopStyleColor(2);
     ImGui::PopStyleVar();
 }
@@ -1909,352 +2008,370 @@ void Overlay::RenderWidgetContent(DashboardLayout::WidgetId id, const char* suff
     };
 
     switch (id) {
-        case DashboardLayout::WidgetId::LiveRoster: {
-            std::string keyCycleName = getBindLabel(m_frameConfig.key_cycle);
-            std::string keyExpandName = getBindLabel(m_frameConfig.key_expand);
-            std::string keySessionName = getBindLabel(m_frameConfig.key_session);
-            std::string suffixStr = suffix ? suffix : "";
-            std::string headerId = "HeaderTbl_" + suffixStr;
-            if (ImGui::BeginTable(headerId.c_str(), 2, ImGuiTableFlags_None)) {
-                ImGui::TableSetupColumn("L", ImGuiTableColumnFlags_WidthStretch);
-                ImGui::TableSetupColumn("R", ImGuiTableColumnFlags_WidthFixed | ImGuiTableColumnFlags_NoClip);
+    case DashboardLayout::WidgetId::LiveRoster: {
+        std::string keyCycleName = getBindLabel(m_frameConfig.key_cycle);
+        std::string keyExpandName = getBindLabel(m_frameConfig.key_expand);
+        std::string keySessionName = getBindLabel(m_frameConfig.key_session);
+        std::string suffixStr = suffix ? suffix : "";
+        std::string headerId = "HeaderTbl_" + suffixStr;
+        if (ImGui::BeginTable(headerId.c_str(), 2, ImGuiTableFlags_None)) {
+            ImGui::TableSetupColumn("L", ImGuiTableColumnFlags_WidthStretch);
+            ImGui::TableSetupColumn("R", ImGuiTableColumnFlags_WidthFixed | ImGuiTableColumnFlags_NoClip);
 
-                ImGui::TableNextRow();
-                ImGui::TableNextColumn();
-                ImGui::PushFont(fontBold);
-                ImGui::TextColored(Format::C(m_frameConfig.themeText), "O M N I S T A T S");
-                ImGui::PopFont();
+            ImGui::TableNextRow();
+            ImGui::TableNextColumn();
+            ImGui::PushFont(fontBold);
+            ImGui::TextColored(Format::C(m_frameConfig.themeText), "O M N I S T A T S");
+            ImGui::PopFont();
 
-                ImGui::TableNextColumn();
-                ImGui::PushFont(fontSmallBold);
-                ImGui::TextColored(Format::C(m_frameConfig.themeMuted), "MMR \xC2\xB7 ");
-                ImGui::SameLine(0, 0);
-                std::string cat = MmrCategoryToString(m_state->ui.rosterMmrCategory.load());
-                std::string catUpper = cat;
-                std::transform(catUpper.begin(), catUpper.end(), catUpper.begin(), ::toupper);
-                if (m_frameConfig.use_rank_icons && m_rankIcons && m_rankIcons->IsLoaded()) {
-                    ID3D11ShaderResourceView* playlistIcon = m_rankIcons->PlaylistTexture(cat);
-                    if (playlistIcon) {
-                        RenderInlineIcon(playlistIcon, ImVec2(24.0f * m_dpiScale, 24.0f * m_dpiScale), catUpper.c_str());
-                    } else {
-                        ImGui::TextColored(Format::C(m_frameConfig.themeDim), "%s", catUpper.c_str());
-                    }
+            ImGui::TableNextColumn();
+            ImGui::PushFont(fontSmallBold);
+            ImGui::TextColored(Format::C(m_frameConfig.themeMuted), "MMR \xC2\xB7 ");
+            ImGui::SameLine(0, 0);
+            std::string cat = MmrCategoryToString(m_state->ui.rosterMmrCategory.load());
+            std::string catUpper = cat;
+            std::transform(catUpper.begin(), catUpper.end(), catUpper.begin(), ::toupper);
+            if (m_frameConfig.use_rank_icons && m_rankIcons && m_rankIcons->IsLoaded()) {
+                ID3D11ShaderResourceView* playlistIcon = m_rankIcons->PlaylistTexture(cat);
+                if (playlistIcon) {
+                    RenderInlineIcon(playlistIcon, ImVec2(24.0f * m_dpiScale, 24.0f * m_dpiScale), catUpper.c_str());
                 } else {
                     ImGui::TextColored(Format::C(m_frameConfig.themeDim), "%s", catUpper.c_str());
                 }
-                ImGui::PopFont();
-
-                ImGui::TableNextRow();
-                ImGui::TableNextColumn();
-                ImGui::TableNextColumn();
-                ImGui::PushFont(fontSmall);
-                ImGui::TextColored(Format::C(m_frameConfig.themeMuted), "%s", m_snap.arenaName.c_str());
-                ImGui::PopFont();
-
-                ImGui::EndTable();
-            }
-
-            ImGui::Separator();
-            ImGui::Spacing();
-
-            if (m_snap.roster.empty()) {
-                ImGui::TextColored(Format::C(m_frameConfig.themeMuted), "No active match connected.");
             } else {
-                RenderPlayerRoster(0, "BLUE", ImColor(59, 158, 255), (std::string("BLUE_") + suffixStr).c_str());
-                ImGui::Dummy(ImVec2(0, 8.0f * m_dpiScale));
-                RenderPlayerRoster(1, "ORANGE", ImColor(255, 122, 41), (std::string("ORANGE_") + suffixStr).c_str());
+                ImGui::TextColored(Format::C(m_frameConfig.themeDim), "%s", catUpper.c_str());
             }
-
-            ImGui::Dummy(ImVec2(0, 4.0f * m_dpiScale));
-            ImGui::Separator();
-            ImGui::Dummy(ImVec2(0, 4.0f * m_dpiScale));
-
-            std::string footerId = "FooterTbl_" + suffixStr;
-            if (ImGui::BeginTable(footerId.c_str(), 2, ImGuiTableFlags_None)) {
-                ImGui::TableSetupColumn("L", ImGuiTableColumnFlags_WidthStretch | ImGuiTableColumnFlags_NoClip);
-                ImGui::TableSetupColumn("R", ImGuiTableColumnFlags_WidthFixed | ImGuiTableColumnFlags_NoClip);
-
-                ImGui::TableNextRow();
-                ImGui::TableNextColumn();
-
-                ImGui::PushFont(fontSmallBold); ImGui::TextColored(Format::C(m_frameConfig.themeMuted), "%s", keyCycleName.c_str()); ImGui::PopFont();
-                ImGui::SameLine(0, 4.0f); ImGui::PushFont(fontSmall); ImGui::TextColored(Format::C(m_frameConfig.themeMuted), "cycle MMR"); ImGui::PopFont();
-
-                ImGui::TableNextColumn();
-                std::string footCat = MmrCategoryToString(m_state->ui.rosterMmrCategory.load());
-                std::string footCatUpper = footCat;
-                std::transform(footCatUpper.begin(), footCatUpper.end(), footCatUpper.begin(), ::toupper);
-                if (m_frameConfig.use_rank_icons && m_rankIcons && m_rankIcons->IsLoaded()) {
-                    ID3D11ShaderResourceView* playlistIcon = m_rankIcons->PlaylistTexture(footCat);
-                    if (playlistIcon) {
-                        RenderInlineIcon(playlistIcon, ImVec2(22.0f * m_dpiScale, 22.0f * m_dpiScale), footCatUpper.c_str());
-                    } else {
-                        ImGui::PushFont(fontSmallBold); ImGui::TextColored(Format::C(m_frameConfig.themeMuted), "%s", footCatUpper.c_str()); ImGui::PopFont();
-                    }
-                } else {
-                    ImGui::PushFont(fontSmallBold); ImGui::TextColored(Format::C(m_frameConfig.themeMuted), "%s", footCatUpper.c_str()); ImGui::PopFont();
-                }
-
-                ImGui::TableNextRow();
-                ImGui::TableNextColumn();
-                const char* expandLabel = m_state->ui.h2hExpanded.load() ? "shrink" : "expand";
-                ImGui::PushFont(fontSmallBold); ImGui::TextColored(Format::C(m_frameConfig.themeMuted), "%s", keyExpandName.c_str()); ImGui::PopFont();
-                ImGui::SameLine(0, 4.0f); ImGui::PushFont(fontSmall); ImGui::TextColored(Format::C(m_frameConfig.themeMuted), "%s", expandLabel); ImGui::PopFont();
-
-                ImGui::TableNextColumn();
-                ImGui::PushFont(fontSmallBold); ImGui::TextColored(Format::C(m_frameConfig.themeMuted), "%s", keySessionName.c_str()); ImGui::PopFont();
-                ImGui::SameLine(0, 4.0f); ImGui::PushFont(fontSmall); ImGui::TextColored(Format::C(m_frameConfig.themeMuted), "session"); ImGui::PopFont();
-
-                ImGui::EndTable();
-            }
-            break;
-        }
-        case DashboardLayout::WidgetId::LiveMatchStats: {
-            RenderLiveMatchStats((std::string("Live_") + suffix).c_str());
-            break;
-        }
-        case DashboardLayout::WidgetId::SessionStats: {
-            RenderSessionStatsTable((std::string("Session_") + suffix).c_str(), true, true);
-            break;
-        }
-        case DashboardLayout::WidgetId::MmrGraph: {
-            std::string playlist = MmrCategoryToString(m_state->ui.graphMmrCategory.load());
-            std::string playlistUpper = playlist;
-            std::transform(playlistUpper.begin(), playlistUpper.end(), playlistUpper.begin(), ::toupper);
-
-            auto& t = m_frameConfig;
-            ImColor colorBg     = Format::C(t.themeBg);
-            ImColor colorText   = Format::C(t.themeText);
-            ImColor colorAccent = Format::C(t.themeAccent);
-            ImColor colorDim    = Format::C(t.themeDim);
-            ImColor colorMuted  = Format::C(t.themeMuted);
-            ImColor colorWin    = Format::C(t.themeWin);
-            ImColor colorLoss   = Format::C(t.themeLoss);
-            ImColor colorGraphLine = Format::C(t.themeGraphLine);
-            ImColor colorGraphBaseline = Format::C(t.themeGraphBaseline);
-
-            auto [currentMmr, initialMmr, delta] = RenderHelper::ComputeMmrDelta(m_snap, playlist);
-
-            std::string displayPlaylist = m_snap.showLifetimeGraph ? "LIFETIME \xC2\xB7 " + playlistUpper : playlistUpper;
-
-            std::string titleStr = std::string("MMR \xC2\xB7 ") + displayPlaylist;
-            ImGui::PushFont(fontBold);
-            ImGui::TextColored(Format::C(m_frameConfig.themeText), "%s", titleStr.c_str());
             ImGui::PopFont();
 
-            ImGui::SameLine();
-            float avail = ImGui::GetContentRegionAvail().x;
-
-            float baseComboW_graph = 120.0f * m_dpiScale;
-            float checkboxLabelW = ImGui::CalcTextSize("Lifetime").x;
-            float checkboxBoxW = ImGui::GetFrameHeight();
-            float baseCheckboxTotal = checkboxBoxW + 6.0f * m_dpiScale + checkboxLabelW;
-            float badgeReserve = 44.0f * m_dpiScale;
-            float gap = 8.0f * m_dpiScale;
-
-            float controlsWanted = baseComboW_graph + gap + baseCheckboxTotal;
-            float maxAvailable = avail - badgeReserve - gap;
-            float scale = 1.0f;
-            const float minScale = 0.5f;
-            if (controlsWanted > maxAvailable && maxAvailable > 0.0f) {
-                scale = (std::max)(minScale, maxAvailable / controlsWanted);
-            }
-
-            bool pushedSmallGraph = (scale < 1.0f - 1e-6f);
-            if (pushedSmallGraph) {
-                ImGui::PushFont(fontSmall);
-                ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(6.0f * m_dpiScale * scale, 2.0f * m_dpiScale * scale));
-            }
-
-            float comboW_graph = baseComboW_graph * scale;
-            float checkboxTotal = baseCheckboxTotal * scale;
-
-            float controlsTotal = comboW_graph + gap + checkboxTotal;
-            float posX = ImGui::GetCursorPosX() + ImGui::GetContentRegionAvail().x - (badgeReserve + controlsTotal);
-            float minXAllowed = ImGui::GetCursorPosX() + 8.0f * m_dpiScale;
-            if (posX < minXAllowed) posX = minXAllowed;
-
-            ImGui::SetCursorPosX(posX);
-            ImGui::SetNextItemWidth(comboW_graph);
-
-            std::vector<std::pair<const char*, MmrCategory>> graphCategories = {
-                {"1v1", MmrCategory::OneVOne}, {"2v2", MmrCategory::TwoVTwo}, {"3v3", MmrCategory::ThreeVThree},
-                {"Casual", MmrCategory::Casual}, {"Tournament", MmrCategory::Tourny}
-            };
-            if (m_frameConfig.show_extra_playlists) {
-                graphCategories.insert(graphCategories.begin() + 3, {
-                    {"Hoops", MmrCategory::Hoops}, {"Rumble", MmrCategory::Rumble},
-                    {"Dropshot", MmrCategory::Dropshot}, {"Snow Day", MmrCategory::SnowDay},
-                    {"Heatseeker", MmrCategory::Heatseeker}
-                });
-            }
-            std::vector<const char*> graphLabels;
-            for (const auto& category : graphCategories) graphLabels.push_back(category.first);
-            int currentGraphCat = 1;
-            MmrCategory loadedGraphCat = m_state->ui.graphMmrCategory.load();
-            for (int i = 0; i < static_cast<int>(graphCategories.size()); ++i) {
-                if (graphCategories[i].second == loadedGraphCat) {
-                    currentGraphCat = i;
-                    break;
-                }
-            }
-
-            if (ImGui::Combo((std::string("##GraphCatCombo_") + suffix).c_str(), &currentGraphCat, graphLabels.data(), static_cast<int>(graphLabels.size()))) {
-                MmrCategory selectedGraphCat = graphCategories[currentGraphCat].second;
-                m_state->ui.graphMmrCategory.store(selectedGraphCat);
-                if (m_state->history.showLifetimeGraph.load() && m_dbManager && !m_snap.myPrimaryId.empty()) {
-                    std::string playlist = MmrCategoryToString(selectedGraphCat);
-                    m_dbManager->AsyncGetLifetimeMmrHistory(m_snap.myPrimaryId, playlist);
-                }
-            }
-
-            ImGui::SameLine(0.0f, gap);
-            bool showLifetime = m_snap.showLifetimeGraph;
-            if (ImGui::Checkbox((std::string("Lifetime##") + suffix).c_str(), &showLifetime)) {
-                m_state->history.showLifetimeGraph = showLifetime;
-            }
-
-            if (pushedSmallGraph) {
-                ImGui::PopStyleVar();
-                ImGui::PopFont();
-            }
-
-            ImVec2 cursorScreen = ImGui::GetCursorScreenPos();
-            ImVec2 badgePos = ImVec2(cursorScreen.x + ImGui::GetContentRegionAvail().x - 44.0f * m_dpiScale, cursorScreen.y - 24.0f * m_dpiScale);
-            Widgets::RenderMmrDeltaBadge(badgePos, delta, colorWin, colorLoss, colorMuted, fontSmallBold);
-
-            const auto& history = m_snap.showLifetimeGraph ? m_snap.lifetimeMmrY :
-                                 (m_snap.playlistHistoryY.count(playlist) ? m_snap.playlistHistoryY.at(playlist) : std::vector<float>{});
-            if (history.empty()) {
-                ImGui::Dummy(ImVec2(0.0f, 25.0f));
-                ImGui::PushFont(fontRegular);
-                if (m_snap.showLifetimeGraph) {
-                    ImGui::TextColored(Format::C(m_frameConfig.themeDim), "No lifetime MMR history in database yet.");
-                    ImGui::TextColored(Format::C(m_frameConfig.themeMuted), "Play matches to populate database records!");
-                } else {
-                    ImGui::TextColored(Format::C(m_frameConfig.themeDim), "No MMR data for %s this session.", playlistUpper.c_str());
-                    ImGui::TextColored(Format::C(m_frameConfig.themeMuted), "Play a match to start plotting!");
-                }
-                ImGui::PopFont();
-                ImGui::Dummy(ImVec2(0.0f, 105.0f));
-            } else {
-                Widgets::MmrGraphParams params{
-                    .history = history,
-                    .currentMmr = currentMmr,
-                    .initialMmr = initialMmr,
-                    .plotHeight = 150.0f,
-                    .colorWin = colorWin,
-                    .colorLoss = colorLoss,
-                    .colorMuted = colorMuted,
-                    .colorDim = colorDim,
-                    .colorText = colorText,
-                    .colorGraphLine = colorGraphLine,
-                    .colorGraphBaseline = colorGraphBaseline,
-                    .fontSmall = fontSmall,
-                    .fontSmallBold = fontSmallBold,
-                    .fontBold = fontBold
-                };
-                Widgets::RenderMmrGraph(params);
-            }
-            break;
-        }
-        case DashboardLayout::WidgetId::StreaksStats: {
-            RenderStreaksStatsTable((std::string("Streak_") + suffix).c_str());
-            break;
-        }
-        case DashboardLayout::WidgetId::GamemodeBreakdown: {
-            RenderGamemodeBreakdownTable((std::string("Gamemode_") + suffix).c_str(), ScopeFromConfigString(m_frameConfig.gamemode_breakdown_scope));
-            break;
-        }
-        case DashboardLayout::WidgetId::LobbyRanks: {
-            RenderLobbyRanksTable((std::string("LobbyRanks_") + suffix).c_str());
-            break;
-        }
-        case DashboardLayout::WidgetId::DemoTracker: {
-            RenderDemoTrackerTable((std::string("DemoTracker_") + suffix).c_str());
-            break;
-        }
-        case DashboardLayout::WidgetId::PreviousGames: {
-            ImGui::PushFont(fontSmallBold);
-            ImGui::TextColored(Format::C(m_frameConfig.themeAccent), "PREVIOUS GAMES");
-            ImGui::PopFont();
-            ImGui::SameLine();
+            ImGui::TableNextRow();
+            ImGui::TableNextColumn();
+            ImGui::TableNextColumn();
             ImGui::PushFont(fontSmall);
-            ImGui::TextColored(Format::C(m_frameConfig.themeMuted), "last %d saved games", m_frameConfig.previous_games_limit);
+            ImGui::TextColored(Format::C(m_frameConfig.themeMuted), "%s", m_snap.arenaName.c_str());
             ImGui::PopFont();
-            ImGui::Separator();
-            ImGui::Spacing();
 
-            const auto& matches = m_snap.recentSavedMatches;
-            if (!m_snap.recentSavedMatchesLoaded) {
-                ImGui::TextColored(Format::C(m_frameConfig.themeMuted), "Loading saved match history...");
-                ImGui::Dummy(ImVec2(0, 6.0f * m_dpiScale));
-            } else if (matches.empty()) {
-                ImGui::TextColored(Format::C(m_frameConfig.themeMuted), "No saved games in local history.");
-                ImGui::Dummy(ImVec2(0, 6.0f * m_dpiScale));
-            } else {
-                const size_t displayCount = matches.size();
-                const bool twoColumns = ImGui::GetContentRegionAvail().x >= 720.0f * m_dpiScale && displayCount > 10;
-                const int columnSets = twoColumns ? 2 : 1;
-                const int rowsPerColumn = twoColumns ? static_cast<int>((displayCount + 1) / 2) : static_cast<int>(displayCount);
-                const int tableColumns = columnSets * 4 + (columnSets - 1);
-                std::string tableId = std::string("PreviousGames_") + suffix;
+            ImGui::EndTable();
+        }
 
-                if (ImGui::BeginTable(tableId.c_str(), tableColumns, ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_RowBg)) {
-                    for (int set = 0; set < columnSets; ++set) {
-                        if (set > 0) ImGui::TableSetupColumn("##Gap", ImGuiTableColumnFlags_WidthFixed, 14.0f * m_dpiScale);
-                        ImGui::TableSetupColumn((std::string("Playlist##") + std::to_string(set)).c_str(), ImGuiTableColumnFlags_WidthStretch);
-                        ImGui::TableSetupColumn((std::string("Score##") + std::to_string(set)).c_str(), ImGuiTableColumnFlags_WidthFixed, 52.0f * m_dpiScale);
-                        ImGui::TableSetupColumn((std::string("MMR##") + std::to_string(set)).c_str(), ImGuiTableColumnFlags_WidthFixed, 56.0f * m_dpiScale);
-                        ImGui::TableSetupColumn((std::string("Time##") + std::to_string(set)).c_str(), ImGuiTableColumnFlags_WidthFixed, 78.0f * m_dpiScale);
-                    }
-                    ImGui::TableHeadersRow();
+        ImGui::Separator();
+        ImGui::Spacing();
 
-                    ImGui::PushFont(fontMono);
-                    for (int row = 0; row < rowsPerColumn; ++row) {
-                        ImGui::TableNextRow();
-                        for (int set = 0; set < columnSets; ++set) {
-                            if (set > 0) {
-                                ImGui::TableNextColumn();
-                                ImGui::TextUnformatted("");
-                            }
+        if (m_snap.roster.empty()) {
+            ImGui::TextColored(Format::C(m_frameConfig.themeMuted), "No active match connected.");
+        } else {
+            RenderPlayerRoster(0, "BLUE", ImColor(59, 158, 255), (std::string("BLUE_") + suffixStr).c_str());
+            ImGui::Dummy(ImVec2(0, 8.0f * m_dpiScale));
+            RenderPlayerRoster(1, "ORANGE", ImColor(255, 122, 41), (std::string("ORANGE_") + suffixStr).c_str());
+        }
 
-                            const size_t matchIndex = static_cast<size_t>(set * rowsPerColumn + row);
-                            if (matchIndex >= displayCount) {
-                                ImGui::TableNextColumn(); ImGui::TextUnformatted("");
-                                ImGui::TableNextColumn(); ImGui::TextUnformatted("");
-                                ImGui::TableNextColumn(); ImGui::TextUnformatted("");
-                                ImGui::TableNextColumn(); ImGui::TextUnformatted("");
-                                continue;
-                            }
+        ImGui::Dummy(ImVec2(0, 4.0f * m_dpiScale));
+        ImGui::Separator();
+        ImGui::Dummy(ImVec2(0, 4.0f * m_dpiScale));
 
-                            const auto& match = matches[matchIndex];
-                            const ImVec4 rowColor = Format::C(match.win ? m_frameConfig.themeWin : m_frameConfig.themeLoss);
-                            const std::string playlist = std::string(match.ranked ? "R " : "C ") + (match.mode.empty() ? "Unknown" : match.mode);
-                            const std::string score = std::to_string(match.ourScore) + "-" + std::to_string(match.theirScore);
-                            const std::string time = FormatRelativeMatchTime(match.endedAtUnix);
+        std::string footerId = "FooterTbl_" + suffixStr;
+        if (ImGui::BeginTable(footerId.c_str(), 2, ImGuiTableFlags_None)) {
+            ImGui::TableSetupColumn("L", ImGuiTableColumnFlags_WidthStretch | ImGuiTableColumnFlags_NoClip);
+            ImGui::TableSetupColumn("R", ImGuiTableColumnFlags_WidthFixed | ImGuiTableColumnFlags_NoClip);
 
-                            ImGui::TableNextColumn();
-                            ImGui::TextColored(rowColor, "%s", playlist.c_str());
-                            ImGui::TableNextColumn();
-                            ImGui::TextColored(rowColor, "%s", score.c_str());
-                            ImGui::TableNextColumn();
-                            if (match.mmr > 0) ImGui::TextColored(rowColor, "%d", match.mmr);
-                            else ImGui::TextColored(Format::C(m_frameConfig.themeMuted), "--");
-                            ImGui::TableNextColumn();
-                            ImGui::TextColored(rowColor, "%s", time.c_str());
-                        }
-                    }
+            ImGui::TableNextRow();
+            ImGui::TableNextColumn();
+
+            ImGui::PushFont(fontSmallBold);
+            ImGui::TextColored(Format::C(m_frameConfig.themeMuted), "%s", keyCycleName.c_str());
+            ImGui::PopFont();
+            ImGui::SameLine(0, 4.0f);
+            ImGui::PushFont(fontSmall);
+            ImGui::TextColored(Format::C(m_frameConfig.themeMuted), "cycle MMR");
+            ImGui::PopFont();
+
+            ImGui::TableNextColumn();
+            std::string footCat = MmrCategoryToString(m_state->ui.rosterMmrCategory.load());
+            std::string footCatUpper = footCat;
+            std::transform(footCatUpper.begin(), footCatUpper.end(), footCatUpper.begin(), ::toupper);
+            if (m_frameConfig.use_rank_icons && m_rankIcons && m_rankIcons->IsLoaded()) {
+                ID3D11ShaderResourceView* playlistIcon = m_rankIcons->PlaylistTexture(footCat);
+                if (playlistIcon) {
+                    RenderInlineIcon(playlistIcon, ImVec2(22.0f * m_dpiScale, 22.0f * m_dpiScale), footCatUpper.c_str());
+                } else {
+                    ImGui::PushFont(fontSmallBold);
+                    ImGui::TextColored(Format::C(m_frameConfig.themeMuted), "%s", footCatUpper.c_str());
                     ImGui::PopFont();
-                    ImGui::EndTable();
                 }
+            } else {
+                ImGui::PushFont(fontSmallBold);
+                ImGui::TextColored(Format::C(m_frameConfig.themeMuted), "%s", footCatUpper.c_str());
+                ImGui::PopFont();
             }
 
-            ImGui::Dummy(ImVec2(0, 4.0f * m_dpiScale));
+            ImGui::TableNextRow();
+            ImGui::TableNextColumn();
+            const char* expandLabel = m_state->ui.h2hExpanded.load() ? "shrink" : "expand";
             ImGui::PushFont(fontSmallBold);
-            ImGui::TextColored(Format::C(m_frameConfig.themeMuted), "Current session: W:%d L:%d", m_snap.sessionTotals.wins, m_snap.sessionTotals.losses);
+            ImGui::TextColored(Format::C(m_frameConfig.themeMuted), "%s", keyExpandName.c_str());
             ImGui::PopFont();
-            break;
+            ImGui::SameLine(0, 4.0f);
+            ImGui::PushFont(fontSmall);
+            ImGui::TextColored(Format::C(m_frameConfig.themeMuted), "%s", expandLabel);
+            ImGui::PopFont();
+
+            ImGui::TableNextColumn();
+            ImGui::PushFont(fontSmallBold);
+            ImGui::TextColored(Format::C(m_frameConfig.themeMuted), "%s", keySessionName.c_str());
+            ImGui::PopFont();
+            ImGui::SameLine(0, 4.0f);
+            ImGui::PushFont(fontSmall);
+            ImGui::TextColored(Format::C(m_frameConfig.themeMuted), "session");
+            ImGui::PopFont();
+
+            ImGui::EndTable();
         }
+        break;
+    }
+    case DashboardLayout::WidgetId::LiveMatchStats: {
+        RenderLiveMatchStats((std::string("Live_") + suffix).c_str());
+        break;
+    }
+    case DashboardLayout::WidgetId::SessionStats: {
+        RenderSessionStatsTable((std::string("Session_") + suffix).c_str(), true, true);
+        break;
+    }
+    case DashboardLayout::WidgetId::MmrGraph: {
+        std::string playlist = MmrCategoryToString(m_state->ui.graphMmrCategory.load());
+        std::string playlistUpper = playlist;
+        std::transform(playlistUpper.begin(), playlistUpper.end(), playlistUpper.begin(), ::toupper);
+
+        auto& t = m_frameConfig;
+        ImColor colorBg = Format::C(t.themeBg);
+        ImColor colorText = Format::C(t.themeText);
+        ImColor colorAccent = Format::C(t.themeAccent);
+        ImColor colorDim = Format::C(t.themeDim);
+        ImColor colorMuted = Format::C(t.themeMuted);
+        ImColor colorWin = Format::C(t.themeWin);
+        ImColor colorLoss = Format::C(t.themeLoss);
+        ImColor colorGraphLine = Format::C(t.themeGraphLine);
+        ImColor colorGraphBaseline = Format::C(t.themeGraphBaseline);
+
+        auto [currentMmr, initialMmr, delta] = RenderHelper::ComputeMmrDelta(m_snap, playlist);
+
+        std::string displayPlaylist = m_snap.showLifetimeGraph ? "LIFETIME \xC2\xB7 " + playlistUpper : playlistUpper;
+
+        std::string titleStr = std::string("MMR \xC2\xB7 ") + displayPlaylist;
+        ImGui::PushFont(fontBold);
+        ImGui::TextColored(Format::C(m_frameConfig.themeText), "%s", titleStr.c_str());
+        ImGui::PopFont();
+
+        ImGui::SameLine();
+        float avail = ImGui::GetContentRegionAvail().x;
+
+        float baseComboW_graph = 120.0f * m_dpiScale;
+        float checkboxLabelW = ImGui::CalcTextSize("Lifetime").x;
+        float checkboxBoxW = ImGui::GetFrameHeight();
+        float baseCheckboxTotal = checkboxBoxW + 6.0f * m_dpiScale + checkboxLabelW;
+        float badgeReserve = 44.0f * m_dpiScale;
+        float gap = 8.0f * m_dpiScale;
+
+        float controlsWanted = baseComboW_graph + gap + baseCheckboxTotal;
+        float maxAvailable = avail - badgeReserve - gap;
+        float scale = 1.0f;
+        const float minScale = 0.5f;
+        if (controlsWanted > maxAvailable && maxAvailable > 0.0f) {
+            scale = (std::max)(minScale, maxAvailable / controlsWanted);
+        }
+
+        bool pushedSmallGraph = (scale < 1.0f - 1e-6f);
+        if (pushedSmallGraph) {
+            ImGui::PushFont(fontSmall);
+            ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(6.0f * m_dpiScale * scale, 2.0f * m_dpiScale * scale));
+        }
+
+        float comboW_graph = baseComboW_graph * scale;
+        float checkboxTotal = baseCheckboxTotal * scale;
+
+        float controlsTotal = comboW_graph + gap + checkboxTotal;
+        float posX = ImGui::GetCursorPosX() + ImGui::GetContentRegionAvail().x - (badgeReserve + controlsTotal);
+        float minXAllowed = ImGui::GetCursorPosX() + 8.0f * m_dpiScale;
+        if (posX < minXAllowed) posX = minXAllowed;
+
+        ImGui::SetCursorPosX(posX);
+        ImGui::SetNextItemWidth(comboW_graph);
+
+        std::vector<std::pair<const char*, MmrCategory>> graphCategories = {
+            {"1v1", MmrCategory::OneVOne}, {"2v2", MmrCategory::TwoVTwo}, {"3v3", MmrCategory::ThreeVThree}, {"Casual", MmrCategory::Casual}, {"Tournament", MmrCategory::Tourny}};
+        if (m_frameConfig.show_extra_playlists) {
+            graphCategories.insert(graphCategories.begin() + 3, {{"Hoops", MmrCategory::Hoops}, {"Rumble", MmrCategory::Rumble}, {"Dropshot", MmrCategory::Dropshot}, {"Snow Day", MmrCategory::SnowDay}, {"Heatseeker", MmrCategory::Heatseeker}});
+        }
+        std::vector<const char*> graphLabels;
+        for (const auto& category : graphCategories)
+            graphLabels.push_back(category.first);
+        int currentGraphCat = 1;
+        MmrCategory loadedGraphCat = m_state->ui.graphMmrCategory.load();
+        for (int i = 0; i < static_cast<int>(graphCategories.size()); ++i) {
+            if (graphCategories[i].second == loadedGraphCat) {
+                currentGraphCat = i;
+                break;
+            }
+        }
+
+        if (ImGui::Combo((std::string("##GraphCatCombo_") + suffix).c_str(), &currentGraphCat, graphLabels.data(), static_cast<int>(graphLabels.size()))) {
+            MmrCategory selectedGraphCat = graphCategories[currentGraphCat].second;
+            m_state->ui.graphMmrCategory.store(selectedGraphCat);
+            if (m_state->history.showLifetimeGraph.load() && m_dbManager && !m_snap.myPrimaryId.empty()) {
+                std::string playlist = MmrCategoryToString(selectedGraphCat);
+                m_dbManager->AsyncGetLifetimeMmrHistory(m_snap.myPrimaryId, playlist);
+            }
+        }
+
+        ImGui::SameLine(0.0f, gap);
+        bool showLifetime = m_snap.showLifetimeGraph;
+        if (ImGui::Checkbox((std::string("Lifetime##") + suffix).c_str(), &showLifetime)) {
+            m_state->history.showLifetimeGraph = showLifetime;
+        }
+
+        if (pushedSmallGraph) {
+            ImGui::PopStyleVar();
+            ImGui::PopFont();
+        }
+
+        ImVec2 cursorScreen = ImGui::GetCursorScreenPos();
+        ImVec2 badgePos = ImVec2(cursorScreen.x + ImGui::GetContentRegionAvail().x - 44.0f * m_dpiScale, cursorScreen.y - 24.0f * m_dpiScale);
+        Widgets::RenderMmrDeltaBadge(badgePos, delta, colorWin, colorLoss, colorMuted, fontSmallBold);
+
+        const auto& history = m_snap.showLifetimeGraph ? m_snap.lifetimeMmrY : (m_snap.playlistHistoryY.count(playlist) ? m_snap.playlistHistoryY.at(playlist) : std::vector<float>{});
+        if (history.empty()) {
+            ImGui::Dummy(ImVec2(0.0f, 25.0f));
+            ImGui::PushFont(fontRegular);
+            if (m_snap.showLifetimeGraph) {
+                ImGui::TextColored(Format::C(m_frameConfig.themeDim), "No lifetime MMR history in database yet.");
+                ImGui::TextColored(Format::C(m_frameConfig.themeMuted), "Play matches to populate database records!");
+            } else {
+                ImGui::TextColored(Format::C(m_frameConfig.themeDim), "No MMR data for %s this session.", playlistUpper.c_str());
+                ImGui::TextColored(Format::C(m_frameConfig.themeMuted), "Play a match to start plotting!");
+            }
+            ImGui::PopFont();
+            ImGui::Dummy(ImVec2(0.0f, 105.0f));
+        } else {
+            Widgets::MmrGraphParams params{
+                .history = history,
+                .currentMmr = currentMmr,
+                .initialMmr = initialMmr,
+                .plotHeight = 150.0f,
+                .colorWin = colorWin,
+                .colorLoss = colorLoss,
+                .colorMuted = colorMuted,
+                .colorDim = colorDim,
+                .colorText = colorText,
+                .colorGraphLine = colorGraphLine,
+                .colorGraphBaseline = colorGraphBaseline,
+                .fontSmall = fontSmall,
+                .fontSmallBold = fontSmallBold,
+                .fontBold = fontBold};
+            Widgets::RenderMmrGraph(params);
+        }
+        break;
+    }
+    case DashboardLayout::WidgetId::StreaksStats: {
+        RenderStreaksStatsTable((std::string("Streak_") + suffix).c_str());
+        break;
+    }
+    case DashboardLayout::WidgetId::GamemodeBreakdown: {
+        RenderGamemodeBreakdownTable((std::string("Gamemode_") + suffix).c_str(), ScopeFromConfigString(m_frameConfig.gamemode_breakdown_scope));
+        break;
+    }
+    case DashboardLayout::WidgetId::LobbyRanks: {
+        RenderLobbyRanksTable((std::string("LobbyRanks_") + suffix).c_str());
+        break;
+    }
+    case DashboardLayout::WidgetId::DemoTracker: {
+        RenderDemoTrackerTable((std::string("DemoTracker_") + suffix).c_str());
+        break;
+    }
+    case DashboardLayout::WidgetId::PreviousGames: {
+        ImGui::PushFont(fontSmallBold);
+        ImGui::TextColored(Format::C(m_frameConfig.themeAccent), "PREVIOUS GAMES");
+        ImGui::PopFont();
+        ImGui::SameLine();
+        ImGui::PushFont(fontSmall);
+        ImGui::TextColored(Format::C(m_frameConfig.themeMuted), "last %d saved games", m_frameConfig.previous_games_limit);
+        ImGui::PopFont();
+        ImGui::Separator();
+        ImGui::Spacing();
+
+        const auto& matches = m_snap.recentSavedMatches;
+        if (!m_snap.recentSavedMatchesLoaded) {
+            ImGui::TextColored(Format::C(m_frameConfig.themeMuted), "Loading saved match history...");
+            ImGui::Dummy(ImVec2(0, 6.0f * m_dpiScale));
+        } else if (matches.empty()) {
+            ImGui::TextColored(Format::C(m_frameConfig.themeMuted), "No saved games in local history.");
+            ImGui::Dummy(ImVec2(0, 6.0f * m_dpiScale));
+        } else {
+            const size_t displayCount = matches.size();
+            const bool twoColumns = ImGui::GetContentRegionAvail().x >= 720.0f * m_dpiScale && displayCount > 10;
+            const int columnSets = twoColumns ? 2 : 1;
+            const int rowsPerColumn = twoColumns ? static_cast<int>((displayCount + 1) / 2) : static_cast<int>(displayCount);
+            const int tableColumns = columnSets * 4 + (columnSets - 1);
+            std::string tableId = std::string("PreviousGames_") + suffix;
+
+            if (ImGui::BeginTable(tableId.c_str(), tableColumns, ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_RowBg)) {
+                for (int set = 0; set < columnSets; ++set) {
+                    if (set > 0) ImGui::TableSetupColumn("##Gap", ImGuiTableColumnFlags_WidthFixed, 14.0f * m_dpiScale);
+                    ImGui::TableSetupColumn((std::string("Playlist##") + std::to_string(set)).c_str(), ImGuiTableColumnFlags_WidthStretch);
+                    ImGui::TableSetupColumn((std::string("Score##") + std::to_string(set)).c_str(), ImGuiTableColumnFlags_WidthFixed, 52.0f * m_dpiScale);
+                    ImGui::TableSetupColumn((std::string("MMR##") + std::to_string(set)).c_str(), ImGuiTableColumnFlags_WidthFixed, 56.0f * m_dpiScale);
+                    ImGui::TableSetupColumn((std::string("Time##") + std::to_string(set)).c_str(), ImGuiTableColumnFlags_WidthFixed, 78.0f * m_dpiScale);
+                }
+                ImGui::TableHeadersRow();
+
+                ImGui::PushFont(fontMono);
+                for (int row = 0; row < rowsPerColumn; ++row) {
+                    ImGui::TableNextRow();
+                    for (int set = 0; set < columnSets; ++set) {
+                        if (set > 0) {
+                            ImGui::TableNextColumn();
+                            ImGui::TextUnformatted("");
+                        }
+
+                        const size_t matchIndex = static_cast<size_t>(set * rowsPerColumn + row);
+                        if (matchIndex >= displayCount) {
+                            ImGui::TableNextColumn();
+                            ImGui::TextUnformatted("");
+                            ImGui::TableNextColumn();
+                            ImGui::TextUnformatted("");
+                            ImGui::TableNextColumn();
+                            ImGui::TextUnformatted("");
+                            ImGui::TableNextColumn();
+                            ImGui::TextUnformatted("");
+                            continue;
+                        }
+
+                        const auto& match = matches[matchIndex];
+                        const ImVec4 rowColor = Format::C(match.win ? m_frameConfig.themeWin : m_frameConfig.themeLoss);
+                        const std::string playlist = std::string(match.ranked ? "R " : "C ") + (match.mode.empty() ? "Unknown" : match.mode);
+                        const std::string score = std::to_string(match.ourScore) + "-" + std::to_string(match.theirScore);
+                        const std::string time = FormatRelativeMatchTime(match.endedAtUnix);
+
+                        ImGui::TableNextColumn();
+                        ImGui::TextColored(rowColor, "%s", playlist.c_str());
+                        ImGui::TableNextColumn();
+                        ImGui::TextColored(rowColor, "%s", score.c_str());
+                        ImGui::TableNextColumn();
+                        if (match.mmr > 0)
+                            ImGui::TextColored(rowColor, "%d", match.mmr);
+                        else
+                            ImGui::TextColored(Format::C(m_frameConfig.themeMuted), "--");
+                        ImGui::TableNextColumn();
+                        ImGui::TextColored(rowColor, "%s", time.c_str());
+                    }
+                }
+                ImGui::PopFont();
+                ImGui::EndTable();
+            }
+        }
+
+        ImGui::Dummy(ImVec2(0, 4.0f * m_dpiScale));
+        ImGui::PushFont(fontSmallBold);
+        ImGui::TextColored(Format::C(m_frameConfig.themeMuted), "Current session: W:%d L:%d", m_snap.sessionTotals.wins, m_snap.sessionTotals.losses);
+        ImGui::PopFont();
+        break;
+    }
     }
 }

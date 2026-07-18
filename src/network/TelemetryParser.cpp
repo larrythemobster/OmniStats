@@ -4,7 +4,9 @@
 
 TelemetryParser::TelemetryParser() : m_socket(m_ioContext) {}
 
-TelemetryParser::~TelemetryParser() { Stop(); }
+TelemetryParser::~TelemetryParser() {
+    Stop();
+}
 
 void TelemetryParser::Stop() {
     m_stopping.store(true);
@@ -88,8 +90,14 @@ void TelemetryParser::ConnectAndRead(JsonLineCallback onJsonLine) {
 
         size_t searchPos = 0;
         while (searchPos < dataBuffer.size()) {
-            if (std::isspace(dataBuffer[searchPos])) { searchPos++; continue; }
-            if (dataBuffer[searchPos] != '{') { searchPos++; continue; }
+            if (std::isspace(dataBuffer[searchPos])) {
+                searchPos++;
+                continue;
+            }
+            if (dataBuffer[searchPos] != '{') {
+                searchPos++;
+                continue;
+            }
 
             int braceCount = 0;
             bool inString = false;
@@ -98,20 +106,31 @@ void TelemetryParser::ConnectAndRead(JsonLineCallback onJsonLine) {
 
             for (size_t i = searchPos; i < dataBuffer.size(); ++i) {
                 char c = dataBuffer[i];
-                if (isEscaped) { isEscaped = false; }
-                else if (c == '\\') { isEscaped = true; }
-                else if (c == '"') { inString = !inString; }
-                else if (!inString) {
-                    if (c == '{') braceCount++;
-                    else if (c == '}') { braceCount--; if (braceCount == 0) { endIdx = i; break; } }
+                if (isEscaped) {
+                    isEscaped = false;
+                } else if (c == '\\') {
+                    isEscaped = true;
+                } else if (c == '"') {
+                    inString = !inString;
+                } else if (!inString) {
+                    if (c == '{')
+                        braceCount++;
+                    else if (c == '}') {
+                        braceCount--;
+                        if (braceCount == 0) {
+                            endIdx = i;
+                            break;
+                        }
+                    }
                 }
             }
 
             if (endIdx != std::string::npos) {
                 std::string jsonStr = dataBuffer.substr(searchPos, endIdx - searchPos + 1);
                 if (onJsonLine) {
-                    try { onJsonLine(jsonStr); }
-                    catch (const std::exception& e) {
+                    try {
+                        onJsonLine(jsonStr);
+                    } catch (const std::exception& e) {
                         std::cout << "[StatsClient] JSON Parse Error: " << e.what() << "\n";
                     }
                 }
@@ -122,8 +141,10 @@ void TelemetryParser::ConnectAndRead(JsonLineCallback onJsonLine) {
         }
 
         if (searchPos > 0) {
-            if (searchPos >= dataBuffer.size()) dataBuffer.clear();
-            else dataBuffer.erase(0, searchPos);
+            if (searchPos >= dataBuffer.size())
+                dataBuffer.clear();
+            else
+                dataBuffer.erase(0, searchPos);
         }
     }
 }

@@ -6,12 +6,13 @@
 #include <memory>
 
 class OverlaySettingsTest : public ::testing::Test {
-protected:
+  protected:
     void SetUp() override {
         IMGUI_CHECKVERSION();
         ImGui::CreateContext();
         ImGuiIO& io = ImGui::GetIO();
-        unsigned char* pixels; int w, h;
+        unsigned char* pixels;
+        int w, h;
         io.Fonts->GetTexDataAsRGBA32(&pixels, &w, &h);
         io.DisplaySize = ImVec2(1920.0f, 1080.0f);
         io.DeltaTime = 1.0f / 60.0f;
@@ -67,7 +68,10 @@ TEST_F(OverlaySettingsTest, ConfigToggle_DiscordRPC_UpdatesInMemory) {
 }
 
 TEST_F(OverlaySettingsTest, EmptyRoster_IdentityDropdown_NoCrash) {
-    { std::unique_lock<std::shared_mutex> lk(m_state->game.mutex); m_state->game.roster.clear(); }
+    {
+        std::unique_lock<std::shared_mutex> lk(m_state->game.mutex);
+        m_state->game.roster.clear();
+    }
     m_state->ui.showMenu = true;
     EXPECT_NO_THROW(RenderOneFrame());
 }
@@ -75,8 +79,8 @@ TEST_F(OverlaySettingsTest, EmptyRoster_IdentityDropdown_NoCrash) {
 TEST_F(OverlaySettingsTest, ExtremeThemeColors_NoCrash) {
     auto backup = Config::Read();
     Config::Update([](ConfigData& c) {
-        c.themeBg = {0,0,0,0};
-        c.themeText = {0,0,0,0};
+        c.themeBg = {0, 0, 0, 0};
+        c.themeText = {0, 0, 0, 0};
     });
     m_state->ui.showMenu = true;
     EXPECT_NO_THROW(RenderOneFrame());
@@ -85,7 +89,8 @@ TEST_F(OverlaySettingsTest, ExtremeThemeColors_NoCrash) {
 
 TEST_F(OverlaySettingsTest, MultipleFrames_NoAccumulationCrash) {
     m_state->ui.showMenu = true;
-    for (int i = 0; i < 10; ++i) EXPECT_NO_THROW(RenderOneFrame());
+    for (int i = 0; i < 10; ++i)
+        EXPECT_NO_THROW(RenderOneFrame());
 }
 
 TEST_F(OverlaySettingsTest, MmrCategoryChange_UpdatesSessionState) {

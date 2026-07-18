@@ -13,7 +13,7 @@ class DiscordManager;
 class MMRFetcher;
 
 class SideEffectExecutor {
-public:
+  public:
     SideEffectExecutor();
     ~SideEffectExecutor();
 
@@ -24,7 +24,7 @@ public:
                  std::shared_ptr<DiscordManager> discordManager,
                  std::shared_ptr<MMRFetcher> mmrFetcher);
 
-private:
+  private:
     std::queue<std::function<void()>> m_jobs;
     std::mutex m_mutex;
     std::condition_variable m_cv;

@@ -5,9 +5,9 @@ class SessionState;
 
 namespace ExternalUpdaterLauncher {
 
-bool RunStartupUpdateCheck();
-void StartBackgroundUpdateCheck(std::shared_ptr<SessionState> state);
-void StartInteractiveUpdate(std::shared_ptr<SessionState> state);
-void ShutdownBackgroundTasks();
+    bool RunStartupUpdateCheck();
+    void StartBackgroundUpdateCheck(std::shared_ptr<SessionState> state);
+    void StartInteractiveUpdate(std::shared_ptr<SessionState> state);
+    void ShutdownBackgroundTasks();
 
 } // namespace ExternalUpdaterLauncher

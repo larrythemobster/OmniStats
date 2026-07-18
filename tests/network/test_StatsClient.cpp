@@ -11,16 +11,16 @@ TEST(StatsClientTest, Lifecycle) {
     auto fetcher = std::make_shared<MMRFetcher>(state);
     auto db = std::make_shared<DatabaseManager>(state);
     db->Initialize(":memory:");
-    
+
     StatsClient client(state, fetcher, db);
-    
+
     EXPECT_NO_THROW(client.Start());
     std::this_thread::sleep_for(std::chrono::milliseconds(50));
     EXPECT_NO_THROW(client.Stop());
 }
 
 class MockDiscordManager : public DiscordManager {
-public:
+  public:
     MockDiscordManager(std::shared_ptr<SessionState> s) : DiscordManager(s) {}
     void PushPresenceUpdate(const DiscordPresenceSnapshot& snap) override {
         pushCount++;
@@ -48,7 +48,7 @@ TEST(StatsClientTest, MatchEndNonBlockingAndDiscordPush) {
 
     // Send match ended event
     std::string matchEndedJson = R"({"Event": "MatchEnded", "Data": {"WinnerTeamNum": 0}})";
-    
+
     auto tStart = std::chrono::steady_clock::now();
     client.HandleLine(matchEndedJson);
     auto duration = std::chrono::steady_clock::now() - tStart;
@@ -87,4 +87,3 @@ TEST(StatsClientTest, DisconnectClearsDiscordPresence) {
     client.Stop();
     Config::Update([backup](ConfigData& c) { c = backup; }, false);
 }
-

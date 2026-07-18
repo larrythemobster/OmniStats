@@ -19,12 +19,17 @@ SideEffectExecutor::SideEffectExecutor() {
                 job = std::move(m_jobs.front());
                 m_jobs.pop();
             }
-            try { job(); } catch (...) {}
+            try {
+                job();
+            } catch (...) {
+            }
         }
     });
 }
 
-SideEffectExecutor::~SideEffectExecutor() { Stop(); }
+SideEffectExecutor::~SideEffectExecutor() {
+    Stop();
+}
 
 bool SideEffectExecutor::Enqueue(std::function<void()> job, bool critical) {
     {
@@ -51,9 +56,9 @@ void SideEffectExecutor::Stop() {
 }
 
 void SideEffectExecutor::Execute(SideEffects&& effects,
-                                  std::shared_ptr<DatabaseManager> dbManager,
-                                  std::shared_ptr<DiscordManager> discordManager,
-                                  std::shared_ptr<MMRFetcher> mmrFetcher) {
+                                 std::shared_ptr<DatabaseManager> dbManager,
+                                 std::shared_ptr<DiscordManager> discordManager,
+                                 std::shared_ptr<MMRFetcher> mmrFetcher) {
     if (effects.pushDiscord && discordManager) {
         discordManager->PushPresenceUpdate(effects.discordSnapshot);
     }
@@ -79,7 +84,8 @@ void SideEffectExecutor::Execute(SideEffects&& effects,
                  snapshot = std::move(snapshot), db]() mutable {
             Storage::AppendMatchSync(matchRecord);
             if (db) db->AsyncSaveMatch(std::move(snapshot));
-        }, true);
+        },
+                true);
     }
     if (effects.replayKeyToPress != -1) {
         int reqId = ++m_replayKeyRequestId;

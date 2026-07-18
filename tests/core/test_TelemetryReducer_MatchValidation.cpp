@@ -21,12 +21,12 @@ TEST(TelemetryReducerMatchValidation, SpectatorBugDoesNotCount) {
     nlohmann::json updateStateData;
     updateStateData["Game"]["bSpectator"] = true;
     updateStateData["Players"] = nlohmann::json::array();
-    
+
     nlohmann::json p1 = {{"PrimaryId", "Steam|1"}, {"TeamNum", 0}, {"Name", "P1"}};
     nlohmann::json p2 = {{"PrimaryId", "Steam|2"}, {"TeamNum", 1}, {"Name", "P2"}};
     updateStateData["Players"].push_back(p1);
     updateStateData["Players"].push_back(p2);
-    
+
     reducer.Reduce(std::string(Constants::EVT_UPDATE_STATE), updateStateData);
 
     // 3. MatchEnded
@@ -55,17 +55,17 @@ TEST(TelemetryReducerMatchValidation, NoShowLobbyDoesNotCount) {
     nlohmann::json updateStateData;
     updateStateData["Game"]["bSpectator"] = false;
     updateStateData["Players"] = nlohmann::json::array();
-    
+
     nlohmann::json p1 = {{"PrimaryId", "Steam|1"}, {"TeamNum", 0}, {"Name", "P1"}, {"Boost", 100}}; // Local
     nlohmann::json p2 = {{"PrimaryId", "Steam|2"}, {"TeamNum", 0}, {"Name", "P2"}};
     nlohmann::json p3 = {{"PrimaryId", "Steam|3"}, {"TeamNum", 1}, {"Name", "P3"}};
     updateStateData["Players"].push_back(p1);
     updateStateData["Players"].push_back(p2);
     updateStateData["Players"].push_back(p3);
-    
+
     // Set identity to P1
     state->game.myPrimaryId = "Steam|1";
-    
+
     reducer.Reduce(std::string(Constants::EVT_UPDATE_STATE), updateStateData);
 
     // 3. RoundStarted
@@ -74,10 +74,10 @@ TEST(TelemetryReducerMatchValidation, NoShowLobbyDoesNotCount) {
     // 4. MatchEnded
     nlohmann::json matchEndedData;
     matchEndedData["WinnerTeamNum"] = 0;
-    
+
     // Set category to 2v2 to trigger full team check
     state->ui.rosterMmrCategory.store(MmrCategory::TwoVTwo);
-    
+
     SideEffects effects = reducer.Reduce(std::string(Constants::EVT_MATCH_ENDED), matchEndedData);
 
     EXPECT_EQ(state->game.sessionTotals.wins, 0);
@@ -101,22 +101,22 @@ TEST(TelemetryReducerMatchValidation, RoundNeverStartedDoesNotCount) {
     nlohmann::json updateStateData;
     updateStateData["Game"]["bSpectator"] = false;
     updateStateData["Players"] = nlohmann::json::array();
-    
+
     nlohmann::json p1 = {{"PrimaryId", "Steam|1"}, {"TeamNum", 0}, {"Name", "P1"}, {"Boost", 100}}; // Local
     nlohmann::json p2 = {{"PrimaryId", "Steam|2"}, {"TeamNum", 1}, {"Name", "P2"}};
     updateStateData["Players"].push_back(p1);
     updateStateData["Players"].push_back(p2);
-    
+
     state->game.myPrimaryId = "Steam|1";
-    
+
     reducer.Reduce(std::string(Constants::EVT_UPDATE_STATE), updateStateData);
 
     // 3. MatchEnded (No RoundStarted event)
     nlohmann::json matchEndedData;
     matchEndedData["WinnerTeamNum"] = 0;
-    
+
     state->ui.rosterMmrCategory.store(MmrCategory::OneVOne);
-    
+
     SideEffects effects = reducer.Reduce(std::string(Constants::EVT_MATCH_ENDED), matchEndedData);
 
     EXPECT_EQ(state->game.sessionTotals.wins, 0);
@@ -140,14 +140,14 @@ TEST(TelemetryReducerMatchValidation, NormalWinCounts) {
     nlohmann::json updateStateData;
     updateStateData["Game"]["bSpectator"] = false;
     updateStateData["Players"] = nlohmann::json::array();
-    
+
     nlohmann::json p1 = {{"PrimaryId", "Steam|1"}, {"TeamNum", 0}, {"Name", "P1"}, {"Boost", 100}}; // Local
     nlohmann::json p2 = {{"PrimaryId", "Steam|2"}, {"TeamNum", 1}, {"Name", "P2"}};
     updateStateData["Players"].push_back(p1);
     updateStateData["Players"].push_back(p2);
-    
+
     state->game.myPrimaryId = "Steam|1";
-    
+
     reducer.Reduce(std::string(Constants::EVT_UPDATE_STATE), updateStateData);
 
     // 3. RoundStarted
@@ -156,13 +156,11 @@ TEST(TelemetryReducerMatchValidation, NormalWinCounts) {
     // 4. MatchEnded
     nlohmann::json matchEndedData;
     matchEndedData["WinnerTeamNum"] = 0; // Local team wins
-    matchEndedData["Teams"] = nlohmann::json::array({
-        nlohmann::json{{"TeamNum", 0}, {"Score", 3}},
-        nlohmann::json{{"TeamNum", 1}, {"Score", 2}}
-    });
-    
+    matchEndedData["Teams"] = nlohmann::json::array({nlohmann::json{{"TeamNum", 0}, {"Score", 3}},
+                                                     nlohmann::json{{"TeamNum", 1}, {"Score", 2}}});
+
     state->ui.rosterMmrCategory.store(MmrCategory::OneVOne);
-    
+
     SideEffects effects = reducer.Reduce(std::string(Constants::EVT_MATCH_ENDED), matchEndedData);
 
     EXPECT_EQ(state->game.sessionTotals.wins, 1);
@@ -225,14 +223,14 @@ TEST(TelemetryReducerMatchValidation, NormalLossCounts) {
     nlohmann::json updateStateData;
     updateStateData["Game"]["bSpectator"] = false;
     updateStateData["Players"] = nlohmann::json::array();
-    
+
     nlohmann::json p1 = {{"PrimaryId", "Steam|1"}, {"TeamNum", 0}, {"Name", "P1"}, {"Boost", 100}}; // Local
     nlohmann::json p2 = {{"PrimaryId", "Steam|2"}, {"TeamNum", 1}, {"Name", "P2"}};
     updateStateData["Players"].push_back(p1);
     updateStateData["Players"].push_back(p2);
-    
+
     state->game.myPrimaryId = "Steam|1";
-    
+
     reducer.Reduce(std::string(Constants::EVT_UPDATE_STATE), updateStateData);
 
     // 3. RoundStarted
@@ -241,9 +239,9 @@ TEST(TelemetryReducerMatchValidation, NormalLossCounts) {
     // 4. MatchEnded
     nlohmann::json matchEndedData;
     matchEndedData["WinnerTeamNum"] = 1; // Opponent team wins
-    
+
     state->ui.rosterMmrCategory.store(MmrCategory::OneVOne);
-    
+
     SideEffects effects = reducer.Reduce(std::string(Constants::EVT_MATCH_ENDED), matchEndedData);
 
     EXPECT_EQ(state->game.sessionTotals.wins, 0);
@@ -347,7 +345,8 @@ TEST(TelemetryReducerMatchValidation, ExtraArenaAutoSwitchesBeforePlayerCount) {
     Config::Update([](ConfigData& c) {
         c.auto_switch_mmr_category = true;
         c.show_extra_playlists = true;
-    }, false);
+    },
+                   false);
     auto state = std::make_shared<SessionState>();
     TelemetryReducer reducer(state);
 
@@ -378,7 +377,8 @@ TEST(TelemetryReducerMatchValidation, SnowMapAutoSwitchesToSnowDay) {
     Config::Update([](ConfigData& c) {
         c.auto_switch_mmr_category = true;
         c.show_extra_playlists = true;
-    }, false);
+    },
+                   false);
     auto state = std::make_shared<SessionState>();
     TelemetryReducer reducer(state);
 
@@ -417,8 +417,7 @@ TEST(TelemetryReducerMatchValidation, RumbleManualSelectionInfersRumbleOnStandar
         6, 6,
         state->ui.rosterMmrCategory.load(),
         state->ui.graphMmrCategory.load(),
-        "stadium_p"
-    );
+        "stadium_p");
 
     EXPECT_EQ(gamemode, "rumble");
 }
@@ -436,8 +435,7 @@ TEST(TelemetryReducerMatchValidation, HeatseekerManualSelectionInfersHeatseekerO
         6, 6,
         state->ui.rosterMmrCategory.load(),
         state->ui.graphMmrCategory.load(),
-        "stadium_p"
-    );
+        "stadium_p");
 
     EXPECT_EQ(gamemode, "heatseeker");
 }
@@ -456,7 +454,7 @@ TEST(TelemetryReducerMatchValidation, DisconnectAfterValidStartCounts) {
     nlohmann::json updateStateData;
     updateStateData["Game"]["bSpectator"] = false;
     updateStateData["Players"] = nlohmann::json::array();
-    
+
     nlohmann::json p1 = {{"PrimaryId", "Steam|1"}, {"TeamNum", 0}, {"Name", "P1"}, {"Boost", 100}}; // Local
     nlohmann::json p2 = {{"PrimaryId", "Steam|2"}, {"TeamNum", 0}, {"Name", "P2"}};
     nlohmann::json p3 = {{"PrimaryId", "Steam|3"}, {"TeamNum", 1}, {"Name", "P3"}};
@@ -465,10 +463,10 @@ TEST(TelemetryReducerMatchValidation, DisconnectAfterValidStartCounts) {
     updateStateData["Players"].push_back(p2);
     updateStateData["Players"].push_back(p3);
     updateStateData["Players"].push_back(p4);
-    
+
     state->game.myPrimaryId = "Steam|1";
     state->ui.rosterMmrCategory.store(MmrCategory::TwoVTwo);
-    
+
     reducer.Reduce(std::string(Constants::EVT_UPDATE_STATE), updateStateData);
 
     // 3. RoundStarted
@@ -477,13 +475,13 @@ TEST(TelemetryReducerMatchValidation, DisconnectAfterValidStartCounts) {
     // 4. UpdateState with one player missing (disconnect)
     nlohmann::json updateStateData2 = updateStateData;
     updateStateData2["Players"].erase(3); // Remove P4
-    
+
     reducer.Reduce(std::string(Constants::EVT_UPDATE_STATE), updateStateData2);
 
     // 5. MatchEnded
     nlohmann::json matchEndedData;
     matchEndedData["WinnerTeamNum"] = 0;
-    
+
     SideEffects effects = reducer.Reduce(std::string(Constants::EVT_MATCH_ENDED), matchEndedData);
 
     EXPECT_EQ(state->game.sessionTotals.wins, 1);
@@ -514,10 +512,8 @@ TEST(TelemetryReducerMatchValidation, MatchSummaryResultSurvivesMatchDestroyed) 
 
     nlohmann::json matchEndedData;
     matchEndedData["WinnerTeamNum"] = 0;
-    matchEndedData["Teams"] = nlohmann::json::array({
-        nlohmann::json{{"TeamNum", 0}, {"Score", 3}},
-        nlohmann::json{{"TeamNum", 1}, {"Score", 2}}
-    });
+    matchEndedData["Teams"] = nlohmann::json::array({nlohmann::json{{"TeamNum", 0}, {"Score", 3}},
+                                                     nlohmann::json{{"TeamNum", 1}, {"Score", 2}}});
 
     reducer.Reduce(std::string(Constants::EVT_MATCH_ENDED), matchEndedData);
     reducer.Reduce(std::string(Constants::EVT_MATCH_DESTROYED), nlohmann::json{});
@@ -540,11 +536,9 @@ TEST(TelemetryReducerMatchValidation, LobbyNeverFillsVoid) {
 
     nlohmann::json updateStateData;
     updateStateData["Game"]["bSpectator"] = false;
-    updateStateData["Players"] = nlohmann::json::array({
-        {{"PrimaryId", "Steam|1"}, {"TeamNum", 0}, {"Name", "P1"}, {"Boost", 100}},
-        {{"PrimaryId", "Steam|2"}, {"TeamNum", 0}, {"Name", "P2"}},
-        {{"PrimaryId", "Steam|3"}, {"TeamNum", 1}, {"Name", "P3"}}
-    });
+    updateStateData["Players"] = nlohmann::json::array({{{"PrimaryId", "Steam|1"}, {"TeamNum", 0}, {"Name", "P1"}, {"Boost", 100}},
+                                                        {{"PrimaryId", "Steam|2"}, {"TeamNum", 0}, {"Name", "P2"}},
+                                                        {{"PrimaryId", "Steam|3"}, {"TeamNum", 1}, {"Name", "P3"}}});
 
     state->game.myPrimaryId = "Steam|1";
     state->ui.rosterMmrCategory.store(MmrCategory::TwoVTwo);
@@ -570,12 +564,10 @@ TEST(TelemetryReducerMatchValidation, LobbyFillsThenPlayerLeavesCounts) {
 
     nlohmann::json updateStateDataFull;
     updateStateDataFull["Game"]["bSpectator"] = false;
-    updateStateDataFull["Players"] = nlohmann::json::array({
-        {{"PrimaryId", "Steam|1"}, {"TeamNum", 0}, {"Name", "P1"}, {"Boost", 100}},
-        {{"PrimaryId", "Steam|2"}, {"TeamNum", 0}, {"Name", "P2"}},
-        {{"PrimaryId", "Steam|3"}, {"TeamNum", 1}, {"Name", "P3"}},
-        {{"PrimaryId", "Steam|4"}, {"TeamNum", 1}, {"Name", "P4"}}
-    });
+    updateStateDataFull["Players"] = nlohmann::json::array({{{"PrimaryId", "Steam|1"}, {"TeamNum", 0}, {"Name", "P1"}, {"Boost", 100}},
+                                                            {{"PrimaryId", "Steam|2"}, {"TeamNum", 0}, {"Name", "P2"}},
+                                                            {{"PrimaryId", "Steam|3"}, {"TeamNum", 1}, {"Name", "P3"}},
+                                                            {{"PrimaryId", "Steam|4"}, {"TeamNum", 1}, {"Name", "P4"}}});
 
     state->game.myPrimaryId = "Steam|1";
     state->ui.rosterMmrCategory.store(MmrCategory::TwoVTwo);
@@ -609,12 +601,10 @@ TEST(TelemetryReducerMatchValidation, LobbyFillsPlayerLeavesPlayerRejoinsCounts)
 
     nlohmann::json updateStateDataFull;
     updateStateDataFull["Game"]["bSpectator"] = false;
-    updateStateDataFull["Players"] = nlohmann::json::array({
-        {{"PrimaryId", "Steam|1"}, {"TeamNum", 0}, {"Name", "P1"}, {"Boost", 100}},
-        {{"PrimaryId", "Steam|2"}, {"TeamNum", 0}, {"Name", "P2"}},
-        {{"PrimaryId", "Steam|3"}, {"TeamNum", 1}, {"Name", "P3"}},
-        {{"PrimaryId", "Steam|4"}, {"TeamNum", 1}, {"Name", "P4"}}
-    });
+    updateStateDataFull["Players"] = nlohmann::json::array({{{"PrimaryId", "Steam|1"}, {"TeamNum", 0}, {"Name", "P1"}, {"Boost", 100}},
+                                                            {{"PrimaryId", "Steam|2"}, {"TeamNum", 0}, {"Name", "P2"}},
+                                                            {{"PrimaryId", "Steam|3"}, {"TeamNum", 1}, {"Name", "P3"}},
+                                                            {{"PrimaryId", "Steam|4"}, {"TeamNum", 1}, {"Name", "P4"}}});
 
     state->game.myPrimaryId = "Steam|1";
     state->ui.rosterMmrCategory.store(MmrCategory::TwoVTwo);
@@ -648,12 +638,9 @@ TEST(TelemetryReducerMatchValidation, PlayerLeavesBeforeFullLobbyIsVoid) {
     // Lobby starts as 1v2 (for 2v2)
     nlohmann::json updateStateData1 = {
         {"Game", {{"bSpectator", false}}},
-        {"Players", nlohmann::json::array({
-            {{"PrimaryId", "Steam|1"}, {"TeamNum", 0}, {"Name", "P1"}, {"Boost", 100}},
-            {{"PrimaryId", "Steam|3"}, {"TeamNum", 1}, {"Name", "P3"}},
-            {{"PrimaryId", "Steam|4"}, {"TeamNum", 1}, {"Name", "P4"}}
-        })}
-    };
+        {"Players", nlohmann::json::array({{{"PrimaryId", "Steam|1"}, {"TeamNum", 0}, {"Name", "P1"}, {"Boost", 100}},
+                                           {{"PrimaryId", "Steam|3"}, {"TeamNum", 1}, {"Name", "P3"}},
+                                           {{"PrimaryId", "Steam|4"}, {"TeamNum", 1}, {"Name", "P4"}}})}};
 
     state->game.myPrimaryId = "Steam|1";
     state->ui.rosterMmrCategory.store(MmrCategory::TwoVTwo);
@@ -663,11 +650,8 @@ TEST(TelemetryReducerMatchValidation, PlayerLeavesBeforeFullLobbyIsVoid) {
     // A player leaves, so lobby is now 1v1
     nlohmann::json updateStateData2 = {
         {"Game", {{"bSpectator", false}}},
-        {"Players", nlohmann::json::array({
-            {{"PrimaryId", "Steam|1"}, {"TeamNum", 0}, {"Name", "P1"}, {"Boost", 100}},
-            {{"PrimaryId", "Steam|3"}, {"TeamNum", 1}, {"Name", "P3"}}
-        })}
-    };
+        {"Players", nlohmann::json::array({{{"PrimaryId", "Steam|1"}, {"TeamNum", 0}, {"Name", "P1"}, {"Boost", 100}},
+                                           {{"PrimaryId", "Steam|3"}, {"TeamNum", 1}, {"Name", "P3"}}})}};
 
     reducer.Reduce(std::string(Constants::EVT_UPDATE_STATE), updateStateData2);
     reducer.Reduce(std::string(Constants::EVT_ROUND_STARTED), nlohmann::json{});
@@ -691,10 +675,8 @@ TEST(TelemetryReducerMatchValidation, MatchDestroyedWithLeadingScoreSavesWin) {
 
     nlohmann::json updateStateData;
     updateStateData["Game"]["bSpectator"] = false;
-    updateStateData["Players"] = nlohmann::json::array({
-        {{"PrimaryId", "Steam|1"}, {"TeamNum", 0}, {"Name", "P1"}, {"Boost", 100}},
-        {{"PrimaryId", "Steam|2"}, {"TeamNum", 1}, {"Name", "P2"}}
-    });
+    updateStateData["Players"] = nlohmann::json::array({{{"PrimaryId", "Steam|1"}, {"TeamNum", 0}, {"Name", "P1"}, {"Boost", 100}},
+                                                        {{"PrimaryId", "Steam|2"}, {"TeamNum", 1}, {"Name", "P2"}}});
     state->game.myPrimaryId = "Steam|1";
     state->ui.rosterMmrCategory.store(MmrCategory::OneVOne);
 
@@ -723,10 +705,8 @@ TEST(TelemetryReducerMatchValidation, MatchDestroyedWithTrailingScoreSavesLoss) 
 
     nlohmann::json updateStateData;
     updateStateData["Game"]["bSpectator"] = false;
-    updateStateData["Players"] = nlohmann::json::array({
-        {{"PrimaryId", "Steam|1"}, {"TeamNum", 0}, {"Name", "P1"}, {"Boost", 100}},
-        {{"PrimaryId", "Steam|2"}, {"TeamNum", 1}, {"Name", "P2"}}
-    });
+    updateStateData["Players"] = nlohmann::json::array({{{"PrimaryId", "Steam|1"}, {"TeamNum", 0}, {"Name", "P1"}, {"Boost", 100}},
+                                                        {{"PrimaryId", "Steam|2"}, {"TeamNum", 1}, {"Name", "P2"}}});
     state->game.myPrimaryId = "Steam|1";
     state->ui.rosterMmrCategory.store(MmrCategory::OneVOne);
 
@@ -755,10 +735,8 @@ TEST(TelemetryReducerMatchValidation, MatchDestroyedWithTiedScoreDoesNotCount) {
 
     nlohmann::json updateStateData;
     updateStateData["Game"]["bSpectator"] = false;
-    updateStateData["Players"] = nlohmann::json::array({
-        {{"PrimaryId", "Steam|1"}, {"TeamNum", 0}, {"Name", "P1"}, {"Boost", 100}},
-        {{"PrimaryId", "Steam|2"}, {"TeamNum", 1}, {"Name", "P2"}}
-    });
+    updateStateData["Players"] = nlohmann::json::array({{{"PrimaryId", "Steam|1"}, {"TeamNum", 0}, {"Name", "P1"}, {"Boost", 100}},
+                                                        {{"PrimaryId", "Steam|2"}, {"TeamNum", 1}, {"Name", "P2"}}});
     state->game.myPrimaryId = "Steam|1";
     state->ui.rosterMmrCategory.store(MmrCategory::OneVOne);
 
@@ -787,10 +765,8 @@ TEST(TelemetryReducerMatchValidation, MatchEndedFollowedByMatchDestroyedDoesNotD
 
     nlohmann::json updateStateData;
     updateStateData["Game"]["bSpectator"] = false;
-    updateStateData["Players"] = nlohmann::json::array({
-        {{"PrimaryId", "Steam|1"}, {"TeamNum", 0}, {"Name", "P1"}, {"Boost", 100}},
-        {{"PrimaryId", "Steam|2"}, {"TeamNum", 1}, {"Name", "P2"}}
-    });
+    updateStateData["Players"] = nlohmann::json::array({{{"PrimaryId", "Steam|1"}, {"TeamNum", 0}, {"Name", "P1"}, {"Boost", 100}},
+                                                        {{"PrimaryId", "Steam|2"}, {"TeamNum", 1}, {"Name", "P2"}}});
     state->game.myPrimaryId = "Steam|1";
     state->ui.rosterMmrCategory.store(MmrCategory::OneVOne);
 
@@ -824,12 +800,10 @@ TEST(TelemetryReducerMatchValidation, OpponentLeavesMidMatchButRemainsInSavedSna
 
     nlohmann::json updateStateDataFull;
     updateStateDataFull["Game"]["bSpectator"] = false;
-    updateStateDataFull["Players"] = nlohmann::json::array({
-        {{"PrimaryId", "Steam|1"}, {"TeamNum", 0}, {"Name", "P1"}, {"Boost", 100}},
-        {{"PrimaryId", "Steam|2"}, {"TeamNum", 0}, {"Name", "P2"}},
-        {{"PrimaryId", "Steam|3"}, {"TeamNum", 1}, {"Name", "P3"}},
-        {{"PrimaryId", "Steam|4"}, {"TeamNum", 1}, {"Name", "P4"}}
-    });
+    updateStateDataFull["Players"] = nlohmann::json::array({{{"PrimaryId", "Steam|1"}, {"TeamNum", 0}, {"Name", "P1"}, {"Boost", 100}},
+                                                            {{"PrimaryId", "Steam|2"}, {"TeamNum", 0}, {"Name", "P2"}},
+                                                            {{"PrimaryId", "Steam|3"}, {"TeamNum", 1}, {"Name", "P3"}},
+                                                            {{"PrimaryId", "Steam|4"}, {"TeamNum", 1}, {"Name", "P4"}}});
 
     state->game.myPrimaryId = "Steam|1";
     state->ui.rosterMmrCategory.store(MmrCategory::TwoVTwo);
@@ -869,11 +843,9 @@ TEST(TelemetryReducerMatchValidation, MatchDestroyedWithLobbyNeverFullVoids) {
 
     nlohmann::json updateStateData;
     updateStateData["Game"]["bSpectator"] = false;
-    updateStateData["Players"] = nlohmann::json::array({
-        {{"PrimaryId", "Steam|1"}, {"TeamNum", 0}, {"Name", "P1"}, {"Boost", 100}},
-        {{"PrimaryId", "Steam|3"}, {"TeamNum", 1}, {"Name", "P3"}},
-        {{"PrimaryId", "Steam|4"}, {"TeamNum", 1}, {"Name", "P4"}}
-    });
+    updateStateData["Players"] = nlohmann::json::array({{{"PrimaryId", "Steam|1"}, {"TeamNum", 0}, {"Name", "P1"}, {"Boost", 100}},
+                                                        {{"PrimaryId", "Steam|3"}, {"TeamNum", 1}, {"Name", "P3"}},
+                                                        {{"PrimaryId", "Steam|4"}, {"TeamNum", 1}, {"Name", "P4"}}});
     state->game.myPrimaryId = "Steam|1";
     state->ui.rosterMmrCategory.store(MmrCategory::TwoVTwo);
 

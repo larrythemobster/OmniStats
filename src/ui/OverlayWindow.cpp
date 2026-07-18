@@ -9,8 +9,8 @@
 OverlayWindow::OverlayWindow() {}
 
 bool OverlayWindow::Create(HICON appIconBig, HICON appIconSmall, WNDPROC wndProc) {
-    m_wc = { sizeof(m_wc), CS_CLASSDC, wndProc, 0L, 0L, GetModuleHandle(nullptr),
-             appIconBig, nullptr, nullptr, nullptr, L"OmniStats_Class", appIconSmall };
+    m_wc = {sizeof(m_wc), CS_CLASSDC, wndProc, 0L, 0L, GetModuleHandle(nullptr),
+            appIconBig, nullptr, nullptr, nullptr, L"OmniStats_Class", appIconSmall};
     if (!RegisterClassExW(&m_wc)) {
         DWORD err = GetLastError();
         if (err != ERROR_CLASS_ALREADY_EXISTS) {
@@ -28,8 +28,7 @@ bool OverlayWindow::Create(HICON appIconBig, HICON appIconSmall, WNDPROC wndProc
     m_hwnd = CreateWindowExW(
         WS_EX_TOPMOST | WS_EX_TRANSPARENT | WS_EX_LAYERED | WS_EX_TOOLWINDOW,
         m_wc.lpszClassName, L"OmniStats",
-        WS_POPUP, 0, 0, screenW, screenH, nullptr, nullptr, m_wc.hInstance, nullptr
-    );
+        WS_POPUP, 0, 0, screenW, screenH, nullptr, nullptr, m_wc.hInstance, nullptr);
 
     if (!m_hwnd) return false;
 
@@ -41,19 +40,19 @@ bool OverlayWindow::Create(HICON appIconBig, HICON appIconSmall, WNDPROC wndProc
     SendMessageW(m_hwnd, WM_SETICON, ICON_SMALL, reinterpret_cast<LPARAM>(appIconSmall));
 
     SetLayeredWindowAttributes(m_hwnd, RGB(0, 0, 0), 255, LWA_ALPHA);
-    MARGINS margins = { -1, -1, -1, -1 };
+    MARGINS margins = {-1, -1, -1, -1};
     DwmExtendFrameIntoClientArea(m_hwnd, &margins);
     m_frameExtended = true;
 
     // DPI detection
     UINT dpi = 96;
-    typedef UINT(WINAPI* GetDpiForWindow_t)(HWND);
+    typedef UINT(WINAPI * GetDpiForWindow_t)(HWND);
     static HMODULE user32 = GetModuleHandleW(L"user32.dll");
     static GetDpiForWindow_t pGetDpiForWindow = user32 ? (GetDpiForWindow_t)GetProcAddress(user32, "GetDpiForWindow") : nullptr;
     if (pGetDpiForWindow && m_hwnd) {
         dpi = pGetDpiForWindow(m_hwnd);
     } else {
-        typedef UINT(WINAPI* GetDpiForSystem_t)();
+        typedef UINT(WINAPI * GetDpiForSystem_t)();
         static GetDpiForSystem_t pGetDpiForSystem = user32 ? (GetDpiForSystem_t)GetProcAddress(user32, "GetDpiForSystem") : nullptr;
         if (pGetDpiForSystem) {
             dpi = pGetDpiForSystem();
@@ -123,16 +122,16 @@ void OverlayWindow::UpdateStyle(bool secondMonitorMode, bool showMenu) {
     if (!secondMonitorMode) {
         SetLayeredWindowAttributes(m_hwnd, RGB(0, 0, 0), 255, LWA_ALPHA);
         if (!m_frameExtended) {
-            MARGINS margins = { -1, -1, -1, -1 };
+            MARGINS margins = {-1, -1, -1, -1};
             DwmExtendFrameIntoClientArea(m_hwnd, &margins);
             m_frameExtended = true;
         }
     }
 
     SetWindowPos(m_hwnd,
-        secondMonitorMode ? HWND_NOTOPMOST : HWND_TOPMOST,
-        0, 0, 0, 0,
-        SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_FRAMECHANGED);
+                 secondMonitorMode ? HWND_NOTOPMOST : HWND_TOPMOST,
+                 0, 0, 0, 0,
+                 SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_FRAMECHANGED);
 
     if (!secondMonitorMode) {
         RedrawWindow(m_hwnd, nullptr, nullptr, RDW_FRAME | RDW_INVALIDATE | RDW_UPDATENOW);
@@ -156,13 +155,12 @@ void OverlayWindow::UpdatePosition(bool resetSecondMonitorPlacement) {
                 conf.second_monitor_x,
                 conf.second_monitor_y,
                 conf.second_monitor_x + conf.second_monitor_w,
-                conf.second_monitor_y + conf.second_monitor_h
-            };
+                conf.second_monitor_y + conf.second_monitor_h};
             if (MonitorFromRect(&savedRect, MONITOR_DEFAULTTONULL)) {
                 SetWindowPos(m_hwnd, HWND_NOTOPMOST,
-                    conf.second_monitor_x, conf.second_monitor_y,
-                    conf.second_monitor_w, conf.second_monitor_h,
-                    SWP_NOACTIVATE);
+                             conf.second_monitor_x, conf.second_monitor_y,
+                             conf.second_monitor_w, conf.second_monitor_h,
+                             SWP_NOACTIVATE);
                 return;
             }
         }

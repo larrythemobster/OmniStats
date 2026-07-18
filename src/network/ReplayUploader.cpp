@@ -38,10 +38,12 @@ static std::string NormalizeVisibility(const std::string& visibility) {
     return "unlisted";
 }
 
-ReplayUploader::ReplayUploader(std::shared_ptr<SessionState> state) 
+ReplayUploader::ReplayUploader(std::shared_ptr<SessionState> state)
     : m_state(state), m_lastSaveAttempt(std::chrono::steady_clock::now()) {}
 
-ReplayUploader::~ReplayUploader() { Stop(); }
+ReplayUploader::~ReplayUploader() {
+    Stop();
+}
 
 void ReplayUploader::Start() {
     if (m_running.load()) return;
@@ -109,7 +111,6 @@ void ReplayUploader::UploadReplay(const std::string& path) {
     curl_easy_setopt(curl, CURLOPT_XFERINFOFUNCTION, ProgressCallback);
     curl_easy_setopt(curl, CURLOPT_XFERINFODATA, &m_running);
     curl_easy_setopt(curl, CURLOPT_NOPROGRESS, 0L);
-
 
     CURLcode res = curl_easy_perform(curl);
     long http_code = 0;
@@ -183,7 +184,7 @@ void ReplayUploader::WorkerLoop() {
                 for (auto& p : fs::directory_iterator(dir)) {
                     if (!p.is_regular_file()) continue;
                     auto ext = p.path().extension().string();
-                    std::transform(ext.begin(), ext.end(), ext.begin(), [](unsigned char c){ return std::tolower(c); });
+                    std::transform(ext.begin(), ext.end(), ext.begin(), [](unsigned char c) { return std::tolower(c); });
                     if (!m_running.load()) break;
                     if (ext == ".replay") {
                         std::lock_guard<std::mutex> lock(m_mutex);
@@ -209,7 +210,7 @@ void ReplayUploader::WorkerLoop() {
                         if (!m_running.load()) break;
                         auto path = p.path().string();
                         auto ext = p.path().extension().string();
-                        std::transform(ext.begin(), ext.end(), ext.begin(), [](unsigned char c){ return std::tolower(c); });
+                        std::transform(ext.begin(), ext.end(), ext.begin(), [](unsigned char c) { return std::tolower(c); });
                         if (ext != ".replay") continue;
 
                         {

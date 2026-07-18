@@ -6,7 +6,7 @@
 #include <iostream>
 
 static void ConfigureFromSavedIdentity(std::shared_ptr<SessionState> state,
-                                        std::shared_ptr<DatabaseManager> dbManager) {
+                                       std::shared_ptr<DatabaseManager> dbManager) {
     ConfigData conf = Config::Read();
     if (state && !conf.last_primary_id.empty()) {
         {
@@ -16,7 +16,7 @@ static void ConfigureFromSavedIdentity(std::shared_ptr<SessionState> state,
         }
         if (dbManager) {
             dbManager->AsyncGetLifetimeMmrHistory(state->game.myPrimaryId,
-                MmrCategoryToString(state->ui.graphMmrCategory.load()));
+                                                  MmrCategoryToString(state->ui.graphMmrCategory.load()));
             dbManager->AsyncRefreshDbStats(state->game.myPrimaryId);
         }
     }
@@ -33,7 +33,9 @@ StatsClient::StatsClient(std::shared_ptr<SessionState> state,
     ConfigureFromSavedIdentity(state, dbManager);
 }
 
-StatsClient::~StatsClient() { Stop(); }
+StatsClient::~StatsClient() {
+    Stop();
+}
 
 void StatsClient::Start() {
     if (m_isRunning) return;
@@ -62,9 +64,9 @@ void StatsClient::RunLoop() {
                 std::cout << "[StatsClient] Connection error: " << e.what() << " (Suppressing further errors until connected)\n";
                 errorLogged = true;
             }
-            
+
             m_disconnectCount++;
-            
+
             ConfigData conf = Config::Read();
             bool resetSessionAfterDisconnect = false;
             // Reset at exactly 5 (approx 15 seconds) to avoid doing it continuously

@@ -13,28 +13,28 @@
 
 namespace {
 
-std::string ToLower(std::string value) {
-    std::transform(value.begin(), value.end(), value.begin(), [](unsigned char c) {
-        return static_cast<char>(std::tolower(c));
-    });
-    return value;
-}
-
-bool Contains(const std::string& value, const std::string& needle) {
-    return value.find(needle) != std::string::npos;
-}
-
-std::string RankPart(const std::string& tier) {
-    std::string value = ToLower(tier);
-    size_t divPos = value.find(" div");
-    if (divPos != std::string::npos) {
-        value = value.substr(0, divPos);
+    std::string ToLower(std::string value) {
+        std::transform(value.begin(), value.end(), value.begin(), [](unsigned char c) {
+            return static_cast<char>(std::tolower(c));
+        });
+        return value;
     }
-    while (!value.empty() && value.back() == ' ') {
-        value.pop_back();
+
+    bool Contains(const std::string& value, const std::string& needle) {
+        return value.find(needle) != std::string::npos;
     }
-    return value;
-}
+
+    std::string RankPart(const std::string& tier) {
+        std::string value = ToLower(tier);
+        size_t divPos = value.find(" div");
+        if (divPos != std::string::npos) {
+            value = value.substr(0, divPos);
+        }
+        while (!value.empty() && value.back() == ' ') {
+            value.pop_back();
+        }
+        return value;
+    }
 
 } // namespace
 
@@ -254,13 +254,20 @@ int RankIconAssets::TierIndex(const std::string& tier) {
     }
 
     int base = -1;
-    if (Contains(value, "bronze")) base = 1;
-    else if (Contains(value, "silver")) base = 4;
-    else if (Contains(value, "gold")) base = 7;
-    else if (Contains(value, "platinum")) base = 10;
-    else if (Contains(value, "diamond")) base = 13;
-    else if (Contains(value, "grand champion")) base = 19;
-    else if (Contains(value, "champion")) base = 16;
+    if (Contains(value, "bronze"))
+        base = 1;
+    else if (Contains(value, "silver"))
+        base = 4;
+    else if (Contains(value, "gold"))
+        base = 7;
+    else if (Contains(value, "platinum"))
+        base = 10;
+    else if (Contains(value, "diamond"))
+        base = 13;
+    else if (Contains(value, "grand champion"))
+        base = 19;
+    else if (Contains(value, "champion"))
+        base = 16;
 
     if (base < 0) {
         return 0;

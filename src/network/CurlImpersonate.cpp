@@ -73,15 +73,15 @@ bool CurlImpersonate::LoadDLL() {
     }
 
     // Load function pointers
-    easy_init       = (pfn_curl_easy_init)GetProcAddress(m_hDll, "curl_easy_init");
-    easy_cleanup    = (pfn_curl_easy_cleanup)GetProcAddress(m_hDll, "curl_easy_cleanup");
-    easy_setopt     = (pfn_curl_easy_setopt)GetProcAddress(m_hDll, "curl_easy_setopt");
-    easy_perform    = (pfn_curl_easy_perform)GetProcAddress(m_hDll, "curl_easy_perform");
-    easy_getinfo    = (pfn_curl_easy_getinfo)GetProcAddress(m_hDll, "curl_easy_getinfo");
-    easy_escape     = (pfn_curl_easy_escape)GetProcAddress(m_hDll, "curl_easy_escape");
-    free_ptr        = (pfn_curl_free)GetProcAddress(m_hDll, "curl_free");
-    slist_append    = (pfn_curl_slist_append)GetProcAddress(m_hDll, "curl_slist_append");
-    slist_free_all  = (pfn_curl_slist_free_all)GetProcAddress(m_hDll, "curl_slist_free_all");
+    easy_init = (pfn_curl_easy_init)GetProcAddress(m_hDll, "curl_easy_init");
+    easy_cleanup = (pfn_curl_easy_cleanup)GetProcAddress(m_hDll, "curl_easy_cleanup");
+    easy_setopt = (pfn_curl_easy_setopt)GetProcAddress(m_hDll, "curl_easy_setopt");
+    easy_perform = (pfn_curl_easy_perform)GetProcAddress(m_hDll, "curl_easy_perform");
+    easy_getinfo = (pfn_curl_easy_getinfo)GetProcAddress(m_hDll, "curl_easy_getinfo");
+    easy_escape = (pfn_curl_easy_escape)GetProcAddress(m_hDll, "curl_easy_escape");
+    free_ptr = (pfn_curl_free)GetProcAddress(m_hDll, "curl_free");
+    slist_append = (pfn_curl_slist_append)GetProcAddress(m_hDll, "curl_slist_append");
+    slist_free_all = (pfn_curl_slist_free_all)GetProcAddress(m_hDll, "curl_slist_free_all");
     easy_impersonate = (pfn_curl_easy_impersonate)GetProcAddress(m_hDll, "curl_easy_impersonate");
 
     if (!easy_init || !easy_perform || !easy_setopt || !easy_impersonate) {
@@ -100,4 +100,3 @@ bool CurlImpersonate::DownloadAndExtract() {
     // Runtime repair is handled by the installer/updater path
     return false;
 }
-

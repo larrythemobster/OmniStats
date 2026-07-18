@@ -2,17 +2,28 @@
 
 std::string MmrCategoryToString(MmrCategory cat) {
     switch (cat) {
-        case MmrCategory::OneVOne: return "1v1";
-        case MmrCategory::TwoVTwo: return "2v2";
-        case MmrCategory::ThreeVThree: return "3v3";
-        case MmrCategory::Casual: return "casual";
-        case MmrCategory::Tourny: return "t";
-        case MmrCategory::Hoops: return "hoops";
-        case MmrCategory::Rumble: return "rumble";
-        case MmrCategory::Dropshot: return "dropshot";
-        case MmrCategory::SnowDay: return "snowday";
-        case MmrCategory::Heatseeker: return "heatseeker";
-        default: return "best";
+    case MmrCategory::OneVOne:
+        return "1v1";
+    case MmrCategory::TwoVTwo:
+        return "2v2";
+    case MmrCategory::ThreeVThree:
+        return "3v3";
+    case MmrCategory::Casual:
+        return "casual";
+    case MmrCategory::Tourny:
+        return "t";
+    case MmrCategory::Hoops:
+        return "hoops";
+    case MmrCategory::Rumble:
+        return "rumble";
+    case MmrCategory::Dropshot:
+        return "dropshot";
+    case MmrCategory::SnowDay:
+        return "snowday";
+    case MmrCategory::Heatseeker:
+        return "heatseeker";
+    default:
+        return "best";
     }
 }
 
@@ -61,9 +72,9 @@ void SessionState::resetMatch(const std::string& newArena, const std::string& ne
     game.matchSummaryWinnerTeam = -1;
 
     game.currentMatch = MatchStats{};
-    game.roster.clear(); 
+    game.roster.clear();
     game.matchRoster.clear();
     game.matchFinalized = false;
-    ui.showOverlay = false; 
+    ui.showOverlay = false;
     ui.showMatchSummary = false;
 }

@@ -28,9 +28,9 @@ struct PlayerData {
     bool fetchFailed = false;
     bool enqueued = false;
 
-    std::map<std::string, int> playlists; // MMR for each playlist: "1v1", "2v2", "3v3", extra modes, "best"
+    std::map<std::string, int> playlists;             // MMR for each playlist: "1v1", "2v2", "3v3", extra modes, "best"
     std::map<std::string, std::string> playlistTiers; // Rank text for each playlist
-    std::map<std::string, int> playlistMatches; // Matches played for each playlist from Tracker.gg
+    std::map<std::string, int> playlistMatches;       // Matches played for each playlist from Tracker.gg
 
     // Per-match stats for this player (reset when roster is cleared on match start)
     int goals = 0;
@@ -59,14 +59,14 @@ struct MatchStats {
     int demoedSelf = 0;
     int crossbars = 0;
     int crossbarsSelf = 0;
-    
+
     float maxGoalSpeed = 0.0f;
     float maxGoalSpeedSelf = 0.0f;
     float maxBallSpeed = 0.0f;
     float maxBallSpeedSelf = 0.0f;
     float maxImpactForce = 0.0f;
     float maxImpactForceSelf = 0.0f;
-    
+
     float fastestGoalTime = 0.0f;
     float fastestGoalTimeSelf = 0.0f;
     int ownGoals = 0;
@@ -90,14 +90,14 @@ struct SessionTotals {
     int assistsTotal = 0;
     int crossbars = 0;
     int crossbarsTotal = 0;
-    
+
     float maxGoalSpeed = 0.0f;
     float maxGoalSpeedSelf = 0.0f;
     float maxBallSpeed = 0.0f;
     float maxBallSpeedSelf = 0.0f;
     float maxImpactForce = 0.0f;
     float maxImpactForceSelf = 0.0f;
-    
+
     float fastestGoalTime = 0.0f;
     float fastestGoalTimeSelf = 0.0f;
     int ownGoals = 0;
@@ -107,8 +107,8 @@ struct SessionTotals {
     float totalMmrChange = 0.0f;
     std::map<std::string, int> mmrChangeByPlaylist;
 
-    int teamGoals = 0;              // Total goals scored by user's team this session
-    int goalParticipations = 0;     // User goals + user assists, clamped per match
+    int teamGoals = 0;          // Total goals scored by user's team this session
+    int goalParticipations = 0; // User goals + user assists, clamped per match
 };
 
 struct SessionMatchSummary {
@@ -166,9 +166,9 @@ struct UIState {
     std::atomic<MmrCategory> graphMmrCategory{MmrCategory::TwoVTwo};
 
     // New flags for expanded views
-    std::atomic<bool> h2hExpanded{false};       // F7: Show live match stats
-    std::atomic<bool> showSessionView{false};   // F8: Show session stats/graph instead of H2H
-    std::atomic<bool> showGraphView{false};     // F7 while F8 active: Toggle between text and graph
+    std::atomic<bool> h2hExpanded{false};     // F7: Show live match stats
+    std::atomic<bool> showSessionView{false}; // F8: Show session stats/graph instead of H2H
+    std::atomic<bool> showGraphView{false};   // F7 while F8 active: Toggle between text and graph
 
     // Auto match summary popup
     std::atomic<bool> showMatchSummary{false};
@@ -271,7 +271,7 @@ struct HistoryState {
 };
 
 class SessionState : public std::enable_shared_from_this<SessionState> {
-public:
+  public:
     UIState ui;
     GameState game;
     HistoryState history;

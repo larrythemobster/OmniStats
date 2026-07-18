@@ -44,15 +44,19 @@ static int mock_easy_getinfo(void* curl, int info, ...) {
 
 static void mock_easy_cleanup(void* curl) {}
 static void mock_slist_free_all(void* list) {}
-static void* mock_slist_append(void* list, const char* str) { return (void*)1; }
-static void* mock_easy_init() { return (void*)1; }
+static void* mock_slist_append(void* list, const char* str) {
+    return (void*)1;
+}
+static void* mock_easy_init() {
+    return (void*)1;
+}
 
 class MMRFetcherTest : public ::testing::Test {
-protected:
+  protected:
     void SetUp() override {
         sessionState = std::make_shared<SessionState>();
         fetcher = std::make_shared<MMRFetcher>(sessionState);
-        
+
         auto& curl = CurlImpersonate::Instance();
         original_perform = curl.easy_perform;
         original_getinfo = curl.easy_getinfo;
@@ -61,7 +65,7 @@ protected:
         original_slist_free_all = curl.slist_free_all;
         original_slist_append = curl.slist_append;
         original_easy_init = curl.easy_init;
-        
+
         curl.easy_perform = mock_easy_perform;
         curl.easy_getinfo = mock_easy_getinfo;
         curl.easy_setopt = mock_easy_setopt;
@@ -70,7 +74,7 @@ protected:
         curl.slist_append = mock_slist_append;
         curl.easy_init = mock_easy_init;
     }
-    
+
     void TearDown() override {
         auto& curl = CurlImpersonate::Instance();
         curl.easy_perform = original_perform;
@@ -84,7 +88,7 @@ protected:
 
     std::shared_ptr<SessionState> sessionState;
     std::shared_ptr<MMRFetcher> fetcher;
-    
+
     pfn_curl_easy_perform original_perform;
     pfn_curl_easy_getinfo original_getinfo;
     pfn_curl_easy_setopt original_setopt;
@@ -97,37 +101,37 @@ protected:
 TEST_F(MMRFetcherTest, FetchProfileSuccess) {
     g_mock_response_code = 200;
     g_mock_response = R"({"data": {"segments": [{"stats": {"rating": {"value": 1200}}}]}})";
-    
+
     fetcher->Start();
     fetcher->Enqueue("epic_123", "TestPlayer");
-    
+
     // Allow worker thread to process
     std::this_thread::sleep_for(std::chrono::milliseconds(200));
-    
+
     fetcher->Stop();
     SUCCEED();
 }
 
 TEST_F(MMRFetcherTest, FetchProfileNotFound) {
     g_mock_response_code = 404;
-    
+
     fetcher->Start();
     fetcher->Enqueue("epic_404", "MissingPlayer");
-    
+
     std::this_thread::sleep_for(std::chrono::milliseconds(200));
-    
+
     fetcher->Stop();
     SUCCEED();
 }
 
 TEST_F(MMRFetcherTest, FetchProfileServerError) {
     g_mock_response_code = 500;
-    
+
     fetcher->Start();
     fetcher->Enqueue("epic_500", "ServerErrPlayer");
-    
+
     std::this_thread::sleep_for(std::chrono::milliseconds(200));
-    
+
     fetcher->Stop();
     SUCCEED();
 }
@@ -160,23 +164,7 @@ TEST(MMRFetcherPlaylistMappingTest, MapsExtraModesToSeparatePlaylists) {
 
 TEST(MMRFetcherProfileTotalsTest, ExtractsOverviewWins) {
     nlohmann::json response = {
-        {"data", {
-            {"segments", nlohmann::json::array({
-                {
-                    {"type", "overview"},
-                    {"stats", {
-                        {"wins", {{"value", 60}}}
-                    }}
-                },
-                {
-                    {"type", "playlist"},
-                    {"stats", {
-                        {"wins", {{"value", 999}}}
-                    }}
-                }
-            })}
-        }}
-    };
+        {"data", {{"segments", nlohmann::json::array({{{"type", "overview"}, {"stats", {{"wins", {{"value", 60}}}}}}, {{"type", "playlist"}, {"stats", {{"wins", {{"value", 999}}}}}}})}}}};
 
     MMRProfileTotals totals = MMRFetcher::ExtractProfileTotals(response);
     EXPECT_EQ(totals.totalWins, 60);

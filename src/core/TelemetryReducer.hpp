@@ -10,13 +10,13 @@
 #include "core/SideEffects.hpp"
 
 class TelemetryReducer {
-public:
+  public:
     explicit TelemetryReducer(std::shared_ptr<SessionState> state);
 
     SideEffects Reduce(const std::string& eventName, const nlohmann::json& data);
     void OnConfigChanged();
 
-private:
+  private:
     void HandleUpdateState(const nlohmann::json& data, SideEffects& effects);
     void HandleStatFeed(const nlohmann::json& data);
     void HandleGoalScored(const nlohmann::json& data, SideEffects& effects);

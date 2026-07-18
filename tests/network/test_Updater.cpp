@@ -13,11 +13,11 @@ TEST(UpdaterCommonTest, VersionComparison) {
     EXPECT_TRUE(UpdaterCommon::IsNewerVersion("1.0.0", "1.1.0"));
     // Newer patch
     EXPECT_TRUE(UpdaterCommon::IsNewerVersion("1.0.0", "1.0.1"));
-    
+
     // Equal versions
     EXPECT_FALSE(UpdaterCommon::IsNewerVersion("1.0.0", "1.0.0"));
     EXPECT_FALSE(UpdaterCommon::IsNewerVersion("1.2.3", "1.2.3"));
-    
+
     // Older versions
     EXPECT_FALSE(UpdaterCommon::IsNewerVersion("2.0.0", "1.0.0"));
     EXPECT_FALSE(UpdaterCommon::IsNewerVersion("1.1.0", "1.0.0"));

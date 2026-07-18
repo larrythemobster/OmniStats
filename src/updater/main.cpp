@@ -265,9 +265,9 @@ bool DownloadAndInstall(const std::string& serverUrl, const std::string& targetP
     // Move new file into target path
     if (MoveFileExA(tempExePath.c_str(), targetPath.c_str(), MOVEFILE_REPLACE_EXISTING)) {
         std::cout << "[Updater] Target replacement succeeded!\n";
-        
+
         // Spawn target
-        STARTUPINFOA si = { sizeof(si) };
+        STARTUPINFOA si = {sizeof(si)};
         PROCESS_INFORMATION pi;
         ZeroMemory(&si, sizeof(si));
         si.cb = sizeof(si);
@@ -357,7 +357,6 @@ int main(int argc, char* argv[]) {
     }
 
     std::string serverUrl = GetActiveServerUrl();
-
 
     if (repair) {
         bool success = RepairDependencies(appDataDir);

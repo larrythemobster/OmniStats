@@ -39,148 +39,148 @@ LRESULT WINAPI WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
     if (ImGui_ImplWin32_WndProcHandler(hWnd, msg, wParam, lParam))
         return true;
     switch (msg) {
-        case WM_SIZE:
-            if (wParam != SIZE_MINIMIZED) {
-                LONG_PTR ptr = GetWindowLongPtrW(hWnd, GWLP_USERDATA);
-                if (ptr != 0) {
-                    Overlay* overlay = reinterpret_cast<Overlay*>(ptr);
-                    overlay->ResizeSwapChain(static_cast<int>(LOWORD(lParam)), static_cast<int>(HIWORD(lParam)));
-                    overlay->SaveSecondMonitorWindowBounds();
-                }
-            }
-            return 0;
-        case WM_MOVE: {
+    case WM_SIZE:
+        if (wParam != SIZE_MINIMIZED) {
             LONG_PTR ptr = GetWindowLongPtrW(hWnd, GWLP_USERDATA);
             if (ptr != 0) {
                 Overlay* overlay = reinterpret_cast<Overlay*>(ptr);
+                overlay->ResizeSwapChain(static_cast<int>(LOWORD(lParam)), static_cast<int>(HIWORD(lParam)));
                 overlay->SaveSecondMonitorWindowBounds();
             }
-            return 0;
         }
-        case WM_EXITSIZEMOVE: {
-            LONG_PTR ptr = GetWindowLongPtrW(hWnd, GWLP_USERDATA);
-            if (ptr != 0) {
-                Overlay* overlay = reinterpret_cast<Overlay*>(ptr);
-                overlay->SaveSecondMonitorWindowBounds();
-            }
-            return 0;
+        return 0;
+    case WM_MOVE: {
+        LONG_PTR ptr = GetWindowLongPtrW(hWnd, GWLP_USERDATA);
+        if (ptr != 0) {
+            Overlay* overlay = reinterpret_cast<Overlay*>(ptr);
+            overlay->SaveSecondMonitorWindowBounds();
         }
-        case WM_DISPLAYCHANGE: {
-            LONG_PTR ptr = GetWindowLongPtrW(hWnd, GWLP_USERDATA);
-            if (ptr != 0) {
-                Overlay* overlay = reinterpret_cast<Overlay*>(ptr);
-                overlay->UpdateWindowPosition(false);
-            }
-            return 0;
+        return 0;
+    }
+    case WM_EXITSIZEMOVE: {
+        LONG_PTR ptr = GetWindowLongPtrW(hWnd, GWLP_USERDATA);
+        if (ptr != 0) {
+            Overlay* overlay = reinterpret_cast<Overlay*>(ptr);
+            overlay->SaveSecondMonitorWindowBounds();
         }
-        case WM_DPICHANGED: {
-            LONG_PTR ptr = GetWindowLongPtrW(hWnd, GWLP_USERDATA);
-            if (ptr != 0) {
-                Overlay* overlay = reinterpret_cast<Overlay*>(ptr);
-                overlay->HandleDpiChanged(LOWORD(wParam), reinterpret_cast<const RECT*>(lParam));
-            }
-            return 0;
+        return 0;
+    }
+    case WM_DISPLAYCHANGE: {
+        LONG_PTR ptr = GetWindowLongPtrW(hWnd, GWLP_USERDATA);
+        if (ptr != 0) {
+            Overlay* overlay = reinterpret_cast<Overlay*>(ptr);
+            overlay->UpdateWindowPosition(false);
         }
-        
-        case WM_NCCALCSIZE:
-            if (wParam) {
-                if (Config::Read().second_monitor_mode) {
-                    // Strips the standard Windows title bar while keeping native drop shadows and borders
-                    return 0;
-                }
-            }
-            break;
-        case WM_NCHITTEST: {
-            LONG_PTR ptr = GetWindowLongPtrW(hWnd, GWLP_USERDATA);
-            if (ptr != 0) {
-                Overlay* overlay = reinterpret_cast<Overlay*>(ptr);
-                if (Config::Read().second_monitor_mode) {
-                    LRESULT hit = DefWindowProcW(hWnd, msg, wParam, lParam);
-                    if (hit == HTCLIENT) {
-                        POINT pt;
-                        pt.x = static_cast<int>(static_cast<short>(LOWORD(lParam)));
-                        pt.y = static_cast<int>(static_cast<short>(HIWORD(lParam)));
-                        ScreenToClient(hWnd, &pt);
-                        RECT rect;
-                        GetClientRect(hWnd, &rect);
-                        int width = rect.right - rect.left;
-                        int height = rect.bottom - rect.top;
-                        const int borderSize = static_cast<int>(8 * overlay->m_dpiScale);
-                        if (pt.x <= borderSize && pt.y <= borderSize) return HTTOPLEFT;
-                        if (pt.x >= width - borderSize && pt.y <= borderSize) return HTTOPRIGHT;
-                        if (pt.x <= borderSize && pt.y >= height - borderSize) return HTBOTTOMLEFT;
-                        if (pt.x >= width - borderSize && pt.y >= height - borderSize) return HTBOTTOMRIGHT;
-                        if (pt.x <= borderSize) return HTLEFT;
-                        if (pt.x >= width - borderSize) return HTRIGHT;
-                        if (pt.y <= borderSize) return HTTOP;
-                        if (pt.y >= height - borderSize) return HTBOTTOM;
-                        float titleBarHeight = 40.0f * overlay->m_dpiScale;
-                        float buttonsWidth = 46.0f * 4.0f * overlay->m_dpiScale; // Edit, minimize, maximize, close
-                        if (pt.y >= 0 && pt.y <= titleBarHeight) {
-                            if (pt.x >= width - buttonsWidth) {
-                                return HTCLIENT; // Hover/click gets routed to ImGui controls
-                            }
-                            return HTCAPTION; // Dragging/snapping behavior
-                        }
-                    }
-                    return hit;
-                }
-            }
-            break;
+        return 0;
+    }
+    case WM_DPICHANGED: {
+        LONG_PTR ptr = GetWindowLongPtrW(hWnd, GWLP_USERDATA);
+        if (ptr != 0) {
+            Overlay* overlay = reinterpret_cast<Overlay*>(ptr);
+            overlay->HandleDpiChanged(LOWORD(wParam), reinterpret_cast<const RECT*>(lParam));
         }
-        case WM_TOGGLE_MODE: {
-            LONG_PTR ptr = GetWindowLongPtrW(hWnd, GWLP_USERDATA);
-            if (ptr != 0) {
-                Overlay* overlay = reinterpret_cast<Overlay*>(ptr);
-                Config::Update([](ConfigData& c) {
-                    c.second_monitor_mode = !c.second_monitor_mode;
-                });
-                overlay->UpdateWindowStyle();
-                overlay->UpdateWindowPosition();
-            }
-            return 0;
-        }
-        case WM_GETMINMAXINFO: {
-            // Enforce a minimum dashboard size when in second-monitor (dashboard) mode.
-            // This prevents layout breakage when the window is made too small.
+        return 0;
+    }
+
+    case WM_NCCALCSIZE:
+        if (wParam) {
             if (Config::Read().second_monitor_mode) {
-                MINMAXINFO* mmi = reinterpret_cast<MINMAXINFO*>(lParam);
-                float dpiScale = 1.0f;
-                LONG_PTR ptr = GetWindowLongPtrW(hWnd, GWLP_USERDATA);
-                if (ptr != 0) {
-                    Overlay* overlay = reinterpret_cast<Overlay*>(ptr);
-                    dpiScale = overlay->m_dpiScale;
-                } else {
-                    typedef UINT(WINAPI* GetDpiForWindow_t)(HWND);
-                    static HMODULE user32 = GetModuleHandleW(L"user32.dll");
-                    static GetDpiForWindow_t pGetDpiForWindow = user32 ? (GetDpiForWindow_t)GetProcAddress(user32, "GetDpiForWindow") : nullptr;
-                    if (pGetDpiForWindow) {
-                        dpiScale = static_cast<float>(pGetDpiForWindow(hWnd)) / 96.0f;
-                    }
-                }
-                // Enforce horizontal minimum only; do not clamp vertical size
-                const int kMinW = static_cast<int>(637 * dpiScale);
-                mmi->ptMinTrackSize.x = kMinW;
+                // Strips the standard Windows title bar while keeping native drop shadows and borders
                 return 0;
             }
-            break;
         }
-        case WM_CLOSE:
-            if (!s_isQuitting) {
-                s_isQuitting = true;
-                PostQuitMessage(0);
+        break;
+    case WM_NCHITTEST: {
+        LONG_PTR ptr = GetWindowLongPtrW(hWnd, GWLP_USERDATA);
+        if (ptr != 0) {
+            Overlay* overlay = reinterpret_cast<Overlay*>(ptr);
+            if (Config::Read().second_monitor_mode) {
+                LRESULT hit = DefWindowProcW(hWnd, msg, wParam, lParam);
+                if (hit == HTCLIENT) {
+                    POINT pt;
+                    pt.x = static_cast<int>(static_cast<short>(LOWORD(lParam)));
+                    pt.y = static_cast<int>(static_cast<short>(HIWORD(lParam)));
+                    ScreenToClient(hWnd, &pt);
+                    RECT rect;
+                    GetClientRect(hWnd, &rect);
+                    int width = rect.right - rect.left;
+                    int height = rect.bottom - rect.top;
+                    const int borderSize = static_cast<int>(8 * overlay->m_dpiScale);
+                    if (pt.x <= borderSize && pt.y <= borderSize) return HTTOPLEFT;
+                    if (pt.x >= width - borderSize && pt.y <= borderSize) return HTTOPRIGHT;
+                    if (pt.x <= borderSize && pt.y >= height - borderSize) return HTBOTTOMLEFT;
+                    if (pt.x >= width - borderSize && pt.y >= height - borderSize) return HTBOTTOMRIGHT;
+                    if (pt.x <= borderSize) return HTLEFT;
+                    if (pt.x >= width - borderSize) return HTRIGHT;
+                    if (pt.y <= borderSize) return HTTOP;
+                    if (pt.y >= height - borderSize) return HTBOTTOM;
+                    float titleBarHeight = 40.0f * overlay->m_dpiScale;
+                    float buttonsWidth = 46.0f * 4.0f * overlay->m_dpiScale; // Edit, minimize, maximize, close
+                    if (pt.y >= 0 && pt.y <= titleBarHeight) {
+                        if (pt.x >= width - buttonsWidth) {
+                            return HTCLIENT; // Hover/click gets routed to ImGui controls
+                        }
+                        return HTCAPTION; // Dragging/snapping behavior
+                    }
+                }
+                return hit;
             }
-            return 0;
-        case WM_DESTROY:
-            if (!s_isQuitting) {
-                s_isQuitting = true;
-                PostQuitMessage(0);
+        }
+        break;
+    }
+    case WM_TOGGLE_MODE: {
+        LONG_PTR ptr = GetWindowLongPtrW(hWnd, GWLP_USERDATA);
+        if (ptr != 0) {
+            Overlay* overlay = reinterpret_cast<Overlay*>(ptr);
+            Config::Update([](ConfigData& c) {
+                c.second_monitor_mode = !c.second_monitor_mode;
+            });
+            overlay->UpdateWindowStyle();
+            overlay->UpdateWindowPosition();
+        }
+        return 0;
+    }
+    case WM_GETMINMAXINFO: {
+        // Enforce a minimum dashboard size when in second-monitor (dashboard) mode.
+        // This prevents layout breakage when the window is made too small.
+        if (Config::Read().second_monitor_mode) {
+            MINMAXINFO* mmi = reinterpret_cast<MINMAXINFO*>(lParam);
+            float dpiScale = 1.0f;
+            LONG_PTR ptr = GetWindowLongPtrW(hWnd, GWLP_USERDATA);
+            if (ptr != 0) {
+                Overlay* overlay = reinterpret_cast<Overlay*>(ptr);
+                dpiScale = overlay->m_dpiScale;
+            } else {
+                typedef UINT(WINAPI * GetDpiForWindow_t)(HWND);
+                static HMODULE user32 = GetModuleHandleW(L"user32.dll");
+                static GetDpiForWindow_t pGetDpiForWindow = user32 ? (GetDpiForWindow_t)GetProcAddress(user32, "GetDpiForWindow") : nullptr;
+                if (pGetDpiForWindow) {
+                    dpiScale = static_cast<float>(pGetDpiForWindow(hWnd)) / 96.0f;
+                }
             }
+            // Enforce horizontal minimum only; do not clamp vertical size
+            const int kMinW = static_cast<int>(637 * dpiScale);
+            mmi->ptMinTrackSize.x = kMinW;
             return 0;
+        }
+        break;
+    }
+    case WM_CLOSE:
+        if (!s_isQuitting) {
+            s_isQuitting = true;
+            PostQuitMessage(0);
+        }
+        return 0;
+    case WM_DESTROY:
+        if (!s_isQuitting) {
+            s_isQuitting = true;
+            PostQuitMessage(0);
+        }
+        return 0;
     }
     return DefWindowProcW(hWnd, msg, wParam, lParam);
 }
-Overlay::Overlay(std::shared_ptr<SessionState> state, std::shared_ptr<DatabaseManager> dbManager) 
+Overlay::Overlay(std::shared_ptr<SessionState> state, std::shared_ptr<DatabaseManager> dbManager)
     : m_state(state), m_dbManager(dbManager) {}
 Overlay::~Overlay() {
     Shutdown();
@@ -208,7 +208,7 @@ bool Overlay::Initialize() {
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
     ImPlot::CreateContext();
-    
+
     ImGuiIO& io = ImGui::GetIO();
     io.IniFilename = m_imguiIniPath.c_str();
     m_frameConfig = Config::Read();
@@ -295,7 +295,9 @@ bool Overlay::RebuildFontsForCurrentScale() {
     struct ReentryGuard {
         bool& flag;
         explicit ReentryGuard(bool& f) : flag(f) {}
-        ~ReentryGuard() { flag = false; }
+        ~ReentryGuard() {
+            flag = false;
+        }
     } guard(m_rebuildingFonts);
     if (!ImGui::GetCurrentContext()) {
         std::cout << "[Overlay] RebuildFontsForCurrentScale: No current ImGui context.\n";
@@ -359,15 +361,14 @@ void Overlay::HandleDpiChanged(UINT dpi, const RECT* suggestedRect) {
     if (m_dpiScale < 0.5f) m_dpiScale = 1.0f;
     if (m_window) m_window->SetDpiScale(m_dpiScale);
     ConfigData conf = Config::Read();
-    bool keepSecondMonitorBounds = conf.second_monitor_mode && m_hwnd
-        && MonitorFromWindow(m_hwnd, MONITOR_DEFAULTTONULL) != nullptr;
+    bool keepSecondMonitorBounds = conf.second_monitor_mode && m_hwnd && MonitorFromWindow(m_hwnd, MONITOR_DEFAULTTONULL) != nullptr;
     if (suggestedRect && m_hwnd && !keepSecondMonitorBounds) {
         SetWindowPos(m_hwnd, nullptr,
-            suggestedRect->left,
-            suggestedRect->top,
-            suggestedRect->right - suggestedRect->left,
-            suggestedRect->bottom - suggestedRect->top,
-            SWP_NOZORDER | SWP_NOACTIVATE);
+                     suggestedRect->left,
+                     suggestedRect->top,
+                     suggestedRect->right - suggestedRect->left,
+                     suggestedRect->bottom - suggestedRect->top,
+                     SWP_NOZORDER | SWP_NOACTIVATE);
     }
     m_fontReloadPending = true;
     UpdateWindowPosition(!keepSecondMonitorBounds);
@@ -385,7 +386,7 @@ void Overlay::RunLoop() {
             break;
         }
         m_frameConfig = Config::Read();
-        
+
         if (SDL_WasInit(SDL_INIT_GAMECONTROLLER | SDL_INIT_JOYSTICK) != 0) {
             // Drain SDL event queue on the main thread to keep controller hotplug state moving.
             SDL_Event event;
@@ -431,9 +432,9 @@ void Overlay::RunLoop() {
                     std::string t(title);
                     bool isRL = (cls == "LaunchUnrealUWindowsClient");
                     if (!isRL) {
-                        bool isBrowserOrExplorer = (cls.find("Chrome") != std::string::npos || 
-                                                    cls.find("Mozilla") != std::string::npos || 
-                                                    cls.find("IEFrame") != std::string::npos || 
+                        bool isBrowserOrExplorer = (cls.find("Chrome") != std::string::npos ||
+                                                    cls.find("Mozilla") != std::string::npos ||
+                                                    cls.find("IEFrame") != std::string::npos ||
                                                     cls.find("CabinetWClass") != std::string::npos);
                         if (!isBrowserOrExplorer && (t == "Rocket League (64-bit, DX11)" || t == "Rocket League (32-bit, DX11)" || t == "Rocket League")) {
                             isRL = true;
@@ -465,9 +466,9 @@ void Overlay::RunLoop() {
                 UpdateWindowStyle();
                 ShowWindow(m_hwnd, SW_SHOWNOACTIVATE);
                 SetWindowPos(m_hwnd,
-                    m_frameConfig.second_monitor_mode ? HWND_NOTOPMOST : HWND_TOPMOST,
-                    0, 0, 0, 0,
-                    SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_SHOWWINDOW | SWP_FRAMECHANGED);
+                             m_frameConfig.second_monitor_mode ? HWND_NOTOPMOST : HWND_TOPMOST,
+                             0, 0, 0, 0,
+                             SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_SHOWWINDOW | SWP_FRAMECHANGED);
                 UpdateWindow(m_hwnd);
                 isClickThrough = (GetWindowLong(m_hwnd, GWL_EXSTYLE) & WS_EX_TRANSPARENT) != 0;
             }
@@ -479,19 +480,19 @@ void Overlay::RunLoop() {
             exStyle &= ~WS_EX_TRANSPARENT;
             SetWindowLong(m_hwnd, GWL_EXSTYLE, exStyle);
             SetWindowPos(m_hwnd,
-                m_frameConfig.second_monitor_mode ? HWND_NOTOPMOST : HWND_TOPMOST,
-                0, 0, 0, 0,
-                SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_FRAMECHANGED);
-            SetForegroundWindow(m_hwnd); 
+                         m_frameConfig.second_monitor_mode ? HWND_NOTOPMOST : HWND_TOPMOST,
+                         0, 0, 0, 0,
+                         SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_FRAMECHANGED);
+            SetForegroundWindow(m_hwnd);
             isClickThrough = false;
         } else if (!needsInteract && !isClickThrough) {
             LONG exStyle = GetWindowLong(m_hwnd, GWL_EXSTYLE);
             exStyle |= WS_EX_TRANSPARENT;
             SetWindowLong(m_hwnd, GWL_EXSTYLE, exStyle);
             SetWindowPos(m_hwnd,
-                m_frameConfig.second_monitor_mode ? HWND_NOTOPMOST : HWND_TOPMOST,
-                0, 0, 0, 0,
-                SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_FRAMECHANGED);
+                         m_frameConfig.second_monitor_mode ? HWND_NOTOPMOST : HWND_TOPMOST,
+                         0, 0, 0, 0,
+                         SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_FRAMECHANGED);
             isClickThrough = true;
         }
         ImGui_ImplDX11_NewFrame();
@@ -499,11 +500,11 @@ void Overlay::RunLoop() {
         ImGui::NewFrame();
         RenderUI();
         ImGui::Render();
-        const float clear_color[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
+        const float clear_color[4] = {0.0f, 0.0f, 0.0f, 0.0f};
         m_d3d11->Context()->OMSetRenderTargets(1, m_d3d11->RenderTargetViewAddress(), nullptr);
         m_d3d11->Context()->ClearRenderTargetView(m_d3d11->RenderTargetView(), clear_color);
         ImGui_ImplDX11_RenderDrawData(ImGui::GetDrawData());
-        
+
         UINT syncInterval = m_frameConfig.vsync ? 1 : 0;
         HRESULT presentHr = m_d3d11->SwapChain()->Present(syncInterval, 0);
         if (presentHr == DXGI_ERROR_DEVICE_REMOVED || presentHr == DXGI_ERROR_DEVICE_RESET) {
@@ -538,8 +539,7 @@ RenderContext Overlay::MakeCtx() {
         .fontBold = fontBold,
         .fontSmall = fontSmall,
         .fontSmallBold = fontSmallBold,
-        .fontMono = fontMono
-    };
+        .fontMono = fontMono};
 }
 DashRenderFuncs Overlay::MakeDashFuncs() {
     DashRenderFuncs f;
@@ -606,8 +606,7 @@ void Overlay::SaveSecondMonitorWindowBounds() {
     int w = rect.right - rect.left;
     int h = rect.bottom - rect.top;
     if (w <= 0 || h <= 0) return;
-    if (conf.second_monitor_has_bounds && conf.second_monitor_x == x && conf.second_monitor_y == y
-        && conf.second_monitor_w == w && conf.second_monitor_h == h) {
+    if (conf.second_monitor_has_bounds && conf.second_monitor_x == x && conf.second_monitor_y == y && conf.second_monitor_w == w && conf.second_monitor_h == h) {
         return;
     }
     Config::Update([x, y, w, h](ConfigData& c) {

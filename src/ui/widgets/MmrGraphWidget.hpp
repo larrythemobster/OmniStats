@@ -9,7 +9,7 @@ namespace Widgets {
         int currentMmr;
         int initialMmr;
         float plotHeight = 150.0f;
-        
+
         ImColor colorWin;
         ImColor colorLoss;
         ImColor colorMuted;
@@ -17,7 +17,7 @@ namespace Widgets {
         ImColor colorText;
         ImColor colorGraphLine;
         ImColor colorGraphBaseline;
-        
+
         ImFont* fontSmall = nullptr;
         ImFont* fontSmallBold = nullptr;
         ImFont* fontBold = nullptr;

@@ -50,11 +50,11 @@ void ThemeManager::Apply(const ConfigData& cfg, float dpiScale) {
     colors[ImGuiCol_TextDisabled] = ImVec4(Format::C(cfg.themeMuted));
 
     auto& t = cfg;
-    ImVec4 bg     = Format::C(t.themeBg);
-    ImVec4 text   = Format::C(t.themeText);
+    ImVec4 bg = Format::C(t.themeBg);
+    ImVec4 text = Format::C(t.themeText);
     ImVec4 accent = Format::C(t.themeAccent);
-    ImVec4 dim    = Format::C(t.themeDim);
-    ImVec4 muted  = Format::C(t.themeMuted);
+    ImVec4 dim = Format::C(t.themeDim);
+    ImVec4 muted = Format::C(t.themeMuted);
 
     auto brighten = [](const ImVec4& c, float f) -> ImVec4 {
         return ImVec4(fminf(c.x * f, 1.0f), fminf(c.y * f, 1.0f), fminf(c.z * f, 1.0f), c.w);
@@ -63,47 +63,47 @@ void ThemeManager::Apply(const ConfigData& cfg, float dpiScale) {
         return ImVec4(c.x * f, c.y * f, c.z * f, c.w);
     };
 
-    style.Colors[ImGuiCol_WindowBg]     = bg;
-    style.Colors[ImGuiCol_PopupBg]      = ImVec4(bg.x, bg.y, bg.z, 0.98f);
-    style.Colors[ImGuiCol_Border]       = ImVec4(muted.x, muted.y, muted.z, 0.3f);
+    style.Colors[ImGuiCol_WindowBg] = bg;
+    style.Colors[ImGuiCol_PopupBg] = ImVec4(bg.x, bg.y, bg.z, 0.98f);
+    style.Colors[ImGuiCol_Border] = ImVec4(muted.x, muted.y, muted.z, 0.3f);
     style.Colors[ImGuiCol_BorderShadow] = ImVec4(0, 0, 0, 0);
 
-    style.Colors[ImGuiCol_Text]         = text;
+    style.Colors[ImGuiCol_Text] = text;
     style.Colors[ImGuiCol_TextDisabled] = dim;
 
-    style.Colors[ImGuiCol_FrameBg]        = ImVec4(0.04f, 0.04f, 0.04f, 0.8f);
+    style.Colors[ImGuiCol_FrameBg] = ImVec4(0.04f, 0.04f, 0.04f, 0.8f);
     style.Colors[ImGuiCol_FrameBgHovered] = ImVec4(accent.x * 0.2f, accent.y * 0.2f, accent.z * 0.2f, 0.5f);
-    style.Colors[ImGuiCol_FrameBgActive]  = ImVec4(accent.x * 0.3f, accent.y * 0.3f, accent.z * 0.3f, 0.7f);
+    style.Colors[ImGuiCol_FrameBgActive] = ImVec4(accent.x * 0.3f, accent.y * 0.3f, accent.z * 0.3f, 0.7f);
 
     style.Colors[ImGuiCol_CheckMark] = accent;
 
-    style.Colors[ImGuiCol_SliderGrab]       = accent;
+    style.Colors[ImGuiCol_SliderGrab] = accent;
     style.Colors[ImGuiCol_SliderGrabActive] = brighten(accent, 1.3f);
 
-    style.Colors[ImGuiCol_Button]        = ImVec4(accent.x * 0.2f, accent.y * 0.2f, accent.z * 0.2f, 0.7f);
+    style.Colors[ImGuiCol_Button] = ImVec4(accent.x * 0.2f, accent.y * 0.2f, accent.z * 0.2f, 0.7f);
     style.Colors[ImGuiCol_ButtonHovered] = ImVec4(accent.x * 0.4f, accent.y * 0.4f, accent.z * 0.4f, 0.8f);
-    style.Colors[ImGuiCol_ButtonActive]  = accent;
+    style.Colors[ImGuiCol_ButtonActive] = accent;
 
-    style.Colors[ImGuiCol_Header]        = ImVec4(accent.x * 0.2f, accent.y * 0.2f, accent.z * 0.2f, 0.5f);
+    style.Colors[ImGuiCol_Header] = ImVec4(accent.x * 0.2f, accent.y * 0.2f, accent.z * 0.2f, 0.5f);
     style.Colors[ImGuiCol_HeaderHovered] = ImVec4(accent.x * 0.35f, accent.y * 0.35f, accent.z * 0.35f, 0.7f);
-    style.Colors[ImGuiCol_HeaderActive]  = ImVec4(accent.x * 0.5f, accent.y * 0.5f, accent.z * 0.5f, 0.9f);
+    style.Colors[ImGuiCol_HeaderActive] = ImVec4(accent.x * 0.5f, accent.y * 0.5f, accent.z * 0.5f, 0.9f);
 
-    style.Colors[ImGuiCol_Separator]        = ImVec4(muted.x, muted.y, muted.z, 0.4f);
+    style.Colors[ImGuiCol_Separator] = ImVec4(muted.x, muted.y, muted.z, 0.4f);
     style.Colors[ImGuiCol_SeparatorHovered] = accent;
-    style.Colors[ImGuiCol_SeparatorActive]  = accent;
+    style.Colors[ImGuiCol_SeparatorActive] = accent;
 
-    style.Colors[ImGuiCol_ScrollbarBg]          = ImVec4(0.02f, 0.02f, 0.02f, 0.4f);
-    style.Colors[ImGuiCol_ScrollbarGrab]        = ImVec4(muted.x, muted.y, muted.z, 0.5f);
+    style.Colors[ImGuiCol_ScrollbarBg] = ImVec4(0.02f, 0.02f, 0.02f, 0.4f);
+    style.Colors[ImGuiCol_ScrollbarGrab] = ImVec4(muted.x, muted.y, muted.z, 0.5f);
     style.Colors[ImGuiCol_ScrollbarGrabHovered] = dim;
-    style.Colors[ImGuiCol_ScrollbarGrabActive]  = accent;
+    style.Colors[ImGuiCol_ScrollbarGrabActive] = accent;
 
-    style.Colors[ImGuiCol_TitleBg]          = darken(bg, 0.8f);
-    style.Colors[ImGuiCol_TitleBgActive]    = darken(bg, 0.9f);
+    style.Colors[ImGuiCol_TitleBg] = darken(bg, 0.8f);
+    style.Colors[ImGuiCol_TitleBgActive] = darken(bg, 0.9f);
     style.Colors[ImGuiCol_TitleBgCollapsed] = darken(bg, 0.6f);
 
-    style.Colors[ImGuiCol_Tab]                = darken(accent, 0.4f);
-    style.Colors[ImGuiCol_TabHovered]         = accent;
-    style.Colors[ImGuiCol_TabActive]          = brighten(accent, 0.8f);
-    style.Colors[ImGuiCol_TabUnfocused]       = darken(accent, 0.3f);
+    style.Colors[ImGuiCol_Tab] = darken(accent, 0.4f);
+    style.Colors[ImGuiCol_TabHovered] = accent;
+    style.Colors[ImGuiCol_TabActive] = brighten(accent, 0.8f);
+    style.Colors[ImGuiCol_TabUnfocused] = darken(accent, 0.3f);
     style.Colors[ImGuiCol_TabUnfocusedActive] = darken(accent, 0.5f);
 }

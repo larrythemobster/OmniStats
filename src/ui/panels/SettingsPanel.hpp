@@ -8,12 +8,13 @@ struct SettingsResult {
 };
 
 class SettingsPanel {
-public:
+  public:
     explicit SettingsPanel(RenderContext ctx);
     ~SettingsPanel();
     SettingsResult Render();
     void RenderContent(const std::string& idSuffix, bool& styleChanged, bool& windowChanged);
-private:
+
+  private:
     enum class BindCaptureTarget {
         None,
         KeyOverlay,

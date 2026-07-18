@@ -27,9 +27,9 @@ bool D3D11Device::Create(HWND hwnd) {
     };
 
     HRESULT hr = D3D11CreateDeviceAndSwapChain(
-            nullptr, D3D_DRIVER_TYPE_HARDWARE, nullptr, createDeviceFlags,
-            featureLevelArray, 2, D3D11_SDK_VERSION, &sd,
-            &m_swapChain, &m_device, &featureLevel, &m_context);
+        nullptr, D3D_DRIVER_TYPE_HARDWARE, nullptr, createDeviceFlags,
+        featureLevelArray, 2, D3D11_SDK_VERSION, &sd,
+        &m_swapChain, &m_device, &featureLevel, &m_context);
     if (FAILED(hr)) {
         std::cout << "[D3D11] Failed to create device and swap chain.\n";
         return false;
@@ -45,9 +45,18 @@ bool D3D11Device::Create(HWND hwnd) {
 
 void D3D11Device::Shutdown() {
     CleanupRenderTarget();
-    if (m_swapChain) { m_swapChain->Release(); m_swapChain = nullptr; }
-    if (m_context) { m_context->Release(); m_context = nullptr; }
-    if (m_device) { m_device->Release(); m_device = nullptr; }
+    if (m_swapChain) {
+        m_swapChain->Release();
+        m_swapChain = nullptr;
+    }
+    if (m_context) {
+        m_context->Release();
+        m_context = nullptr;
+    }
+    if (m_device) {
+        m_device->Release();
+        m_device = nullptr;
+    }
 }
 
 bool D3D11Device::CreateRenderTarget() {
@@ -68,7 +77,10 @@ bool D3D11Device::CreateRenderTarget() {
 }
 
 void D3D11Device::CleanupRenderTarget() {
-    if (m_renderTargetView) { m_renderTargetView->Release(); m_renderTargetView = nullptr; }
+    if (m_renderTargetView) {
+        m_renderTargetView->Release();
+        m_renderTargetView = nullptr;
+    }
 }
 
 HRESULT D3D11Device::ResizeBuffers(int width, int height) {

@@ -18,7 +18,7 @@ static size_t WriteCallback(void* contents, size_t size, size_t nmemb, void* use
 }
 
 class CurlRealNetworkTest : public ::testing::Test {
-protected:
+  protected:
     void SetUp() override {
         const char* enabled = std::getenv("OMNISTATS_RUN_NETWORK_TESTS");
         if (enabled == nullptr || std::string(enabled) != "1") {
@@ -76,8 +76,7 @@ TEST_F(CurlRealNetworkTest, PostRequest_SendsJsonAndReceivesEcho) {
     nlohmann::json payload = {
         {"app", "OmniStats"},
         {"version", "1.3.901"},
-        {"test", true}
-    };
+        {"test", true}};
     std::string payloadStr = payload.dump();
 
     struct curl_slist* headers = nullptr;

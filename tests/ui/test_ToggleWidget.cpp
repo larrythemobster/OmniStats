@@ -5,12 +5,13 @@
 #include "imgui_internal.h"
 
 class ToggleWidgetTest : public ::testing::Test {
-protected:
+  protected:
     void SetUp() override {
         IMGUI_CHECKVERSION();
         ImGui::CreateContext();
         ImGuiIO& io = ImGui::GetIO();
-        unsigned char* pixels; int w, h;
+        unsigned char* pixels;
+        int w, h;
         io.Fonts->GetTexDataAsRGBA32(&pixels, &w, &h);
         io.DisplaySize = ImVec2(1920.0f, 1080.0f);
         io.DeltaTime = 1.0f / 60.0f;

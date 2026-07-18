@@ -6,7 +6,7 @@
 #include <atomic>
 
 class TelemetryParser {
-public:
+  public:
     TelemetryParser();
     ~TelemetryParser();
 
@@ -15,7 +15,7 @@ public:
     void ConnectAndRead(JsonLineCallback onJsonLine);
     void Stop();
 
-private:
+  private:
     std::atomic<bool> m_stopping{false};
     asio::io_context m_ioContext;
     asio::ip::tcp::socket m_socket;

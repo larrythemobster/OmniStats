@@ -6,12 +6,13 @@
 #include <memory>
 
 class OverlayDashboardTest : public ::testing::Test {
-protected:
+  protected:
     void SetUp() override {
         IMGUI_CHECKVERSION();
         ImGui::CreateContext();
         ImGuiIO& io = ImGui::GetIO();
-        unsigned char* pixels; int w, h;
+        unsigned char* pixels;
+        int w, h;
         io.Fonts->GetTexDataAsRGBA32(&pixels, &w, &h);
         io.DisplaySize = ImVec2(1920.0f, 1080.0f);
         io.DeltaTime = 1.0f / 60.0f;
@@ -156,7 +157,8 @@ TEST_F(OverlayDashboardTest, AllPanelsOff_NoCrash) {
 
 TEST_F(OverlayDashboardTest, MultipleFrames_NoAccumulationCrash) {
     m_state->ui.showOverlay = true;
-    for (int i = 0; i < 10; ++i) EXPECT_NO_THROW(RenderOneFrame());
+    for (int i = 0; i < 10; ++i)
+        EXPECT_NO_THROW(RenderOneFrame());
 }
 
 // -- Container minimum size clamping --
@@ -171,7 +173,8 @@ TEST_F(OverlayDashboardTest, ContainerSizeClampingEnforced) {
                 break;
             }
         }
-    }, true);
+    },
+                   true);
 
     // 2. Render a frame. This will run the layout manager and should clamp the container size upward.
     m_state->ui.showOverlay = true;
@@ -188,4 +191,3 @@ TEST_F(OverlayDashboardTest, ContainerSizeClampingEnforced) {
         }
     }
 }
-

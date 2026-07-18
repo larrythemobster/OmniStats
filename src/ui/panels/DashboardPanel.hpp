@@ -18,16 +18,17 @@ struct DashRenderFuncs {
 };
 
 class DashboardPanel {
-public:
+  public:
     explicit DashboardPanel(RenderContext ctx, HWND hwnd, DashRenderFuncs funcs);
     ~DashboardPanel();
     void Render();
-private:
+
+  private:
     void RenderCustomTitleBar();
-    
+
     void RenderDashboardZones(const DashboardLayout::LayoutConfig& layout);
     void RenderWidget(DashboardLayout::WidgetId id, const char* idSuffix);
-    
+
     void RenderLiveRosterWidget(const char* idSuffix);
     void RenderLiveMatchStatsWidget(const char* idSuffix);
     void RenderSessionStatsWidget(const char* idSuffix);
