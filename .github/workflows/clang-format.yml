@@ -1,0 +1,79 @@
+name: Clang Format
+
+on:
+  pull_request:
+    paths:
+      - "**/*.c"
+      - "**/*.cc"
+      - "**/*.cpp"
+      - "**/*.cxx"
+      - "**/*.h"
+      - "**/*.hh"
+      - "**/*.hpp"
+      - "**/*.hxx"
+      - "**/*.inl"
+      - ".clang-format"
+
+  push:
+    branches:
+      - main
+    paths:
+      - "**/*.c"
+      - "**/*.cc"
+      - "**/*.cpp"
+      - "**/*.cxx"
+      - "**/*.h"
+      - "**/*.hh"
+      - "**/*.hpp"
+      - "**/*.hxx"
+      - "**/*.inl"
+      - ".clang-format"
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: Check formatting
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install clang-format 22
+        run: |
+          wget -qO- https://apt.llvm.org/llvm-snapshot.gpg.key \
+            | sudo tee /etc/apt/trusted.gpg.d/apt.llvm.org.asc > /dev/null
+
+          echo "deb http://apt.llvm.org/noble/ llvm-toolchain-noble-22 main" \
+            | sudo tee /etc/apt/sources.list.d/llvm.list
+
+          sudo apt-get update
+          sudo apt-get install -y clang-format-22
+
+      - name: Show clang-format version
+        run: clang-format-22 --version
+
+      - name: Check formatting
+        shell: bash
+        run: |
+          mapfile -d '' files < <(
+              git ls-files -z -- \
+                  '*.c' '*.cc' '*.cpp' '*.cxx' \
+                  '*.h' '*.hh' '*.hpp' '*.hxx' '*.inl' \
+                  ':!third_party/**' \
+                  ':!external/**' \
+                  ':!vendor/**'
+          )
+
+          if (( ${#files[@]} == 0 )); then
+              echo "No C/C++ files found."
+              exit 0
+          fi
+
+          clang-format-22 \
+              --dry-run \
+              --Werror \
+              --style=file \
+              "${files[@]}"
