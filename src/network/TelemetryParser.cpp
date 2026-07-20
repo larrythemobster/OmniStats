@@ -1,6 +1,7 @@
 #include "TelemetryParser.hpp"
 #include "core/Config.hpp"
 #include <iostream>
+#include <stdexcept>
 
 TelemetryParser::TelemetryParser() : m_socket(m_ioContext) {}
 
@@ -24,10 +25,45 @@ void TelemetryParser::ConnectAndRead(JsonLineCallback onJsonLine) {
         asio::error_code ec;
         m_socket.close(ec);
     }
-    m_socket = asio::ip::tcp::socket(m_ioContext);
-
     ConfigData conf = Config::Read();
     asio::ip::tcp::endpoint endpoint(asio::ip::make_address(conf.host), conf.port);
+
+    constexpr int maxBindAttempts = 4;
+    bool safeSourcePortBound = false;
+    for (int attempt = 0; attempt < maxBindAttempts; ++attempt) {
+        m_socket = asio::ip::tcp::socket(m_ioContext);
+
+        asio::error_code ec;
+        m_socket.open(endpoint.protocol(), ec);
+        if (ec) {
+            throw asio::system_error(ec);
+        }
+
+        m_socket.bind(asio::ip::tcp::endpoint(endpoint.protocol(), 0), ec);
+        if (ec) {
+            asio::error_code closeEc;
+            m_socket.close(closeEc);
+            throw asio::system_error(ec);
+        }
+
+        const auto localEndpoint = m_socket.local_endpoint(ec);
+        if (ec) {
+            asio::error_code closeEc;
+            m_socket.close(closeEc);
+            throw asio::system_error(ec);
+        }
+
+        if (localEndpoint.port() != endpoint.port()) {
+            safeSourcePortBound = true;
+            break;
+        }
+
+        m_socket.close(ec);
+    }
+
+    if (!safeSourcePortBound) {
+        throw std::runtime_error("Could not allocate a safe Stats API source port");
+    }
 
     std::cout << "[StatsClient] Connecting to " << conf.host << ":" << conf.port << "...\n";
 
@@ -53,6 +89,23 @@ void TelemetryParser::ConnectAndRead(JsonLineCallback onJsonLine) {
 
     if (connect_ec || !m_socket.is_open()) {
         throw std::runtime_error(connect_ec ? connect_ec.message() : "Connect timeout");
+    }
+
+    asio::error_code endpointEc;
+    const auto localEndpoint = m_socket.local_endpoint(endpointEc);
+    if (endpointEc) {
+        throw asio::system_error(endpointEc);
+    }
+
+    const auto remoteEndpoint = m_socket.remote_endpoint(endpointEc);
+    if (endpointEc) {
+        throw asio::system_error(endpointEc);
+    }
+
+    if (localEndpoint == remoteEndpoint) {
+        asio::error_code closeEc;
+        m_socket.close(closeEc);
+        throw std::runtime_error("Rejected Stats API TCP self-connection");
     }
 
     std::cout << "[StatsClient] Connected to Rocket League!\n";
