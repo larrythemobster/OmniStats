@@ -255,7 +255,7 @@ int main(int argc, char* argv[]) {
     TelemetryManager::Initialize(dbManager);
     // Start Backend Threads
     std::shared_ptr<MMRFetcher> mmrFetcher =
-        std::make_shared<MMRFetcher>(g_state);
+        std::make_shared<MMRFetcher>(g_state, dbManager);
     mmrFetcher->Start();
     StatsClient statsClient(g_state, mmrFetcher, dbManager);
     statsClient.Start();

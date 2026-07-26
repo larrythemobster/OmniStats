@@ -23,6 +23,8 @@ class DatabaseManager {
     [[nodiscard]] bool Initialize(const std::string& dbPath);
     void SaveMatch(const MatchSaveSnapshot& snapshot);
     void AsyncSaveMatch(MatchSaveSnapshot snapshot);
+    bool UpdateMatchPlayerMmr(const std::string& matchGuid, const std::string& primaryId, int mmr);
+    void AsyncUpdateMatchPlayerMmr(std::string matchGuid, std::string primaryId, int mmr);
 
     void GetLifetimeMmrHistory(const std::string& primaryId, const std::string& playlist, std::vector<float>& outX, std::vector<float>& outY);
     void AsyncGetLifetimeMmrHistory(const std::string& primaryId, const std::string& playlist);

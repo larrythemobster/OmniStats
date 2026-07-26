@@ -3,10 +3,12 @@
 #include "core/Config.hpp"
 #include "core/GamemodeUtils.hpp"
 #include "core/PrivacyLog.hpp"
+#include "database/DatabaseManager.hpp"
 #include <nlohmann/json.hpp>
 #include <iostream>
 #include <chrono>
 #include <shared_mutex>
+#include <algorithm>
 #include <array>
 #include <initializer_list>
 #include <map>
@@ -122,6 +124,16 @@ namespace {
         return it == playlistMMRs.end() || mmr > it->second;
     }
 
+#ifdef OMNISTATS_TEST_ENVIRONMENT
+    static constexpr auto kPostMatchInitialDelay = std::chrono::milliseconds(20);
+    static constexpr auto kStalePostMatchRetryDelay = std::chrono::milliseconds(20);
+    static constexpr auto kTransientRetryDelay = std::chrono::milliseconds(20);
+#else
+    static constexpr auto kPostMatchInitialDelay = std::chrono::milliseconds(2500);
+    static constexpr auto kStalePostMatchRetryDelay = std::chrono::milliseconds(3000);
+    static constexpr auto kTransientRetryDelay = std::chrono::milliseconds(3000);
+#endif
+
 } // namespace
 
 // Helper function for libcurl to write the HTTP response into a std::string
@@ -138,7 +150,9 @@ static int CIProgressCallback(void* clientp, double dltotal, double dlnow, doubl
     return 0;
 }
 
-MMRFetcher::MMRFetcher(std::shared_ptr<SessionState> state) : m_state(state) {}
+MMRFetcher::MMRFetcher(std::shared_ptr<SessionState> state,
+                       std::shared_ptr<DatabaseManager> dbManager)
+    : m_state(std::move(state)), m_dbManager(std::move(dbManager)) {}
 
 MMRFetcher::~MMRFetcher() {
     Stop();
@@ -206,6 +220,20 @@ MMRProfileTotals MMRFetcher::ExtractProfileTotals(const nlohmann::json& jsonResp
     return totals;
 }
 
+bool MMRFetcher::IsPostMatchMmrStale(int previousMmr, int fetchedMmr, int previousMatches, int fetchedMatches) {
+    if (fetchedMmr <= 0) return true;
+    if (previousMmr <= 0 || fetchedMmr != previousMmr) return false;
+    if (previousMatches > 0 && fetchedMatches > previousMatches) return false;
+    return true;
+}
+
+#ifdef OMNISTATS_TEST_ENVIRONMENT
+size_t MMRFetcher::PendingRequestCountForTests() {
+    std::lock_guard<std::mutex> lock(m_queueMutex);
+    return m_queue.size();
+}
+#endif
+
 void MMRFetcher::Start() {
     if (m_isRunning) return;
     m_isRunning = true;
@@ -222,12 +250,49 @@ void MMRFetcher::Stop() {
 }
 
 void MMRFetcher::Enqueue(const std::string& primaryId, const std::string& name) {
-    if (!Config::Read().enable_mmr_tracking) return;
+    if (!Config::Read().enable_mmr_tracking || primaryId.empty()) return;
+
     {
         std::lock_guard<std::mutex> lock(m_queueMutex);
-        if (m_queuedOrInFlight.count(primaryId)) return;
-        m_queuedOrInFlight.insert(primaryId);
-        m_queue.push({primaryId, name});
+        if (m_rosterQueuedOrInFlight.count(primaryId)) return;
+        m_rosterQueuedOrInFlight.insert(primaryId);
+
+        MMRRequest request;
+        request.primaryId = primaryId;
+        request.name = name;
+        request.reason = MMRRequestReason::Roster;
+        request.retriesRemaining = 2;
+        request.notBefore = std::chrono::steady_clock::now();
+        m_queue.push_back(std::move(request));
+    }
+    m_cv.notify_one();
+}
+
+void MMRFetcher::EnqueuePostMatch(const std::string& primaryId,
+                                  const std::string& name,
+                                  const std::string& matchGuid,
+                                  const std::string& playlist,
+                                  int previousMmr,
+                                  int previousMatches) {
+    if (!Config::Read().enable_mmr_tracking || primaryId.empty() || matchGuid.empty() || playlist.empty()) return;
+
+    {
+        std::lock_guard<std::mutex> lock(m_queueMutex);
+        if (m_pendingPostMatchGuids.count(matchGuid) || m_completedPostMatchGuids.count(matchGuid)) return;
+
+        m_pendingPostMatchGuids.insert(matchGuid);
+
+        MMRRequest request;
+        request.primaryId = primaryId;
+        request.name = name;
+        request.reason = MMRRequestReason::PostMatch;
+        request.matchGuid = matchGuid;
+        request.playlist = playlist;
+        request.previousMmr = previousMmr;
+        request.previousMatches = previousMatches;
+        request.retriesRemaining = 2;
+        request.notBefore = std::chrono::steady_clock::now() + kPostMatchInitialDelay;
+        m_queue.push_back(std::move(request));
     }
     m_cv.notify_one();
 }
@@ -253,7 +318,6 @@ std::string MMRFetcher::GetTRNPlatform(const std::string& primaryId) {
 }
 
 void MMRFetcher::WorkerLoop() {
-    // Initialize curl-impersonate on the worker thread
     auto& ci = CurlImpersonate::Instance();
     if (!ci.EnsureAvailable()) {
         std::cout << "[MMRFetcher] WARNING: curl-impersonate not available. "
@@ -264,54 +328,81 @@ void MMRFetcher::WorkerLoop() {
         MMRRequest req;
         {
             std::unique_lock<std::mutex> lock(m_queueMutex);
-            m_cv.wait(lock, [this] { return !m_queue.empty() || !m_isRunning; });
-
+            while (m_isRunning && m_queue.empty()) {
+                m_cv.wait(lock);
+            }
             if (!m_isRunning && m_queue.empty()) break;
 
-            req = m_queue.front();
-            m_queue.pop();
+            auto nextIt = std::min_element(
+                m_queue.begin(), m_queue.end(),
+                [](const MMRRequest& lhs, const MMRRequest& rhs) {
+                    return lhs.notBefore < rhs.notBefore;
+                });
+
+            const auto now = std::chrono::steady_clock::now();
+            if (nextIt->notBefore > now) {
+                const auto wakeAt = nextIt->notBefore;
+                m_cv.wait_until(lock, wakeAt);
+                continue;
+            }
+
+            req = std::move(*nextIt);
+            m_queue.erase(nextIt);
         }
 
-        bool rateLimited = false;
-        FetchProfile(req, rateLimited);
+        const bool requeued = FetchProfile(req);
+        if (!requeued) FinishRequest(req);
 
-        if (!rateLimited) {
-            std::lock_guard<std::mutex> lock(m_queueMutex);
-            m_queuedOrInFlight.erase(req.primaryId);
-        }
-
-        // Tracker.Network rate limit protection (0.5 seconds between requests)
-        {
-            std::unique_lock<std::mutex> lock(m_queueMutex);
-            m_cv.wait_for(lock, std::chrono::milliseconds(500), [this] { return !m_isRunning; });
-        }
+        std::unique_lock<std::mutex> lock(m_queueMutex);
+        m_cv.wait_for(lock, std::chrono::milliseconds(500), [this] { return !m_isRunning; });
     }
 }
 
-void MMRFetcher::FetchProfile(const MMRRequest& req, bool& rateLimited) {
+bool MMRFetcher::ScheduleRetry(MMRRequest req, std::chrono::milliseconds delay, const char* reason) {
+    if (!m_isRunning || req.retriesRemaining <= 0) return false;
+
+    --req.retriesRemaining;
+    req.notBefore = std::chrono::steady_clock::now() + delay;
+    {
+        std::lock_guard<std::mutex> lock(m_queueMutex);
+        m_queue.push_back(std::move(req));
+    }
+    std::cout << "[MMRFetcher] Retrying MMR request after " << delay.count()
+              << " ms (" << reason << ").\n";
+    m_cv.notify_one();
+    return true;
+}
+
+void MMRFetcher::FinishRequest(const MMRRequest& req) {
+    std::lock_guard<std::mutex> lock(m_queueMutex);
+    if (req.reason == MMRRequestReason::PostMatch) {
+        m_pendingPostMatchGuids.erase(req.matchGuid);
+    } else {
+        m_rosterQueuedOrInFlight.erase(req.primaryId);
+    }
+}
+
+bool MMRFetcher::FetchProfile(MMRRequest req) {
     auto& ci = CurlImpersonate::Instance();
     if (!ci.IsReady()) {
-        std::cout << "[MMRFetcher] Skipping " << PrivacyLog::Sensitive(req.name, "player name") << ": curl-impersonate not loaded\n";
-        return;
+        std::cout << "[MMRFetcher] Skipping " << PrivacyLog::Sensitive(req.name, "player name")
+                  << ": curl-impersonate not loaded\n";
+        return false;
     }
 
-    std::string plat = GetTRNPlatform(req.primaryId);
-    if (plat.empty()) return;
+    const std::string plat = GetTRNPlatform(req.primaryId);
+    if (plat.empty()) return false;
 
     void* ci_curl = ci.easy_init();
-    if (!ci_curl) return;
+    if (!ci_curl) return false;
 
-    size_t delim = req.primaryId.find('|');
+    const size_t delim = req.primaryId.find('|');
     std::string ident;
     if (plat == "steam") {
         if (delim != std::string::npos) {
             std::string sub = req.primaryId.substr(delim + 1);
-            size_t secondDelim = sub.find('|');
-            if (secondDelim != std::string::npos) {
-                ident = sub.substr(0, secondDelim);
-            } else {
-                ident = sub;
-            }
+            const size_t secondDelim = sub.find('|');
+            ident = secondDelim != std::string::npos ? sub.substr(0, secondDelim) : sub;
         } else {
             ident = req.primaryId;
         }
@@ -319,15 +410,17 @@ void MMRFetcher::FetchProfile(const MMRRequest& req, bool& rateLimited) {
         ident = req.name;
     }
 
-    char* escaped_ident = ci.easy_escape(ci_curl, ident.c_str(), (int)ident.length());
-    std::string final_ident = escaped_ident;
-    ci.free_ptr(escaped_ident);
+    char* escapedIdent = ci.easy_escape(ci_curl, ident.c_str(), static_cast<int>(ident.length()));
+    if (!escapedIdent) {
+        ci.easy_cleanup(ci_curl);
+        return false;
+    }
+    const std::string finalIdent = escapedIdent;
+    ci.free_ptr(escapedIdent);
 
-    std::string url = "https://api.tracker.gg/api/v2/rocket-league/standard/profile/" + plat + "/" + final_ident;
-
+    const std::string url = "https://api.tracker.gg/api/v2/rocket-league/standard/profile/" + plat + "/" + finalIdent;
     std::cout << "[MMRFetcher] Fetching " << PrivacyLog::Sensitive(req.name, "player name") << " via " << plat << "...\n";
 
-    // Impersonate Chrome's TLS fingerprint
     ci.easy_impersonate(ci_curl, "chrome136", 0);
 
     std::string readBuffer;
@@ -343,40 +436,27 @@ void MMRFetcher::FetchProfile(const MMRRequest& req, bool& rateLimited) {
     ci.easy_setopt(ci_curl, CI_CURLOPT_WRITEFUNCTION, WriteCallback);
     ci.easy_setopt(ci_curl, CI_CURLOPT_WRITEDATA, &readBuffer);
     ci.easy_setopt(ci_curl, CI_CURLOPT_TIMEOUT, 15L);
-    ci.easy_setopt(ci_curl, CI_CURLOPT_SSL_OPTIONS, (long)CI_CURLSSLOPT_NATIVE_CA);
-
+    ci.easy_setopt(ci_curl, CI_CURLOPT_SSL_OPTIONS, static_cast<long>(CI_CURLSSLOPT_NATIVE_CA));
     ci.easy_setopt(ci_curl, CI_CURLOPT_FOLLOWLOCATION, 1L);
-
-    // Abort if shutting down
     ci.easy_setopt(ci_curl, CI_CURLOPT_XFERINFOFUNCTION, CIProgressCallback);
     ci.easy_setopt(ci_curl, CI_CURLOPT_XFERINFODATA, &m_isRunning);
     ci.easy_setopt(ci_curl, CI_CURLOPT_NOPROGRESS, 0L);
 
-    int res = ci.easy_perform(ci_curl);
-    long http_code = 0;
-    ci.easy_getinfo(ci_curl, CI_CURLINFO_RESPONSE_CODE, &http_code);
+    const int res = ci.easy_perform(ci_curl);
+    long httpCode = 0;
+    ci.easy_getinfo(ci_curl, CI_CURLINFO_RESPONSE_CODE, &httpCode);
 
     ci.slist_free_all(headers);
     ci.easy_cleanup(ci_curl);
 
-    if (res != 0 || http_code != 200) {
+    if (res != 0 || httpCode != 200) {
         std::cout << "[MMRFetcher] Failed to fetch " << PrivacyLog::Sensitive(req.name, "player name")
-                  << " (HTTP " << http_code << ") - Curl error: " << res << "\n";
+                  << " (HTTP " << httpCode << ") - Curl error: " << res << "\n";
 
-        if (http_code == 429) {
-            std::cout << "[MMRFetcher] Rate limited (HTTP 429). Sleeping worker for 15 seconds...\n";
-            {
-                std::unique_lock<std::mutex> lock(m_queueMutex);
-                m_cv.wait_for(lock, std::chrono::seconds(15), [this] { return !m_isRunning; });
-            }
-            if (!m_isRunning) return;
-
-            // Re-enqueue the failed request
-            std::lock_guard<std::mutex> lock(m_queueMutex);
-            m_queue.push(req);
-            m_cv.notify_one();
-            rateLimited = true;
-            return;
+        if (httpCode == 429) {
+            if (ScheduleRetry(req, std::chrono::seconds(15), "rate limited")) return true;
+        } else if (res != 0 || httpCode == 408 || (httpCode >= 500 && httpCode <= 599)) {
+            if (ScheduleRetry(req, kTransientRetryDelay, "transient Tracker failure")) return true;
         }
 
         std::unique_lock<std::shared_mutex> gameLock(m_state->game.mutex);
@@ -384,128 +464,141 @@ void MMRFetcher::FetchProfile(const MMRRequest& req, bool& rateLimited) {
             auto& player = m_state->game.roster[req.primaryId];
             player.fetched = true;
             player.fetchFailed = true;
+            m_state->game.version++;
         }
-        return;
+        return false;
     }
 
     try {
-        nlohmann::json jsonResp = nlohmann::json::parse(readBuffer);
-        MMRProfileTotals profileTotals = ExtractProfileTotals(jsonResp);
-        if (jsonResp.contains("data") && jsonResp["data"].is_object() &&
-            jsonResp["data"].contains("segments") && jsonResp["data"]["segments"].is_array()) {
+        const nlohmann::json jsonResp = nlohmann::json::parse(readBuffer);
+        const MMRProfileTotals profileTotals = ExtractProfileTotals(jsonResp);
+        if (!jsonResp.contains("data") || !jsonResp["data"].is_object() ||
+            !jsonResp["data"].contains("segments") || !jsonResp["data"]["segments"].is_array()) {
+            if (ScheduleRetry(req, kTransientRetryDelay, "incomplete Tracker response")) return true;
+            return false;
+        }
 
-            int bestMMR = 0;
-            std::string bestTier = "Unranked";
-            std::string bestPlaylistName = "best";
-            std::map<std::string, int> playlistMMRs;
-            std::map<std::string, std::string> playlistTiers;
-            std::map<std::string, int> playlistMatches;
+        int bestMMR = 0;
+        std::string bestTier = "Unranked";
+        std::string bestPlaylistName = "best";
+        std::map<std::string, int> playlistMMRs;
+        std::map<std::string, std::string> playlistTiers;
+        std::map<std::string, int> playlistMatches;
 
-            for (const auto& seg : jsonResp["data"]["segments"]) {
-                if (seg.is_object() &&
-                    seg.contains("type") && seg["type"].is_string() && seg["type"] == "playlist" &&
-                    seg.contains("attributes") && seg["attributes"].is_object()) {
+        for (const auto& seg : jsonResp["data"]["segments"]) {
+            if (!seg.is_object() || !seg.contains("type") || !seg["type"].is_string() || seg["type"] != "playlist" ||
+                !seg.contains("attributes") || !seg["attributes"].is_object()) {
+                continue;
+            }
 
-                    auto attrs = seg["attributes"];
-                    if (attrs.contains("playlistId") && attrs["playlistId"].is_number_integer()) {
-                        int playlistId = attrs["playlistId"].get<int>();
+            const auto& attrs = seg["attributes"];
+            if (!attrs.contains("playlistId") || !attrs["playlistId"].is_number_integer()) continue;
 
-                        std::string playlistName = PlaylistNameForTrackerId(playlistId);
+            const std::string playlistName = PlaylistNameForTrackerId(attrs["playlistId"].get<int>());
+            if (playlistName.empty() || !seg.contains("stats") || !seg["stats"].is_object()) continue;
 
-                        if (!playlistName.empty() && seg.contains("stats") && seg["stats"].is_object()) {
-                            auto stats = seg["stats"];
-                            if (stats.contains("rating") && stats["rating"].is_object()) {
-                                auto rating = stats["rating"];
-                                if (rating.contains("value") && rating["value"].is_number()) {
-                                    int mmr = rating["value"].get<int>();
+            const auto& stats = seg["stats"];
+            if (!stats.contains("rating") || !stats["rating"].is_object()) continue;
+            const auto& rating = stats["rating"];
+            if (!rating.contains("value") || !rating["value"].is_number()) continue;
 
-                                    std::string tier = "Unranked";
-                                    if (stats.contains("tier") && stats["tier"].is_object()) {
-                                        auto tierObj = stats["tier"];
-                                        if (tierObj.contains("metadata") && tierObj["metadata"].is_object()) {
-                                            auto meta = tierObj["metadata"];
-                                            if (meta.contains("name") && meta["name"].is_string()) {
-                                                tier = meta["name"].get<std::string>();
-                                            }
-                                        }
-                                    }
+            const int mmr = rating["value"].get<int>();
+            std::string tier = "Unranked";
+            if (stats.contains("tier") && stats["tier"].is_object()) {
+                const auto& tierObj = stats["tier"];
+                if (tierObj.contains("metadata") && tierObj["metadata"].is_object() &&
+                    tierObj["metadata"].contains("name") && tierObj["metadata"]["name"].is_string()) {
+                    tier = tierObj["metadata"]["name"].get<std::string>();
+                }
+            }
 
-                                    std::string division = "";
-                                    if (stats.contains("division") && stats["division"].is_object()) {
-                                        auto divObj = stats["division"];
-                                        if (divObj.contains("metadata") && divObj["metadata"].is_object()) {
-                                            auto meta = divObj["metadata"];
-                                            if (meta.contains("name") && meta["name"].is_string()) {
-                                                division = meta["name"].get<std::string>();
-                                            }
-                                        }
-                                        if (division.empty() && divObj.contains("displayValue") && divObj["displayValue"].is_string()) {
-                                            division = divObj["displayValue"].get<std::string>();
-                                        }
-                                        if (division.empty() && divObj.contains("value") && divObj["value"].is_number()) {
-                                            int divVal = divObj["value"].get<int>();
-                                            if (divVal == 1)
-                                                division = "Div I";
-                                            else if (divVal == 2)
-                                                division = "Div II";
-                                            else if (divVal == 3)
-                                                division = "Div III";
-                                            else if (divVal == 4)
-                                                division = "Div IV";
-                                        }
-                                    }
-
-                                    if (!division.empty()) {
-                                        // Abbreviate "Division" to "Div" for compact display in the overlay
-                                        size_t pos = division.find("Division ");
-                                        if (pos != std::string::npos) {
-                                            division.replace(pos, 9, "Div ");
-                                        }
-                                        if (tier != "Unranked") {
-                                            tier += " " + division;
-                                        }
-                                    }
-
-                                    if (playlistName == "t") {
-                                        tier = GetTournamentTierForMmr(mmr);
-                                    }
-
-                                    int matches = 0;
-                                    if (stats.contains("matchesPlayed") && stats["matchesPlayed"].is_object()) {
-                                        auto mp = stats["matchesPlayed"];
-                                        if (mp.contains("value") && mp["value"].is_number()) {
-                                            matches = mp["value"].get<int>();
-                                        }
-                                    }
-
-                                    if (ShouldReplacePlaylistBucket(playlistMMRs, playlistName, mmr)) {
-                                        playlistMMRs[playlistName] = mmr;
-                                        playlistTiers[playlistName] = tier;
-                                    }
-                                    playlistMatches[playlistName] += matches;
-
-                                    if (playlistName != "casual" && playlistName != "t" && mmr > bestMMR) {
-                                        bestMMR = mmr;
-                                        bestTier = tier;
-                                        bestPlaylistName = playlistName;
-                                    }
-                                }
-                            }
-                        }
+            std::string division;
+            if (stats.contains("division") && stats["division"].is_object()) {
+                const auto& divObj = stats["division"];
+                if (divObj.contains("metadata") && divObj["metadata"].is_object() &&
+                    divObj["metadata"].contains("name") && divObj["metadata"]["name"].is_string()) {
+                    division = divObj["metadata"]["name"].get<std::string>();
+                }
+                if (division.empty() && divObj.contains("displayValue") && divObj["displayValue"].is_string()) {
+                    division = divObj["displayValue"].get<std::string>();
+                }
+                if (division.empty() && divObj.contains("value") && divObj["value"].is_number()) {
+                    switch (divObj["value"].get<int>()) {
+                    case 1:
+                        division = "Div I";
+                        break;
+                    case 2:
+                        division = "Div II";
+                        break;
+                    case 3:
+                        division = "Div III";
+                        break;
+                    case 4:
+                        division = "Div IV";
+                        break;
+                    default:
+                        break;
                     }
                 }
             }
 
-            playlistMMRs["best"] = bestMMR;
-            playlistTiers["best"] = bestTier;
-            if (playlistMatches.count(bestPlaylistName)) {
-                playlistMatches["best"] = playlistMatches[bestPlaylistName];
-            } else {
-                playlistMatches["best"] = 0;
+            if (!division.empty()) {
+                const size_t pos = division.find("Division ");
+                if (pos != std::string::npos) division.replace(pos, 9, "Div ");
+                if (tier != "Unranked") tier += " " + division;
+            }
+            if (playlistName == "t") tier = GetTournamentTierForMmr(mmr);
+
+            int matches = 0;
+            if (stats.contains("matchesPlayed") && stats["matchesPlayed"].is_object() &&
+                stats["matchesPlayed"].contains("value") && stats["matchesPlayed"]["value"].is_number()) {
+                matches = stats["matchesPlayed"]["value"].get<int>();
             }
 
+            if (ShouldReplacePlaylistBucket(playlistMMRs, playlistName, mmr)) {
+                playlistMMRs[playlistName] = mmr;
+                playlistTiers[playlistName] = tier;
+            }
+            playlistMatches[playlistName] += matches;
+
+            if (playlistName != "casual" && playlistName != "t" && mmr > bestMMR) {
+                bestMMR = mmr;
+                bestTier = tier;
+                bestPlaylistName = playlistName;
+            }
+        }
+
+        playlistMMRs["best"] = bestMMR;
+        playlistTiers["best"] = bestTier;
+        playlistMatches["best"] = playlistMatches.count(bestPlaylistName) ? playlistMatches[bestPlaylistName] : 0;
+
+        int postMatchMmr = 0;
+        int postMatchMatches = 0;
+        if (req.reason == MMRRequestReason::PostMatch) {
+            const auto playlistIt = playlistMMRs.find(req.playlist);
+            if (playlistIt != playlistMMRs.end()) postMatchMmr = playlistIt->second;
+            const auto matchesIt = playlistMatches.find(req.playlist);
+            if (matchesIt != playlistMatches.end()) postMatchMatches = matchesIt->second;
+        }
+
+        const bool stalePostMatch = req.reason == MMRRequestReason::PostMatch &&
+                                    IsPostMatchMmrStale(req.previousMmr,
+                                                        postMatchMmr,
+                                                        req.previousMatches,
+                                                        postMatchMatches);
+        const bool retryStalePostMatch = stalePostMatch && req.retriesRemaining > 0;
+        const int graphMmr = postMatchMmr > 0 ? postMatchMmr : req.previousMmr;
+
+        bool appendPostMatchPoint = false;
+        if (req.reason == MMRRequestReason::PostMatch && !retryStalePostMatch) {
+            std::lock_guard<std::mutex> queueLock(m_queueMutex);
+            appendPostMatchPoint = m_completedPostMatchGuids.insert(req.matchGuid).second;
+        }
+
+        {
             std::unique_lock<std::shared_mutex> gameLock(m_state->game.mutex);
             std::unique_lock<std::shared_mutex> historyLock(m_state->history.mutex);
+
             if (m_state->game.roster.count(req.primaryId)) {
                 auto& player = m_state->game.roster[req.primaryId];
                 player.playlists = playlistMMRs;
@@ -516,69 +609,91 @@ void MMRFetcher::FetchProfile(const MMRRequest& req, bool& rateLimited) {
                 player.rankTier = bestTier;
                 player.fetched = true;
                 player.fetchFailed = false;
+            }
 
-                if (req.primaryId == m_state->game.myPrimaryId) {
-                    if (m_state->history.initialMmr == -1 && bestMMR > 0) {
-                        m_state->history.initialMmr = bestMMR;
+            if (req.primaryId == m_state->game.myPrimaryId) {
+                if (m_state->history.initialMmr == -1 && bestMMR > 0) {
+                    m_state->history.initialMmr = bestMMR;
+                }
+                if (req.reason == MMRRequestReason::Roster && bestMMR > 0) {
+                    m_state->history.mmrHistoryY.push_back(static_cast<float>(bestMMR));
+                    m_state->history.mmrHistoryX.push_back(static_cast<float>(m_state->history.mmrHistoryY.size()));
+                } else if (appendPostMatchPoint && bestMMR > 0) {
+                    m_state->history.mmrHistoryY.push_back(static_cast<float>(bestMMR));
+                    m_state->history.mmrHistoryX.push_back(static_cast<float>(m_state->history.mmrHistoryY.size()));
+                }
+
+                for (const auto& [playlistName, mmr] : playlistMMRs) {
+                    if (mmr <= 0) continue;
+                    if (req.reason == MMRRequestReason::PostMatch && playlistName == req.playlist) continue;
+                    if (m_state->history.playlistInitialMmr.count(playlistName) == 0) {
+                        m_state->history.playlistInitialMmr[playlistName] = mmr;
                     }
-                    if (bestMMR > 0) {
-                        m_state->history.mmrHistoryY.push_back((float)bestMMR);
-                        m_state->history.mmrHistoryX.push_back((float)m_state->history.mmrHistoryY.size());
+                    m_state->game.sessionTotals.mmrChangeByPlaylist[playlistName] =
+                        mmr - m_state->history.playlistInitialMmr[playlistName];
+
+                    auto& history = m_state->history.playlistHistoryY[playlistName];
+                    if (history.empty() || history.back() != mmr) {
+                        history.push_back(static_cast<float>(mmr));
                     }
                 }
 
-                // Record playlist-specific MMR history for the local player
-                if (req.primaryId == m_state->game.myPrimaryId) {
-                    for (const auto& entry : playlistMMRs) {
-                        std::string playlistName = entry.first; // "1v1", "2v2", "3v3", extra modes, "best", "casual"
-                        int mmr = entry.second;
-                        if (mmr > 0) {
-                            // Seed initial MMR if empty
-                            if (m_state->history.playlistInitialMmr.count(playlistName) == 0) {
-                                m_state->history.playlistInitialMmr[playlistName] = mmr;
-                            }
-
-                            // Calculate playlist-specific MMR change
-                            m_state->game.sessionTotals.mmrChangeByPlaylist[playlistName] = mmr - m_state->history.playlistInitialMmr[playlistName];
-
-                            // Append to playlist history if empty or if last element is different
-                            auto& history = m_state->history.playlistHistoryY[playlistName];
-                            if (history.empty() || history.back() != mmr) {
-                                history.push_back((float)mmr);
-                            }
-                        }
+                if (appendPostMatchPoint && graphMmr > 0) {
+                    if (m_state->history.playlistInitialMmr.count(req.playlist) == 0) {
+                        m_state->history.playlistInitialMmr[req.playlist] = req.previousMmr > 0 ? req.previousMmr : graphMmr;
                     }
+                    auto& history = m_state->history.playlistHistoryY[req.playlist];
+                    history.push_back(static_cast<float>(graphMmr));
+                    m_state->game.sessionTotals.mmrChangeByPlaylist[req.playlist] =
+                        graphMmr - m_state->history.playlistInitialMmr[req.playlist];
+                }
 
-                    // Inferred active competitive playlist
-                    std::string arenaKey = !m_state->game.arenaAsset.empty() ? m_state->game.arenaAsset : m_state->game.arenaName;
-                    std::string activePlaylist = GamemodeUtils::InferFromSnapshot(
+                std::string activePlaylist = req.reason == MMRRequestReason::PostMatch ? req.playlist : "";
+                if (activePlaylist.empty()) {
+                    const std::string arenaKey = !m_state->game.arenaAsset.empty() ? m_state->game.arenaAsset : m_state->game.arenaName;
+                    activePlaylist = GamemodeUtils::InferFromSnapshot(
                         m_state->game.maxPlayersSeen,
                         static_cast<int>(m_state->game.roster.size()),
                         m_state->ui.rosterMmrCategory.load(),
                         m_state->ui.graphMmrCategory.load(),
                         arenaKey);
+                }
 
-                    // If active playlist is valid, set totalMmrChange from that playlist's delta,
-                    // otherwise fall back to the active graph category's delta.
-                    if (activePlaylist != "Unknown" && m_state->game.sessionTotals.mmrChangeByPlaylist.count(activePlaylist)) {
-                        m_state->game.sessionTotals.totalMmrChange = (float)m_state->game.sessionTotals.mmrChangeByPlaylist[activePlaylist];
-                    } else {
-                        // Fallback: active graph category
-                        std::string graphCatStr = MmrCategoryToString(m_state->ui.graphMmrCategory.load());
-                        if (m_state->game.sessionTotals.mmrChangeByPlaylist.count(graphCatStr)) {
-                            m_state->game.sessionTotals.totalMmrChange = (float)m_state->game.sessionTotals.mmrChangeByPlaylist[graphCatStr];
-                        } else if (bestMMR > 0 && m_state->history.initialMmr != -1) {
-                            m_state->game.sessionTotals.totalMmrChange = (float)(bestMMR - m_state->history.initialMmr);
-                        }
+                if (activePlaylist != "Unknown" && m_state->game.sessionTotals.mmrChangeByPlaylist.count(activePlaylist)) {
+                    m_state->game.sessionTotals.totalMmrChange =
+                        static_cast<float>(m_state->game.sessionTotals.mmrChangeByPlaylist[activePlaylist]);
+                } else {
+                    const std::string graphCat = MmrCategoryToString(m_state->ui.graphMmrCategory.load());
+                    if (m_state->game.sessionTotals.mmrChangeByPlaylist.count(graphCat)) {
+                        m_state->game.sessionTotals.totalMmrChange =
+                            static_cast<float>(m_state->game.sessionTotals.mmrChangeByPlaylist[graphCat]);
+                    } else if (bestMMR > 0 && m_state->history.initialMmr != -1) {
+                        m_state->game.sessionTotals.totalMmrChange =
+                            static_cast<float>(bestMMR - m_state->history.initialMmr);
                     }
                 }
-                std::cout << "[MMRFetcher] Updated: " << PrivacyLog::Sensitive(req.name, "player name") << " -> Best: " << bestMMR << "\n";
-                m_state->game.version++;
-                m_state->history.version++;
+            }
+
+            std::cout << "[MMRFetcher] Updated: " << PrivacyLog::Sensitive(req.name, "player name")
+                      << " -> Best: " << bestMMR << "\n";
+            m_state->game.version++;
+            m_state->history.version++;
+        }
+
+        if (retryStalePostMatch) {
+            return ScheduleRetry(req, kStalePostMatchRetryDelay, "post-match MMR not updated yet");
+        }
+
+        if (appendPostMatchPoint && graphMmr > 0) {
+            if (auto db = m_dbManager.lock()) {
+                db->AsyncUpdateMatchPlayerMmr(req.matchGuid, req.primaryId, graphMmr);
             }
         }
+        return false;
     } catch (const std::exception& e) {
         std::cout << "[MMRFetcher] JSON Parse Error: " << e.what() << "\n";
+        if (ScheduleRetry(req, kTransientRetryDelay, "invalid Tracker response")) return true;
+
         std::unique_lock<std::shared_mutex> gameLock(m_state->game.mutex);
         if (m_state->game.roster.count(req.primaryId)) {
             auto& player = m_state->game.roster[req.primaryId];
@@ -586,5 +701,6 @@ void MMRFetcher::FetchProfile(const MMRRequest& req, bool& rateLimited) {
             player.fetchFailed = true;
             m_state->game.version++;
         }
+        return false;
     }
 }

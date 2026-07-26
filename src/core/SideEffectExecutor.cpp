@@ -71,6 +71,15 @@ void SideEffectExecutor::Execute(SideEffects&& effects,
     for (const auto& [pid, name] : effects.fetchMmrQueue) {
         if (mmrFetcher) mmrFetcher->Enqueue(pid, name);
     }
+    if (effects.postMatchMmrRefresh && mmrFetcher) {
+        const auto& refresh = *effects.postMatchMmrRefresh;
+        mmrFetcher->EnqueuePostMatch(refresh.primaryId,
+                                     refresh.name,
+                                     refresh.matchGuid,
+                                     refresh.playlist,
+                                     refresh.previousMmr,
+                                     refresh.previousMatches);
+    }
     if (dbManager) {
         for (const auto& pid : effects.fetchEncounterQueue) {
             dbManager->AsyncGetPlayerEncounterRecord(pid);

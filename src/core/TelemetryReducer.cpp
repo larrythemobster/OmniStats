@@ -866,8 +866,29 @@ void TelemetryReducer::FinalizeMatchLocked(int winnerTeam, MatchFinalizeSource s
         std::cout << "========================================\n";
 
         for (const auto& [pid, player] : fullRoster) {
-            if (player.team == m_state->game.myTeam)
+            if (player.team != m_state->game.myTeam) continue;
+
+            if (pid == m_state->game.myPrimaryId &&
+                GamemodeUtils::IsTrackedCompetitiveMode(mode) &&
+                !m_state->game.matchGuid.empty()) {
+                int previousMmr = player.mmr;
+                int previousMatches = 0;
+                if (const auto playlistIt = player.playlists.find(mode); playlistIt != player.playlists.end()) {
+                    previousMmr = playlistIt->second;
+                }
+                if (const auto matchesIt = player.playlistMatches.find(mode); matchesIt != player.playlistMatches.end()) {
+                    previousMatches = matchesIt->second;
+                }
+                effects.postMatchMmrRefresh = PostMatchMmrRefresh{
+                    .primaryId = pid,
+                    .name = player.name,
+                    .matchGuid = m_state->game.matchGuid,
+                    .playlist = mode,
+                    .previousMmr = previousMmr,
+                    .previousMatches = previousMatches};
+            } else {
                 effects.fetchMmrQueue.emplace_back(pid, player.name);
+            }
         }
     } else {
         std::cout << "[Event] MATCH VOIDED: " << decision.voidReason << "\n";

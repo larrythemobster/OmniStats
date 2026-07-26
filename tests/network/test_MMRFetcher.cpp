@@ -2,6 +2,7 @@
 #include "network/MMRFetcher.hpp"
 #include "network/CurlImpersonate.hpp"
 #include "core/SessionState.hpp"
+#include "core/Config.hpp"
 #include <chrono>
 #include <thread>
 #include <cstdarg>
@@ -168,4 +169,26 @@ TEST(MMRFetcherProfileTotalsTest, ExtractsOverviewWins) {
 
     MMRProfileTotals totals = MMRFetcher::ExtractProfileTotals(response);
     EXPECT_EQ(totals.totalWins, 60);
+}
+
+TEST(MMRFetcherPostMatchTest, DetectsStalePostMatchRatings) {
+    EXPECT_TRUE(MMRFetcher::IsPostMatchMmrStale(1200, 1200, 50, 50));
+    EXPECT_TRUE(MMRFetcher::IsPostMatchMmrStale(1200, 0, 50, 50));
+    EXPECT_FALSE(MMRFetcher::IsPostMatchMmrStale(1200, 1211, 50, 51));
+    EXPECT_FALSE(MMRFetcher::IsPostMatchMmrStale(1200, 1200, 50, 51));
+}
+
+TEST(MMRFetcherPostMatchTest, KeepsPostMatchRequestBehindRosterRequest) {
+    const ConfigData original = Config::Read();
+    Config::Update([](ConfigData& config) { config.enable_mmr_tracking = true; }, false);
+
+    auto state = std::make_shared<SessionState>();
+    MMRFetcher fetcher(state);
+    fetcher.Enqueue("Steam|123", "Player");
+    fetcher.EnqueuePostMatch("Steam|123", "Player", "match-guid", "2v2", 1200, 50);
+    fetcher.EnqueuePostMatch("Steam|123", "Player", "match-guid", "2v2", 1200, 50);
+
+    EXPECT_EQ(fetcher.PendingRequestCountForTests(), 2u);
+
+    Config::Update([&](ConfigData& config) { config = original; }, false);
 }

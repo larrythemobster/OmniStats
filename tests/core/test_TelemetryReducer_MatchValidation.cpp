@@ -116,7 +116,6 @@ TEST(TelemetryReducerMatchValidation, RoundNeverStartedDoesNotCount) {
     matchEndedData["WinnerTeamNum"] = 0;
 
     state->ui.rosterMmrCategory.store(MmrCategory::OneVOne);
-
     SideEffects effects = reducer.Reduce(std::string(Constants::EVT_MATCH_ENDED), matchEndedData);
 
     EXPECT_EQ(state->game.sessionTotals.wins, 0);
@@ -160,6 +159,7 @@ TEST(TelemetryReducerMatchValidation, NormalWinCounts) {
                                                      nlohmann::json{{"TeamNum", 1}, {"Score", 2}}});
 
     state->ui.rosterMmrCategory.store(MmrCategory::OneVOne);
+    state->game.roster["Steam|1"].playlists["1v1"] = 1200;
 
     SideEffects effects = reducer.Reduce(std::string(Constants::EVT_MATCH_ENDED), matchEndedData);
 
@@ -167,6 +167,10 @@ TEST(TelemetryReducerMatchValidation, NormalWinCounts) {
     EXPECT_EQ(state->game.sessionTotals.losses, 0);
     EXPECT_TRUE(effects.saveMatch);
     EXPECT_FALSE(state->game.lastMatchWasVoid);
+    ASSERT_TRUE(effects.postMatchMmrRefresh.has_value());
+    EXPECT_EQ(effects.postMatchMmrRefresh->matchGuid, "normal-win-guid");
+    EXPECT_EQ(effects.postMatchMmrRefresh->playlist, "1v1");
+    EXPECT_EQ(effects.postMatchMmrRefresh->previousMmr, 1200);
 }
 
 TEST(TelemetryReducerMatchValidation, OnesMatchDoesNotTrackGoalParticipation) {

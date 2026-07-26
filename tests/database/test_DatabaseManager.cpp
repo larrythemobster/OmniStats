@@ -214,3 +214,30 @@ TEST_F(DatabaseManagerTest, ExtraArenaOverridesStandardPlayerCount) {
     EXPECT_TRUE(matches[0].ranked);
     EXPECT_EQ(matches[0].mode, "Hoops");
 }
+
+TEST_F(DatabaseManagerTest, UpdatesSavedLocalPlayerMmrByMatchGuid) {
+    const std::string pid = "Steam|123456";
+
+    MatchSaveSnapshot snap;
+    snap.arenaName = "DFH Stadium";
+    snap.matchGuid = "post-match-mmr-guid";
+    snap.myTeam = 0;
+    snap.winnerTeam = 0;
+    snap.validResult = true;
+    snap.score[0] = 3;
+    snap.score[1] = 1;
+    snap.maxPlayersSeen = 2;
+    snap.myPrimaryId = pid;
+    snap.rosterMmrCategory = MmrCategory::OneVOne;
+    snap.graphMmrCategory = MmrCategory::OneVOne;
+    snap.roster[pid] = PlayerData{.primaryId = pid, .name = "Player1", .team = 0, .mmr = 1200};
+    snap.roster["Steam|opponent"] = PlayerData{.primaryId = "Steam|opponent", .name = "Player2", .team = 1, .mmr = 1180};
+    dbManager->SaveMatch(snap);
+
+    ASSERT_TRUE(dbManager->UpdateMatchPlayerMmr(snap.matchGuid, pid, 1211));
+
+    std::vector<SessionMatchSummary> matches;
+    dbManager->GetRecentMatchHistory(pid, matches, 10);
+    ASSERT_EQ(matches.size(), 1u);
+    EXPECT_EQ(matches[0].mmr, 1211);
+}

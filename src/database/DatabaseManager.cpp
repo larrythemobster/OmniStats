@@ -334,6 +334,54 @@ void DatabaseManager::SaveMatch(const MatchSaveSnapshot& snapshot) {
     std::cout << "Match saved to database. ID: " << matchId << " Gamemode: " << gamemode << "\n";
 }
 
+bool DatabaseManager::UpdateMatchPlayerMmr(const std::string& matchGuid, const std::string& primaryId, int mmr) {
+    if (matchGuid.empty() || primaryId.empty() || mmr <= 0) return false;
+
+    std::lock_guard<std::mutex> lock(m_dbMutex);
+    if (!m_db) return false;
+
+    const char* sql = R"(
+        UPDATE MatchPlayers
+        SET mmr = ?
+        WHERE primary_id = ?
+          AND match_id = (
+              SELECT id
+              FROM Matches
+              WHERE match_guid = ?
+              ORDER BY id DESC
+              LIMIT 1
+          );
+    )";
+
+    sqlite3_stmt* stmt = nullptr;
+    if (sqlite3_prepare_v2(m_db, sql, -1, &stmt, nullptr) != SQLITE_OK) {
+        std::cerr << "[Database] Failed to prepare post-match MMR update.\n";
+        return false;
+    }
+
+    sqlite3_bind_int(stmt, 1, mmr);
+    sqlite3_bind_text(stmt, 2, primaryId.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 3, matchGuid.c_str(), -1, SQLITE_TRANSIENT);
+
+    const bool ok = sqlite3_step(stmt) == SQLITE_DONE && sqlite3_changes(m_db) > 0;
+    sqlite3_finalize(stmt);
+    return ok;
+}
+
+void DatabaseManager::AsyncUpdateMatchPlayerMmr(std::string matchGuid, std::string primaryId, int mmr) {
+    if (matchGuid.empty() || primaryId.empty() || mmr <= 0) return;
+
+    (void)EnqueueDbJob([this,
+                        matchGuid = std::move(matchGuid),
+                        primaryId = std::move(primaryId),
+                        mmr]() {
+        if (!UpdateMatchPlayerMmr(matchGuid, primaryId, mmr)) {
+            std::cout << "[Database] Post-match MMR update found no saved row for match GUID.\n";
+        }
+    },
+                       DbJobPriority::Critical);
+}
+
 void DatabaseManager::GetLifetimeMmrHistory(const std::string& primaryId, const std::string& playlist, std::vector<float>& outX, std::vector<float>& outY) {
     std::lock_guard<std::mutex> lock(m_dbMutex);
     if (!m_db) return;
