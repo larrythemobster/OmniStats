@@ -7,7 +7,9 @@
 #include <mutex>
 #include <string>
 #include <thread>
+#include <unordered_map>
 #include <unordered_set>
+#include <vector>
 #include <nlohmann/json.hpp>
 #include "core/SessionState.hpp"
 
@@ -26,6 +28,8 @@ struct MMRRequest {
     std::string playlist;
     int previousMmr = 0;
     int previousMatches = 0;
+    bool previousMmrIsPlaylistSpecific = false;
+    bool won = false;
     int retriesRemaining = 2;
     std::chrono::steady_clock::time_point notBefore{};
 };
@@ -55,12 +59,17 @@ class MMRFetcher {
                           const std::string& matchGuid,
                           const std::string& playlist,
                           int previousMmr,
-                          int previousMatches);
+                          int previousMatches,
+                          bool previousMmrIsPlaylistSpecific,
+                          bool won);
 
     static std::string GetTournamentTierForMmr(int mmr);
     static std::string PlaylistNameForTrackerId(int playlistId);
     static MMRProfileTotals ExtractProfileTotals(const nlohmann::json& jsonResp);
     static bool IsPostMatchMmrStale(int previousMmr, int fetchedMmr, int previousMatches = 0, int fetchedMatches = 0);
+    static int ResolvePostMatchBaseline(int requestedPreviousMmr, bool previousMmrIsPlaylistSpecific, const std::vector<float>& recentHistory);
+    static int EstimatePostMatchMmr(int previousMmr, bool won, const std::vector<float>& recentHistory);
+    static bool ShouldPreserveEstimatedMmr(int lastConfirmedMmr, int estimatedMmr, int fetchedMmr);
 
 #ifdef OMNISTATS_TEST_ENVIRONMENT
     size_t PendingRequestCountForTests();
@@ -79,7 +88,14 @@ class MMRFetcher {
     std::deque<MMRRequest> m_queue;
     std::unordered_set<std::string> m_rosterQueuedOrInFlight;
     std::unordered_set<std::string> m_pendingPostMatchGuids;
+    std::unordered_map<std::string, size_t> m_pendingPostMatchCountByPlaylist;
+    struct PendingMmrEstimate {
+        int lastConfirmedMmr = 0;
+        int estimatedMmr = 0;
+    };
+
     std::unordered_set<std::string> m_completedPostMatchGuids;
+    std::unordered_map<std::string, PendingMmrEstimate> m_pendingEstimatedMmrByPlaylist;
     std::mutex m_queueMutex;
     std::condition_variable m_cv;
 

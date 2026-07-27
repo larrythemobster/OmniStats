@@ -13,6 +13,8 @@ struct PostMatchMmrRefresh {
     std::string playlist;
     int previousMmr = 0;
     int previousMatches = 0;
+    bool previousMmrIsPlaylistSpecific = false;
+    bool won = false;
 };
 
 struct SideEffects {

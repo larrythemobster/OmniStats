@@ -74,15 +74,17 @@ namespace RenderHelper {
                 r.initialMmr = (int)snap.lifetimeMmrY.front();
             }
         } else {
-            auto it = snap.roster.find(snap.myPrimaryId);
-            if (it != snap.roster.end()) {
-                auto& myPlayer = it->second;
-                if (myPlayer.playlists.count(playlist)) {
-                    r.currentMmr = myPlayer.playlists.at(playlist);
+            const auto historyIt = snap.playlistHistoryY.find(playlist);
+            if (historyIt != snap.playlistHistoryY.end() && !historyIt->second.empty()) {
+                r.currentMmr = static_cast<int>(historyIt->second.back());
+            } else {
+                auto it = snap.roster.find(snap.myPrimaryId);
+                if (it != snap.roster.end()) {
+                    auto& myPlayer = it->second;
+                    if (myPlayer.playlists.count(playlist)) {
+                        r.currentMmr = myPlayer.playlists.at(playlist);
+                    }
                 }
-            }
-            if (r.currentMmr == 0 && snap.playlistHistoryY.count(playlist) && !snap.playlistHistoryY.at(playlist).empty()) {
-                r.currentMmr = (int)snap.playlistHistoryY.at(playlist).back();
             }
             if (snap.playlistInitialMmr.count(playlist)) {
                 r.initialMmr = snap.playlistInitialMmr.at(playlist);

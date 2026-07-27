@@ -12,6 +12,7 @@
 #include <array>
 #include <initializer_list>
 #include <map>
+#include <cmath>
 
 namespace {
 
@@ -221,10 +222,60 @@ MMRProfileTotals MMRFetcher::ExtractProfileTotals(const nlohmann::json& jsonResp
 }
 
 bool MMRFetcher::IsPostMatchMmrStale(int previousMmr, int fetchedMmr, int previousMatches, int fetchedMatches) {
+    (void)previousMatches;
+    (void)fetchedMatches;
+
     if (fetchedMmr <= 0) return true;
-    if (previousMmr <= 0 || fetchedMmr != previousMmr) return false;
-    if (previousMatches > 0 && fetchedMatches > previousMatches) return false;
-    return true;
+    if (previousMmr <= 0) return false;
+
+    return fetchedMmr == previousMmr;
+}
+
+int MMRFetcher::ResolvePostMatchBaseline(int requestedPreviousMmr,
+                                         bool previousMmrIsPlaylistSpecific,
+                                         const std::vector<float>& recentHistory) {
+    if (previousMmrIsPlaylistSpecific && requestedPreviousMmr > 0) {
+        return requestedPreviousMmr;
+    }
+
+    if (!recentHistory.empty()) {
+        const int latestHistoryMmr = static_cast<int>(std::lround(recentHistory.back()));
+        if (latestHistoryMmr > 0) return latestHistoryMmr;
+    }
+    return requestedPreviousMmr;
+}
+
+int MMRFetcher::EstimatePostMatchMmr(int previousMmr, bool won, const std::vector<float>& recentHistory) {
+    const int baselineMmr = ResolvePostMatchBaseline(previousMmr, false, recentHistory);
+    if (baselineMmr <= 0) return 0;
+    std::vector<int> deltas;
+    constexpr size_t kMaximumTransitions = 12;
+    const size_t firstIndex = recentHistory.size() > kMaximumTransitions + 1
+                                  ? recentHistory.size() - kMaximumTransitions
+                                  : 1;
+    for (size_t i = firstIndex; i < recentHistory.size(); ++i) {
+        const int current = static_cast<int>(std::lround(recentHistory[i]));
+        const int previous = static_cast<int>(std::lround(recentHistory[i - 1]));
+        const int delta = std::abs(current - previous);
+        if (delta >= 3 && delta <= 15) deltas.push_back(delta);
+    }
+
+    int estimatedDelta = 9;
+    if (!deltas.empty()) {
+        std::sort(deltas.begin(), deltas.end());
+        const size_t middle = deltas.size() / 2;
+        estimatedDelta = deltas.size() % 2 == 0
+                             ? (deltas[middle - 1] + deltas[middle]) / 2
+                             : deltas[middle];
+    }
+
+    return (std::max)(1, baselineMmr + (won ? estimatedDelta : -estimatedDelta));
+}
+
+bool MMRFetcher::ShouldPreserveEstimatedMmr(int lastConfirmedMmr, int estimatedMmr, int fetchedMmr) {
+    if (estimatedMmr <= 0) return false;
+    if (fetchedMmr <= 0) return true;
+    return lastConfirmedMmr > 0 && fetchedMmr == lastConfirmedMmr;
 }
 
 #ifdef OMNISTATS_TEST_ENVIRONMENT
@@ -273,7 +324,9 @@ void MMRFetcher::EnqueuePostMatch(const std::string& primaryId,
                                   const std::string& matchGuid,
                                   const std::string& playlist,
                                   int previousMmr,
-                                  int previousMatches) {
+                                  int previousMatches,
+                                  bool previousMmrIsPlaylistSpecific,
+                                  bool won) {
     if (!Config::Read().enable_mmr_tracking || primaryId.empty() || matchGuid.empty() || playlist.empty()) return;
 
     {
@@ -281,6 +334,7 @@ void MMRFetcher::EnqueuePostMatch(const std::string& primaryId,
         if (m_pendingPostMatchGuids.count(matchGuid) || m_completedPostMatchGuids.count(matchGuid)) return;
 
         m_pendingPostMatchGuids.insert(matchGuid);
+        ++m_pendingPostMatchCountByPlaylist[playlist];
 
         MMRRequest request;
         request.primaryId = primaryId;
@@ -290,6 +344,8 @@ void MMRFetcher::EnqueuePostMatch(const std::string& primaryId,
         request.playlist = playlist;
         request.previousMmr = previousMmr;
         request.previousMatches = previousMatches;
+        request.previousMmrIsPlaylistSpecific = previousMmrIsPlaylistSpecific;
+        request.won = won;
         request.retriesRemaining = 2;
         request.notBefore = std::chrono::steady_clock::now() + kPostMatchInitialDelay;
         m_queue.push_back(std::move(request));
@@ -377,6 +433,14 @@ void MMRFetcher::FinishRequest(const MMRRequest& req) {
     std::lock_guard<std::mutex> lock(m_queueMutex);
     if (req.reason == MMRRequestReason::PostMatch) {
         m_pendingPostMatchGuids.erase(req.matchGuid);
+        if (auto it = m_pendingPostMatchCountByPlaylist.find(req.playlist);
+            it != m_pendingPostMatchCountByPlaylist.end()) {
+            if (it->second <= 1) {
+                m_pendingPostMatchCountByPlaylist.erase(it);
+            } else {
+                --it->second;
+            }
+        }
     } else {
         m_rosterQueuedOrInFlight.erase(req.primaryId);
     }
@@ -574,25 +638,95 @@ bool MMRFetcher::FetchProfile(MMRRequest req) {
 
         int postMatchMmr = 0;
         int postMatchMatches = 0;
+        int effectivePreviousMmr = req.previousMmr;
+        std::vector<float> postMatchHistory;
         if (req.reason == MMRRequestReason::PostMatch) {
             const auto playlistIt = playlistMMRs.find(req.playlist);
             if (playlistIt != playlistMMRs.end()) postMatchMmr = playlistIt->second;
             const auto matchesIt = playlistMatches.find(req.playlist);
             if (matchesIt != playlistMatches.end()) postMatchMatches = matchesIt->second;
+
+            // The finalized roster snapshot can occasionally lack playlist-specific
+            // data and fall back to the player's best MMR. The session graph is the
+            // authoritative baseline for the active playlist.
+            {
+                std::shared_lock<std::shared_mutex> historyLock(m_state->history.mutex);
+                const auto historyIt = m_state->history.playlistHistoryY.find(req.playlist);
+                if (historyIt != m_state->history.playlistHistoryY.end()) {
+                    postMatchHistory = historyIt->second;
+                }
+            }
+            effectivePreviousMmr = ResolvePostMatchBaseline(req.previousMmr,
+                                                            req.previousMmrIsPlaylistSpecific,
+                                                            postMatchHistory);
+
+            // Consecutive delayed updates must chain from the newest provisional
+            // point, even if the next match's roster snapshot still contains the
+            // last confirmed Tracker rating.
+            if (const auto pendingIt = m_pendingEstimatedMmrByPlaylist.find(req.playlist);
+                pendingIt != m_pendingEstimatedMmrByPlaylist.end() && pendingIt->second.estimatedMmr > 0) {
+                effectivePreviousMmr = pendingIt->second.estimatedMmr;
+            }
         }
 
-        const bool stalePostMatch = req.reason == MMRRequestReason::PostMatch &&
-                                    IsPostMatchMmrStale(req.previousMmr,
-                                                        postMatchMmr,
-                                                        req.previousMatches,
-                                                        postMatchMatches);
+        bool stalePostMatch = req.reason == MMRRequestReason::PostMatch &&
+                              IsPostMatchMmrStale(effectivePreviousMmr,
+                                                  postMatchMmr,
+                                                  req.previousMatches,
+                                                  postMatchMatches);
+        if (req.reason == MMRRequestReason::PostMatch) {
+            const auto pendingIt = m_pendingEstimatedMmrByPlaylist.find(req.playlist);
+            if (pendingIt != m_pendingEstimatedMmrByPlaylist.end() &&
+                ShouldPreserveEstimatedMmr(pendingIt->second.lastConfirmedMmr,
+                                           pendingIt->second.estimatedMmr,
+                                           postMatchMmr)) {
+                stalePostMatch = true;
+            }
+
+            std::cout << "[MMRFetcher] Post-match " << req.playlist
+                      << " refresh: requestedPrevious=" << req.previousMmr
+                      << (req.previousMmrIsPlaylistSpecific ? " (playlist)" : " (fallback)")
+                      << ", previous=" << effectivePreviousMmr
+                      << ", fetched=" << postMatchMmr
+                      << ", matches=" << req.previousMatches << "->" << postMatchMatches
+                      << (stalePostMatch ? " (stale)" : " (fresh)") << ".\n";
+        }
         const bool retryStalePostMatch = stalePostMatch && req.retriesRemaining > 0;
-        const int graphMmr = postMatchMmr > 0 ? postMatchMmr : req.previousMmr;
+        if (retryStalePostMatch) {
+            return ScheduleRetry(req, kStalePostMatchRetryDelay, "post-match MMR not updated yet");
+        }
+
+        int graphMmr = postMatchMmr > 0 ? postMatchMmr : effectivePreviousMmr;
+        int estimateBaselineMmr = effectivePreviousMmr;
+        bool estimatedPostMatch = false;
+        if (stalePostMatch) {
+            estimateBaselineMmr = ResolvePostMatchBaseline(estimateBaselineMmr, true, postMatchHistory);
+            graphMmr = EstimatePostMatchMmr(estimateBaselineMmr, req.won, postMatchHistory);
+            estimatedPostMatch = graphMmr > 0;
+        }
 
         bool appendPostMatchPoint = false;
         if (req.reason == MMRRequestReason::PostMatch && !retryStalePostMatch) {
             std::lock_guard<std::mutex> queueLock(m_queueMutex);
             appendPostMatchPoint = m_completedPostMatchGuids.insert(req.matchGuid).second;
+        }
+
+        if (appendPostMatchPoint) {
+            if (estimatedPostMatch) {
+                auto& pending = m_pendingEstimatedMmrByPlaylist[req.playlist];
+                if (pending.lastConfirmedMmr <= 0) pending.lastConfirmedMmr = effectivePreviousMmr;
+                pending.estimatedMmr = graphMmr;
+            } else {
+                m_pendingEstimatedMmrByPlaylist.erase(req.playlist);
+            }
+        }
+
+        std::unordered_set<std::string> playlistsAwaitingPostMatch;
+        if (req.reason == MMRRequestReason::Roster) {
+            std::lock_guard<std::mutex> queueLock(m_queueMutex);
+            for (const auto& [playlist, count] : m_pendingPostMatchCountByPlaylist) {
+                if (count > 0) playlistsAwaitingPostMatch.insert(playlist);
+            }
         }
 
         {
@@ -619,28 +753,64 @@ bool MMRFetcher::FetchProfile(MMRRequest req) {
                     m_state->history.mmrHistoryY.push_back(static_cast<float>(bestMMR));
                     m_state->history.mmrHistoryX.push_back(static_cast<float>(m_state->history.mmrHistoryY.size()));
                 } else if (appendPostMatchPoint && bestMMR > 0) {
-                    m_state->history.mmrHistoryY.push_back(static_cast<float>(bestMMR));
+                    const int legacyGraphMmr = estimatedPostMatch ? graphMmr : bestMMR;
+                    m_state->history.mmrHistoryY.push_back(static_cast<float>(legacyGraphMmr));
                     m_state->history.mmrHistoryX.push_back(static_cast<float>(m_state->history.mmrHistoryY.size()));
                 }
 
-                for (const auto& [playlistName, mmr] : playlistMMRs) {
-                    if (mmr <= 0) continue;
+                for (const auto& [playlistName, fetchedMmr] : playlistMMRs) {
+                    if (fetchedMmr <= 0) continue;
                     if (req.reason == MMRRequestReason::PostMatch && playlistName == req.playlist) continue;
+
+                    int sessionMmr = fetchedMmr;
+                    auto& history = m_state->history.playlistHistoryY[playlistName];
+                    auto pendingIt = m_pendingEstimatedMmrByPlaylist.find(playlistName);
+                    const bool postMatchRefreshPending =
+                        req.reason == MMRRequestReason::Roster && playlistsAwaitingPostMatch.count(playlistName) > 0;
+
+                    if (postMatchRefreshPending) {
+                        // A roster request can finish before the delayed post-match
+                        // request and already contain that match's new MMR. Keep it
+                        // out of session history so the post-match request remains the
+                        // single owner of the graph point.
+                        if (pendingIt != m_pendingEstimatedMmrByPlaylist.end() &&
+                            pendingIt->second.estimatedMmr > 0) {
+                            sessionMmr = pendingIt->second.estimatedMmr;
+                        } else if (!history.empty()) {
+                            sessionMmr = static_cast<int>(std::lround(history.back()));
+                        }
+                    } else if (req.reason == MMRRequestReason::Roster && pendingIt != m_pendingEstimatedMmrByPlaylist.end()) {
+                        const bool estimateIsLatest = !history.empty() &&
+                                                      static_cast<int>(std::lround(history.back())) == pendingIt->second.estimatedMmr;
+                        if (!estimateIsLatest) {
+                            m_pendingEstimatedMmrByPlaylist.erase(pendingIt);
+                        } else if (ShouldPreserveEstimatedMmr(pendingIt->second.lastConfirmedMmr,
+                                                              pendingIt->second.estimatedMmr,
+                                                              fetchedMmr)) {
+                            sessionMmr = pendingIt->second.estimatedMmr;
+                        } else {
+                            // Tracker has finally published a changed rating. Replace the
+                            // provisional point rather than adding an extra graph match.
+                            history.back() = static_cast<float>(fetchedMmr);
+                            m_pendingEstimatedMmrByPlaylist.erase(pendingIt);
+                        }
+                    }
+
                     if (m_state->history.playlistInitialMmr.count(playlistName) == 0) {
-                        m_state->history.playlistInitialMmr[playlistName] = mmr;
+                        m_state->history.playlistInitialMmr[playlistName] = sessionMmr;
                     }
                     m_state->game.sessionTotals.mmrChangeByPlaylist[playlistName] =
-                        mmr - m_state->history.playlistInitialMmr[playlistName];
+                        sessionMmr - m_state->history.playlistInitialMmr[playlistName];
 
-                    auto& history = m_state->history.playlistHistoryY[playlistName];
-                    if (history.empty() || history.back() != mmr) {
-                        history.push_back(static_cast<float>(mmr));
+                    if (!postMatchRefreshPending &&
+                        (history.empty() || static_cast<int>(std::lround(history.back())) != sessionMmr)) {
+                        history.push_back(static_cast<float>(sessionMmr));
                     }
                 }
 
                 if (appendPostMatchPoint && graphMmr > 0) {
                     if (m_state->history.playlistInitialMmr.count(req.playlist) == 0) {
-                        m_state->history.playlistInitialMmr[req.playlist] = req.previousMmr > 0 ? req.previousMmr : graphMmr;
+                        m_state->history.playlistInitialMmr[req.playlist] = effectivePreviousMmr > 0 ? effectivePreviousMmr : graphMmr;
                     }
                     auto& history = m_state->history.playlistHistoryY[req.playlist];
                     history.push_back(static_cast<float>(graphMmr));
@@ -680,8 +850,10 @@ bool MMRFetcher::FetchProfile(MMRRequest req) {
             m_state->history.version++;
         }
 
-        if (retryStalePostMatch) {
-            return ScheduleRetry(req, kStalePostMatchRetryDelay, "post-match MMR not updated yet");
+        if (estimatedPostMatch) {
+            std::cout << "[MMRFetcher] Tracker MMR remained stale; estimated "
+                      << req.playlist << " MMR after a " << (req.won ? "win" : "loss")
+                      << ": " << estimateBaselineMmr << " -> " << graphMmr << ".\n";
         }
 
         if (appendPostMatchPoint && graphMmr > 0) {

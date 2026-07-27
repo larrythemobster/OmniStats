@@ -873,8 +873,11 @@ void TelemetryReducer::FinalizeMatchLocked(int winnerTeam, MatchFinalizeSource s
                 !m_state->game.matchGuid.empty()) {
                 int previousMmr = player.mmr;
                 int previousMatches = 0;
-                if (const auto playlistIt = player.playlists.find(mode); playlistIt != player.playlists.end()) {
+                bool previousMmrIsPlaylistSpecific = false;
+                if (const auto playlistIt = player.playlists.find(mode);
+                    playlistIt != player.playlists.end() && playlistIt->second > 0) {
                     previousMmr = playlistIt->second;
+                    previousMmrIsPlaylistSpecific = true;
                 }
                 if (const auto matchesIt = player.playlistMatches.find(mode); matchesIt != player.playlistMatches.end()) {
                     previousMatches = matchesIt->second;
@@ -885,7 +888,9 @@ void TelemetryReducer::FinalizeMatchLocked(int winnerTeam, MatchFinalizeSource s
                     .matchGuid = m_state->game.matchGuid,
                     .playlist = mode,
                     .previousMmr = previousMmr,
-                    .previousMatches = previousMatches};
+                    .previousMatches = previousMatches,
+                    .previousMmrIsPlaylistSpecific = previousMmrIsPlaylistSpecific,
+                    .won = iWon};
             } else {
                 effects.fetchMmrQueue.emplace_back(pid, player.name);
             }

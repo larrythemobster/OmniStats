@@ -175,7 +175,48 @@ TEST(MMRFetcherPostMatchTest, DetectsStalePostMatchRatings) {
     EXPECT_TRUE(MMRFetcher::IsPostMatchMmrStale(1200, 1200, 50, 50));
     EXPECT_TRUE(MMRFetcher::IsPostMatchMmrStale(1200, 0, 50, 50));
     EXPECT_FALSE(MMRFetcher::IsPostMatchMmrStale(1200, 1211, 50, 51));
-    EXPECT_FALSE(MMRFetcher::IsPostMatchMmrStale(1200, 1200, 50, 51));
+    EXPECT_TRUE(MMRFetcher::IsPostMatchMmrStale(1200, 1200, 50, 51));
+    EXPECT_FALSE(MMRFetcher::IsPostMatchMmrStale(1200, 1211, 50, 50));
+}
+
+TEST(MMRFetcherPostMatchTest, UsesPlaylistHistoryInsteadOfIncorrectBestMmrFallback) {
+    EXPECT_EQ(MMRFetcher::ResolvePostMatchBaseline(788, false, {630.0f}), 630);
+    EXPECT_EQ(MMRFetcher::ResolvePostMatchBaseline(788, false, {}), 788);
+}
+
+TEST(MMRFetcherPostMatchTest, KeepsFinalizedPlaylistBaselineWhenRosterFetchMovesAhead) {
+    EXPECT_EQ(MMRFetcher::ResolvePostMatchBaseline(630, true, {630.0f, 667.0f}), 630);
+}
+
+TEST(MMRFetcherPostMatchTest, EstimatesFromRecentNormalChanges) {
+    const std::vector<float> history = {1182.0f, 1191.0f, 1200.0f};
+
+    EXPECT_EQ(MMRFetcher::EstimatePostMatchMmr(1200, true, history), 1209);
+    EXPECT_EQ(MMRFetcher::EstimatePostMatchMmr(1200, false, history), 1191);
+}
+
+TEST(MMRFetcherPostMatchTest, ChainsEstimateFromLatestGraphPoint) {
+    const std::vector<float> history = {1200.0f, 1191.0f};
+
+    EXPECT_EQ(MMRFetcher::EstimatePostMatchMmr(1200, false, history), 1182);
+    EXPECT_EQ(MMRFetcher::EstimatePostMatchMmr(1200, true, history), 1200);
+}
+
+TEST(MMRFetcherPostMatchTest, IgnoresCumulativeJumpsAndUsesDefaultDelta) {
+    const std::vector<float> history = {1200.0f, 1218.0f};
+
+    EXPECT_EQ(MMRFetcher::EstimatePostMatchMmr(1218, true, history), 1227);
+    EXPECT_EQ(MMRFetcher::EstimatePostMatchMmr(1218, false, history), 1209);
+}
+
+TEST(MMRFetcherPostMatchTest, PreservesEstimateWhileRosterStillReturnsLastConfirmedRating) {
+    EXPECT_TRUE(MMRFetcher::ShouldPreserveEstimatedMmr(1186, 1195, 1186));
+    EXPECT_TRUE(MMRFetcher::ShouldPreserveEstimatedMmr(1186, 1195, 0));
+}
+
+TEST(MMRFetcherPostMatchTest, AcceptsRosterRatingOnceTrackerChanges) {
+    EXPECT_FALSE(MMRFetcher::ShouldPreserveEstimatedMmr(1186, 1195, 1195));
+    EXPECT_FALSE(MMRFetcher::ShouldPreserveEstimatedMmr(1186, 1195, 1204));
 }
 
 TEST(MMRFetcherPostMatchTest, KeepsPostMatchRequestBehindRosterRequest) {
@@ -185,8 +226,8 @@ TEST(MMRFetcherPostMatchTest, KeepsPostMatchRequestBehindRosterRequest) {
     auto state = std::make_shared<SessionState>();
     MMRFetcher fetcher(state);
     fetcher.Enqueue("Steam|123", "Player");
-    fetcher.EnqueuePostMatch("Steam|123", "Player", "match-guid", "2v2", 1200, 50);
-    fetcher.EnqueuePostMatch("Steam|123", "Player", "match-guid", "2v2", 1200, 50);
+    fetcher.EnqueuePostMatch("Steam|123", "Player", "match-guid", "2v2", 1200, 50, true, true);
+    fetcher.EnqueuePostMatch("Steam|123", "Player", "match-guid", "2v2", 1200, 50, true, true);
 
     EXPECT_EQ(fetcher.PendingRequestCountForTests(), 2u);
 

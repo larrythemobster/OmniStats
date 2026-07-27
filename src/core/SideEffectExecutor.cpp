@@ -78,7 +78,9 @@ void SideEffectExecutor::Execute(SideEffects&& effects,
                                      refresh.matchGuid,
                                      refresh.playlist,
                                      refresh.previousMmr,
-                                     refresh.previousMatches);
+                                     refresh.previousMatches,
+                                     refresh.previousMmrIsPlaylistSpecific,
+                                     refresh.won);
     }
     if (dbManager) {
         for (const auto& pid : effects.fetchEncounterQueue) {

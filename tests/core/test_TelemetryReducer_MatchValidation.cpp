@@ -171,6 +171,8 @@ TEST(TelemetryReducerMatchValidation, NormalWinCounts) {
     EXPECT_EQ(effects.postMatchMmrRefresh->matchGuid, "normal-win-guid");
     EXPECT_EQ(effects.postMatchMmrRefresh->playlist, "1v1");
     EXPECT_EQ(effects.postMatchMmrRefresh->previousMmr, 1200);
+    EXPECT_TRUE(effects.postMatchMmrRefresh->previousMmrIsPlaylistSpecific);
+    EXPECT_TRUE(effects.postMatchMmrRefresh->won);
 }
 
 TEST(TelemetryReducerMatchValidation, OnesMatchDoesNotTrackGoalParticipation) {
@@ -252,6 +254,9 @@ TEST(TelemetryReducerMatchValidation, NormalLossCounts) {
     EXPECT_EQ(state->game.sessionTotals.losses, 1);
     EXPECT_TRUE(effects.saveMatch);
     EXPECT_FALSE(state->game.lastMatchWasVoid);
+    ASSERT_TRUE(effects.postMatchMmrRefresh.has_value());
+    EXPECT_FALSE(effects.postMatchMmrRefresh->previousMmrIsPlaylistSpecific);
+    EXPECT_FALSE(effects.postMatchMmrRefresh->won);
 }
 
 TEST(TelemetryReducerMatchValidation, ActivePlaylistSwitchesOncePerMatch) {
