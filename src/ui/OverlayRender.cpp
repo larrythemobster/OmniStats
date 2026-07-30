@@ -1517,6 +1517,11 @@ void Overlay::RenderSessionView() {
 
             // Render Plot Area
             const auto& history = m_snap.showLifetimeGraph ? m_snap.lifetimeMmrY : (m_snap.playlistHistoryY.count(playlist) ? m_snap.playlistHistoryY.at(playlist) : std::vector<float>{});
+            const auto estimatedIt = m_snap.playlistHistoryEstimated.find(playlist);
+            const std::vector<bool>* estimatedPoints =
+                !m_snap.showLifetimeGraph && estimatedIt != m_snap.playlistHistoryEstimated.end()
+                    ? &estimatedIt->second
+                    : nullptr;
             if (history.empty()) {
                 ImGui::Dummy(ImVec2(0.0f, 25.0f));
                 ImGui::PushFont(fontRegular);
@@ -1544,7 +1549,8 @@ void Overlay::RenderSessionView() {
                     .colorGraphBaseline = colorGraphBaseline,
                     .fontSmall = fontSmall,
                     .fontSmallBold = fontSmallBold,
-                    .fontBold = fontBold};
+                    .fontBold = fontBold,
+                    .estimatedPoints = estimatedPoints};
                 Widgets::RenderMmrGraph(params);
             }
         } else {
@@ -1870,6 +1876,18 @@ void Overlay::RenderUI() {
             m_snap.mmrHistoryY = m_state->history.mmrHistoryY;
             m_snap.playlistInitialMmr = m_state->history.playlistInitialMmr;
             m_snap.playlistHistoryY = m_state->history.playlistHistoryY;
+            m_snap.playlistHistoryEstimated.clear();
+            for (const auto& [playlist, history] : m_state->history.playlistHistoryY) {
+                auto& flags = m_snap.playlistHistoryEstimated[playlist];
+                flags.assign(history.size(), false);
+                const auto pointsIt = m_state->history.playlistMatchPoints.find(playlist);
+                if (pointsIt == m_state->history.playlistMatchPoints.end()) continue;
+                for (const auto& point : pointsIt->second) {
+                    if (point.historyIndex < flags.size()) {
+                        flags[point.historyIndex] = point.valueEstimated;
+                    }
+                }
+            }
             m_snap.lifetimeMmrX = m_state->history.lifetimeMmrX;
             m_snap.lifetimeMmrY = m_state->history.lifetimeMmrY;
             m_snap.recentSavedMatches = m_state->history.recentSavedMatches;
@@ -2237,6 +2255,11 @@ void Overlay::RenderWidgetContent(DashboardLayout::WidgetId id, const char* suff
         Widgets::RenderMmrDeltaBadge(badgePos, delta, colorWin, colorLoss, colorMuted, fontSmallBold);
 
         const auto& history = m_snap.showLifetimeGraph ? m_snap.lifetimeMmrY : (m_snap.playlistHistoryY.count(playlist) ? m_snap.playlistHistoryY.at(playlist) : std::vector<float>{});
+        const auto estimatedIt = m_snap.playlistHistoryEstimated.find(playlist);
+        const std::vector<bool>* estimatedPoints =
+            !m_snap.showLifetimeGraph && estimatedIt != m_snap.playlistHistoryEstimated.end()
+                ? &estimatedIt->second
+                : nullptr;
         if (history.empty()) {
             ImGui::Dummy(ImVec2(0.0f, 25.0f));
             ImGui::PushFont(fontRegular);
@@ -2264,7 +2287,8 @@ void Overlay::RenderWidgetContent(DashboardLayout::WidgetId id, const char* suff
                 .colorGraphBaseline = colorGraphBaseline,
                 .fontSmall = fontSmall,
                 .fontSmallBold = fontSmallBold,
-                .fontBold = fontBold};
+                .fontBold = fontBold,
+                .estimatedPoints = estimatedPoints};
             Widgets::RenderMmrGraph(params);
         }
         break;

@@ -59,6 +59,11 @@ class CurlImpersonate {
     pfn_curl_slist_append slist_append = nullptr;
     pfn_curl_slist_free_all slist_free_all = nullptr;
     pfn_curl_easy_impersonate easy_impersonate = nullptr;
+#ifdef OMNISTATS_TEST_ENVIRONMENT
+    void SetReadyForTests(bool ready) {
+        m_loaded = ready;
+    }
+#endif
 
   private:
     CurlImpersonate() = default;

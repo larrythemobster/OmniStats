@@ -48,6 +48,7 @@ struct RenderSnapshot {
     std::vector<float> mmrHistoryY;
     std::map<std::string, int> playlistInitialMmr;
     std::map<std::string, std::vector<float>> playlistHistoryY;
+    std::map<std::string, std::vector<bool>> playlistHistoryEstimated;
     std::vector<float> lifetimeMmrX;
     std::vector<float> lifetimeMmrY;
     std::vector<SessionMatchSummary> recentSavedMatches;

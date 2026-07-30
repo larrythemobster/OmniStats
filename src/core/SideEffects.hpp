@@ -12,10 +12,12 @@ struct PostMatchMmrRefresh {
     std::string matchGuid;
     std::string playlist;
     int previousMmr = 0;
-    int previousMatches = 0;
+    int previousMatches = -1;
     bool previousMmrIsPlaylistSpecific = false;
     bool won = false;
+    bool provisionalImmediately = false;
 };
+
 
 struct SideEffects {
     bool pushDiscord = false;

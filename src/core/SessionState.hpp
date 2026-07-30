@@ -111,6 +111,32 @@ struct SessionTotals {
     int goalParticipations = 0; // User goals + user assists, clamped per match
 };
 
+inline int CalculateTrackedSessionMmrChange(const std::map<std::string, int>& changes) {
+    int total = 0;
+    for (const auto& [playlist, change] : changes) {
+        if (playlist == "1v1" || playlist == "2v2" || playlist == "3v3" ||
+            playlist == "hoops" || playlist == "rumble" || playlist == "dropshot" ||
+            playlist == "snowday" || playlist == "heatseeker") {
+            total += change;
+        }
+    }
+    return total;
+}
+
+struct SessionMmrPoint {
+    std::string matchGuid;
+    size_t historyIndex = 0;
+    int mmr = 0;
+    int trackerMatchesPlayed = -1;
+    bool trackerCovered = false;
+    bool valueEstimated = true;
+};
+
+struct LocalPreMatchMmrSnapshot {
+    std::map<std::string, int> playlistMmrs;
+    std::map<std::string, int> playlistMatches;
+};
+
 struct SessionMatchSummary {
     bool ranked = true;
     std::string mode;
@@ -245,6 +271,9 @@ struct GameState {
     std::unordered_map<std::string, PlayerData> roster;
     std::unordered_map<std::string, PlayerData> matchRoster;
     std::map<std::string, GamemodeStat> sessionGamemodes;
+    // First valid local Tracker snapshot observed during each match. Finalization
+    // reads this instead of the mutable live roster.
+    std::unordered_map<std::string, LocalPreMatchMmrSnapshot> preMatchMmrByGuid;
     bool matchFinalized = false;
 };
 
@@ -256,6 +285,9 @@ struct HistoryState {
     std::vector<float> mmrHistoryY;
     std::vector<float> mmrHistoryX;
     std::map<std::string, std::vector<float>> playlistHistoryY;
+    // Match ownership metadata is authoritative. playlistHistoryY remains the
+    // float projection consumed by the existing graph widget.
+    std::map<std::string, std::vector<SessionMmrPoint>> playlistMatchPoints;
     std::map<std::string, int> playlistInitialMmr;
 
     // Lifetime MMR history for graphing

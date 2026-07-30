@@ -74,6 +74,7 @@ void SessionState::resetMatch(const std::string& newArena, const std::string& ne
     game.currentMatch = MatchStats{};
     game.roster.clear();
     game.matchRoster.clear();
+    game.preMatchMmrByGuid.clear();
     game.matchFinalized = false;
     ui.showOverlay = false;
     ui.showMatchSummary = false;

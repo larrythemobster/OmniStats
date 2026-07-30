@@ -97,17 +97,26 @@ namespace Widgets {
 
         // Dot Markers
         for (size_t i = 0; i < points.size(); ++i) {
+            const bool estimated =
+                p.estimatedPoints && i < p.estimatedPoints->size() &&
+                (*p.estimatedPoints)[i];
             ImColor dotColor;
-            if (i == 0) {
-                dotColor = p.colorMuted; // Neutral starting point
-            } else {
-                if (p.history[i] > p.history[i - 1]) {
-                    dotColor = p.colorWin; // Theme Win Color
-                } else if (p.history[i] < p.history[i - 1]) {
-                    dotColor = p.colorLoss; // Theme Loss Color
+            if (estimated) {
+                dotColor = p.colorText;
+            } else if (i == 0) {
+                if (p.initialMmr > 0 && p.history[i] > p.initialMmr) {
+                    dotColor = p.colorWin;
+                } else if (p.initialMmr > 0 && p.history[i] < p.initialMmr) {
+                    dotColor = p.colorLoss;
                 } else {
-                    dotColor = p.colorMuted; // Neutral unchanged point
+                    dotColor = p.colorMuted;
                 }
+            } else if (p.history[i] > p.history[i - 1]) {
+                dotColor = p.colorWin;
+            } else if (p.history[i] < p.history[i - 1]) {
+                dotColor = p.colorLoss;
+            } else {
+                dotColor = p.colorMuted;
             }
 
             float radius = (i == points.size() - 1) ? 6.0f : 4.0f;
@@ -122,7 +131,11 @@ namespace Widgets {
                 }
             }
 
-            drawList->AddCircleFilled(points[i], radius, dotColor);
+            if (estimated) {
+                drawList->AddCircle(points[i], radius, dotColor, 0, 2.0f);
+            } else {
+                drawList->AddCircleFilled(points[i], radius, dotColor);
+            }
         }
     }
 

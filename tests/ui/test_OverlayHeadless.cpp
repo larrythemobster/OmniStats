@@ -88,6 +88,9 @@ class HeadlessOverlayTest : public ::testing::Test {
     ImFont* GetLobbyFontSmall(const Overlay& o) const {
         return o.lobbyFontSmall;
     }
+    const RenderSnapshot& GetRenderSnapshot(const Overlay& o) const {
+        return o.m_snap;
+    }
 };
 
 TEST_F(HeadlessOverlayTest, RenderOverlayDoesNotCrash) {
@@ -98,6 +101,41 @@ TEST_F(HeadlessOverlayTest, RenderOverlayDoesNotCrash) {
     ImGui::NewFrame();
     EXPECT_NO_THROW(overlay.RenderUI());
     ImGui::Render();
+}
+
+TEST_F(HeadlessOverlayTest, TrackerCoveredEstimatedMmrPointBecomesExactInRenderSnapshot) {
+    auto state = std::make_shared<SessionState>();
+    {
+        std::unique_lock<std::shared_mutex> lock(state->history.mutex);
+        state->history.playlistHistoryY["2v2"] = {1209.0f};
+        state->history.playlistMatchPoints["2v2"] = {
+            SessionMmrPoint{
+                .matchGuid = "owned-match",
+                .historyIndex = 0,
+                .mmr = 1209,
+                .trackerMatchesPlayed = 50,
+                .trackerCovered = true,
+                .valueEstimated = true}};
+        state->history.version++;
+    }
+    Overlay overlay(state);
+
+    ImGui::NewFrame();
+    overlay.RenderUI();
+    ImGui::Render();
+    ASSERT_EQ(GetRenderSnapshot(overlay).playlistHistoryEstimated.at("2v2").size(), 1u);
+    EXPECT_TRUE(GetRenderSnapshot(overlay).playlistHistoryEstimated.at("2v2")[0]);
+
+    {
+        std::unique_lock<std::shared_mutex> lock(state->history.mutex);
+        state->history.playlistMatchPoints["2v2"][0].valueEstimated = false;
+        state->history.version++;
+    }
+    ImGui::NewFrame();
+    overlay.RenderUI();
+    ImGui::Render();
+    ASSERT_EQ(GetRenderSnapshot(overlay).playlistHistoryEstimated.at("2v2").size(), 1u);
+    EXPECT_FALSE(GetRenderSnapshot(overlay).playlistHistoryEstimated.at("2v2")[0]);
 }
 
 TEST_F(HeadlessOverlayTest, HandleDpiChangedSetsReloadPending) {

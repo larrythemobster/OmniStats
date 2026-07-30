@@ -898,6 +898,11 @@ void DashboardPanel::RenderMmrGraphWidget(const char* idSuffix) {
     Widgets::RenderMmrDeltaBadge(badgePos, delta, colorWin, colorLoss, colorMuted, ctx.fontSmallBold);
 
     const auto& history = ctx.snap->showLifetimeGraph ? ctx.snap->lifetimeMmrY : (ctx.snap->playlistHistoryY.count(playlist) ? ctx.snap->playlistHistoryY.at(playlist) : std::vector<float>{});
+    const auto estimatedIt = ctx.snap->playlistHistoryEstimated.find(playlist);
+    const std::vector<bool>* estimatedPoints =
+        !ctx.snap->showLifetimeGraph && estimatedIt != ctx.snap->playlistHistoryEstimated.end()
+            ? &estimatedIt->second
+            : nullptr;
     if (history.empty()) {
         ImGui::Dummy(ImVec2(0.0f, 25.0f));
         ImGui::PushFont(ctx.fontRegular);
@@ -925,7 +930,8 @@ void DashboardPanel::RenderMmrGraphWidget(const char* idSuffix) {
             .colorGraphBaseline = colorGraphBaseline,
             .fontSmall = ctx.fontSmall,
             .fontSmallBold = ctx.fontSmallBold,
-            .fontBold = ctx.fontBold};
+            .fontBold = ctx.fontBold,
+            .estimatedPoints = estimatedPoints};
         Widgets::RenderMmrGraph(params);
     }
 }

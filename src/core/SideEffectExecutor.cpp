@@ -80,7 +80,8 @@ void SideEffectExecutor::Execute(SideEffects&& effects,
                                      refresh.previousMmr,
                                      refresh.previousMatches,
                                      refresh.previousMmrIsPlaylistSpecific,
-                                     refresh.won);
+                                     refresh.won,
+                                     refresh.provisionalImmediately);
     }
     if (dbManager) {
         for (const auto& pid : effects.fetchEncounterQueue) {

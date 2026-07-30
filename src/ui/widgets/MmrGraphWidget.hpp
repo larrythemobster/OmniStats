@@ -21,6 +21,7 @@ namespace Widgets {
         ImFont* fontSmall = nullptr;
         ImFont* fontSmallBold = nullptr;
         ImFont* fontBold = nullptr;
+        const std::vector<bool>* estimatedPoints = nullptr;
     };
 
     // Renders the MMR history plot line and markers inside the current ImGui container context

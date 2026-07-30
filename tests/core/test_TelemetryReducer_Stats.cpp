@@ -43,6 +43,7 @@ TEST(TelemetryReducerStats, AddsDemoedSelfToSessionTotalsOnMatchEnd) {
         std::unique_lock<std::shared_mutex> lock(state->game.mutex);
         state->game.myPrimaryId = "Steam|1";
         state->game.myTeam = 0;
+        state->game.inMatch = true;
         state->game.roundEverStarted = true;
         state->game.localPlayerWasActive = true;
         state->game.maxPlayersSeen = 2;
