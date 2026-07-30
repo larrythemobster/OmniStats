@@ -71,6 +71,17 @@ void SideEffectExecutor::Execute(SideEffects&& effects,
     for (const auto& [pid, name] : effects.fetchMmrQueue) {
         if (mmrFetcher) mmrFetcher->Enqueue(pid, name);
     }
+    // Queue the committed match before its post-match fetch can enqueue an MMR
+    // correction. DatabaseManager preserves critical-job FIFO ordering.
+    if (effects.saveMatch) {
+        auto matchRecord = std::move(effects.matchRecord);
+        if (dbManager) dbManager->AsyncSaveMatch(std::move(effects.saveSnapshot));
+        Enqueue([matchRecord = std::move(matchRecord)]() {
+            Storage::AppendMatchSync(matchRecord);
+        },
+                true);
+    }
+
     if (effects.postMatchMmrRefresh && mmrFetcher) {
         const auto& refresh = *effects.postMatchMmrRefresh;
         mmrFetcher->EnqueuePostMatch(refresh.primaryId,
@@ -87,17 +98,6 @@ void SideEffectExecutor::Execute(SideEffects&& effects,
         for (const auto& pid : effects.fetchEncounterQueue) {
             dbManager->AsyncGetPlayerEncounterRecord(pid);
         }
-    }
-    if (effects.saveMatch) {
-        auto matchRecord = std::move(effects.matchRecord);
-        auto snapshot = std::move(effects.saveSnapshot);
-        auto db = dbManager;
-        Enqueue([matchRecord = std::move(matchRecord),
-                 snapshot = std::move(snapshot), db]() mutable {
-            Storage::AppendMatchSync(matchRecord);
-            if (db) db->AsyncSaveMatch(std::move(snapshot));
-        },
-                true);
     }
     if (effects.replayKeyToPress != -1) {
         int reqId = ++m_replayKeyRequestId;

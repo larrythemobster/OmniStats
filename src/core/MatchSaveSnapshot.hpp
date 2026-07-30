@@ -2,6 +2,7 @@
 #include <string>
 #include <unordered_map>
 #include <array>
+#include <cstdint>
 #include "SessionState.hpp"
 
 struct MatchSaveSnapshot {
@@ -19,4 +20,5 @@ struct MatchSaveSnapshot {
     MmrCategory rosterMmrCategory = MmrCategory::Best;
     MmrCategory graphMmrCategory = MmrCategory::Best;
     std::string myPrimaryId;
+    int64_t endedAtUnixMs = 0;
 };

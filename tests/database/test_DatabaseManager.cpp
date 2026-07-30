@@ -3,6 +3,8 @@
 #include "core/SessionState.hpp"
 #include <memory>
 #include <filesystem>
+#include <chrono>
+#include <thread>
 
 class DatabaseManagerTest : public ::testing::Test {
   protected:
@@ -240,4 +242,137 @@ TEST_F(DatabaseManagerTest, UpdatesSavedLocalPlayerMmrByMatchGuid) {
     dbManager->GetRecentMatchHistory(pid, matches, 10);
     ASSERT_EQ(matches.size(), 1u);
     EXPECT_EQ(matches[0].mmr, 1211);
+}
+
+TEST_F(DatabaseManagerTest, AsyncSavePublishesOrderedStreakCacheAndLeavesItClean) {
+    const std::string pid = "Steam|streak-player";
+    auto makeMatch = [&](const std::string& guid, bool win) {
+        MatchSaveSnapshot snap;
+        snap.arenaName = "DFH Stadium";
+        snap.matchGuid = guid;
+        snap.myTeam = 0;
+        snap.winnerTeam = win ? 0 : 1;
+        snap.validResult = true;
+        snap.score[0] = win ? 2 : 1;
+        snap.score[1] = win ? 1 : 2;
+        snap.maxPlayersSeen = 2;
+        snap.myPrimaryId = pid;
+        snap.rosterMmrCategory = MmrCategory::OneVOne;
+        snap.graphMmrCategory = MmrCategory::OneVOne;
+        snap.roster[pid] =
+            PlayerData{.primaryId = pid, .name = "Player", .team = 0, .mmr = 1200};
+        snap.roster["Steam|opponent"] =
+            PlayerData{.primaryId = "Steam|opponent", .name = "Opponent", .team = 1, .mmr = 1200};
+        return snap;
+    };
+
+    sessionState->ui.dbStatsDirty.store(true);
+    dbManager->AsyncSaveMatch(makeMatch("streak-win-1", true));
+    dbManager->AsyncSaveMatch(makeMatch("streak-win-2", true));
+    dbManager->AsyncSaveMatch(makeMatch("streak-win-3", true));
+    dbManager->AsyncSaveMatch(makeMatch("streak-loss-1", false));
+    dbManager->AsyncSetSetting("streak_test_barrier", "complete");
+
+    for (int attempt = 0;
+         attempt < 200 && dbManager->GetSetting("streak_test_barrier", "") != "complete";
+         ++attempt) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    }
+    ASSERT_EQ(dbManager->GetSetting("streak_test_barrier", ""), "complete");
+
+    CachedDbStats cached;
+    {
+        std::lock_guard<std::mutex> lock(sessionState->ui.dbStatsMutex);
+        cached = sessionState->ui.cachedDbStats;
+    }
+    EXPECT_EQ(cached.currentWins, 0);
+    EXPECT_EQ(cached.currentLosses, 1);
+    EXPECT_EQ(cached.longestWins, 3);
+    EXPECT_EQ(cached.longestLosses, 1);
+    EXPECT_FALSE(sessionState->ui.dbStatsDirty.load());
+}
+
+TEST_F(DatabaseManagerTest, EarlyLossPersistsOnceBeforeFollowingWin) {
+    const std::string pid = "Steam|ordered-streak-player";
+    const int64_t baseTimeMs = 1'800'000'000'000;
+    auto makeMatch = [&](const std::string& guid,
+                         bool win,
+                         int64_t endedAtUnixMs) {
+        MatchSaveSnapshot snap;
+        snap.arenaName = "DFH Stadium";
+        snap.matchGuid = guid;
+        snap.myTeam = 0;
+        snap.winnerTeam = win ? 0 : 1;
+        snap.validResult = true;
+        snap.score[0] = win ? 2 : 1;
+        snap.score[1] = win ? 1 : 2;
+        snap.maxPlayersSeen = 2;
+        snap.myPrimaryId = pid;
+        snap.rosterMmrCategory = MmrCategory::OneVOne;
+        snap.graphMmrCategory = MmrCategory::OneVOne;
+        snap.endedAtUnixMs = endedAtUnixMs;
+        snap.roster[pid] =
+            PlayerData{
+                .primaryId = pid,
+                .name = "Player",
+                .team = 0,
+                .mmr = 1200};
+        snap.roster["Steam|opponent"] =
+            PlayerData{
+                .primaryId = "Steam|opponent",
+                .name = "Opponent",
+                .team = 1,
+                .mmr = 1200};
+        return snap;
+    };
+
+    dbManager->SaveMatch(
+        makeMatch("ordered-win-1", true, baseTimeMs + 1000));
+    dbManager->SaveMatch(
+        makeMatch("ordered-win-2", true, baseTimeMs + 2000));
+    dbManager->SaveMatch(
+        makeMatch("ordered-win-3", true, baseTimeMs + 3000));
+    const MatchSaveSnapshot earlyLoss =
+        makeMatch(
+            "ordered-early-loss",
+            false,
+            baseTimeMs + 4000);
+    dbManager->SaveMatch(earlyLoss);
+    dbManager->SaveMatch(earlyLoss);
+    dbManager->SaveMatch(
+        makeMatch(
+            "ordered-following-win",
+            true,
+            baseTimeMs + 5000));
+
+    int wins = 0;
+    int losses = 0;
+    int games = 0;
+    dbManager->GetGamemodeStats(
+        pid, "1v1", wins, losses, games);
+    EXPECT_EQ(wins, 4);
+    EXPECT_EQ(losses, 1);
+    EXPECT_EQ(games, 5);
+
+    int currentWins = 0;
+    int currentLosses = 0;
+    int longestWins = 0;
+    int longestLosses = 0;
+    dbManager->GetStreakStats(
+        pid,
+        currentWins,
+        currentLosses,
+        longestWins,
+        longestLosses);
+    EXPECT_EQ(currentWins, 1);
+    EXPECT_EQ(currentLosses, 0);
+    EXPECT_EQ(longestWins, 3);
+    EXPECT_EQ(longestLosses, 1);
+
+    std::vector<SessionMatchSummary> matches;
+    dbManager->GetRecentMatchHistory(pid, matches, 10);
+    ASSERT_EQ(matches.size(), 5u);
+    EXPECT_TRUE(matches[0].win);
+    EXPECT_FALSE(matches[1].win);
+    EXPECT_TRUE(matches[2].win);
 }

@@ -936,6 +936,10 @@ void TelemetryReducer::FinalizeMatchLocked(int winnerTeam, MatchFinalizeSource s
         snapshot.rosterMmrCategory = rosterCat;
         snapshot.graphMmrCategory = graphCat;
         snapshot.myPrimaryId = m_state->game.myPrimaryId;
+        snapshot.endedAtUnixMs =
+            std::chrono::duration_cast<std::chrono::milliseconds>(
+                std::chrono::system_clock::now().time_since_epoch())
+                .count();
 
         m_lastSavedMatchGuid = m_state->game.matchGuid;
 

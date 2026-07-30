@@ -232,6 +232,35 @@ void DatabaseManager::SaveMatch(const MatchSaveSnapshot& snapshot) {
     if (snapshot.myTeam != 0 && snapshot.myTeam != 1) return;
     if (snapshot.winnerTeam != 0 && snapshot.winnerTeam != 1) return;
 
+    if (!snapshot.matchGuid.empty()) {
+        sqlite3_stmt* duplicateCheck = nullptr;
+        const char* duplicateSql =
+            "SELECT 1 FROM Matches WHERE match_guid = ? LIMIT 1;";
+        if (sqlite3_prepare_v2(
+                m_db,
+                duplicateSql,
+                -1,
+                &duplicateCheck,
+                nullptr) == SQLITE_OK) {
+            sqlite3_bind_text(
+                duplicateCheck,
+                1,
+                snapshot.matchGuid.c_str(),
+                -1,
+                SQLITE_TRANSIENT);
+            const bool alreadySaved =
+                sqlite3_step(duplicateCheck) == SQLITE_ROW;
+            sqlite3_finalize(duplicateCheck);
+            if (alreadySaved) {
+                std::cout
+                    << "[Database] Skipping duplicate match GUID.\n";
+                return;
+            }
+        } else if (duplicateCheck) {
+            sqlite3_finalize(duplicateCheck);
+        }
+    }
+
     bool win = (snapshot.winnerTeam == snapshot.myTeam);
 
     int ourScore = snapshot.myTeam == 1 ? snapshot.score[1] : snapshot.score[0];
@@ -253,7 +282,9 @@ void DatabaseManager::SaveMatch(const MatchSaveSnapshot& snapshot) {
         return;
     }
 
-    std::string sqlMatches = "INSERT INTO Matches (arena, our_score, their_score, win, match_guid, gamemode, player_count) VALUES (?, ?, ?, ?, ?, ?, ?);";
+    std::string sqlMatches =
+        "INSERT INTO Matches (arena, our_score, their_score, win, match_guid, gamemode, player_count, timestamp) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, COALESCE(strftime('%Y-%m-%d %H:%M:%f', NULLIF(?, 0) / 1000.0, 'unixepoch'), CURRENT_TIMESTAMP));";
     sqlite3_stmt* stmtMatches;
 
     if (sqlite3_prepare_v2(m_db, sqlMatches.c_str(), -1, &stmtMatches, nullptr) != SQLITE_OK) {
@@ -269,6 +300,8 @@ void DatabaseManager::SaveMatch(const MatchSaveSnapshot& snapshot) {
     sqlite3_bind_text(stmtMatches, 5, snapshot.matchGuid.c_str(), -1, SQLITE_TRANSIENT);
     sqlite3_bind_text(stmtMatches, 6, gamemode.c_str(), -1, SQLITE_TRANSIENT);
     sqlite3_bind_int(stmtMatches, 7, playerCount);
+    sqlite3_bind_int64(
+        stmtMatches, 8, snapshot.endedAtUnixMs);
 
     bool ok = true;
     if (sqlite3_step(stmtMatches) != SQLITE_DONE) {
@@ -712,7 +745,7 @@ void DatabaseManager::GetStreakStats(const std::string& primaryId, int& outCurWi
         SELECT Matches.win FROM Matches
         JOIN MatchPlayers ON MatchPlayers.match_id = Matches.id
         WHERE MatchPlayers.primary_id = ?
-        ORDER BY Matches.timestamp DESC
+        ORDER BY Matches.timestamp DESC, Matches.id DESC
         LIMIT 500;
     )";
 
@@ -979,7 +1012,6 @@ void DatabaseManager::AsyncSaveMatch(MatchSaveSnapshot snapshot) {
                 m_state->history.recentSavedMatchesLoaded = true;
                 m_state->history.version++;
             }
-            if (m_state) m_state->ui.dbStatsDirty.store(true);
         },
                       DbJobPriority::Critical)) {
         std::cerr << "[Database] Failed to enqueue match save during shutdown.\n";
