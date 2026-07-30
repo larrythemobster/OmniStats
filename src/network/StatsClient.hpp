@@ -2,6 +2,7 @@
 #include <memory>
 #include <atomic>
 #include <string>
+#include <mutex>
 #include "core/SessionState.hpp"
 #include "core/TelemetryReducer.hpp"
 #include "core/SideEffectExecutor.hpp"
@@ -25,6 +26,12 @@ class StatsClient {
   private:
     void RunLoop();
     void OnJsonLine(const std::string& jsonStr);
+    void HandleDestroyedMatchConfirmation(const std::string& matchGuid, bool won);
+
+    struct ConfirmationCallbackGuard {
+        std::mutex mutex;
+        StatsClient* owner = nullptr;
+    };
 
     std::shared_ptr<SessionState> m_state;
     std::shared_ptr<MMRFetcher> m_mmrFetcher;
@@ -34,6 +41,8 @@ class StatsClient {
     TelemetryParser m_parser;
     TelemetryReducer m_reducer;
     SideEffectExecutor m_executor;
+    std::mutex m_reducerMutex;
+    std::shared_ptr<ConfirmationCallbackGuard> m_confirmationCallbackGuard;
 
     std::jthread m_workerThread;
     std::atomic<bool> m_isRunning{false};

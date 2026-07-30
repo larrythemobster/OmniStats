@@ -62,6 +62,11 @@ void SessionState::resetMatch(const std::string& newArena, const std::string& ne
 
     game.localPlayerWasActive = false;
     game.localPlayerWasSpectator = false;
+    game.localPlayerPresenceObserved = false;
+    game.localPlayerPresentInLatestUpdate = false;
+    game.explicitLocalForfeit = false;
+    game.excludedEarlyExitContext = false;
+    game.earlyExitExclusionReason.clear();
     game.lobbyWasEverFull = false;
     game.currentTeamPlayersSeen = {0, 0};
     game.maxTeamPlayersSeen = {0, 0};

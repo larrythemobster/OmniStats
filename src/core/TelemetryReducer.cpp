@@ -7,6 +7,8 @@
 #include <iostream>
 #include <algorithm>
 #include <utility>
+#include <cctype>
+#include <optional>
 
 static std::string FormatArenaName(const std::string& asset) {
     if (asset.empty()) return "";
@@ -75,11 +77,63 @@ static MmrCategory CategoryFromMatchContext(const GameState& game) {
     return CategoryFromTeamCounts(game.maxTeamPlayersSeen, game.roundEverStarted);
 }
 
+static bool IsTrackedRankedEarlyExitMode(const std::string& mode) {
+    return mode == "1v1" || mode == "2v2" || mode == "3v3" ||
+           mode == "hoops" || mode == "rumble" || mode == "dropshot" ||
+           mode == "snowday" || mode == "heatseeker";
+}
+
+static std::string Lowercase(std::string value) {
+    std::transform(value.begin(), value.end(), value.begin(), [](unsigned char c) {
+        return static_cast<char>(std::tolower(c));
+    });
+    return value;
+}
+
+static bool ReadTrueBoolean(const nlohmann::json& object,
+                            std::initializer_list<const char*> keys) {
+    if (!object.is_object()) return false;
+    for (const char* key : keys) {
+        if (object.contains(key) && object[key].is_boolean() &&
+            object[key].get<bool>()) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static std::optional<int> ReadInteger(const nlohmann::json& object,
+                                      std::initializer_list<const char*> keys) {
+    if (!object.is_object()) return std::nullopt;
+    for (const char* key : keys) {
+        if (object.contains(key) && object[key].is_number_integer()) {
+            return object[key].get<int>();
+        }
+    }
+    return std::nullopt;
+}
+
+static bool ContainsExcludedMatchType(const nlohmann::json& game) {
+    if (!game.is_object()) return false;
+    for (const char* key : {"Playlist", "PlaylistName", "MatchType", "GameMode"}) {
+        if (!game.contains(key) || !game[key].is_string()) continue;
+        const std::string value = Lowercase(game[key].get<std::string>());
+        if (value.find("casual") != std::string::npos ||
+            value.find("private") != std::string::npos ||
+            value.find("training") != std::string::npos ||
+            value.find("exhibition") != std::string::npos) {
+            return true;
+        }
+    }
+    return false;
+}
+
 TelemetryReducer::TelemetryReducer(std::shared_ptr<SessionState> state)
     : m_state(state) {
     m_cachedConf = Config::Read();
     m_lastConfigReadTime = std::chrono::steady_clock::now();
 }
+
 
 void TelemetryReducer::OnConfigChanged() {
     m_cachedConf = Config::Read();
@@ -93,22 +147,59 @@ SideEffects TelemetryReducer::Reduce(const std::string& eventName, const nlohman
     m_cachedConf = Config::Read();
 
     if (eventName == Constants::EVT_REPLAY_CREATED) {
+        // ReplayCreated is documented for Match History replay playback,
+        // not an in-match goal replay.
+        m_nonLiveReplayActive = true;
         m_state->game.inReplay = true;
         return effects;
     }
 
     if (eventName == Constants::EVT_MATCH_CREATED) {
         m_state->game.inReplay = false;
+        m_nonLiveReplayActive = false;
         m_roundActive = false;
-        std::string newGuid = (data.contains("MatchGuid") && data["MatchGuid"].is_string()) ? data["MatchGuid"].get<std::string>() : "";
-        if (newGuid != m_state->game.matchGuid) {
-            std::string currentArena = m_state->game.arenaName;
+        const std::string incomingGuid =
+            (data.contains("MatchGuid") &&
+             data["MatchGuid"].is_string())
+                ? data["MatchGuid"].get<std::string>()
+                : "";
+        const bool startsNewLifecycle =
+            !m_state->game.inMatch ||
+            incomingGuid != m_state->game.matchGuid;
+        if (startsNewLifecycle) {
+            LocalPreMatchMmrSnapshot initialMmrSnapshot;
+            bool hasInitialMmrSnapshot = false;
+            if (!m_state->game.myPrimaryId.empty()) {
+                const auto playerIt =
+                    m_state->game.roster.find(
+                        m_state->game.myPrimaryId);
+                if (playerIt !=
+                        m_state->game.roster.end() &&
+                    !playerIt->second.playlists.empty()) {
+                    initialMmrSnapshot.playlistMmrs =
+                        playerIt->second.playlists;
+                    initialMmrSnapshot.playlistMatches =
+                        playerIt->second.playlistMatches;
+                    hasInitialMmrSnapshot = true;
+                }
+            }
+
+            const std::string currentArena =
+                m_state->game.arenaName;
             m_state->resetMatch(currentArena);
-            m_autoSwitchedPlaylistCategory = MmrCategory::Best;
+            m_state->game.activeMatchGeneration =
+                ++m_nextMatchGeneration;
+            m_state->game.matchGuid = incomingGuid;
+            if (hasInitialMmrSnapshot) {
+                m_state->game.preMatchMmrByGuid.emplace(
+                    incomingGuid,
+                    std::move(initialMmrSnapshot));
+            }
+            m_autoSwitchedPlaylistCategory =
+                MmrCategory::Best;
             m_lastPlayerBoost.clear();
             m_lastPlayerSeen.clear();
         }
-        m_state->game.matchGuid = newGuid;
         return effects;
     }
 
@@ -131,34 +222,123 @@ SideEffects TelemetryReducer::Reduce(const std::string& eventName, const nlohman
     } else if (eventName == Constants::EVT_MATCH_ENDED) {
         HandleMatchEnded(data, effects);
     } else if (eventName == Constants::EVT_MATCH_DESTROYED) {
-        m_roundActive = false;
-        if (m_state->game.inMatch) {
-            if (m_state->game.inMatch.load() &&
-                !m_state->game.inReplay.load() &&
-                !m_state->game.matchFinalized &&
-                m_state->game.roundEverStarted &&
-                m_state->game.localPlayerWasActive &&
-                (m_state->game.myTeam == 0 || m_state->game.myTeam == 1)) {
-
-                int winnerTeam = -1;
-                if (m_state->game.score[0] != m_state->game.score[1]) {
-                    winnerTeam = (m_state->game.score[0] > m_state->game.score[1]) ? 0 : 1;
-                }
-                FinalizeMatchLocked(winnerTeam, MatchFinalizeSource::MatchDestroyed, effects);
-            }
-
-            m_state->game.inMatch = false;
-            m_state->game.arenaName = "";
-            m_state->game.arenaAsset = "";
-            m_state->game.myTeam = -1;
-            m_state->game.inReplay = false;
-            std::cout << "[Event] Match Destroyed (Back to Menu)\n";
-            effects.pushDiscord = true;
-            effects.discordSnapshot = BuildDiscordSnapshotLocked();
-        }
+        HandleMatchDestroyed(data, effects);
     }
 
     return effects;
+}
+
+void TelemetryReducer::CapturePreMatchMmrLocked() {
+    const std::string& matchGuid = m_state->game.matchGuid;
+    if (matchGuid.empty() ||
+        m_state->game.preMatchMmrByGuid.count(matchGuid) > 0 ||
+        m_state->game.myPrimaryId.empty()) {
+        return;
+    }
+
+    const auto playerIt = m_state->game.roster.find(m_state->game.myPrimaryId);
+    if (playerIt == m_state->game.roster.end()) return;
+
+    bool hasPlaylistMmr = false;
+    for (const auto& [playlist, mmr] : playerIt->second.playlists) {
+        if (playlist != "best" && mmr > 0) {
+            hasPlaylistMmr = true;
+            break;
+        }
+    }
+    if (!hasPlaylistMmr) return;
+
+    m_state->game.preMatchMmrByGuid.emplace(
+        matchGuid,
+        LocalPreMatchMmrSnapshot{
+            .playlistMmrs = playerIt->second.playlists,
+            .playlistMatches = playerIt->second.playlistMatches});
+    std::cout
+        << "[TelemetryReducer] Captured pre-match MMR snapshot: matchGuid="
+        << PrivacyLog::Sensitive(matchGuid, "match GUID")
+        << ".\n";
+}
+bool TelemetryReducer::AttachTerminalGuidToCurrentLocked(
+    const std::string& eventMatchGuid) {
+    if (eventMatchGuid.empty() ||
+        !m_state->game.inMatch ||
+        m_state->game.matchFinalized ||
+        !m_state->game.matchGuid.empty() ||
+        m_missingGuidAssociationBlockedByReconnect ||
+        m_finalizedMatchGuids.count(eventMatchGuid) > 0 ||
+        m_pendingDestroyedMatches.count(eventMatchGuid) > 0) {
+        return false;
+    }
+
+    auto guidlessSnapshot =
+        m_state->game.preMatchMmrByGuid.extract("");
+    if (!guidlessSnapshot.empty()) {
+        guidlessSnapshot.key() = eventMatchGuid;
+        m_state->game.preMatchMmrByGuid.insert(
+            std::move(guidlessSnapshot));
+    }
+    m_state->game.matchGuid = eventMatchGuid;
+    CapturePreMatchMmrLocked();
+    return true;
+}
+
+
+bool TelemetryReducer::HasExplicitLocalForfeitSignal(const nlohmann::json& data,
+                                                     int localTeam) {
+    const auto scopeHasSignal = [&](const nlohmann::json& scope) {
+        if (ReadTrueBoolean(
+                scope,
+                {"bLocalPlayerForfeit",
+                 "bLocalForfeit",
+                 "LocalPlayerForfeit",
+                 "bLocalPlayerAbandoned",
+                 "bLocalPlayerAbandon",
+                 "LocalPlayerAbandoned"})) {
+            return true;
+        }
+
+        if (!ReadTrueBoolean(scope, {"bForfeit", "Forfeit"})) return false;
+
+        const auto forfeitingTeam = ReadInteger(
+            scope,
+            {"ForfeitTeamNum", "ForfeitingTeamNum", "AbandoningTeamNum"});
+        if (forfeitingTeam && (*forfeitingTeam == 0 || *forfeitingTeam == 1)) {
+            return *forfeitingTeam == localTeam;
+        }
+
+        const auto winner =
+            ReadInteger(scope, {"WinnerTeamNum", "winner_team_num"});
+        return winner && (*winner == 0 || *winner == 1) &&
+               (localTeam == 0 || localTeam == 1) && *winner != localTeam;
+    };
+
+    if (scopeHasSignal(data)) return true;
+    return data.contains("Game") && data["Game"].is_object() &&
+           scopeHasSignal(data["Game"]);
+}
+
+void TelemetryReducer::UpdateLifecycleSignalsLocked(const nlohmann::json& data) {
+    if (HasExplicitLocalForfeitSignal(data, m_state->game.myTeam)) {
+        m_state->game.explicitLocalForfeit = true;
+    }
+
+    const nlohmann::json* game =
+        data.contains("Game") && data["Game"].is_object() ? &data["Game"] : nullptr;
+    if (!game) return;
+
+
+    if (ReadTrueBoolean(
+            *game,
+            {"bPrivateMatch",
+             "bTraining",
+             "bExhibition",
+             "bCasualMatch",
+             "bTournamentSpectator"}) ||
+        ContainsExcludedMatchType(*game)) {
+        m_state->game.excludedEarlyExitContext = true;
+        m_state->game.earlyExitExclusionReason =
+            "explicit_non_competitive_context";
+    }
 }
 
 void TelemetryReducer::HandleUpdateState(const nlohmann::json& data, SideEffects& effects) {
@@ -179,7 +359,31 @@ void TelemetryReducer::HandleUpdateState(const nlohmann::json& data, SideEffects
             std::string currentArena = FormatArenaName(currentArenaAsset);
             if (!currentArena.empty() &&
                 (currentArena != m_state->game.arenaName || currentArenaAsset != m_state->game.arenaAsset)) {
+                const std::string matchGuid = m_state->game.matchGuid;
+                const bool startsNewLifecycle =
+                    !m_state->game.inMatch;
+                LocalPreMatchMmrSnapshot preservedMmrSnapshot;
+                bool hasPreservedMmrSnapshot = false;
+                const auto snapshotIt = m_state->game.preMatchMmrByGuid.find(matchGuid);
+                if (snapshotIt !=
+                    m_state->game.preMatchMmrByGuid.end()) {
+                    preservedMmrSnapshot = std::move(snapshotIt->second);
+                    hasPreservedMmrSnapshot = true;
+                }
                 m_state->resetMatch(currentArena, currentArenaAsset);
+                if (startsNewLifecycle) {
+                    m_state->game.activeMatchGeneration =
+                        ++m_nextMatchGeneration;
+                    m_missingGuidAssociationBlockedByReconnect =
+                        false;
+                }
+                if (!startsNewLifecycle &&
+                    hasPreservedMmrSnapshot) {
+                    m_state->game.preMatchMmrByGuid.emplace(
+                        matchGuid, std::move(preservedMmrSnapshot));
+                } else if (startsNewLifecycle) {
+                    m_state->game.matchGuid.clear();
+                }
                 m_roundActive = false;
                 m_autoSwitchedPlaylistCategory = MmrCategory::Best;
                 m_lastPlayerBoost.clear();
@@ -200,6 +404,7 @@ void TelemetryReducer::HandleUpdateState(const nlohmann::json& data, SideEffects
             }
         }
     }
+    UpdateLifecycleSignalsLocked(data);
 
     if (isSpectator && !gameReplayActive) {
         m_state->game.localPlayerWasSpectator = true;
@@ -501,6 +706,32 @@ void TelemetryReducer::HandleUpdateState(const nlohmann::json& data, SideEffects
                 }
             }
         }
+        if (!m_state->game.myPrimaryId.empty()) {
+            bool localPlayerPresent = false;
+            for (const auto& player : data["Players"]) {
+                if (!player.contains("PrimaryId") ||
+                    !player["PrimaryId"].is_string()) {
+                    continue;
+                }
+                std::string playerId = player["PrimaryId"].get<std::string>();
+                if (playerId == "Unknown" ||
+                    playerId.rfind("Unknown|", 0) == 0) {
+                    if (player.contains("Name") && player["Name"].is_string()) {
+                        playerId =
+                            "Unknown|" + player["Name"].get<std::string>();
+                    }
+                }
+                if (playerId == m_state->game.myPrimaryId) {
+                    localPlayerPresent = true;
+                    break;
+                }
+            }
+            m_state->game.localPlayerPresenceObserved = true;
+            m_state->game.localPlayerPresentInLatestUpdate =
+                localPlayerPresent;
+        }
+
+        CapturePreMatchMmrLocked();
     }
 
     if (m_cachedConf.auto_save_replays && !m_state->game.matchGuid.empty() && m_state->game.myTeam != -1) {
@@ -660,44 +891,145 @@ int TelemetryReducer::ExpectedTeamSizeForMode(const std::string& mode) {
     return 0;
 }
 
-TelemetryReducer::MatchEndDecision TelemetryReducer::ClassifyMatchEndLocked(int winnerTeam) const {
+TelemetryReducer::CapturedMatch TelemetryReducer::CaptureMatchLocked() const {
+    const auto& game = m_state->game;
+    CapturedMatch match;
+    match.arenaName = game.arenaName;
+    match.arenaAsset = game.arenaAsset;
+    match.matchGuid = game.matchGuid;
+    match.matchGeneration = game.activeMatchGeneration;
+    match.myPrimaryId = game.myPrimaryId;
+    match.myTeam = game.myTeam;
+    match.score = game.score;
+    match.maxPlayersSeen = game.maxPlayersSeen;
+    match.maxTeamPlayersSeen = game.maxTeamPlayersSeen;
+    match.roundEverStarted = game.roundEverStarted;
+    match.localPlayerWasActive = game.localPlayerWasActive;
+    match.localPlayerWasSpectator = game.localPlayerWasSpectator;
+    match.lobbyWasEverFull = game.lobbyWasEverFull;
+    match.localPlayerDisappeared =
+        game.localPlayerPresenceObserved &&
+        !game.localPlayerPresentInLatestUpdate;
+    match.explicitLocalForfeit = game.explicitLocalForfeit;
+    match.nonLiveReplay = m_nonLiveReplayActive;
+    match.stats = game.currentMatch;
+    match.roster = game.matchRoster;
+    for (const auto& [primaryId, player] : game.roster) {
+        match.roster[primaryId] = player;
+    }
+    match.rosterMmrCategory = m_state->ui.rosterMmrCategory.load();
+    match.graphMmrCategory = m_state->ui.graphMmrCategory.load();
+    match.mode = InferModeFromMatchState(
+        game, match.rosterMmrCategory, match.graphMmrCategory);
+    const auto snapshotIt = game.preMatchMmrByGuid.find(game.matchGuid);
+    if (snapshotIt != game.preMatchMmrByGuid.end()) {
+        match.preMatchMmr = snapshotIt->second;
+        match.hasPreMatchMmr = true;
+    }
+    match.endedAtUnixMs =
+        std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::system_clock::now().time_since_epoch())
+            .count();
+    return match;
+}
+
+bool TelemetryReducer::BuildPostMatchMmrRefreshLocked(
+    const CapturedMatch& match,
+    bool won,
+    PostMatchMmrRefresh& refresh) const {
+    if (match.matchGuid.empty() || match.myPrimaryId.empty() ||
+        !GamemodeUtils::IsTrackedCompetitiveMode(match.mode)) {
+        return false;
+    }
+
+    const auto playerIt = match.roster.find(match.myPrimaryId);
+    if (playerIt == match.roster.end()) return false;
+    const auto& player = playerIt->second;
+
+    int previousMmr = player.mmr;
+    int previousMatches = -1;
+    bool previousMmrIsPlaylistSpecific = false;
+    bool usedCapturedSnapshot = false;
+    if (match.hasPreMatchMmr) {
+        const auto mmrIt = match.preMatchMmr.playlistMmrs.find(match.mode);
+        if (mmrIt != match.preMatchMmr.playlistMmrs.end() &&
+            mmrIt->second > 0) {
+            previousMmr = mmrIt->second;
+            previousMmrIsPlaylistSpecific = true;
+            usedCapturedSnapshot = true;
+            const auto matchesIt =
+                match.preMatchMmr.playlistMatches.find(match.mode);
+            if (matchesIt != match.preMatchMmr.playlistMatches.end()) {
+                previousMatches = matchesIt->second;
+            }
+        }
+    }
+    if (!usedCapturedSnapshot) {
+        const auto playlistIt = player.playlists.find(match.mode);
+        if (playlistIt != player.playlists.end() && playlistIt->second > 0) {
+            previousMmr = playlistIt->second;
+            previousMmrIsPlaylistSpecific = true;
+        }
+        const auto matchesIt = player.playlistMatches.find(match.mode);
+        if (matchesIt != player.playlistMatches.end()) {
+            previousMatches = matchesIt->second;
+        }
+    }
+
+    refresh = PostMatchMmrRefresh{
+        .primaryId = match.myPrimaryId,
+        .name = player.name,
+        .matchGuid = match.matchGuid,
+        .playlist = match.mode,
+        .previousMmr = previousMmr,
+        .previousMatches = previousMatches,
+        .previousMmrIsPlaylistSpecific =
+            previousMmrIsPlaylistSpecific,
+        .won = won};
+    return true;
+}
+
+TelemetryReducer::MatchEndDecision TelemetryReducer::ClassifyMatchEndLocked(
+    const CapturedMatch& match,
+    int winnerTeam) const {
     MatchEndDecision decision;
+
+    if (match.nonLiveReplay) {
+        decision.voidReason = "non_live_replay";
+        return decision;
+    }
 
     if (winnerTeam != 0 && winnerTeam != 1) {
         decision.voidReason = "invalid_winner";
         return decision;
     }
 
-    if (m_state->game.myTeam != 0 && m_state->game.myTeam != 1) {
-        decision.voidReason = m_state->game.localPlayerWasSpectator
+    if (match.myTeam != 0 && match.myTeam != 1) {
+        decision.voidReason = match.localPlayerWasSpectator
                                   ? "local_player_spectator_bug"
                                   : "local_player_team_unknown";
         return decision;
     }
 
-    if (!m_state->game.roundEverStarted) {
+    if (!match.roundEverStarted) {
         decision.voidReason = "round_never_started";
         return decision;
     }
 
-    if (!m_state->game.localPlayerWasActive) {
-        decision.voidReason = m_state->game.localPlayerWasSpectator
+    if (!match.localPlayerWasActive) {
+        decision.voidReason = match.localPlayerWasSpectator
                                   ? "local_player_spectator_bug"
                                   : "local_player_never_active";
         return decision;
     }
 
-    const MmrCategory rosterCat = m_state->ui.rosterMmrCategory.load();
-    const MmrCategory graphCat = m_state->ui.graphMmrCategory.load();
-    const std::string mode = InferModeFromMatchState(m_state->game, rosterCat, graphCat);
-
-    const int expectedTeamSize = ExpectedTeamSizeForMode(mode);
+    const int expectedTeamSize = ExpectedTeamSizeForMode(match.mode);
     if (expectedTeamSize > 0) {
-        bool teamsWereEverFull = m_state->game.lobbyWasEverFull;
+        bool teamsWereEverFull = match.lobbyWasEverFull;
         if (!teamsWereEverFull) {
             teamsWereEverFull =
-                m_state->game.maxTeamPlayersSeen[0] >= expectedTeamSize &&
-                m_state->game.maxTeamPlayersSeen[1] >= expectedTeamSize;
+                match.maxTeamPlayersSeen[0] >= expectedTeamSize &&
+                match.maxTeamPlayersSeen[1] >= expectedTeamSize;
         }
 
         if (!teamsWereEverFull) {
@@ -708,271 +1040,669 @@ TelemetryReducer::MatchEndDecision TelemetryReducer::ClassifyMatchEndLocked(int 
 
     decision.shouldCount = true;
     decision.shouldPersist = true;
-    decision.iWon = (winnerTeam == m_state->game.myTeam);
+    decision.iWon = winnerTeam == match.myTeam;
     decision.resultText = decision.iWon ? "Win" : "Loss";
     return decision;
 }
 
-void TelemetryReducer::FinalizeMatchLocked(int winnerTeam, MatchFinalizeSource source, SideEffects& effects) {
-    if (m_state->game.matchFinalized) {
-        std::cout << "[TelemetryReducer] Skipping duplicate save: match already finalized.\n";
-        return;
+bool TelemetryReducer::IsValidEarlyCompetitiveExitLocked(
+    std::string& mode,
+    std::string& voidReason) const {
+    const auto& game = m_state->game;
+    if (!game.inMatch) {
+        voidReason = "match_not_active";
+        return false;
+    }
+    if (game.matchFinalized) {
+        voidReason = "match_already_finalized";
+        return false;
+    }
+    if (m_nonLiveReplayActive) {
+        voidReason = "non_live_replay";
+        return false;
+    }
+    if (game.localPlayerWasSpectator) {
+        voidReason = "local_player_spectator_bug";
+        return false;
+    }
+    if (!game.roundEverStarted) {
+        voidReason = "round_never_started";
+        return false;
+    }
+    if (!game.localPlayerWasActive) {
+        voidReason = "local_player_never_active";
+        return false;
+    }
+    if (game.myTeam != 0 && game.myTeam != 1) {
+        voidReason = "local_player_team_unknown";
+        return false;
+    }
+    if (game.matchGuid.empty()) {
+        voidReason = "missing_match_guid";
+        return false;
+    }
+    if (game.excludedEarlyExitContext) {
+        voidReason = game.earlyExitExclusionReason.empty()
+                         ? "explicit_non_competitive_context"
+                         : game.earlyExitExclusionReason;
+        return false;
     }
 
-    if (!m_state->game.matchGuid.empty() && m_state->game.matchGuid == m_lastSavedMatchGuid) {
-        m_state->game.matchFinalized = true;
-        std::cout << "[TelemetryReducer] Skipping duplicate match save for guid: "
-                  << PrivacyLog::Sensitive(m_state->game.matchGuid, "match GUID") << "\n";
-        effects.pushDiscord = true;
-        effects.discordSnapshot = BuildDiscordSnapshotLocked();
-        return;
+    const MmrCategory rosterCategory =
+        m_state->ui.rosterMmrCategory.load();
+    const MmrCategory graphCategory =
+        m_state->ui.graphMmrCategory.load();
+    mode = InferModeFromMatchState(
+        game, rosterCategory, graphCategory);
+    if (!IsTrackedRankedEarlyExitMode(mode)) {
+        voidReason = "untracked_or_non_competitive_playlist";
+        return false;
     }
 
-    if (source == MatchFinalizeSource::MatchDestroyed && winnerTeam == -1) {
-        m_state->game.lastMatchWasVoid = true;
-        m_state->game.lastMatchVoidReason = "destroyed_tied_score_no_winner";
-        m_state->game.matchSummaryScore = m_state->game.score;
-        m_state->game.matchSummaryMyTeam = m_state->game.myTeam;
-        m_state->game.matchSummaryWinnerTeam = -1;
-
-        m_state->game.matchFinalized = true;
-
-        std::cout << "[Event] MATCH VOIDED: destroyed_tied_score_no_winner\n";
-        effects.pushDiscord = true;
-        effects.discordSnapshot = BuildDiscordSnapshotLocked();
-        return;
+    const int expectedTeamSize = ExpectedTeamSizeForMode(mode);
+    if (expectedTeamSize <= 0) {
+        voidReason = "unknown_competitive_team_size";
+        return false;
+    }
+    const bool lobbyWasFull =
+        game.lobbyWasEverFull ||
+        (game.maxTeamPlayersSeen[0] >= expectedTeamSize &&
+         game.maxTeamPlayersSeen[1] >= expectedTeamSize);
+    if (!lobbyWasFull) {
+        voidReason = "lobby_never_full";
+        return false;
     }
 
-    m_state->game.matchFinalized = true;
+    return true;
+}
 
-    MatchEndDecision decision = ClassifyMatchEndLocked(winnerTeam);
+void TelemetryReducer::RecordTerminalMatchGuidLocked(
+    const std::string& matchGuid) {
+    if (!matchGuid.empty()) {
+        m_finalizedMatchGuids.insert(matchGuid);
+    }
+}
 
-    m_state->game.lastMatchWasVoid = !decision.shouldCount;
-    m_state->game.lastMatchVoidReason = decision.voidReason;
+void TelemetryReducer::MarkDestroyedMatchVoidLocked(
+    const std::string& reason,
+    SideEffects& effects) {
+    RecordTerminalMatchGuidLocked(m_state->game.matchGuid);
+    m_state->game.lastMatchWasVoid = true;
+    m_state->game.lastMatchVoidReason = reason;
     m_state->game.matchSummaryScore = m_state->game.score;
     m_state->game.matchSummaryMyTeam = m_state->game.myTeam;
-    m_state->game.matchSummaryWinnerTeam = winnerTeam;
-
-    m_state->ui.showMatchSummary = true;
-    m_state->ui.matchSummaryStartMs.store(
-        std::chrono::duration_cast<std::chrono::milliseconds>(
-            std::chrono::steady_clock::now().time_since_epoch())
-            .count());
-
-    auto fullRoster = m_state->game.matchRoster;
-    for (const auto& [pid, player] : m_state->game.roster) {
-        fullRoster[pid] = player; // live roster wins if newer
-    }
-
-    if (decision.shouldCount) {
-        const bool iWon = decision.iWon;
-
-        if (iWon)
-            m_state->game.sessionTotals.wins++;
-        else
-            m_state->game.sessionTotals.losses++;
-
-        auto& cm = m_state->game.currentMatch;
-        auto& st = m_state->game.sessionTotals;
-        st.goals += cm.goalsSelf;
-        st.saves += cm.savesSelf;
-        st.savesTotal += cm.saves;
-        st.shots += cm.shotsSelf;
-        st.shotsTotal += cm.shots;
-        st.demos += cm.demosSelf;
-        st.demosTotal += cm.demos;
-        st.demoed += cm.demoedSelf;
-        st.crossbars += cm.crossbarsSelf;
-        st.crossbarsTotal += cm.crossbars;
-        st.assists += cm.assistsSelf;
-        st.assistsTotal += cm.assists;
-        st.boostPickedUp += cm.boostPickedUp;
-        st.maxGoalSpeed = std::max(st.maxGoalSpeed, cm.maxGoalSpeed);
-        st.maxGoalSpeedSelf = std::max(st.maxGoalSpeedSelf, cm.maxGoalSpeedSelf);
-        st.maxBallSpeed = std::max(st.maxBallSpeed, cm.maxBallSpeed);
-        st.maxBallSpeedSelf = std::max(st.maxBallSpeedSelf, cm.maxBallSpeedSelf);
-        st.maxImpactForce = std::max(st.maxImpactForce, cm.maxImpactForce);
-        st.maxImpactForceSelf = std::max(st.maxImpactForceSelf, cm.maxImpactForceSelf);
-        if (cm.fastestGoalTime > 0.0f && (st.fastestGoalTime == 0.0f || cm.fastestGoalTime < st.fastestGoalTime))
-            st.fastestGoalTime = cm.fastestGoalTime;
-        if (cm.fastestGoalTimeSelf > 0.0f && (st.fastestGoalTimeSelf == 0.0f || cm.fastestGoalTimeSelf < st.fastestGoalTimeSelf))
-            st.fastestGoalTimeSelf = cm.fastestGoalTimeSelf;
-        st.ownGoals += cm.ownGoals;
-        st.ownGoalsSelf += cm.ownGoalsSelf;
-
-        const MmrCategory rosterCat = m_state->ui.rosterMmrCategory.load();
-        const MmrCategory graphCat = m_state->ui.graphMmrCategory.load();
-        const std::string mode = InferModeFromMatchState(m_state->game, rosterCat, graphCat);
-        const bool isOnesMatch = mode == "1v1";
-        if (!isOnesMatch) {
-            int teamGoalsThisMatch = 0;
-            if (m_state->game.myTeam == 0 || m_state->game.myTeam == 1) {
-                teamGoalsThisMatch = m_state->game.score[m_state->game.myTeam];
-            }
-            if (teamGoalsThisMatch <= 0) {
-                int rosterTeamGoals = 0;
-                for (const auto& [pid, player] : fullRoster) {
-                    if (player.team == m_state->game.myTeam) {
-                        rosterTeamGoals += player.goals;
-                    }
-                }
-                teamGoalsThisMatch = rosterTeamGoals;
-            }
-            const int rawParticipationThisMatch = cm.goalsSelf + cm.assistsSelf;
-            const int participationThisMatch = std::clamp(
-                rawParticipationThisMatch,
-                0,
-                std::max(0, teamGoalsThisMatch));
-            st.teamGoals += std::max(0, teamGoalsThisMatch);
-            st.goalParticipations += participationThisMatch;
-        }
-
-        if (GamemodeUtils::IsTrackedCompetitiveMode(mode)) {
-            auto& gm = m_state->game.sessionGamemodes[mode];
-            if (iWon) {
-                gm.wins++;
-            } else {
-                gm.losses++;
-            }
-            gm.total++;
-        }
-
-        for (auto& [pid, player] : fullRoster) {
-            bool isTeammate = (player.team == m_state->game.myTeam);
-            if (isTeammate) {
-                if (iWon)
-                    player.lifetimeWinsWith++;
-                else
-                    player.lifetimeLossesWith++;
-            } else {
-                if (iWon)
-                    player.lifetimeWinsAgainst++;
-                else
-                    player.lifetimeLossesAgainst++;
-            }
-            player.hasLifetimeData = true;
-
-            if (m_state->game.roster.count(pid)) {
-                m_state->game.roster[pid].lifetimeWinsWith = player.lifetimeWinsWith;
-                m_state->game.roster[pid].lifetimeLossesWith = player.lifetimeLossesWith;
-                m_state->game.roster[pid].lifetimeWinsAgainst = player.lifetimeWinsAgainst;
-                m_state->game.roster[pid].lifetimeLossesAgainst = player.lifetimeLossesAgainst;
-                m_state->game.roster[pid].hasLifetimeData = true;
-            }
-        }
-
-        std::cout << "========================================\n";
-        std::cout << "[Event] MATCH FINALIZED! Final Score: " << m_state->game.score[0] << "-" << m_state->game.score[1] << "\n";
-        std::cout << "========================================\n";
-
-        for (const auto& [pid, player] : fullRoster) {
-            if (player.team != m_state->game.myTeam) continue;
-
-            if (pid == m_state->game.myPrimaryId &&
-                GamemodeUtils::IsTrackedCompetitiveMode(mode) &&
-                !m_state->game.matchGuid.empty()) {
-                int previousMmr = player.mmr;
-                int previousMatches = 0;
-                bool previousMmrIsPlaylistSpecific = false;
-                if (const auto playlistIt = player.playlists.find(mode);
-                    playlistIt != player.playlists.end() && playlistIt->second > 0) {
-                    previousMmr = playlistIt->second;
-                    previousMmrIsPlaylistSpecific = true;
-                }
-                if (const auto matchesIt = player.playlistMatches.find(mode); matchesIt != player.playlistMatches.end()) {
-                    previousMatches = matchesIt->second;
-                }
-                effects.postMatchMmrRefresh = PostMatchMmrRefresh{
-                    .primaryId = pid,
-                    .name = player.name,
-                    .matchGuid = m_state->game.matchGuid,
-                    .playlist = mode,
-                    .previousMmr = previousMmr,
-                    .previousMatches = previousMatches,
-                    .previousMmrIsPlaylistSpecific = previousMmrIsPlaylistSpecific,
-                    .won = iWon};
-            } else {
-                effects.fetchMmrQueue.emplace_back(pid, player.name);
-            }
-        }
-    } else {
-        std::cout << "[Event] MATCH VOIDED: " << decision.voidReason << "\n";
-        effects.pushDiscord = true;
-        effects.discordSnapshot = BuildDiscordSnapshotLocked();
-        return;
-    }
-
-    if (decision.shouldPersist) {
-        int myGoals = m_state->game.currentMatch.goalsSelf;
-        int mySaves = m_state->game.currentMatch.savesSelf;
-        int myDemos = m_state->game.currentMatch.demosSelf;
-        float myFastest = m_state->game.currentMatch.fastestGoalTimeSelf;
-        float myMaxSpeed = m_state->game.currentMatch.maxGoalSpeedSelf;
-
-        nlohmann::json matchRecord = {
-            {"match_guid", m_state->game.matchGuid},
-            {"arena", m_state->game.arenaName},
-            {"result", (winnerTeam == m_state->game.myTeam) ? "Win" : "Loss"},
-            {"score", {m_state->game.score[0], m_state->game.score[1]}},
-            {"stats", {{"goals", myGoals}, {"saves", mySaves}, {"demos", myDemos}, {"fastest_goal", myFastest}, {"max_ball_speed", myMaxSpeed}}},
-            {"timestamp", std::chrono::system_clock::to_time_t(std::chrono::system_clock::now())}};
-
-        const MmrCategory rosterCat = m_state->ui.rosterMmrCategory.load();
-        const MmrCategory graphCat = m_state->ui.graphMmrCategory.load();
-
-        MatchSaveSnapshot snapshot;
-        snapshot.arenaName = m_state->game.arenaName;
-        snapshot.arenaAsset = m_state->game.arenaAsset;
-        snapshot.matchGuid = m_state->game.matchGuid;
-        snapshot.myTeam = m_state->game.myTeam;
-        snapshot.winnerTeam = winnerTeam;
-        snapshot.validResult = decision.shouldPersist;
-        snapshot.voidReason = decision.voidReason;
-        snapshot.maxTeamPlayersSeen = m_state->game.maxTeamPlayersSeen;
-        snapshot.score[0] = m_state->game.score[0];
-        snapshot.score[1] = m_state->game.score[1];
-        snapshot.maxPlayersSeen = std::max(m_state->game.maxPlayersSeen, static_cast<int>(fullRoster.size()));
-        snapshot.roster = std::move(fullRoster);
-        snapshot.rosterMmrCategory = rosterCat;
-        snapshot.graphMmrCategory = graphCat;
-        snapshot.myPrimaryId = m_state->game.myPrimaryId;
-        snapshot.endedAtUnixMs =
-            std::chrono::duration_cast<std::chrono::milliseconds>(
-                std::chrono::system_clock::now().time_since_epoch())
-                .count();
-
-        m_lastSavedMatchGuid = m_state->game.matchGuid;
-
-        effects.saveMatch = true;
-        effects.matchRecord = std::move(matchRecord);
-        effects.saveSnapshot = std::move(snapshot);
-    }
-
+    m_state->game.matchSummaryWinnerTeam = -1;
+    m_state->game.matchFinalized = true;
+    std::cout << "[Event] MATCH VOIDED: " << reason << "\n";
     effects.pushDiscord = true;
     effects.discordSnapshot = BuildDiscordSnapshotLocked();
 }
 
-void TelemetryReducer::HandleMatchEnded(const nlohmann::json& data, SideEffects& effects) {
+void TelemetryReducer::FinalizeMatchLocked(
+    int winnerTeam,
+    MatchFinalizeSource source,
+    SideEffects& effects) {
+    const std::string matchGuid = m_state->game.matchGuid;
+    if (m_state->game.matchFinalized ||
+        (!matchGuid.empty() &&
+         m_finalizedMatchGuids.count(matchGuid) > 0)) {
+        std::cout
+            << "[TelemetryReducer] Skipping duplicate save: match already finalized.\n";
+        return;
+    }
+
+    FinalizeCapturedMatchLocked(
+        CaptureMatchLocked(), winnerTeam, source, true, effects);
+}
+
+void TelemetryReducer::FinalizeCapturedMatchLocked(
+    CapturedMatch match,
+    int winnerTeam,
+    MatchFinalizeSource source,
+    bool enqueueMmrRefresh,
+    SideEffects& effects) {
+    if (!match.matchGuid.empty() &&
+        m_finalizedMatchGuids.count(match.matchGuid) > 0) {
+        std::cout << "[TelemetryReducer] Skipping duplicate match save for guid: "
+                  << PrivacyLog::Sensitive(match.matchGuid, "match GUID")
+                  << "\n";
+        return;
+    }
+
+    const MatchEndDecision decision =
+        ClassifyMatchEndLocked(match, winnerTeam);
+    RecordTerminalMatchGuidLocked(match.matchGuid);
+    const bool isCurrentMatch =
+        match.matchGeneration ==
+            m_state->game.activeMatchGeneration &&
+        match.matchGuid == m_state->game.matchGuid;
+
+    if (isCurrentMatch) {
+        m_state->game.matchFinalized = true;
+        m_state->game.lastMatchWasVoid = !decision.shouldCount;
+        m_state->game.lastMatchVoidReason = decision.voidReason;
+        m_state->game.matchSummaryScore = match.score;
+        m_state->game.matchSummaryMyTeam = match.myTeam;
+        m_state->game.matchSummaryWinnerTeam = winnerTeam;
+        m_state->ui.showMatchSummary = true;
+        m_state->ui.matchSummaryStartMs.store(
+            std::chrono::duration_cast<std::chrono::milliseconds>(
+                std::chrono::steady_clock::now().time_since_epoch())
+                .count());
+    }
+
+    if (!decision.shouldCount) {
+        std::cout << "[Event] MATCH VOIDED: " << decision.voidReason
+                  << "\n";
+        if (isCurrentMatch) {
+            effects.pushDiscord = true;
+            effects.discordSnapshot = BuildDiscordSnapshotLocked();
+        }
+        return;
+    }
+
+    if (!match.matchGuid.empty()) {
+        m_lastSavedMatchGuid = match.matchGuid;
+    }
+
+    const bool iWon = decision.iWon;
+    if (iWon) {
+        m_state->game.sessionTotals.wins++;
+    } else {
+        m_state->game.sessionTotals.losses++;
+    }
+
+    const auto& currentMatch = match.stats;
+    auto& sessionTotals = m_state->game.sessionTotals;
+    sessionTotals.goals += currentMatch.goalsSelf;
+    sessionTotals.saves += currentMatch.savesSelf;
+    sessionTotals.savesTotal += currentMatch.saves;
+    sessionTotals.shots += currentMatch.shotsSelf;
+    sessionTotals.shotsTotal += currentMatch.shots;
+    sessionTotals.demos += currentMatch.demosSelf;
+    sessionTotals.demosTotal += currentMatch.demos;
+    sessionTotals.demoed += currentMatch.demoedSelf;
+    sessionTotals.crossbars += currentMatch.crossbarsSelf;
+    sessionTotals.crossbarsTotal += currentMatch.crossbars;
+    sessionTotals.assists += currentMatch.assistsSelf;
+    sessionTotals.assistsTotal += currentMatch.assists;
+    sessionTotals.boostPickedUp += currentMatch.boostPickedUp;
+    sessionTotals.maxGoalSpeed =
+        std::max(sessionTotals.maxGoalSpeed, currentMatch.maxGoalSpeed);
+    sessionTotals.maxGoalSpeedSelf = std::max(
+        sessionTotals.maxGoalSpeedSelf, currentMatch.maxGoalSpeedSelf);
+    sessionTotals.maxBallSpeed =
+        std::max(sessionTotals.maxBallSpeed, currentMatch.maxBallSpeed);
+    sessionTotals.maxBallSpeedSelf = std::max(
+        sessionTotals.maxBallSpeedSelf, currentMatch.maxBallSpeedSelf);
+    sessionTotals.maxImpactForce = std::max(
+        sessionTotals.maxImpactForce, currentMatch.maxImpactForce);
+    sessionTotals.maxImpactForceSelf = std::max(
+        sessionTotals.maxImpactForceSelf, currentMatch.maxImpactForceSelf);
+    if (currentMatch.fastestGoalTime > 0.0f &&
+        (sessionTotals.fastestGoalTime == 0.0f ||
+         currentMatch.fastestGoalTime <
+             sessionTotals.fastestGoalTime)) {
+        sessionTotals.fastestGoalTime =
+            currentMatch.fastestGoalTime;
+    }
+    if (currentMatch.fastestGoalTimeSelf > 0.0f &&
+        (sessionTotals.fastestGoalTimeSelf == 0.0f ||
+         currentMatch.fastestGoalTimeSelf <
+             sessionTotals.fastestGoalTimeSelf)) {
+        sessionTotals.fastestGoalTimeSelf =
+            currentMatch.fastestGoalTimeSelf;
+    }
+    sessionTotals.ownGoals += currentMatch.ownGoals;
+    sessionTotals.ownGoalsSelf += currentMatch.ownGoalsSelf;
+
+    if (match.mode != "1v1") {
+        int teamGoalsThisMatch = 0;
+        if (match.myTeam == 0 || match.myTeam == 1) {
+            teamGoalsThisMatch = match.score[match.myTeam];
+        }
+        if (teamGoalsThisMatch <= 0) {
+            for (const auto& [primaryId, player] : match.roster) {
+                if (player.team == match.myTeam) {
+                    teamGoalsThisMatch += player.goals;
+                }
+            }
+        }
+        const int participationThisMatch = std::clamp(
+            currentMatch.goalsSelf + currentMatch.assistsSelf,
+            0,
+            std::max(0, teamGoalsThisMatch));
+        sessionTotals.teamGoals += std::max(0, teamGoalsThisMatch);
+        sessionTotals.goalParticipations += participationThisMatch;
+    }
+
+    if (GamemodeUtils::IsTrackedCompetitiveMode(match.mode)) {
+        auto& gamemode = m_state->game.sessionGamemodes[match.mode];
+        if (iWon) {
+            gamemode.wins++;
+        } else {
+            gamemode.losses++;
+        }
+        gamemode.total++;
+    }
+
+    for (auto& [primaryId, player] : match.roster) {
+        const bool isTeammate = player.team == match.myTeam;
+        if (isTeammate) {
+            if (iWon) {
+                player.lifetimeWinsWith++;
+            } else {
+                player.lifetimeLossesWith++;
+            }
+        } else {
+            if (iWon) {
+                player.lifetimeWinsAgainst++;
+            } else {
+                player.lifetimeLossesAgainst++;
+            }
+        }
+        player.hasLifetimeData = true;
+
+        const auto livePlayer = m_state->game.roster.find(primaryId);
+        if (livePlayer != m_state->game.roster.end()) {
+            livePlayer->second.lifetimeWinsWith =
+                player.lifetimeWinsWith;
+            livePlayer->second.lifetimeLossesWith =
+                player.lifetimeLossesWith;
+            livePlayer->second.lifetimeWinsAgainst =
+                player.lifetimeWinsAgainst;
+            livePlayer->second.lifetimeLossesAgainst =
+                player.lifetimeLossesAgainst;
+            livePlayer->second.hasLifetimeData = true;
+        }
+    }
+
+    const char* sourceName = "match-ended";
+    if (source == MatchFinalizeSource::MatchDestroyed) {
+        sourceName = "destroyed-authoritative-winner";
+    } else if (source == MatchFinalizeSource::LocalForfeit) {
+        sourceName = "local-forfeit";
+    } else if (
+        source == MatchFinalizeSource::TrackerConfirmedDestroyed) {
+        sourceName = "tracker-confirmed-destruction";
+    }
+    std::cout << "========================================\n";
+    std::cout << "[Event] MATCH FINALIZED! Final Score: "
+              << match.score[0] << "-" << match.score[1]
+              << ", source=" << sourceName << "\n";
+    std::cout << "========================================\n";
+
+    if (enqueueMmrRefresh) {
+        PostMatchMmrRefresh refresh;
+        const bool hasLocalRefresh =
+            BuildPostMatchMmrRefreshLocked(match, iWon, refresh);
+        if (hasLocalRefresh) {
+            refresh.provisionalImmediately =
+                source == MatchFinalizeSource::LocalForfeit;
+            effects.postMatchMmrRefresh = std::move(refresh);
+        }
+        for (const auto& [primaryId, player] : match.roster) {
+            if (player.team != match.myTeam) continue;
+            if (hasLocalRefresh && primaryId == match.myPrimaryId) {
+                continue;
+            }
+            effects.fetchMmrQueue.emplace_back(primaryId, player.name);
+        }
+    }
+
+    nlohmann::json matchRecord = {
+        {"match_guid", match.matchGuid},
+        {"arena", match.arenaName},
+        {"result", iWon ? "Win" : "Loss"},
+        {"score", {match.score[0], match.score[1]}},
+        {"stats",
+         {{"goals", currentMatch.goalsSelf},
+          {"saves", currentMatch.savesSelf},
+          {"demos", currentMatch.demosSelf},
+          {"fastest_goal", currentMatch.fastestGoalTimeSelf},
+          {"max_ball_speed", currentMatch.maxGoalSpeedSelf}}},
+        {"timestamp", match.endedAtUnixMs / 1000}};
+
+    MatchSaveSnapshot snapshot;
+    snapshot.arenaName = match.arenaName;
+    snapshot.arenaAsset = match.arenaAsset;
+    snapshot.matchGuid = match.matchGuid;
+    snapshot.myTeam = match.myTeam;
+    snapshot.winnerTeam = winnerTeam;
+    snapshot.validResult = decision.shouldPersist;
+    snapshot.voidReason = decision.voidReason;
+    snapshot.maxTeamPlayersSeen = match.maxTeamPlayersSeen;
+    snapshot.score[0] = match.score[0];
+    snapshot.score[1] = match.score[1];
+    snapshot.maxPlayersSeen =
+        std::max(match.maxPlayersSeen,
+                 static_cast<int>(match.roster.size()));
+    snapshot.roster = std::move(match.roster);
+    snapshot.rosterMmrCategory = match.rosterMmrCategory;
+    snapshot.graphMmrCategory = match.graphMmrCategory;
+    snapshot.myPrimaryId = match.myPrimaryId;
+    snapshot.endedAtUnixMs = match.endedAtUnixMs;
+
+    effects.saveMatch = true;
+    effects.matchRecord = std::move(matchRecord);
+    effects.saveSnapshot = std::move(snapshot);
+
+    if (isCurrentMatch) {
+        effects.pushDiscord = true;
+        effects.discordSnapshot = BuildDiscordSnapshotLocked();
+    }
+}
+
+void TelemetryReducer::HandleMatchDestroyed(
+    const nlohmann::json& data,
+    SideEffects& effects) {
+    std::string eventMatchGuid;
+    for (const char* key : {"MatchGuid", "match_guid"}) {
+        if (data.contains(key) && data[key].is_string()) {
+            eventMatchGuid = data[key].get<std::string>();
+            if (!eventMatchGuid.empty()) break;
+        }
+    }
+    const bool hasExplicitEventGuid = !eventMatchGuid.empty();
+    if (hasExplicitEventGuid) {
+        AttachTerminalGuidToCurrentLocked(eventMatchGuid);
+    }
+
+
     m_roundActive = false;
+    UpdateLifecycleSignalsLocked(data);
 
-    int winner = (data.contains("WinnerTeamNum") && data["WinnerTeamNum"].is_number_integer())
-                     ? data["WinnerTeamNum"].get<int>()
-                     : -1;
+    if (!m_state->game.inMatch) {
+        if (m_pendingDestroyedMatches.count(
+                m_state->game.matchGuid) > 0) {
+            std::cout
+                << "[TelemetryReducer] Ignoring duplicate MatchDestroyed for pending match.\n";
+        }
+        return;
+    }
 
-    // Parse final scores if present in MatchEnded event
+
     if (data.contains("Teams") && data["Teams"].is_array()) {
-        for (const auto& t : data["Teams"]) {
-            if (t.contains("TeamNum") && t["TeamNum"].is_number_integer() &&
-                t.contains("Score") && t["Score"].is_number_integer()) {
-                const int teamNum = t["TeamNum"].get<int>();
-                if (teamNum == 0 || teamNum == 1) {
-                    m_state->game.score[teamNum] = t["Score"].get<int>();
+        for (const auto& team : data["Teams"]) {
+            if (!team.contains("TeamNum") ||
+                !team["TeamNum"].is_number_integer() ||
+                !team.contains("Score") ||
+                !team["Score"].is_number_integer()) {
+                continue;
+            }
+            const int teamNumber = team["TeamNum"].get<int>();
+            if (teamNumber == 0 || teamNumber == 1) {
+                m_state->game.score[teamNumber] =
+                    team["Score"].get<int>();
+            }
+        }
+    }
+
+    const bool replayActiveAtDestruction = m_state->game.inReplay;
+
+    const auto authoritativeWinner =
+        ReadInteger(data, {"WinnerTeamNum", "winner_team_num"});
+    if (!m_state->game.matchFinalized &&
+        authoritativeWinner &&
+        (*authoritativeWinner == 0 || *authoritativeWinner == 1)) {
+        const MatchFinalizeSource source =
+            m_state->game.explicitLocalForfeit &&
+                    *authoritativeWinner != m_state->game.myTeam
+                ? MatchFinalizeSource::LocalForfeit
+                : MatchFinalizeSource::MatchDestroyed;
+        FinalizeMatchLocked(*authoritativeWinner, source, effects);
+    } else if (!m_state->game.matchFinalized) {
+        std::string mode;
+        std::string voidReason;
+        const bool validEarlyCompetitiveExit =
+            IsValidEarlyCompetitiveExitLocked(mode, voidReason);
+        if (replayActiveAtDestruction) {
+            const int expectedTeamSize =
+                ExpectedTeamSizeForMode(mode);
+            const bool lobbyWasFull =
+                m_state->game.lobbyWasEverFull ||
+                (expectedTeamSize > 0 &&
+                 m_state->game.maxTeamPlayersSeen[0] >=
+                     expectedTeamSize &&
+                 m_state->game.maxTeamPlayersSeen[1] >=
+                     expectedTeamSize);
+            const char* replayContext =
+                m_nonLiveReplayActive
+                    ? "saved-replay"
+                    : (m_state->game.localPlayerWasSpectator
+                           ? "spectator"
+                           : "goal-replay");
+            std::cout
+                << "[TelemetryReducer] MatchDestroyed during replay: "
+                << "matchGuid="
+                << (m_state->game.matchGuid.empty()
+                        ? "missing"
+                        : "present")
+                << ", replayContext=" << replayContext
+                << ", roundStarted="
+                << (m_state->game.roundEverStarted ? "true"
+                                                   : "false")
+                << ", lobbyWasFull="
+                << (lobbyWasFull ? "true" : "false")
+                << ", playlist="
+                << (mode.empty() ? "unknown" : mode)
+                << ", action="
+                << (!validEarlyCompetitiveExit
+                        ? "void"
+                        : (m_state->game.explicitLocalForfeit
+                               ? "finalize-local-loss"
+                               : "pending-tracker-confirmation"));
+            if (!validEarlyCompetitiveExit) {
+                std::cout << ", reason=" << voidReason;
+            }
+            std::cout << ".\n";
+        }
+        if (!validEarlyCompetitiveExit) {
+            MarkDestroyedMatchVoidLocked(voidReason, effects);
+        } else if (m_state->game.explicitLocalForfeit) {
+            const int winnerTeam = 1 - m_state->game.myTeam;
+            std::cout
+                << "[TelemetryReducer] Competitive match destroyed before MatchEnded: "
+                << "matchGuid="
+                << PrivacyLog::Sensitive(
+                       m_state->game.matchGuid, "match GUID")
+                << ", playlist=" << mode
+                << ", localTeam=" << m_state->game.myTeam
+                << ", score=" << m_state->game.score[0] << "-"
+                << m_state->game.score[1]
+                << ", explicitLocalForfeit=true"
+                << ", action=finalize-local-loss.\n";
+            FinalizeMatchLocked(
+                winnerTeam, MatchFinalizeSource::LocalForfeit, effects);
+        } else {
+            CapturedMatch match = CaptureMatchLocked();
+            match.mode = mode;
+            PostMatchMmrRefresh refresh;
+            if (!BuildPostMatchMmrRefreshLocked(
+                    match, false, refresh)) {
+                MarkDestroyedMatchVoidLocked(
+                    "missing_local_tracker_identity", effects);
+            } else {
+                PendingDestroyedMatchMmrRefresh pending;
+                pending.primaryId = refresh.primaryId;
+                pending.name = refresh.name;
+                pending.matchGuid = refresh.matchGuid;
+                pending.playlist = refresh.playlist;
+                pending.localTeam = match.myTeam;
+                pending.score = match.score;
+                pending.previousMmr = refresh.previousMmr;
+                pending.previousMatches = refresh.previousMatches;
+                pending.previousMmrIsPlaylistSpecific =
+                    refresh.previousMmrIsPlaylistSpecific;
+                pending.localPlayerDisappeared =
+                    match.localPlayerDisappeared;
+                pending.explicitLocalForfeit =
+                    match.explicitLocalForfeit;
+                pending.destroyedAtUnixMs = match.endedAtUnixMs;
+                pending.validCompetitiveMatch = true;
+
+                m_pendingDestroyedMatches.emplace(
+                    match.matchGuid, std::move(match));
+                m_state->game.lastMatchWasVoid = true;
+                m_state->game.lastMatchVoidReason =
+                    "destroyed_pending_tracker_confirmation";
+                m_state->game.matchSummaryScore =
+                    m_state->game.score;
+                m_state->game.matchSummaryMyTeam =
+                    m_state->game.myTeam;
+                m_state->game.matchSummaryWinnerTeam = -1;
+                effects.pendingDestroyedMatch = std::move(pending);
+
+                std::cout
+                    << "[TelemetryReducer] Competitive match destroyed before MatchEnded: "
+                    << "matchGuid="
+                    << PrivacyLog::Sensitive(
+                           m_state->game.matchGuid, "match GUID")
+                    << ", playlist=" << mode
+                    << ", localTeam=" << m_state->game.myTeam
+                    << ", score=" << m_state->game.score[0] << "-"
+                    << m_state->game.score[1]
+                    << ", explicitLocalForfeit="
+                    << (m_state->game.explicitLocalForfeit
+                            ? "true"
+                            : "false")
+                    << ", localPlayerDisappeared="
+                    << (m_state->game.localPlayerPresenceObserved &&
+                                !m_state->game
+                                     .localPlayerPresentInLatestUpdate
+                            ? "true"
+                            : "false")
+                    << ", action=pending-tracker-confirmation.\n";
+            }
+        }
+    }
+
+    m_state->game.inMatch = false;
+    m_state->game.arenaName.clear();
+    m_state->game.arenaAsset.clear();
+    m_state->game.myTeam = -1;
+    m_state->game.inReplay = false;
+    m_nonLiveReplayActive = false;
+    std::cout << "[Event] Match Destroyed (Back to Menu)\n";
+    effects.pushDiscord = true;
+    effects.discordSnapshot = BuildDiscordSnapshotLocked();
+}
+
+SideEffects TelemetryReducer::ConfirmPendingDestroyedMatch(
+    const std::string& matchGuid,
+    bool won) {
+    SideEffects effects;
+    std::unique_lock<std::shared_mutex> lock(m_state->game.mutex);
+    const auto pendingIt =
+        m_pendingDestroyedMatches.find(matchGuid);
+    if (pendingIt == m_pendingDestroyedMatches.end() ||
+        m_finalizedMatchGuids.count(matchGuid) > 0) {
+        std::cout
+            << "[TelemetryReducer] Skipping duplicate destroyed-match confirmation.\n";
+        return effects;
+    }
+
+    CapturedMatch match = std::move(pendingIt->second);
+    m_pendingDestroyedMatches.erase(pendingIt);
+    const int winnerTeam = won ? match.myTeam : 1 - match.myTeam;
+    FinalizeCapturedMatchLocked(
+        std::move(match),
+        winnerTeam,
+        MatchFinalizeSource::TrackerConfirmedDestroyed,
+        false,
+        effects);
+    m_state->game.version++;
+    return effects;
+}
+
+void TelemetryReducer::HandleMatchEnded(
+    const nlohmann::json& data,
+    SideEffects& effects) {
+    const auto winnerValue =
+        ReadInteger(data, {"WinnerTeamNum", "winner_team_num"});
+    const int winner = winnerValue ? *winnerValue : -1;
+
+    std::string eventMatchGuid;
+    for (const char* key : {"MatchGuid", "match_guid"}) {
+        if (data.contains(key) && data[key].is_string()) {
+            eventMatchGuid = data[key].get<std::string>();
+            if (!eventMatchGuid.empty()) break;
+        }
+    }
+    const auto pendingIt =
+        eventMatchGuid.empty()
+            ? m_pendingDestroyedMatches.end()
+            : m_pendingDestroyedMatches.find(eventMatchGuid);
+    if (pendingIt != m_pendingDestroyedMatches.end()) {
+        if (winner != 0 && winner != 1) return;
+
+        CapturedMatch match = std::move(pendingIt->second);
+        m_pendingDestroyedMatches.erase(pendingIt);
+        if (data.contains("Teams") && data["Teams"].is_array()) {
+            for (const auto& team : data["Teams"]) {
+                if (team.contains("TeamNum") &&
+                    team["TeamNum"].is_number_integer() &&
+                    team.contains("Score") &&
+                    team["Score"].is_number_integer()) {
+                    const int teamNumber =
+                        team["TeamNum"].get<int>();
+                    if (teamNumber == 0 || teamNumber == 1) {
+                        match.score[teamNumber] =
+                            team["Score"].get<int>();
+                    }
+                }
+            }
+        }
+        const bool localForfeit =
+            HasExplicitLocalForfeitSignal(data, match.myTeam) &&
+            winner != match.myTeam;
+        const bool won = winner == match.myTeam;
+        const std::string resolvedGuid = match.matchGuid;
+        FinalizeCapturedMatchLocked(
+            std::move(match),
+            winner,
+            localForfeit ? MatchFinalizeSource::LocalForfeit
+                         : MatchFinalizeSource::MatchEnded,
+            false,
+            effects);
+        effects.resolvedDestroyedMatch =
+            ResolvedDestroyedMatch{
+                .matchGuid = resolvedGuid,
+                .won = won};
+        return;
+    }
+
+    if (!m_state->game.inMatch ||
+        m_state->game.matchFinalized) {
+        return;
+    }
+
+    m_roundActive = false;
+    if (data.contains("Teams") && data["Teams"].is_array()) {
+        for (const auto& team : data["Teams"]) {
+            if (team.contains("TeamNum") &&
+                team["TeamNum"].is_number_integer() &&
+                team.contains("Score") &&
+                team["Score"].is_number_integer()) {
+                const int teamNumber =
+                    team["TeamNum"].get<int>();
+                if (teamNumber == 0 || teamNumber == 1) {
+                    m_state->game.score[teamNumber] =
+                        team["Score"].get<int>();
                 }
             }
         }
     }
 
-    FinalizeMatchLocked(winner, MatchFinalizeSource::MatchEnded, effects);
+    const bool localForfeit =
+        HasExplicitLocalForfeitSignal(
+            data, m_state->game.myTeam) &&
+        winner != m_state->game.myTeam;
+    FinalizeMatchLocked(
+        winner,
+        localForfeit ? MatchFinalizeSource::LocalForfeit
+                     : MatchFinalizeSource::MatchEnded,
+        effects);
 }
 
 bool TelemetryReducer::IsSelf(const std::string& name) const {

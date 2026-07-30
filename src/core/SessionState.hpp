@@ -248,12 +248,18 @@ struct GameState {
     std::string arenaName = "";
     std::string arenaAsset = "";
     std::string matchGuid = "";
+    uint64_t activeMatchGeneration = 0;
     std::array<int, 2> score{};
     int maxPlayersSeen = 0;
 
     bool roundEverStarted = false;
     bool localPlayerWasActive = false;
     bool localPlayerWasSpectator = false;
+    bool localPlayerPresenceObserved = false;
+    bool localPlayerPresentInLatestUpdate = false;
+    bool explicitLocalForfeit = false;
+    bool excludedEarlyExitContext = false;
+    std::string earlyExitExclusionReason;
     bool lobbyWasEverFull = false;
 
     std::array<int, 2> currentTeamPlayersSeen{0, 0};

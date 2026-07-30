@@ -13,6 +13,7 @@
 #include <vector>
 #include <nlohmann/json.hpp>
 #include "core/SessionState.hpp"
+#include "core/SideEffects.hpp"
 
 class DatabaseManager;
 
@@ -100,6 +101,9 @@ class MMRFetcher {
                           bool previousMmrIsPlaylistSpecific,
                           bool won,
                           bool provisionalImmediately = false);
+    void EnqueuePendingDestroyedMatch(const PendingDestroyedMatchMmrRefresh& pending);
+    void ResolvePendingDestroyedMatch(const std::string& matchGuid, bool won);
+    void SetDestroyedMatchConfirmationCallback(DestroyedMatchConfirmationCallback callback);
 
     static std::string GetTournamentTierForMmr(int mmr);
     static std::string PlaylistNameForTrackerId(int playlistId);

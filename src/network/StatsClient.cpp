@@ -31,6 +31,23 @@ StatsClient::StatsClient(std::shared_ptr<SessionState> state,
     : m_state(state), m_mmrFetcher(mmrFetcher), m_dbManager(dbManager),
       m_reducer(state) {
     ConfigureFromSavedIdentity(state, dbManager);
+    m_confirmationCallbackGuard =
+        std::make_shared<ConfirmationCallbackGuard>();
+    m_confirmationCallbackGuard->owner = this;
+    if (m_mmrFetcher) {
+        std::weak_ptr<ConfirmationCallbackGuard> weakGuard =
+            m_confirmationCallbackGuard;
+        m_mmrFetcher->SetDestroyedMatchConfirmationCallback(
+            [weakGuard](const std::string& matchGuid, bool won) {
+                const auto guard = weakGuard.lock();
+                if (!guard) return;
+                std::lock_guard<std::mutex> lock(guard->mutex);
+                if (guard->owner) {
+                    guard->owner->HandleDestroyedMatchConfirmation(
+                        matchGuid, won);
+                }
+            });
+    }
 }
 
 StatsClient::~StatsClient() {
@@ -47,6 +64,14 @@ void StatsClient::Start() {
 void StatsClient::Stop() {
     m_isRunning = false;
     m_parser.Stop();
+    if (m_mmrFetcher) {
+        m_mmrFetcher->SetDestroyedMatchConfirmationCallback({});
+    }
+    if (m_confirmationCallbackGuard) {
+        std::lock_guard<std::mutex> lock(
+            m_confirmationCallbackGuard->mutex);
+        m_confirmationCallbackGuard->owner = nullptr;
+    }
     m_executor.Stop();
     if (m_workerThread.joinable()) m_workerThread.join();
 }
@@ -117,12 +142,36 @@ void StatsClient::OnJsonLine(const std::string& jsonStr) {
             else
                 dataObj = msg["Data"];
 
-            SideEffects effects = m_reducer.Reduce(eventName, dataObj);
-            m_executor.Execute(std::move(effects), m_dbManager, m_discordManager, m_mmrFetcher);
+            SideEffects effects;
+            {
+                std::lock_guard<std::mutex> lock(m_reducerMutex);
+                effects = m_reducer.Reduce(eventName, dataObj);
+            }
+            m_executor.Execute(
+                std::move(effects),
+                m_dbManager,
+                m_discordManager,
+                m_mmrFetcher);
         }
     } catch (const std::exception& e) {
         std::cout << "[StatsClient] Error processing line: " << e.what() << "\n";
     }
+}
+
+void StatsClient::HandleDestroyedMatchConfirmation(
+    const std::string& matchGuid,
+    bool won) {
+    SideEffects effects;
+    {
+        std::lock_guard<std::mutex> lock(m_reducerMutex);
+        effects =
+            m_reducer.ConfirmPendingDestroyedMatch(matchGuid, won);
+    }
+    m_executor.Execute(
+        std::move(effects),
+        m_dbManager,
+        m_discordManager,
+        m_mmrFetcher);
 }
 
 void StatsClient::HandleLine(const std::string& line) {

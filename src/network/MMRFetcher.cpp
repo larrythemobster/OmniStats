@@ -1085,6 +1085,101 @@ void MMRFetcher::EnqueuePostMatch(const std::string& primaryId,
     m_cv.notify_one();
 }
 
+void MMRFetcher::EnqueuePendingDestroyedMatch(
+    const PendingDestroyedMatchMmrRefresh& pending) {
+    if (!Config::Read().enable_mmr_tracking ||
+        pending.primaryId.empty() || pending.matchGuid.empty() ||
+        pending.playlist.empty() || !pending.validCompetitiveMatch) {
+        return;
+    }
+
+    MMRRequest request;
+    {
+        std::lock_guard<std::mutex> lock(m_queueMutex);
+        if (m_postMatchRecordsByGuid.count(pending.matchGuid) ||
+            m_pendingPostMatchGuids.count(pending.matchGuid) ||
+            m_completedPostMatchGuids.count(pending.matchGuid)) {
+            return;
+        }
+
+        m_pendingPostMatchGuids.insert(pending.matchGuid);
+        m_postMatchRecordsByGuid.emplace(
+            pending.matchGuid,
+            PendingPostMatchRecord{
+                .matchGuid = pending.matchGuid,
+                .primaryId = pending.primaryId,
+                .playlist = pending.playlist,
+                .preMatchMmr = pending.previousMmr,
+                .preMatchMatchesPlayed = pending.previousMatches,
+                .preMatchMmrIsPlaylistSpecific =
+                    pending.previousMmrIsPlaylistSpecific,
+                .won = false,
+                .resultKnown = false,
+                .destroyedMatch = true,
+                .localPlayerDisappeared =
+                    pending.localPlayerDisappeared,
+                .explicitLocalForfeit =
+                    pending.explicitLocalForfeit,
+                .localTeam = pending.localTeam,
+                .score = pending.score,
+                .destroyedAtUnixMs = pending.destroyedAtUnixMs,
+                .validCompetitiveMatch =
+                    pending.validCompetitiveMatch,
+                .databaseMatchFinalized = false,
+                .graphPointAppended = false});
+        m_pendingPostMatchesByPlaylist[pending.playlist].push_back(
+            pending.matchGuid);
+
+        request.primaryId = pending.primaryId;
+        request.name = pending.name;
+        request.reason = MMRRequestReason::PostMatch;
+        request.matchGuid = pending.matchGuid;
+        request.playlist = pending.playlist;
+        request.previousMmr = pending.previousMmr;
+        request.previousMatches = pending.previousMatches;
+        request.previousMmrIsPlaylistSpecific =
+            pending.previousMmrIsPlaylistSpecific;
+        request.won = false;
+        request.resultKnown = false;
+        request.retriesRemaining = 2;
+        request.notBefore =
+            std::chrono::steady_clock::now() +
+            kPostMatchInitialDelay;
+        m_queue.push_back(request);
+    }
+
+    EnsureProvisionalPoint(
+        request, request.previousMmr, request.previousMmr,
+        request.previousMatches);
+    m_cv.notify_one();
+}
+
+void MMRFetcher::ResolvePendingDestroyedMatch(
+    const std::string& matchGuid,
+    bool won) {
+    std::lock_guard<std::mutex> lock(m_queueMutex);
+    const auto recordIt = m_postMatchRecordsByGuid.find(matchGuid);
+    if (recordIt == m_postMatchRecordsByGuid.end() ||
+        !recordIt->second.destroyedMatch) {
+        return;
+    }
+    recordIt->second.resultKnown = true;
+    recordIt->second.won = won;
+    recordIt->second.databaseMatchFinalized = true;
+    for (auto& request : m_queue) {
+        if (request.matchGuid == matchGuid) {
+            request.resultKnown = true;
+            request.won = won;
+        }
+    }
+}
+
+void MMRFetcher::SetDestroyedMatchConfirmationCallback(
+    DestroyedMatchConfirmationCallback callback) {
+    std::lock_guard<std::mutex> lock(m_queueMutex);
+    m_destroyedMatchConfirmationCallback = std::move(callback);
+}
+
 std::string MMRFetcher::GetTRNPlatform(const std::string& primaryId) {
     size_t delim = primaryId.find('|');
     if (delim == std::string::npos) return "";

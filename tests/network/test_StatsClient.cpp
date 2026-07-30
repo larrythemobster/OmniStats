@@ -44,10 +44,11 @@ TEST(StatsClientTest, MatchEndNonBlockingAndDiscordPush) {
     state->game.myTeam = 0;
     state->game.arenaName = "Stadium";
     state->game.matchGuid = "test_guid";
+    state->game.inMatch = true;
     state->game.roster["Steam|123"] = PlayerData{.primaryId = "Steam|123", .name = "Me", .team = 0, .mmr = 1000};
 
     // Send match ended event
-    std::string matchEndedJson = R"({"Event": "MatchEnded", "Data": {"WinnerTeamNum": 0}})";
+    std::string matchEndedJson = R"({"Event": "MatchEnded", "Data": {"MatchGuid": "test_guid", "WinnerTeamNum": 0}})";
 
     auto tStart = std::chrono::steady_clock::now();
     client.HandleLine(matchEndedJson);

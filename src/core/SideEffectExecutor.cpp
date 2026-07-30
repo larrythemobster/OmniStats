@@ -82,6 +82,16 @@ void SideEffectExecutor::Execute(SideEffects&& effects,
                 true);
     }
 
+    if (effects.resolvedDestroyedMatch && mmrFetcher) {
+        mmrFetcher->ResolvePendingDestroyedMatch(
+            effects.resolvedDestroyedMatch->matchGuid,
+            effects.resolvedDestroyedMatch->won);
+    }
+    if (effects.pendingDestroyedMatch && mmrFetcher) {
+        mmrFetcher->EnqueuePendingDestroyedMatch(
+            *effects.pendingDestroyedMatch);
+    }
+
     if (effects.postMatchMmrRefresh && mmrFetcher) {
         const auto& refresh = *effects.postMatchMmrRefresh;
         mmrFetcher->EnqueuePostMatch(refresh.primaryId,

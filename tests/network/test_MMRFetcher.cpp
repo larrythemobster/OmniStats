@@ -132,6 +132,25 @@ class MMRFetcherTest : public ::testing::Test {
             won);
     }
 
+    void EnqueueDestroyedMatch(
+        const std::string& guid,
+        int previousMmr = 1200,
+        int previousMatches = 50,
+        const std::string& playlist = "2v2") {
+        PendingDestroyedMatchMmrRefresh pending;
+        pending.matchGuid = guid;
+        pending.primaryId = "Steam|123";
+        pending.name = "Player";
+        pending.playlist = playlist;
+        pending.localTeam = 0;
+        pending.score = {0, 0};
+        pending.previousMmr = previousMmr;
+        pending.previousMatches = previousMatches;
+        pending.previousMmrIsPlaylistSpecific = true;
+        pending.validCompetitiveMatch = true;
+        fetcher->EnqueuePendingDestroyedMatch(pending);
+    }
+
 
     std::shared_ptr<SessionState> sessionState;
     std::shared_ptr<MMRFetcher> fetcher;
@@ -620,6 +639,173 @@ TEST_F(MMRFetcherTest, WorkerExhaustsThreeStaleResponsesBeforeOneProvisionalPoin
     EXPECT_EQ(fetcher->PendingRequestCountForTests(), 0u);
 }
 
+TEST_F(MMRFetcherTest, TrackerDecreaseConfirmsDestroyedMatchLossOnce) {
+    std::vector<std::pair<std::string, bool>> confirmations;
+    fetcher->SetDestroyedMatchConfirmationCallback(
+        [&](const std::string& matchGuid, bool won) {
+            confirmations.emplace_back(matchGuid, won);
+        });
+    EnqueueDestroyedMatch("destroyed-loss", 1200, 50);
+
+    fetcher->ProcessPostMatchResponseForTests(
+        "destroyed-loss", 1191, 51);
+
+    ASSERT_EQ(confirmations.size(), 1u);
+    EXPECT_EQ(confirmations[0].first, "destroyed-loss");
+    EXPECT_FALSE(confirmations[0].second);
+    EXPECT_FALSE(
+        fetcher->HasPendingDestroyedMatchForTests(
+            "destroyed-loss"));
+    const auto points =
+        fetcher->PlaylistMatchPointsForTests("2v2");
+    ASSERT_EQ(points.size(), 1u);
+    EXPECT_EQ(points[0].matchGuid, "destroyed-loss");
+    EXPECT_EQ(points[0].mmr, 1191);
+    EXPECT_TRUE(points[0].trackerCovered);
+
+    fetcher->ProcessPostMatchResponseForTests(
+        "destroyed-loss", 1191, 51);
+    EXPECT_EQ(confirmations.size(), 1u);
+    EXPECT_EQ(
+        fetcher->PlaylistMatchPointsForTests("2v2").size(),
+        1u);
+}
+
+TEST_F(MMRFetcherTest, TrackerIncreaseConfirmsDestroyedMatchWin) {
+    std::vector<std::pair<std::string, bool>> confirmations;
+    fetcher->SetDestroyedMatchConfirmationCallback(
+        [&](const std::string& matchGuid, bool won) {
+            confirmations.emplace_back(matchGuid, won);
+        });
+    EnqueueDestroyedMatch("destroyed-win", 1200, 50);
+
+    fetcher->ProcessPostMatchResponseForTests(
+        "destroyed-win", 1209, 51);
+
+    ASSERT_EQ(confirmations.size(), 1u);
+    EXPECT_EQ(confirmations[0].first, "destroyed-win");
+    EXPECT_TRUE(confirmations[0].second);
+    const auto points =
+        fetcher->PlaylistMatchPointsForTests("2v2");
+    ASSERT_EQ(points.size(), 1u);
+    EXPECT_EQ(points[0].mmr, 1209);
+}
+
+TEST_F(MMRFetcherTest, UnpublishedDestroyedMatchRemainsUnconfirmed) {
+    std::vector<std::pair<std::string, bool>> confirmations;
+    fetcher->SetDestroyedMatchConfirmationCallback(
+        [&](const std::string& matchGuid, bool won) {
+            confirmations.emplace_back(matchGuid, won);
+        });
+    EnqueueDestroyedMatch("unconfirmed-disconnect", 1200, 50);
+
+    fetcher->ProcessPostMatchResponseForTests(
+        "unconfirmed-disconnect", 1200, 50);
+
+    EXPECT_TRUE(confirmations.empty());
+    EXPECT_TRUE(
+        fetcher->HasPendingDestroyedMatchForTests(
+            "unconfirmed-disconnect"));
+    const auto points =
+        fetcher->PlaylistMatchPointsForTests("2v2");
+    ASSERT_EQ(points.size(), 1u);
+    EXPECT_EQ(points[0].matchGuid, "unconfirmed-disconnect");
+    EXPECT_EQ(points[0].mmr, 1200);
+    EXPECT_FALSE(points[0].trackerCovered);
+}
+
+TEST_F(MMRFetcherTest, PartialSameBaselinePublicationKeepsDestroyedMatchPending) {
+    std::vector<std::pair<std::string, bool>> confirmations;
+    fetcher->SetDestroyedMatchConfirmationCallback(
+        [&](const std::string& matchGuid, bool won) {
+            confirmations.emplace_back(matchGuid, won);
+        });
+    EnqueueDestroyedMatch(
+        "partial-publication-a", 1200, 50);
+    fetcher->ProcessPostMatchResponseForTests(
+        "partial-publication-a", 1200, 50);
+    EnqueuePostMatch(
+        "partial-publication-b",
+        true,
+        1200,
+        50,
+        "2v2",
+        true);
+
+    fetcher->ProcessPostMatchResponseForTests(
+        "partial-publication-b", 1209, 51);
+
+    EXPECT_TRUE(confirmations.empty());
+    EXPECT_TRUE(
+        fetcher->HasPendingDestroyedMatchForTests(
+            "partial-publication-a"));
+    const auto partialPoints =
+        fetcher->PlaylistMatchPointsForTests("2v2");
+    ASSERT_EQ(partialPoints.size(), 2u);
+    EXPECT_EQ(
+        partialPoints[0].matchGuid,
+        "partial-publication-a");
+    EXPECT_EQ(
+        partialPoints[1].matchGuid,
+        "partial-publication-b");
+    EXPECT_FALSE(partialPoints[0].trackerCovered);
+    EXPECT_FALSE(partialPoints[1].trackerCovered);
+
+    fetcher->ProcessPostMatchResponseForTests(
+        "partial-publication-a", 1209, 51);
+
+    EXPECT_TRUE(confirmations.empty());
+    EXPECT_TRUE(
+        fetcher->HasPendingDestroyedMatchForTests(
+            "partial-publication-a"));
+
+    fetcher->ProcessPostMatchResponseForTests(
+        "partial-publication-b", 1200, 52);
+
+    ASSERT_EQ(confirmations.size(), 1u);
+    EXPECT_EQ(
+        confirmations[0].first,
+        "partial-publication-a");
+    EXPECT_FALSE(confirmations[0].second);
+    EXPECT_FALSE(
+        fetcher->HasPendingDestroyedMatchForTests(
+            "partial-publication-a"));
+    const auto confirmedPoints =
+        fetcher->PlaylistMatchPointsForTests("2v2");
+    ASSERT_EQ(confirmedPoints.size(), 2u);
+    EXPECT_TRUE(confirmedPoints[0].trackerCovered);
+    EXPECT_TRUE(confirmedPoints[1].trackerCovered);
+}
+
+TEST_F(MMRFetcherTest, CumulativeCatchUpPreservesDestroyedThenNormalMatch) {
+    std::vector<std::pair<std::string, bool>> confirmations;
+    fetcher->SetDestroyedMatchConfirmationCallback(
+        [&](const std::string& matchGuid, bool won) {
+            confirmations.emplace_back(matchGuid, won);
+        });
+    EnqueueDestroyedMatch("catch-up-a", 1200, 11);
+    EnqueuePostMatch(
+        "catch-up-b", true, 1200, 11, "2v2", true);
+
+    fetcher->ProcessPostMatchResponseForTests(
+        "catch-up-b", 1200, 13);
+
+    ASSERT_EQ(confirmations.size(), 1u);
+    EXPECT_EQ(confirmations[0].first, "catch-up-a");
+    EXPECT_FALSE(confirmations[0].second);
+    const auto points =
+        fetcher->PlaylistMatchPointsForTests("2v2");
+    ASSERT_EQ(points.size(), 2u);
+    EXPECT_EQ(points[0].matchGuid, "catch-up-a");
+    EXPECT_EQ(points[0].mmr, 1199);
+    EXPECT_EQ(points[1].matchGuid, "catch-up-b");
+    EXPECT_EQ(points[1].mmr, 1200);
+    EXPECT_TRUE(points[0].trackerCovered);
+    EXPECT_TRUE(points[1].trackerCovered);
+    EXPECT_FALSE(
+        fetcher->HasPendingDestroyedMatchForTests(
+            "catch-up-a"));
+}
 
 TEST(SessionMmrAggregationTest, SumsOnlyTrackedCompetitivePlaylists) {
     SessionState state;
