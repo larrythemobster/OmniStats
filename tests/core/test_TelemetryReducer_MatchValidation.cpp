@@ -893,6 +893,59 @@ TEST(TelemetryReducerMatchValidation, DelayedMatchEndedResolvesPendingMatchExact
     EXPECT_EQ(state->game.sessionTotals.losses, 1);
 }
 
+TEST(TelemetryReducerMatchValidation, StaleMatchEndedDoesNotFinalizeNextMatch) {
+    Storage::InitializeEnvironment();
+    auto state = std::make_shared<SessionState>();
+    TelemetryReducer reducer(state);
+    StartRankedOnesMatch(
+        reducer, state, "stale-ended-match-a", 1, 1);
+
+    SideEffects destroyedA = reducer.Reduce(std::string(Constants::EVT_MATCH_DESTROYED), CurrentMatchEvent(state, nlohmann::json{}));
+    ASSERT_TRUE(destroyedA.pendingDestroyedMatch.has_value());
+    SideEffects confirmedA =
+        reducer.ConfirmPendingDestroyedMatch(
+            "stale-ended-match-a", false);
+    ASSERT_TRUE(confirmedA.saveMatch);
+    EXPECT_EQ(state->game.sessionTotals.losses, 1);
+
+    StartRankedOnesMatch(
+        reducer, state, "stale-ended-match-b", 0, 0);
+    ASSERT_EQ(state->game.matchGuid, "stale-ended-match-b");
+    ASSERT_FALSE(state->game.matchFinalized);
+
+    SideEffects staleA = reducer.Reduce(std::string(Constants::EVT_MATCH_ENDED), CurrentMatchEvent(state, nlohmann::json{
+        {"MatchGuid", "stale-ended-match-a"},
+        {"WinnerTeamNum", 0},
+        {"Teams",
+         nlohmann::json::array(
+             {{{"TeamNum", 0}, {"Score", 5}},
+              {{"TeamNum", 1}, {"Score", 0}}})}}));
+
+    EXPECT_FALSE(staleA.saveMatch);
+    EXPECT_FALSE(staleA.resolvedDestroyedMatch.has_value());
+    EXPECT_EQ(state->game.matchGuid, "stale-ended-match-b");
+    EXPECT_FALSE(state->game.matchFinalized);
+    EXPECT_EQ(state->game.score[0], 0);
+    EXPECT_EQ(state->game.score[1], 0);
+    EXPECT_EQ(state->game.sessionTotals.wins, 0);
+    EXPECT_EQ(state->game.sessionTotals.losses, 1);
+
+    SideEffects endedB = reducer.Reduce(std::string(Constants::EVT_MATCH_ENDED), CurrentMatchEvent(state, nlohmann::json{
+        {"MatchGuid", "stale-ended-match-b"},
+        {"WinnerTeamNum", 0},
+        {"Teams",
+         nlohmann::json::array(
+             {{{"TeamNum", 0}, {"Score", 2}},
+              {{"TeamNum", 1}, {"Score", 1}}})}}));
+
+    ASSERT_TRUE(endedB.saveMatch);
+    EXPECT_EQ(
+        endedB.saveSnapshot.matchGuid,
+        "stale-ended-match-b");
+    EXPECT_EQ(endedB.saveSnapshot.winnerTeam, 0);
+    EXPECT_EQ(state->game.sessionTotals.wins, 1);
+    EXPECT_EQ(state->game.sessionTotals.losses, 1);
+}
 
 TEST(TelemetryReducerMatchValidation, DuplicateMatchDestroyedKeepsOnePendingRecord) {
     Storage::InitializeEnvironment();
@@ -1150,6 +1203,824 @@ TEST(TelemetryReducerMatchValidation, OpponentForfeitFinalizesOnceAndOwnsOneGrap
     EXPECT_FALSE(points[0].trackerCovered);
 
     Config::Update([&](ConfigData& config) { config = originalConfig; }, false);
+}
+
+TEST(TelemetryReducerMatchValidation, ExplicitGuidFinalizesCurrentMatchExactlyOnce) {
+    Storage::InitializeEnvironment();
+    auto state = std::make_shared<SessionState>();
+    TelemetryReducer reducer(state);
+    StartRankedOnesMatch(
+        reducer, state, "explicit-current-guid", 2, 1);
+
+    const nlohmann::json ended = {
+        {"MatchGuid", "explicit-current-guid"},
+        {"WinnerTeamNum", 0}};
+    SideEffects first = reducer.Reduce(std::string(Constants::EVT_MATCH_ENDED), CurrentMatchEvent(state, ended));
+    SideEffects duplicate = reducer.Reduce(std::string(Constants::EVT_MATCH_ENDED), CurrentMatchEvent(state, ended));
+
+    ASSERT_TRUE(first.saveMatch);
+    EXPECT_EQ(
+        first.saveSnapshot.matchGuid,
+        "explicit-current-guid");
+    EXPECT_FALSE(duplicate.saveMatch);
+    EXPECT_EQ(state->game.sessionTotals.wins, 1);
+    EXPECT_EQ(state->game.sessionTotals.losses, 0);
+}
+
+TEST(TelemetryReducerMatchValidation, ExplicitGuidFinalizesPendingMatchWithoutTouchingNewerMatch) {
+    Storage::InitializeEnvironment();
+    auto state = std::make_shared<SessionState>();
+    TelemetryReducer reducer(state);
+    StartRankedOnesMatch(
+        reducer, state, "pending-explicit-a", 1, 1);
+    SideEffects destroyedA = reducer.Reduce(std::string(Constants::EVT_MATCH_DESTROYED), CurrentMatchEvent(state, nlohmann::json{}));
+    ASSERT_TRUE(destroyedA.pendingDestroyedMatch.has_value());
+
+    StartRankedOnesMatch(
+        reducer, state, "pending-explicit-b", 0, 0);
+    const uint64_t generationB =
+        state->game.activeMatchGeneration;
+
+    SideEffects endedA = reducer.Reduce(std::string(Constants::EVT_MATCH_ENDED), CurrentMatchEvent(state, nlohmann::json{
+        {"MatchGuid", "pending-explicit-a"},
+        {"WinnerTeamNum", 1}}));
+
+    ASSERT_TRUE(endedA.saveMatch);
+    ASSERT_TRUE(endedA.resolvedDestroyedMatch.has_value());
+    EXPECT_EQ(
+        endedA.saveSnapshot.matchGuid,
+        "pending-explicit-a");
+    EXPECT_EQ(
+        state->game.activeMatchGeneration,
+        generationB);
+    EXPECT_EQ(state->game.matchGuid, "pending-explicit-b");
+    EXPECT_FALSE(state->game.matchFinalized);
+    EXPECT_EQ(state->game.score[0], 0);
+    EXPECT_EQ(state->game.score[1], 0);
+    EXPECT_EQ(state->game.sessionTotals.losses, 1);
+
+    SideEffects duplicateA =
+        reducer.ConfirmPendingDestroyedMatch(
+            "pending-explicit-a", false);
+    EXPECT_FALSE(duplicateA.saveMatch);
+    EXPECT_EQ(state->game.sessionTotals.losses, 1);
+}
+
+TEST(TelemetryReducerMatchValidation, MissingGuidFinalizesOnlyUnambiguousCurrentMatchExactlyOnce) {
+    Storage::InitializeEnvironment();
+    auto state = std::make_shared<SessionState>();
+    TelemetryReducer reducer(state);
+    StartRankedOnesMatch(reducer, state, "", 3, 2);
+
+    const nlohmann::json ended = {
+        {"WinnerTeamNum", 0}};
+    SideEffects first = reducer.Reduce(std::string(Constants::EVT_MATCH_ENDED), CurrentMatchEvent(state, ended));
+    SideEffects duplicate = reducer.Reduce(std::string(Constants::EVT_MATCH_ENDED), CurrentMatchEvent(state, ended));
+
+    ASSERT_TRUE(first.saveMatch);
+    EXPECT_FALSE(duplicate.saveMatch);
+    EXPECT_FALSE(duplicate.postMatchMmrRefresh.has_value());
+    EXPECT_EQ(state->game.sessionTotals.wins, 1);
+    EXPECT_EQ(state->game.sessionTotals.losses, 0);
+}
+
+TEST(TelemetryReducerMatchValidation, MissingGuidCannotCrossPendingMatchGeneration) {
+    Storage::InitializeEnvironment();
+    auto state = std::make_shared<SessionState>();
+    TelemetryReducer reducer(state);
+    StartRankedOnesMatch(
+        reducer, state, "ambiguous-generation-a", 1, 1);
+    const uint64_t generationA =
+        state->game.activeMatchGeneration;
+    SideEffects destroyedA = reducer.Reduce(std::string(Constants::EVT_MATCH_DESTROYED), CurrentMatchEvent(state, nlohmann::json{}));
+    ASSERT_TRUE(destroyedA.pendingDestroyedMatch.has_value());
+
+    StartRankedOnesMatch(
+        reducer, state, "ambiguous-generation-b", 0, 0);
+    const uint64_t generationB =
+        state->game.activeMatchGeneration;
+    ASSERT_GT(generationB, generationA);
+
+    SideEffects ambiguous = reducer.Reduce(
+        std::string(Constants::EVT_MATCH_ENDED),
+        nlohmann::json{
+            {"WinnerTeamNum", 0},
+            {"bForfeit", true},
+            {"Teams",
+             nlohmann::json::array(
+                 {{{"TeamNum", 0}, {"Score", 5}},
+                  {{"TeamNum", 1}, {"Score", 0}}})}});
+
+    EXPECT_FALSE(ambiguous.saveMatch);
+    EXPECT_FALSE(ambiguous.postMatchMmrRefresh.has_value());
+    EXPECT_FALSE(
+        ambiguous.resolvedDestroyedMatch.has_value());
+    EXPECT_EQ(
+        state->game.activeMatchGeneration,
+        generationB);
+    EXPECT_EQ(state->game.matchGuid, "ambiguous-generation-b");
+    EXPECT_FALSE(state->game.matchFinalized);
+    EXPECT_EQ(state->game.score[0], 0);
+    EXPECT_EQ(state->game.score[1], 0);
+    EXPECT_EQ(state->game.sessionTotals.wins, 0);
+    EXPECT_EQ(state->game.sessionTotals.losses, 0);
+
+    SideEffects confirmedA =
+        reducer.ConfirmPendingDestroyedMatch(
+            "ambiguous-generation-a", false);
+    ASSERT_TRUE(confirmedA.saveMatch);
+    EXPECT_EQ(
+        confirmedA.saveSnapshot.matchGuid,
+        "ambiguous-generation-a");
+}
+
+TEST(TelemetryReducerMatchValidation, NormalLifecycleSavesOnceAndStartsNextGenerationCleanly) {
+    Storage::InitializeEnvironment();
+    auto state = std::make_shared<SessionState>();
+    TelemetryReducer reducer(state);
+    StartRankedOnesMatch(
+        reducer, state, "normal-lifecycle-a", 2, 1);
+    const uint64_t generationA =
+        state->game.activeMatchGeneration;
+
+    SideEffects endedA = reducer.Reduce(std::string(Constants::EVT_MATCH_ENDED), CurrentMatchEvent(state, nlohmann::json{
+        {"MatchGuid", "normal-lifecycle-a"},
+        {"WinnerTeamNum", 0}}));
+    SideEffects destroyedA = reducer.Reduce(std::string(Constants::EVT_MATCH_DESTROYED), CurrentMatchEvent(state, nlohmann::json{
+        {"MatchGuid", "normal-lifecycle-a"}}));
+    ASSERT_TRUE(endedA.saveMatch);
+    EXPECT_FALSE(destroyedA.saveMatch);
+    EXPECT_EQ(state->game.sessionTotals.wins, 1);
+
+    StartRankedOnesMatch(
+        reducer, state, "normal-lifecycle-b", 0, 0);
+    EXPECT_GT(state->game.activeMatchGeneration, generationA);
+    EXPECT_EQ(state->game.matchGuid, "normal-lifecycle-b");
+    EXPECT_FALSE(state->game.matchFinalized);
+    EXPECT_EQ(state->game.score[0], 0);
+    EXPECT_EQ(state->game.score[1], 0);
+}
+
+TEST(TelemetryReducerMatchValidation, EarlyExitDelayedMissingGuidEventDoesNotFinalizeNewMatch) {
+    Storage::InitializeEnvironment();
+    auto state = std::make_shared<SessionState>();
+    TelemetryReducer reducer(state);
+    StartRankedOnesMatch(
+        reducer, state, "early-exit-a", 2, 2);
+    SideEffects destroyedA = reducer.Reduce(std::string(Constants::EVT_MATCH_DESTROYED), CurrentMatchEvent(state, nlohmann::json{}));
+    ASSERT_TRUE(destroyedA.pendingDestroyedMatch.has_value());
+
+    StartRankedOnesMatch(
+        reducer, state, "early-exit-b", 0, 0);
+    SideEffects delayed = reducer.Reduce(
+        std::string(Constants::EVT_MATCH_ENDED),
+        nlohmann::json{{"WinnerTeamNum", 1}});
+
+    EXPECT_FALSE(delayed.saveMatch);
+    EXPECT_FALSE(delayed.postMatchMmrRefresh.has_value());
+    EXPECT_EQ(state->game.matchGuid, "early-exit-b");
+    EXPECT_FALSE(state->game.matchFinalized);
+    EXPECT_EQ(state->game.sessionTotals.wins, 0);
+    EXPECT_EQ(state->game.sessionTotals.losses, 0);
+
+    SideEffects explicitA = reducer.Reduce(std::string(Constants::EVT_MATCH_ENDED), CurrentMatchEvent(state, nlohmann::json{
+        {"MatchGuid", "early-exit-a"},
+        {"WinnerTeamNum", 1}}));
+    ASSERT_TRUE(explicitA.saveMatch);
+
+    SideEffects explicitB = reducer.Reduce(std::string(Constants::EVT_MATCH_ENDED), CurrentMatchEvent(state, nlohmann::json{
+        {"MatchGuid", "early-exit-b"},
+        {"WinnerTeamNum", 0}}));
+    ASSERT_TRUE(explicitB.saveMatch);
+    EXPECT_EQ(state->game.sessionTotals.wins, 1);
+    EXPECT_EQ(state->game.sessionTotals.losses, 1);
+}
+
+TEST(TelemetryReducerMatchValidation, RepeatedMatchCreatedDoesNotAdvanceGeneration) {
+    Storage::InitializeEnvironment();
+    auto state = std::make_shared<SessionState>();
+    TelemetryReducer reducer(state);
+    StartRankedOnesMatch(
+        reducer, state, "generation-repeat-a", 0, 0);
+    const uint64_t generationA =
+        state->game.activeMatchGeneration;
+
+    reducer.Reduce(
+        std::string(Constants::EVT_MATCH_CREATED),
+        nlohmann::json{
+            {"MatchGuid", "generation-repeat-a"}});
+    EXPECT_EQ(
+        state->game.activeMatchGeneration,
+        generationA);
+    EXPECT_TRUE(state->game.roundEverStarted);
+
+    reducer.Reduce(
+        std::string(Constants::EVT_MATCH_CREATED),
+        nlohmann::json{
+            {"MatchGuid", "generation-repeat-b"}});
+    EXPECT_GT(
+        state->game.activeMatchGeneration,
+        generationA);
+    EXPECT_FALSE(state->game.roundEverStarted);
+    EXPECT_EQ(state->game.matchGuid, "generation-repeat-b");
+}
+
+TEST(TelemetryReducerMatchValidation, MissingGuidMatchCreatedPreservesActiveIdentifiedLifecycle) {
+    Storage::InitializeEnvironment();
+    auto state = std::make_shared<SessionState>();
+    TelemetryReducer reducer(state);
+    StartRankedOnesMatch(
+        reducer, state, "partial-created-guid", 3, 2);
+    const uint64_t generation =
+        state->game.activeMatchGeneration;
+    state->game.currentMatch.goals = 2;
+    auto localPlayer =
+        state->game.roster.find("Steam|1");
+    ASSERT_NE(localPlayer, state->game.roster.end());
+    localPlayer->second.goals = 1;
+    ASSERT_EQ(
+        state->game.preMatchMmrByGuid.count(
+            "partial-created-guid"),
+        1u);
+
+    reducer.Reduce(
+        std::string(Constants::EVT_MATCH_CREATED),
+        nlohmann::json{});
+
+    EXPECT_EQ(
+        state->game.activeMatchGeneration, generation);
+    EXPECT_EQ(
+        state->game.matchGuid, "partial-created-guid");
+    EXPECT_TRUE(state->game.inMatch);
+    EXPECT_TRUE(state->game.roundEverStarted);
+    EXPECT_TRUE(state->game.lobbyWasEverFull);
+    EXPECT_TRUE(state->game.localPlayerWasActive);
+    EXPECT_EQ(state->game.myPrimaryId, "Steam|1");
+    EXPECT_EQ(state->game.myTeam, 0);
+    EXPECT_EQ(state->game.score[0], 3);
+    EXPECT_EQ(state->game.score[1], 2);
+    EXPECT_EQ(state->game.currentMatch.goals, 2);
+    ASSERT_NE(
+        state->game.roster.find("Steam|1"),
+        state->game.roster.end());
+    EXPECT_EQ(
+        state->game.roster.at("Steam|1").goals, 1);
+    ASSERT_EQ(
+        state->game.preMatchMmrByGuid.count(
+            "partial-created-guid"),
+        1u);
+    EXPECT_EQ(
+        state->game.preMatchMmrByGuid
+            .at("partial-created-guid")
+            .playlistMmrs.at("1v1"),
+        1200);
+
+    const nlohmann::json ended = {
+        {"MatchGuid", "partial-created-guid"},
+        {"WinnerTeamNum", 0}};
+    SideEffects first = reducer.Reduce(
+        std::string(Constants::EVT_MATCH_ENDED), ended);
+    SideEffects duplicate = reducer.Reduce(
+        std::string(Constants::EVT_MATCH_ENDED), ended);
+
+    ASSERT_TRUE(first.saveMatch);
+    EXPECT_EQ(
+        first.saveSnapshot.matchGuid,
+        "partial-created-guid");
+    EXPECT_FALSE(duplicate.saveMatch);
+    EXPECT_EQ(state->game.sessionTotals.wins, 1);
+}
+
+TEST(TelemetryReducerMatchValidation, LateMatchGuidEnrichmentPreservesActiveLifecycle) {
+    Storage::InitializeEnvironment();
+    auto state = std::make_shared<SessionState>();
+    TelemetryReducer reducer(state);
+    StartRankedOnesMatch(reducer, state, "", 2, 1);
+    const uint64_t generation =
+        state->game.activeMatchGeneration;
+    state->game.currentMatch.shots = 4;
+    auto localPlayer =
+        state->game.roster.find("Steam|1");
+    ASSERT_NE(localPlayer, state->game.roster.end());
+    localPlayer->second.saves = 2;
+    ASSERT_EQ(
+        state->game.preMatchMmrByGuid.count(""), 1u);
+
+    reducer.Reduce(
+        std::string(Constants::EVT_MATCH_CREATED),
+        nlohmann::json{
+            {"MatchGuid", "late-enriched-guid"}});
+
+    EXPECT_EQ(
+        state->game.activeMatchGeneration, generation);
+    EXPECT_EQ(
+        state->game.matchGuid, "late-enriched-guid");
+    EXPECT_TRUE(state->game.roundEverStarted);
+    EXPECT_TRUE(state->game.lobbyWasEverFull);
+    EXPECT_TRUE(state->game.localPlayerWasActive);
+    EXPECT_EQ(state->game.myTeam, 0);
+    EXPECT_EQ(state->game.score[0], 2);
+    EXPECT_EQ(state->game.score[1], 1);
+    EXPECT_EQ(state->game.currentMatch.shots, 4);
+    EXPECT_EQ(
+        state->game.roster.at("Steam|1").saves, 2);
+    EXPECT_EQ(
+        state->game.preMatchMmrByGuid.count(""), 0u);
+    ASSERT_EQ(
+        state->game.preMatchMmrByGuid.count(
+            "late-enriched-guid"),
+        1u);
+    EXPECT_EQ(
+        state->game.preMatchMmrByGuid
+            .at("late-enriched-guid")
+            .playlistMatches.at("1v1"),
+        50);
+
+    SideEffects ended = reducer.Reduce(
+        std::string(Constants::EVT_MATCH_ENDED),
+        nlohmann::json{
+            {"MatchGuid", "late-enriched-guid"},
+            {"WinnerTeamNum", 0}});
+
+    ASSERT_TRUE(ended.saveMatch);
+    EXPECT_EQ(
+        ended.saveSnapshot.matchGuid,
+        "late-enriched-guid");
+    EXPECT_EQ(state->game.sessionTotals.wins, 1);
+}
+
+TEST(TelemetryReducerMatchValidation, InactiveMissingGuidMatchCreatedStartsOfflineLifecycle) {
+    Storage::InitializeEnvironment();
+    auto state = std::make_shared<SessionState>();
+    TelemetryReducer reducer(state);
+    StartRankedOnesMatch(
+        reducer, state, "departed-online-guid", 2, 1);
+    const uint64_t onlineGeneration =
+        state->game.activeMatchGeneration;
+    SideEffects endedOnline = reducer.Reduce(
+        std::string(Constants::EVT_MATCH_ENDED),
+        CurrentMatchEvent(
+            state,
+            nlohmann::json{{"WinnerTeamNum", 0}}));
+    reducer.Reduce(
+        std::string(Constants::EVT_MATCH_DESTROYED),
+        CurrentMatchEvent(state, nlohmann::json{}));
+    ASSERT_TRUE(endedOnline.saveMatch);
+    ASSERT_FALSE(state->game.inMatch);
+
+    StartRankedOnesMatch(reducer, state, "", 1, 2);
+
+    EXPECT_GT(
+        state->game.activeMatchGeneration,
+        onlineGeneration);
+    EXPECT_TRUE(state->game.matchGuid.empty());
+    EXPECT_TRUE(state->game.inMatch);
+    EXPECT_TRUE(state->game.roundEverStarted);
+    SideEffects endedOffline = reducer.Reduce(
+        std::string(Constants::EVT_MATCH_ENDED),
+        nlohmann::json{{"WinnerTeamNum", 1}});
+
+    ASSERT_TRUE(endedOffline.saveMatch);
+    EXPECT_EQ(state->game.sessionTotals.wins, 1);
+    EXPECT_EQ(state->game.sessionTotals.losses, 1);
+}
+
+
+TEST(TelemetryReducerMatchValidation, ReconnectCannotApplyMissingGuidToNewIdentifiedMatch) {
+    Storage::InitializeEnvironment();
+    auto state = std::make_shared<SessionState>();
+    TelemetryReducer reducer(state);
+    StartRankedOnesMatch(
+        reducer, state, "reconnect-a", 1, 1);
+    reducer.OnTelemetryDisconnected();
+
+    StartRankedOnesMatch(
+        reducer, state, "reconnect-b", 0, 0);
+
+    SideEffects staleMissing = reducer.Reduce(
+        std::string(Constants::EVT_MATCH_ENDED),
+        nlohmann::json{{"WinnerTeamNum", 1}});
+
+    EXPECT_FALSE(staleMissing.saveMatch);
+    EXPECT_FALSE(
+        staleMissing.postMatchMmrRefresh.has_value());
+    EXPECT_EQ(state->game.matchGuid, "reconnect-b");
+    EXPECT_FALSE(state->game.matchFinalized);
+    EXPECT_EQ(state->game.sessionTotals.wins, 0);
+    EXPECT_EQ(state->game.sessionTotals.losses, 0);
+
+    SideEffects endedB = reducer.Reduce(
+        std::string(Constants::EVT_MATCH_ENDED),
+        nlohmann::json{
+            {"MatchGuid", "reconnect-b"},
+            {"WinnerTeamNum", 0}});
+    ASSERT_TRUE(endedB.saveMatch);
+    EXPECT_EQ(state->game.sessionTotals.wins, 1);
+}
+
+TEST(TelemetryReducerMatchValidation, StaleMatchDestroyedCannotFinalizeOrDestroyNewerMatch) {
+    Storage::InitializeEnvironment();
+    auto state = std::make_shared<SessionState>();
+    TelemetryReducer reducer(state);
+    StartRankedOnesMatch(
+        reducer, state, "stale-destroyed-a", 1, 1);
+    SideEffects destroyedA = reducer.Reduce(std::string(Constants::EVT_MATCH_DESTROYED), CurrentMatchEvent(state, nlohmann::json{}));
+    ASSERT_TRUE(destroyedA.pendingDestroyedMatch.has_value());
+
+    StartRankedOnesMatch(
+        reducer, state, "stale-destroyed-b", 0, 0);
+    const uint64_t generationB =
+        state->game.activeMatchGeneration;
+    SideEffects staleDestroyedA = reducer.Reduce(std::string(Constants::EVT_MATCH_DESTROYED), CurrentMatchEvent(state, nlohmann::json{
+        {"MatchGuid", "stale-destroyed-a"},
+        {"WinnerTeamNum", 1}}));
+
+    EXPECT_FALSE(staleDestroyedA.saveMatch);
+    EXPECT_FALSE(
+        staleDestroyedA.pendingDestroyedMatch.has_value());
+    EXPECT_EQ(state->game.matchGuid, "stale-destroyed-b");
+    EXPECT_EQ(
+        state->game.activeMatchGeneration,
+        generationB);
+    EXPECT_TRUE(state->game.inMatch);
+    EXPECT_FALSE(state->game.matchFinalized);
+    EXPECT_EQ(state->game.sessionTotals.wins, 0);
+    EXPECT_EQ(state->game.sessionTotals.losses, 0);
+
+    SideEffects confirmedA =
+        reducer.ConfirmPendingDestroyedMatch(
+            "stale-destroyed-a", false);
+    ASSERT_TRUE(confirmedA.saveMatch);
+    EXPECT_EQ(
+        confirmedA.saveSnapshot.matchGuid,
+        "stale-destroyed-a");
+    EXPECT_TRUE(state->game.inMatch);
+    EXPECT_FALSE(state->game.matchFinalized);
+}
+
+TEST(TelemetryReducerMatchValidation, ConfirmedDestroyedMatchStillBlocksDelayedMissingGuidTerminal) {
+    Storage::InitializeEnvironment();
+    auto state = std::make_shared<SessionState>();
+    TelemetryReducer reducer(state);
+    StartRankedOnesMatch(
+        reducer, state, "confirmed-before-delay-a", 1, 1);
+
+    SideEffects destroyedA = reducer.Reduce(std::string(Constants::EVT_MATCH_DESTROYED), CurrentMatchEvent(state, nlohmann::json{
+        {"MatchGuid", "confirmed-before-delay-a"}}));
+    ASSERT_TRUE(destroyedA.pendingDestroyedMatch.has_value());
+    SideEffects confirmedA =
+        reducer.ConfirmPendingDestroyedMatch(
+            "confirmed-before-delay-a", false);
+    ASSERT_TRUE(confirmedA.saveMatch);
+    EXPECT_EQ(state->game.sessionTotals.losses, 1);
+
+    StartRankedOnesMatch(
+        reducer, state, "confirmed-before-delay-b", 0, 0);
+    const uint64_t generationB =
+        state->game.activeMatchGeneration;
+    SideEffects delayedMissing = reducer.Reduce(
+        std::string(Constants::EVT_MATCH_ENDED),
+        nlohmann::json{
+            {"WinnerTeamNum", 1},
+            {"bForfeit", true},
+            {"Teams",
+             nlohmann::json::array(
+                 {{{"TeamNum", 0}, {"Score", 0}},
+                  {{"TeamNum", 1}, {"Score", 5}}})}});
+
+    EXPECT_FALSE(delayedMissing.saveMatch);
+    EXPECT_FALSE(
+        delayedMissing.postMatchMmrRefresh.has_value());
+    EXPECT_EQ(
+        state->game.activeMatchGeneration,
+        generationB);
+    EXPECT_EQ(
+        state->game.matchGuid,
+        "confirmed-before-delay-b");
+    EXPECT_TRUE(state->game.inMatch);
+    EXPECT_FALSE(state->game.matchFinalized);
+    EXPECT_EQ(state->game.score[0], 0);
+    EXPECT_EQ(state->game.score[1], 0);
+    EXPECT_EQ(state->game.sessionTotals.wins, 0);
+    EXPECT_EQ(state->game.sessionTotals.losses, 1);
+
+    SideEffects endedB = reducer.Reduce(std::string(Constants::EVT_MATCH_ENDED), CurrentMatchEvent(state, nlohmann::json{
+        {"MatchGuid", "confirmed-before-delay-b"},
+        {"WinnerTeamNum", 0}}));
+    ASSERT_TRUE(endedB.saveMatch);
+    EXPECT_EQ(state->game.sessionTotals.wins, 1);
+    EXPECT_EQ(state->game.sessionTotals.losses, 1);
+}
+
+TEST(TelemetryReducerMatchValidation, ExplicitPendingEndKeepsBarrierAgainstMissingDuplicate) {
+    Storage::InitializeEnvironment();
+    auto state = std::make_shared<SessionState>();
+    TelemetryReducer reducer(state);
+    StartRankedOnesMatch(
+        reducer, state, "explicit-then-missing-a", 1, 1);
+    SideEffects destroyedA = reducer.Reduce(std::string(Constants::EVT_MATCH_DESTROYED), CurrentMatchEvent(state, nlohmann::json{
+        {"MatchGuid", "explicit-then-missing-a"}}));
+    ASSERT_TRUE(destroyedA.pendingDestroyedMatch.has_value());
+
+    StartRankedOnesMatch(
+        reducer, state, "explicit-then-missing-b", 0, 0);
+    const uint64_t generationB =
+        state->game.activeMatchGeneration;
+    SideEffects explicitA = reducer.Reduce(std::string(Constants::EVT_MATCH_ENDED), CurrentMatchEvent(state, nlohmann::json{
+        {"MatchGuid", "explicit-then-missing-a"},
+        {"WinnerTeamNum", 1}}));
+    ASSERT_TRUE(explicitA.saveMatch);
+    ASSERT_TRUE(explicitA.resolvedDestroyedMatch.has_value());
+    EXPECT_EQ(state->game.sessionTotals.losses, 1);
+
+    SideEffects missingDuplicateA = reducer.Reduce(
+        std::string(Constants::EVT_MATCH_ENDED),
+        nlohmann::json{
+            {"WinnerTeamNum", 1},
+            {"bForfeit", true},
+            {"Teams",
+             nlohmann::json::array(
+                 {{{"TeamNum", 0}, {"Score", 0}},
+                  {{"TeamNum", 1}, {"Score", 5}}})}});
+
+    EXPECT_FALSE(missingDuplicateA.saveMatch);
+    EXPECT_FALSE(
+        missingDuplicateA.postMatchMmrRefresh.has_value());
+    EXPECT_EQ(
+        state->game.activeMatchGeneration,
+        generationB);
+    EXPECT_EQ(
+        state->game.matchGuid,
+        "explicit-then-missing-b");
+    EXPECT_TRUE(state->game.inMatch);
+    EXPECT_FALSE(state->game.matchFinalized);
+    EXPECT_EQ(state->game.score[0], 0);
+    EXPECT_EQ(state->game.score[1], 0);
+    EXPECT_EQ(state->game.sessionTotals.wins, 0);
+    EXPECT_EQ(state->game.sessionTotals.losses, 1);
+
+    SideEffects endedB = reducer.Reduce(std::string(Constants::EVT_MATCH_ENDED), CurrentMatchEvent(state, nlohmann::json{
+        {"MatchGuid", "explicit-then-missing-b"},
+        {"WinnerTeamNum", 0}}));
+    ASSERT_TRUE(endedB.saveMatch);
+    EXPECT_EQ(state->game.sessionTotals.wins, 1);
+    EXPECT_EQ(state->game.sessionTotals.losses, 1);
+}
+
+TEST(TelemetryReducerMatchValidation, NormalDepartureKeepsBarrierAgainstDelayedMissingDuplicate) {
+    Storage::InitializeEnvironment();
+    auto state = std::make_shared<SessionState>();
+    TelemetryReducer reducer(state);
+    StartRankedOnesMatch(
+        reducer, state, "normal-departure-a", 2, 1);
+
+    SideEffects endedA = reducer.Reduce(std::string(Constants::EVT_MATCH_ENDED), CurrentMatchEvent(state, nlohmann::json{
+        {"MatchGuid", "normal-departure-a"},
+        {"WinnerTeamNum", 0}}));
+    ASSERT_TRUE(endedA.saveMatch);
+    EXPECT_EQ(state->game.sessionTotals.wins, 1);
+    SideEffects destroyedA = reducer.Reduce(std::string(Constants::EVT_MATCH_DESTROYED), CurrentMatchEvent(state, nlohmann::json{
+        {"MatchGuid", "normal-departure-a"}}));
+    EXPECT_FALSE(destroyedA.saveMatch);
+
+    StartRankedOnesMatch(
+        reducer, state, "normal-departure-b", 0, 0);
+    const uint64_t generationB =
+        state->game.activeMatchGeneration;
+    SideEffects delayedDuplicateA = reducer.Reduce(
+        std::string(Constants::EVT_MATCH_ENDED),
+        nlohmann::json{
+            {"WinnerTeamNum", 1},
+            {"bForfeit", true},
+            {"Teams",
+             nlohmann::json::array(
+                 {{{"TeamNum", 0}, {"Score", 0}},
+                  {{"TeamNum", 1}, {"Score", 5}}})}});
+
+    EXPECT_FALSE(delayedDuplicateA.saveMatch);
+    EXPECT_FALSE(
+        delayedDuplicateA.postMatchMmrRefresh.has_value());
+    EXPECT_EQ(
+        state->game.activeMatchGeneration,
+        generationB);
+    EXPECT_EQ(state->game.matchGuid, "normal-departure-b");
+    EXPECT_TRUE(state->game.inMatch);
+    EXPECT_FALSE(state->game.matchFinalized);
+    EXPECT_EQ(state->game.score[0], 0);
+    EXPECT_EQ(state->game.score[1], 0);
+    EXPECT_EQ(state->game.sessionTotals.wins, 1);
+    EXPECT_EQ(state->game.sessionTotals.losses, 0);
+
+    SideEffects endedB = reducer.Reduce(std::string(Constants::EVT_MATCH_ENDED), CurrentMatchEvent(state, nlohmann::json{
+        {"MatchGuid", "normal-departure-b"},
+        {"WinnerTeamNum", 0}}));
+    ASSERT_TRUE(endedB.saveMatch);
+    EXPECT_EQ(state->game.sessionTotals.wins, 2);
+    EXPECT_EQ(state->game.sessionTotals.losses, 0);
+}
+
+TEST(TelemetryReducerMatchValidation, ConsecutiveCleanGuidlessMatchesFinalizeAndDepart) {
+    Storage::InitializeEnvironment();
+    auto state = std::make_shared<SessionState>();
+    TelemetryReducer reducer(state);
+
+    StartRankedOnesMatch(reducer, state, "", 2, 1);
+    const uint64_t generationA =
+        state->game.activeMatchGeneration;
+    SideEffects endedA = reducer.Reduce(std::string(Constants::EVT_MATCH_ENDED), CurrentMatchEvent(state, nlohmann::json{{"WinnerTeamNum", 0}}));
+    SideEffects destroyedA = reducer.Reduce(std::string(Constants::EVT_MATCH_DESTROYED), CurrentMatchEvent(state, nlohmann::json{}));
+    ASSERT_TRUE(endedA.saveMatch);
+    EXPECT_FALSE(destroyedA.saveMatch);
+    EXPECT_FALSE(state->game.inMatch);
+    EXPECT_EQ(state->game.sessionTotals.wins, 1);
+
+    StartRankedOnesMatch(reducer, state, "", 1, 2);
+    const uint64_t generationB =
+        state->game.activeMatchGeneration;
+    ASSERT_GT(generationB, generationA);
+    SideEffects endedB = reducer.Reduce(std::string(Constants::EVT_MATCH_ENDED), CurrentMatchEvent(state, nlohmann::json{{"WinnerTeamNum", 1}}));
+    SideEffects destroyedB = reducer.Reduce(std::string(Constants::EVT_MATCH_DESTROYED), CurrentMatchEvent(state, nlohmann::json{}));
+
+    ASSERT_TRUE(endedB.saveMatch);
+    EXPECT_FALSE(destroyedB.saveMatch);
+    EXPECT_FALSE(state->game.inMatch);
+    EXPECT_EQ(state->game.sessionTotals.wins, 1);
+    EXPECT_EQ(state->game.sessionTotals.losses, 1);
+
+    reducer.Reduce(
+        std::string(Constants::EVT_MATCH_CREATED),
+        nlohmann::json{});
+    EXPECT_GT(
+        state->game.activeMatchGeneration,
+        generationB);
+    EXPECT_TRUE(state->game.inMatch);
+}
+
+TEST(TelemetryReducerMatchValidation, MissingGuidMatchCreatedAfterReconnectPreservesIdentifiedLifecycle) {
+    Storage::InitializeEnvironment();
+    auto state = std::make_shared<SessionState>();
+    TelemetryReducer reducer(state);
+
+    StartRankedOnesMatch(
+        reducer, state, "reconnect-identified-a", 1, 1);
+    const uint64_t generation =
+        state->game.activeMatchGeneration;
+    reducer.OnTelemetryDisconnected();
+    reducer.Reduce(
+        std::string(Constants::EVT_MATCH_CREATED),
+        nlohmann::json{});
+
+    EXPECT_EQ(
+        state->game.activeMatchGeneration, generation);
+    EXPECT_EQ(
+        state->game.matchGuid, "reconnect-identified-a");
+    EXPECT_TRUE(state->game.roundEverStarted);
+
+    SideEffects missing = reducer.Reduce(
+        std::string(Constants::EVT_MATCH_ENDED),
+        nlohmann::json{{"WinnerTeamNum", 0}});
+    EXPECT_FALSE(missing.saveMatch);
+    EXPECT_FALSE(state->game.matchFinalized);
+
+    SideEffects explicitEnd = reducer.Reduce(
+        std::string(Constants::EVT_MATCH_ENDED),
+        nlohmann::json{
+            {"MatchGuid", "reconnect-identified-a"},
+            {"WinnerTeamNum", 0}});
+    ASSERT_TRUE(explicitEnd.saveMatch);
+    EXPECT_EQ(state->game.sessionTotals.wins, 1);
+}
+
+TEST(TelemetryReducerMatchValidation, StaleMatchEndedVoidGuidCannotAttachToNewGuidlessMatch) {
+    Storage::InitializeEnvironment();
+    auto state = std::make_shared<SessionState>();
+    TelemetryReducer reducer(state);
+    StartRankedOnesMatch(
+        reducer, state, "ended-void-match-a", 0, 0, false);
+
+    SideEffects endedA = reducer.Reduce(
+        std::string(Constants::EVT_MATCH_ENDED),
+        CurrentMatchEvent(
+            state,
+            nlohmann::json{{"WinnerTeamNum", 0}}));
+    EXPECT_FALSE(endedA.saveMatch);
+    EXPECT_EQ(
+        state->game.lastMatchVoidReason,
+        "round_never_started");
+    reducer.Reduce(
+        std::string(Constants::EVT_MATCH_DESTROYED),
+        CurrentMatchEvent(state, nlohmann::json{}));
+
+    StartRankedOnesMatch(
+        reducer, state, "", 1, 0, true, false, false);
+    const uint64_t generationB =
+        state->game.activeMatchGeneration;
+    ASSERT_TRUE(state->game.matchGuid.empty());
+
+    SideEffects staleA = reducer.Reduce(
+        std::string(Constants::EVT_MATCH_ENDED),
+        nlohmann::json{
+            {"MatchGuid", "ended-void-match-a"},
+            {"WinnerTeamNum", 1}});
+    EXPECT_FALSE(staleA.saveMatch);
+    EXPECT_TRUE(state->game.matchGuid.empty());
+    EXPECT_EQ(
+        state->game.activeMatchGeneration,
+        generationB);
+    EXPECT_TRUE(state->game.inMatch);
+    EXPECT_EQ(state->game.sessionTotals.losses, 0);
+
+    SideEffects endedB = reducer.Reduce(
+        std::string(Constants::EVT_MATCH_ENDED),
+        nlohmann::json{
+            {"MatchGuid", "ended-void-match-b"},
+            {"WinnerTeamNum", 0}});
+    ASSERT_TRUE(endedB.saveMatch);
+    EXPECT_EQ(
+        endedB.saveSnapshot.matchGuid,
+        "ended-void-match-b");
+    EXPECT_EQ(state->game.sessionTotals.wins, 1);
+}
+
+TEST(TelemetryReducerMatchValidation, StaleVoidedGuidCannotAttachToNewGuidlessMatch) {
+    Storage::InitializeEnvironment();
+    auto state = std::make_shared<SessionState>();
+    TelemetryReducer reducer(state);
+    StartRankedOnesMatch(
+        reducer, state, "voided-match-a", 0, 0, false);
+    SideEffects destroyedA = reducer.Reduce(
+        std::string(Constants::EVT_MATCH_DESTROYED),
+        CurrentMatchEvent(state, nlohmann::json{}));
+    EXPECT_FALSE(destroyedA.saveMatch);
+    EXPECT_EQ(
+        state->game.lastMatchVoidReason,
+        "round_never_started");
+
+    StartRankedOnesMatch(
+        reducer, state, "", 1, 0, true, false, false);
+    const uint64_t generationB =
+        state->game.activeMatchGeneration;
+    ASSERT_TRUE(state->game.matchGuid.empty());
+
+    SideEffects staleA = reducer.Reduce(
+        std::string(Constants::EVT_MATCH_ENDED),
+        nlohmann::json{
+            {"MatchGuid", "voided-match-a"},
+            {"WinnerTeamNum", 1}});
+    EXPECT_FALSE(staleA.saveMatch);
+    EXPECT_TRUE(state->game.matchGuid.empty());
+    EXPECT_EQ(
+        state->game.activeMatchGeneration,
+        generationB);
+    EXPECT_TRUE(state->game.inMatch);
+    EXPECT_EQ(state->game.sessionTotals.losses, 0);
+
+    SideEffects endedB = reducer.Reduce(
+        std::string(Constants::EVT_MATCH_ENDED),
+        nlohmann::json{
+            {"MatchGuid", "active-match-b"},
+            {"WinnerTeamNum", 0}});
+    ASSERT_TRUE(endedB.saveMatch);
+    EXPECT_EQ(
+        endedB.saveSnapshot.matchGuid,
+        "active-match-b");
+    EXPECT_EQ(state->game.sessionTotals.wins, 1);
+}
+
+TEST(TelemetryReducerMatchValidation, TerminalGuidEnrichesArenaStartedReplayForfeit) {
+    Storage::InitializeEnvironment();
+    auto state = std::make_shared<SessionState>();
+    TelemetryReducer reducer(state);
+    StartRankedOnesMatch(
+        reducer, state, "", 3, 2, true, false, false);
+    const uint64_t generation =
+        state->game.activeMatchGeneration;
+    EnterGoalReplay(reducer);
+
+    SideEffects destroyed = reducer.Reduce(
+        std::string(Constants::EVT_MATCH_DESTROYED),
+        nlohmann::json{
+            {"MatchGuid", "late-terminal-guid"},
+            {"bLocalPlayerForfeit", true}});
+
+    ASSERT_GT(generation, 0u);
+    ASSERT_TRUE(destroyed.saveMatch);
+    EXPECT_EQ(
+        destroyed.saveSnapshot.matchGuid,
+        "late-terminal-guid");
+    ASSERT_TRUE(destroyed.postMatchMmrRefresh.has_value());
+    EXPECT_EQ(
+        destroyed.postMatchMmrRefresh->matchGuid,
+        "late-terminal-guid");
+    EXPECT_TRUE(
+        destroyed.postMatchMmrRefresh->provisionalImmediately);
+    EXPECT_FALSE(
+        destroyed.pendingDestroyedMatch.has_value());
+    EXPECT_FALSE(state->game.inMatch);
+    EXPECT_EQ(
+        state->game.activeMatchGeneration,
+        generation);
+    EXPECT_EQ(state->game.sessionTotals.losses, 1);
 }
 
 TEST(TelemetryReducerMatchValidation, GoalReplayForfeitFinalizesLossImmediately) {

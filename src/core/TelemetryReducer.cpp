@@ -134,6 +134,17 @@ TelemetryReducer::TelemetryReducer(std::shared_ptr<SessionState> state)
     m_lastConfigReadTime = std::chrono::steady_clock::now();
 }
 
+void TelemetryReducer::OnTelemetryDisconnected() {
+    std::unique_lock<std::shared_mutex> lock(m_state->game.mutex);
+    if (m_state->game.inMatch && !m_state->game.matchFinalized) {
+        m_missingGuidAssociationBlockedByReconnect = true;
+        std::cout
+            << "[TelemetryReducer] Telemetry disconnected: "
+            << "currentGeneration="
+            << m_state->game.activeMatchGeneration
+            << ", action=block-missing-guid-match-end.\n";
+    }
+}
 
 void TelemetryReducer::OnConfigChanged() {
     m_cachedConf = Config::Read();
@@ -155,18 +166,37 @@ SideEffects TelemetryReducer::Reduce(const std::string& eventName, const nlohman
     }
 
     if (eventName == Constants::EVT_MATCH_CREATED) {
-        m_state->game.inReplay = false;
-        m_nonLiveReplayActive = false;
-        m_roundActive = false;
         const std::string incomingGuid =
             (data.contains("MatchGuid") &&
              data["MatchGuid"].is_string())
                 ? data["MatchGuid"].get<std::string>()
                 : "";
+        const bool wasInMatch = m_state->game.inMatch;
+        const bool hasIncomingGuid = !incomingGuid.empty();
+        const bool hadCurrentGuid =
+            !m_state->game.matchGuid.empty();
+        const uint64_t currentGeneration =
+            m_state->game.activeMatchGeneration;
         const bool startsNewLifecycle =
-            !m_state->game.inMatch ||
-            incomingGuid != m_state->game.matchGuid;
+            !wasInMatch ||
+            (hasIncomingGuid && hadCurrentGuid &&
+             incomingGuid != m_state->game.matchGuid);
+        const bool attachesGuid =
+            wasInMatch && hasIncomingGuid &&
+            !hadCurrentGuid;
+
+        const char* action = "preserve-current";
+        const char* reason =
+            hasIncomingGuid
+                ? "same-explicit-guid"
+                : "missing-guid-active-lifecycle";
+
         if (startsNewLifecycle) {
+            action = "start-new";
+            reason = wasInMatch
+                         ? "different-explicit-guid"
+                         : "no-active-match";
+
             LocalPreMatchMmrSnapshot initialMmrSnapshot;
             bool hasInitialMmrSnapshot = false;
             if (!m_state->game.myPrimaryId.empty()) {
@@ -190,16 +220,44 @@ SideEffects TelemetryReducer::Reduce(const std::string& eventName, const nlohman
             m_state->game.activeMatchGeneration =
                 ++m_nextMatchGeneration;
             m_state->game.matchGuid = incomingGuid;
+            m_missingGuidAssociationBlockedByReconnect =
+                false;
             if (hasInitialMmrSnapshot) {
                 m_state->game.preMatchMmrByGuid.emplace(
                     incomingGuid,
                     std::move(initialMmrSnapshot));
             }
+            m_roundActive = false;
             m_autoSwitchedPlaylistCategory =
                 MmrCategory::Best;
             m_lastPlayerBoost.clear();
             m_lastPlayerSeen.clear();
+        } else if (attachesGuid) {
+            action = "attach-guid";
+            reason = "late-guid-enrichment";
+            auto guidlessSnapshot =
+                m_state->game.preMatchMmrByGuid.extract("");
+            if (!guidlessSnapshot.empty()) {
+                guidlessSnapshot.key() = incomingGuid;
+                m_state->game.preMatchMmrByGuid.insert(
+                    std::move(guidlessSnapshot));
+            }
+            m_state->game.matchGuid = incomingGuid;
+            CapturePreMatchMmrLocked();
         }
+
+        std::cout
+            << "[TelemetryReducer] MatchCreated: "
+            << "incomingGuid="
+            << (hasIncomingGuid ? "present" : "missing")
+            << ", currentGuid="
+            << (hadCurrentGuid ? "present" : "missing")
+            << ", currentGeneration="
+            << currentGeneration
+            << ", inMatch="
+            << (wasInMatch ? "true" : "false")
+            << ", action=" << action
+            << ", reason=" << reason << ".\n";
         return effects;
     }
 
@@ -1408,6 +1466,44 @@ void TelemetryReducer::HandleMatchDestroyed(
         AttachTerminalGuidToCurrentLocked(eventMatchGuid);
     }
 
+    if (m_state->game.inMatch) {
+        const char* ownershipFailure = nullptr;
+        if (hasExplicitEventGuid &&
+            eventMatchGuid != m_state->game.matchGuid) {
+            ownershipFailure = "explicit-guid-not-current";
+        } else if (
+            !hasExplicitEventGuid &&
+            !m_pendingDestroyedMatches.empty()) {
+            ownershipFailure = "older-pending-match";
+        } else if (
+            !hasExplicitEventGuid &&
+            !m_state->game.matchGuid.empty()) {
+            ownershipFailure =
+                "current-match-requires-explicit-guid";
+        } else if (
+            !hasExplicitEventGuid &&
+            m_missingGuidAssociationBlockedByReconnect) {
+            ownershipFailure = "telemetry-reconnect";
+        }
+
+        if (ownershipFailure) {
+            std::cout
+                << "[TelemetryReducer] MatchDestroyed: "
+                << "eventGuid="
+                << (hasExplicitEventGuid ? "present" : "missing")
+                << ", currentGuid="
+                << (m_state->game.matchGuid.empty()
+                        ? "missing"
+                        : "present")
+                << ", currentGeneration="
+                << m_state->game.activeMatchGeneration
+                << ", pendingMatches="
+                << m_pendingDestroyedMatches.size()
+                << ", action=ignore, reason="
+                << ownershipFailure << ".\n";
+            return;
+        }
+    }
 
     m_roundActive = false;
     UpdateLifecycleSignalsLocked(data);
@@ -1629,13 +1725,55 @@ void TelemetryReducer::HandleMatchEnded(
             if (!eventMatchGuid.empty()) break;
         }
     }
-    const auto pendingIt =
-        eventMatchGuid.empty()
-            ? m_pendingDestroyedMatches.end()
-            : m_pendingDestroyedMatches.find(eventMatchGuid);
-    if (pendingIt != m_pendingDestroyedMatches.end()) {
-        if (winner != 0 && winner != 1) return;
+    const bool hasExplicitEventGuid = !eventMatchGuid.empty();
+    const auto pendingIt = hasExplicitEventGuid
+                               ? m_pendingDestroyedMatches.find(
+                                     eventMatchGuid)
+                               : m_pendingDestroyedMatches.end();
+    if (hasExplicitEventGuid &&
+        pendingIt == m_pendingDestroyedMatches.end()) {
+        AttachTerminalGuidToCurrentLocked(eventMatchGuid);
+    }
+    const bool targetsCurrentByGuid =
+        hasExplicitEventGuid &&
+        eventMatchGuid == m_state->game.matchGuid;
 
+    const auto logDecision =
+        [&](const char* action, const char* reason) {
+            std::cout
+                << "[TelemetryReducer] MatchEnded: "
+                << "eventGuid="
+                << (hasExplicitEventGuid ? "present" : "missing")
+                << ", currentGuid="
+                << (m_state->game.matchGuid.empty()
+                        ? "missing"
+                        : "present")
+                << ", currentGeneration="
+                << m_state->game.activeMatchGeneration
+                << ", pendingMatches="
+                << m_pendingDestroyedMatches.size()
+                << ", winnerTeam=" << winner
+                << ", forfeit="
+                << (ReadTrueBoolean(
+                        data, {"bForfeit", "Forfeit"})
+                        ? "true"
+                        : "false")
+                << ", action=" << action;
+            if (reason && *reason) {
+                std::cout << ", reason=" << reason;
+            }
+            std::cout << ".\n";
+        };
+
+    if (pendingIt != m_pendingDestroyedMatches.end()) {
+        if (winner != 0 && winner != 1) {
+            logDecision(
+                "ignore",
+                "invalid-winner-pending-match");
+            return;
+        }
+
+        logDecision("finalize-pending", "");
         CapturedMatch match = std::move(pendingIt->second);
         m_pendingDestroyedMatches.erase(pendingIt);
         if (data.contains("Teams") && data["Teams"].is_array()) {
@@ -1672,8 +1810,41 @@ void TelemetryReducer::HandleMatchEnded(
         return;
     }
 
-    if (!m_state->game.inMatch ||
-        m_state->game.matchFinalized) {
+    bool targetsCurrent = targetsCurrentByGuid;
+    if (!hasExplicitEventGuid) {
+        const char* ambiguityReason = nullptr;
+        if (!m_state->game.inMatch) {
+            ambiguityReason = "no-active-match";
+        } else if (m_state->game.matchFinalized) {
+            ambiguityReason = "current-match-finalized";
+        } else if (!m_pendingDestroyedMatches.empty()) {
+            ambiguityReason = "older-pending-match";
+        } else if (!m_state->game.matchGuid.empty()) {
+            ambiguityReason =
+                "current-match-requires-explicit-guid";
+        } else if (
+            m_missingGuidAssociationBlockedByReconnect) {
+            ambiguityReason = "telemetry-reconnect";
+        }
+
+        if (ambiguityReason) {
+            logDecision("ignore", ambiguityReason);
+            return;
+        }
+        targetsCurrent = true;
+    }
+
+    if (!targetsCurrent) {
+        logDecision("ignore", "explicit-guid-not-current");
+        return;
+    }
+
+    if (!m_state->game.inMatch) {
+        logDecision("ignore", "no-active-match");
+        return;
+    }
+    if (m_state->game.matchFinalized) {
+        logDecision("ignore", "current-match-finalized");
         return;
     }
 
@@ -1698,6 +1869,7 @@ void TelemetryReducer::HandleMatchEnded(
         HasExplicitLocalForfeitSignal(
             data, m_state->game.myTeam) &&
         winner != m_state->game.myTeam;
+    logDecision("finalize-current", "");
     FinalizeMatchLocked(
         winner,
         localForfeit ? MatchFinalizeSource::LocalForfeit

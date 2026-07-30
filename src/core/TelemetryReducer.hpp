@@ -15,6 +15,7 @@ class TelemetryReducer {
 
     SideEffects Reduce(const std::string& eventName, const nlohmann::json& data);
     void OnConfigChanged();
+    void OnTelemetryDisconnected();
     SideEffects ConfirmPendingDestroyedMatch(const std::string& matchGuid, bool won);
 
   private:

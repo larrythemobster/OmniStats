@@ -572,3 +572,101 @@ TEST_F(
     sqlite3_finalize(stmt);
 }
 
+TEST_F(
+    OmniStatsPipelineTest,
+    PartialMatchCreatedKeepsTwoSavedMatchesAndOwnedMmrPoints) {
+    StartRankedOnesMatch(
+        "partial-created-pipeline-a", 2, 1, 17);
+    client->HandleLine(
+        R"({"Event":"MatchEnded","Data":{"MatchGuid":"partial-created-pipeline-a","WinnerTeamNum":0,"Teams":[{"TeamNum":0,"Score":2},{"TeamNum":1,"Score":1}]}})");
+    client->HandleLine(
+        R"({"Event":"MatchDestroyed","Data":{"MatchGuid":"partial-created-pipeline-a"}})");
+
+    std::this_thread::sleep_for(
+        std::chrono::milliseconds(2));
+    StartRankedOnesMatch(
+        "partial-created-pipeline-b", 3, 2, 17);
+    uint64_t generationB = 0;
+    {
+        std::shared_lock<std::shared_mutex> lock(
+            session->game.mutex);
+        generationB =
+            session->game.activeMatchGeneration;
+        ASSERT_EQ(
+            session->game.matchGuid,
+            "partial-created-pipeline-b");
+        ASSERT_TRUE(session->game.roundEverStarted);
+    }
+
+    client->HandleLine(
+        R"({"Event":"MatchCreated","Data":{}})");
+
+    {
+        std::shared_lock<std::shared_mutex> lock(
+            session->game.mutex);
+        EXPECT_EQ(
+            session->game.activeMatchGeneration,
+            generationB);
+        EXPECT_EQ(
+            session->game.matchGuid,
+            "partial-created-pipeline-b");
+        EXPECT_TRUE(session->game.roundEverStarted);
+        EXPECT_TRUE(session->game.lobbyWasEverFull);
+        EXPECT_EQ(session->game.score[0], 3);
+        EXPECT_EQ(session->game.score[1], 2);
+    }
+
+    client->HandleLine(
+        R"({"Event":"MatchEnded","Data":{"MatchGuid":"partial-created-pipeline-b","WinnerTeamNum":0,"Teams":[{"TeamNum":0,"Score":3},{"TeamNum":1,"Score":2}]}})");
+    client->HandleLine(
+        R"({"Event":"MatchDestroyed","Data":{"MatchGuid":"partial-created-pipeline-b"}})");
+
+    fetcher->ProcessPostMatchResponseForTests(
+        "partial-created-pipeline-b", 1218, 19);
+    ASSERT_TRUE(WaitForDatabase(
+        "partial_created_pipeline_barrier"));
+
+    {
+        std::shared_lock<std::shared_mutex> gameLock(
+            session->game.mutex);
+        std::shared_lock<std::shared_mutex> historyLock(
+            session->history.mutex);
+        EXPECT_EQ(session->game.sessionTotals.wins, 2);
+        EXPECT_EQ(session->game.sessionTotals.losses, 0);
+        EXPECT_EQ(
+            session->history.recentSavedMatches.size(),
+            2u);
+    }
+
+    std::vector<SessionMatchSummary> matches;
+    db->GetRecentMatchHistory(
+        "steam|76561198000000001", matches, 5);
+    ASSERT_EQ(matches.size(), 2u);
+    sqlite3_stmt* stmt = nullptr;
+    ASSERT_EQ(
+        sqlite3_prepare_v2(
+            db->GetRawDb(),
+            "SELECT COUNT(DISTINCT match_guid) "
+            "FROM Matches WHERE match_guid IN "
+            "('partial-created-pipeline-a', "
+            "'partial-created-pipeline-b');",
+            -1,
+            &stmt,
+            nullptr),
+        SQLITE_OK);
+    ASSERT_EQ(sqlite3_step(stmt), SQLITE_ROW);
+    EXPECT_EQ(sqlite3_column_int(stmt, 0), 2);
+    sqlite3_finalize(stmt);
+
+    const auto points =
+        fetcher->PlaylistMatchPointsForTests("1v1");
+    ASSERT_EQ(points.size(), 2u);
+    EXPECT_EQ(
+        points[0].matchGuid,
+        "partial-created-pipeline-a");
+    EXPECT_EQ(
+        points[1].matchGuid,
+        "partial-created-pipeline-b");
+    EXPECT_TRUE(points[0].trackerCovered);
+    EXPECT_TRUE(points[1].trackerCovered);
+}

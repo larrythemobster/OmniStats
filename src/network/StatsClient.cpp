@@ -102,6 +102,11 @@ void StatsClient::RunLoop() {
             }
 
             {
+                std::lock_guard<std::mutex> lock(m_reducerMutex);
+                m_reducer.OnTelemetryDisconnected();
+            }
+
+            {
                 std::unique_lock<std::shared_mutex> lock(m_state->game.mutex);
                 if (resetSessionAfterDisconnect) {
                     m_state->game.sessionTotals = SessionTotals();
