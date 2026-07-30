@@ -3,6 +3,7 @@
 #include "core/Storage.hpp"
 #include <fstream>
 #include <filesystem>
+#include <nlohmann/json.hpp>
 #include <mutex>
 #include <shared_mutex>
 
@@ -153,4 +154,80 @@ TEST_F(ConfigTest, LobbyRanksConfigFallback) {
 
     ConfigData loaded = Config::Read();
     EXPECT_TRUE(loaded.show_lobby_rank_2v2);
+}
+
+TEST_F(ConfigTest, MigratesLegacySharedMmrCategory) {
+    const std::string configPath =
+        Storage::GetDataDirectory() + "config.json";
+    {
+        std::ofstream file(configPath);
+        file << nlohmann::json{
+            {"mmr_category", "3v3"},
+            {"auto_switch_mmr_category", false},
+            {"port", 49200}}
+                    .dump(2);
+    }
+
+    Config::Load();
+    const ConfigData migrated = Config::Read();
+    EXPECT_EQ(migrated.mmr_category, "3v3");
+    EXPECT_FALSE(migrated.auto_switch_mmr_category);
+    EXPECT_EQ(migrated.graph_mmr_category, "3v3");
+    EXPECT_FALSE(migrated.graph_follow_current_playlist);
+    EXPECT_EQ(migrated.port, 49200);
+
+    Config::Save();
+    nlohmann::json saved;
+    {
+        std::ifstream file(configPath);
+        file >> saved;
+    }
+    EXPECT_EQ(saved["mmr_category"], "3v3");
+    EXPECT_EQ(saved["auto_switch_mmr_category"], false);
+    EXPECT_EQ(saved["graph_mmr_category"], "3v3");
+    EXPECT_EQ(saved["graph_follow_current_playlist"], false);
+}
+
+TEST_F(ConfigTest, PersistsIndependentMmrSettings) {
+    Config::Update([](ConfigData& c) {
+        c.mmr_category = "best";
+        c.auto_switch_mmr_category = false;
+        c.graph_mmr_category = "2v2";
+        c.graph_follow_current_playlist = true;
+    });
+    Config::Save();
+
+    Config::Update([](ConfigData& c) {
+        c.mmr_category = "1v1";
+        c.auto_switch_mmr_category = true;
+        c.graph_mmr_category = "3v3";
+        c.graph_follow_current_playlist = false;
+    },
+                   false);
+
+    Config::Load();
+    const ConfigData loaded = Config::Read();
+    EXPECT_EQ(loaded.mmr_category, "best");
+    EXPECT_FALSE(loaded.auto_switch_mmr_category);
+    EXPECT_EQ(loaded.graph_mmr_category, "2v2");
+    EXPECT_TRUE(loaded.graph_follow_current_playlist);
+}
+
+TEST_F(ConfigTest, InvalidMmrCategoriesUseSafeDefaults) {
+    const std::string configPath =
+        Storage::GetDataDirectory() + "config.json";
+    {
+        std::ofstream file(configPath);
+        file << nlohmann::json{
+            {"mmr_category", "not-a-playlist"},
+            {"graph_mmr_category", "also-invalid"},
+            {"graph_follow_current_playlist", true}}
+                    .dump(2);
+    }
+
+    Config::Load();
+    const ConfigData loaded = Config::Read();
+    EXPECT_EQ(loaded.mmr_category, "best");
+    EXPECT_EQ(loaded.graph_mmr_category, "2v2");
+    EXPECT_TRUE(loaded.graph_follow_current_playlist);
 }

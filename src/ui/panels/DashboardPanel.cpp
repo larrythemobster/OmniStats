@@ -860,7 +860,7 @@ void DashboardPanel::RenderMmrGraphWidget(const char* idSuffix) {
     std::vector<std::pair<const char*, MmrCategory>> graphCategories = {
         {"1v1", MmrCategory::OneVOne}, {"2v2", MmrCategory::TwoVTwo}, {"3v3", MmrCategory::ThreeVThree}, {"Casual", MmrCategory::Casual}, {"Tournament", MmrCategory::Tourny}};
     if (ctx.config.show_extra_playlists) {
-        graphCategories.insert(graphCategories.begin() + 3, {{"Hoops", MmrCategory::Hoops}, {"Rumble", MmrCategory::Rumble}, {"Dropshot", MmrCategory::Dropshot}, {"Snow Day", MmrCategory::SnowDay}});
+        graphCategories.insert(graphCategories.begin() + 3, {{"Hoops", MmrCategory::Hoops}, {"Rumble", MmrCategory::Rumble}, {"Dropshot", MmrCategory::Dropshot}, {"Snow Day", MmrCategory::SnowDay}, {"Heatseeker", MmrCategory::Heatseeker}});
     }
     std::vector<const char*> graphLabels;
     for (const auto& category : graphCategories)
@@ -877,9 +877,10 @@ void DashboardPanel::RenderMmrGraphWidget(const char* idSuffix) {
     if (ImGui::Combo("##GraphCatCombo", &currentGraphCat, graphLabels.data(), static_cast<int>(graphLabels.size()))) {
         MmrCategory selectedGraphCat = graphCategories[currentGraphCat].second;
         ctx.state.ui.graphMmrCategory.store(selectedGraphCat);
-        if (ctx.state.history.showLifetimeGraph.load() && ctx.db && !ctx.snap->myPrimaryId.empty()) {
-            ctx.db->AsyncGetLifetimeMmrHistory(ctx.snap->myPrimaryId, MmrCategoryToString(selectedGraphCat));
-        }
+        Config::Update([selectedGraphCat](ConfigData& config) {
+            config.graph_mmr_category =
+                MmrCategoryToString(selectedGraphCat);
+        });
     }
 
     ImGui::SameLine(0.0f, gap);

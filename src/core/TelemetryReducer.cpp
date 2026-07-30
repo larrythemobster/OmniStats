@@ -57,16 +57,21 @@ static MmrCategory CategoryFromMode(const std::string& mode) {
     if (mode == "rumble") return MmrCategory::Rumble;
     if (mode == "dropshot") return MmrCategory::Dropshot;
     if (mode == "snowday") return MmrCategory::SnowDay;
+    if (mode == "heatseeker") return MmrCategory::Heatseeker;
     return MmrCategory::Best;
 }
 
-static std::string InferModeFromMatchState(const GameState& game, MmrCategory rosterCat, MmrCategory graphCat) {
-    std::string arenaKey = !game.arenaAsset.empty() ? game.arenaAsset : game.arenaName;
+static std::string InferModeFromMatchState(
+    const GameState& game,
+    MmrCategory rosterCategory) {
+    std::string arenaKey = !game.arenaAsset.empty()
+                               ? game.arenaAsset
+                               : game.arenaName;
     return GamemodeUtils::InferFromSnapshot(
         game.maxPlayersSeen,
         static_cast<int>(game.roster.size()),
-        rosterCat,
-        graphCat,
+        rosterCategory,
+        MmrCategory::Best,
         arenaKey);
 }
 
@@ -75,6 +80,13 @@ static MmrCategory CategoryFromMatchContext(const GameState& game) {
     MmrCategory arenaCategory = CategoryFromMode(GamemodeUtils::InferFromArenaName(arenaKey));
     if (arenaCategory != MmrCategory::Best) return arenaCategory;
     return CategoryFromTeamCounts(game.maxTeamPlayersSeen, game.roundEverStarted);
+}
+
+static bool IsSupportedGraphCategory(MmrCategory category) {
+    return category == MmrCategory::OneVOne ||
+           category == MmrCategory::TwoVTwo ||
+           category == MmrCategory::ThreeVThree ||
+           IsExtraMmrCategory(category);
 }
 
 static bool IsTrackedRankedEarlyExitMode(const std::string& mode) {
@@ -230,6 +242,7 @@ SideEffects TelemetryReducer::Reduce(const std::string& eventName, const nlohman
             m_roundActive = false;
             m_autoSwitchedPlaylistCategory =
                 MmrCategory::Best;
+            m_followedGraphPlaylistCategory = MmrCategory::Best;
             m_lastPlayerBoost.clear();
             m_lastPlayerSeen.clear();
         } else if (attachesGuid) {
@@ -340,7 +353,6 @@ bool TelemetryReducer::AttachTerminalGuidToCurrentLocked(
     return true;
 }
 
-
 bool TelemetryReducer::HasExplicitLocalForfeitSignal(const nlohmann::json& data,
                                                      int localTeam) {
     const auto scopeHasSignal = [&](const nlohmann::json& scope) {
@@ -383,7 +395,6 @@ void TelemetryReducer::UpdateLifecycleSignalsLocked(const nlohmann::json& data) 
     const nlohmann::json* game =
         data.contains("Game") && data["Game"].is_object() ? &data["Game"] : nullptr;
     if (!game) return;
-
 
     if (ReadTrueBoolean(
             *game,
@@ -444,6 +455,7 @@ void TelemetryReducer::HandleUpdateState(const nlohmann::json& data, SideEffects
                 }
                 m_roundActive = false;
                 m_autoSwitchedPlaylistCategory = MmrCategory::Best;
+                m_followedGraphPlaylistCategory = MmrCategory::Best;
                 m_lastPlayerBoost.clear();
                 m_lastPlayerSeen.clear();
                 std::cout << "\n========================================\n";
@@ -686,22 +698,65 @@ void TelemetryReducer::HandleUpdateState(const nlohmann::json& data, SideEffects
                 }
             }
 
-            MmrCategory inferredPlaylistCat = CategoryFromMatchContext(m_state->game);
-            MmrCategory lastAutoCat = m_autoSwitchedPlaylistCategory;
-            bool inferredCategoryIsHiddenExtra = IsExtraMmrCategory(inferredPlaylistCat) && !m_cachedConf.show_extra_playlists;
-            bool userChangedAfterAutoSwitch = lastAutoCat != MmrCategory::Best &&
-                                              (m_state->ui.rosterMmrCategory.load() != lastAutoCat || m_state->ui.graphMmrCategory.load() != lastAutoCat);
+            const MmrCategory inferredPlaylistCat =
+                CategoryFromMatchContext(m_state->game);
+            const bool inferredCategoryIsHiddenExtra =
+                IsExtraMmrCategory(inferredPlaylistCat) &&
+                !m_cachedConf.show_extra_playlists;
 
-            if (m_cachedConf.auto_switch_mmr_category && !inferredCategoryIsHiddenExtra && !userChangedAfterAutoSwitch &&
-                inferredPlaylistCat != MmrCategory::Best && inferredPlaylistCat != lastAutoCat) {
+            const MmrCategory lastAutoCat =
+                m_autoSwitchedPlaylistCategory;
+            const bool liveCategoryChangedAfterAutoSwitch =
+                lastAutoCat != MmrCategory::Best &&
+                m_state->ui.rosterMmrCategory.load() != lastAutoCat;
+            if (m_cachedConf.auto_switch_mmr_category &&
+                !inferredCategoryIsHiddenExtra &&
+                !liveCategoryChangedAfterAutoSwitch &&
+                IsSupportedGraphCategory(inferredPlaylistCat) &&
+                inferredPlaylistCat != lastAutoCat) {
                 m_autoSwitchedPlaylistCategory = inferredPlaylistCat;
-                std::cout << "[Identity] Auto-switching active playlist category to: " << MmrCategoryToString(inferredPlaylistCat) << "\n";
-                m_state->ui.rosterMmrCategory.store(inferredPlaylistCat);
-                m_state->ui.graphMmrCategory.store(inferredPlaylistCat);
-                if (m_state->history.showLifetimeGraph.load() && !m_state->game.myPrimaryId.empty()) {
-                    effects.fetchLifetimeHistory = true;
-                    effects.lifetimePrimaryId = m_state->game.myPrimaryId;
-                    effects.lifetimeCategory = MmrCategoryToString(inferredPlaylistCat);
+                if (m_state->ui.rosterMmrCategory.load() !=
+                    inferredPlaylistCat) {
+                    m_state->ui.rosterMmrCategory.store(
+                        inferredPlaylistCat);
+                    std::cout
+                        << "[Identity] Live MMR following playlist category: "
+                        << MmrCategoryToString(inferredPlaylistCat) << "\n";
+                }
+            }
+
+            if (m_cachedConf.graph_follow_current_playlist) {
+                if (!m_nonLiveReplayActive &&
+                    !m_state->game.excludedEarlyExitContext &&
+                    !inferredCategoryIsHiddenExtra &&
+                    IsSupportedGraphCategory(inferredPlaylistCat) &&
+                    inferredPlaylistCat !=
+                        m_followedGraphPlaylistCategory) {
+                    m_followedGraphPlaylistCategory =
+                        inferredPlaylistCat;
+                    if (m_state->ui.graphMmrCategory.load() !=
+                        inferredPlaylistCat) {
+                        m_state->ui.graphMmrCategory.store(
+                            inferredPlaylistCat);
+                        std::cout
+                            << "[Identity] Graph following playlist category: "
+                            << MmrCategoryToString(inferredPlaylistCat)
+                            << "\n";
+                    }
+                }
+            } else {
+                m_followedGraphPlaylistCategory = MmrCategory::Best;
+                MmrCategory fallbackCategory = StringToMmrCategory(
+                    m_cachedConf.graph_mmr_category);
+                if (fallbackCategory == MmrCategory::Best ||
+                    (!m_cachedConf.show_extra_playlists &&
+                     IsExtraMmrCategory(fallbackCategory))) {
+                    fallbackCategory = MmrCategory::TwoVTwo;
+                }
+                if (m_state->ui.graphMmrCategory.load() !=
+                    fallbackCategory) {
+                    m_state->ui.graphMmrCategory.store(
+                        fallbackCategory);
                 }
             }
         }
@@ -742,13 +797,17 @@ void TelemetryReducer::HandleUpdateState(const nlohmann::json& data, SideEffects
         m_state->game.maxPlayersSeen = std::max(m_state->game.maxPlayersSeen, static_cast<int>(m_state->game.roster.size()));
 
         {
-            const MmrCategory rosterCat = m_state->ui.rosterMmrCategory.load();
-            const MmrCategory graphCat = m_state->ui.graphMmrCategory.load();
-            const std::string mode = InferModeFromMatchState(m_state->game, rosterCat, graphCat);
-            const int expectedTeamSize = ExpectedTeamSizeForMode(mode);
+            const MmrCategory rosterCategory =
+                m_state->ui.rosterMmrCategory.load();
+            const std::string mode = InferModeFromMatchState(
+                m_state->game, rosterCategory);
+            const int expectedTeamSize =
+                ExpectedTeamSizeForMode(mode);
             if (expectedTeamSize > 0 &&
-                m_state->game.currentTeamPlayersSeen[0] >= expectedTeamSize &&
-                m_state->game.currentTeamPlayersSeen[1] >= expectedTeamSize) {
+                m_state->game.currentTeamPlayersSeen[0] >=
+                    expectedTeamSize &&
+                m_state->game.currentTeamPlayersSeen[1] >=
+                    expectedTeamSize) {
                 m_state->game.lobbyWasEverFull = true;
             }
         }
@@ -978,7 +1037,7 @@ TelemetryReducer::CapturedMatch TelemetryReducer::CaptureMatchLocked() const {
     match.rosterMmrCategory = m_state->ui.rosterMmrCategory.load();
     match.graphMmrCategory = m_state->ui.graphMmrCategory.load();
     match.mode = InferModeFromMatchState(
-        game, match.rosterMmrCategory, match.graphMmrCategory);
+        game, match.rosterMmrCategory);
     const auto snapshotIt = game.preMatchMmrByGuid.find(game.matchGuid);
     if (snapshotIt != game.preMatchMmrByGuid.end()) {
         match.preMatchMmr = snapshotIt->second;
@@ -1148,10 +1207,7 @@ bool TelemetryReducer::IsValidEarlyCompetitiveExitLocked(
 
     const MmrCategory rosterCategory =
         m_state->ui.rosterMmrCategory.load();
-    const MmrCategory graphCategory =
-        m_state->ui.graphMmrCategory.load();
-    mode = InferModeFromMatchState(
-        game, rosterCategory, graphCategory);
+    mode = InferModeFromMatchState(game, rosterCategory);
     if (!IsTrackedRankedEarlyExitMode(mode)) {
         voidReason = "untracked_or_non_competitive_playlist";
         return false;
@@ -1516,7 +1572,6 @@ void TelemetryReducer::HandleMatchDestroyed(
         }
         return;
     }
-
 
     if (data.contains("Teams") && data["Teams"].is_array()) {
         for (const auto& team : data["Teams"]) {

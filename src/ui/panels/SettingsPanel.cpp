@@ -412,26 +412,135 @@ void SettingsPanel::RenderContent(const std::string& idSuffix, bool& styleChange
         if (ImGui::BeginTabItem("General")) {
             ImGui::Spacing();
 
-            std::vector<const char*> categories = {"best", "1v1", "2v2", "3v3", "casual", "t"};
+            ImGui::TextColored(Format::C(ctx.config.themeAccent), "Live Match MMR");
+            ImGui::TextColored(Format::C(ctx.config.themeDim), "Controls player ranks in the live overlay.");
+
+            std::vector<std::pair<const char*, MmrCategory>> liveCategories = {
+                {"Best Rank", MmrCategory::Best},
+                {"1v1", MmrCategory::OneVOne},
+                {"2v2", MmrCategory::TwoVTwo},
+                {"3v3", MmrCategory::ThreeVThree},
+                {"Casual", MmrCategory::Casual},
+                {"Tournament", MmrCategory::Tourny}};
             if (ctx.config.show_extra_playlists) {
-                categories.insert(categories.end(), {"hoops", "rumble", "dropshot", "snowday", "heatseeker"});
+                liveCategories.insert(
+                    liveCategories.end(),
+                    {{"Hoops", MmrCategory::Hoops},
+                     {"Rumble", MmrCategory::Rumble},
+                     {"Dropshot", MmrCategory::Dropshot},
+                     {"Snow Day", MmrCategory::SnowDay},
+                     {"Heatseeker", MmrCategory::Heatseeker}});
             }
-            int currentCategory = 0;
-            std::string currentCategoryName = ctx.config.mmr_category;
-            for (int i = 0; i < static_cast<int>(categories.size()); ++i) {
-                if (currentCategoryName == categories[i]) {
-                    currentCategory = i;
+            std::vector<const char*> liveLabels;
+            for (const auto& category : liveCategories) {
+                liveLabels.push_back(category.first);
+            }
+            int currentLiveCategory = 0;
+            const MmrCategory loadedLiveCategory =
+                StringToMmrCategory(ctx.config.mmr_category);
+            for (int i = 0; i < static_cast<int>(liveCategories.size()); ++i) {
+                if (liveCategories[i].second == loadedLiveCategory) {
+                    currentLiveCategory = i;
                     break;
                 }
             }
-            std::string defaultMmrLabel = "Default MMR Category##" + idSuffix;
-            if (ImGui::Combo(defaultMmrLabel.c_str(), &currentCategory, categories.data(), static_cast<int>(categories.size()))) {
-                Config::Update([&](ConfigData& c) {
-                    c.mmr_category = categories[currentCategory];
+            std::string liveCategoryLabel =
+                "Player MMR category##" + idSuffix;
+            if (ImGui::Combo(
+                    liveCategoryLabel.c_str(),
+                    &currentLiveCategory,
+                    liveLabels.data(),
+                    static_cast<int>(liveLabels.size()))) {
+                const MmrCategory selected =
+                    liveCategories[currentLiveCategory].second;
+                Config::Update([selected](ConfigData& c) {
+                    c.mmr_category = MmrCategoryToString(selected);
                 });
-                MmrCategory cat = StringToMmrCategory(categories[currentCategory]);
-                ctx.state.ui.rosterMmrCategory.store(cat);
-                ctx.state.ui.graphMmrCategory.store(cat == MmrCategory::Best ? MmrCategory::TwoVTwo : cat);
+                ctx.state.ui.rosterMmrCategory.store(selected);
+            }
+
+            bool autoSwitchMmrCategory =
+                ctx.config.auto_switch_mmr_category;
+            std::string autoSwitchMmrCategoryLabel =
+                "Automatically follow current playlist##Live" + idSuffix;
+            if (ImGui::Checkbox(
+                    autoSwitchMmrCategoryLabel.c_str(),
+                    &autoSwitchMmrCategory)) {
+                Config::Update([autoSwitchMmrCategory](ConfigData& c) {
+                    c.auto_switch_mmr_category = autoSwitchMmrCategory;
+                });
+            }
+
+            ImGui::Spacing();
+            ImGui::Separator();
+            ImGui::Spacing();
+            ImGui::TextColored(Format::C(ctx.config.themeAccent), "Personal MMR Graph");
+            ImGui::TextColored(Format::C(ctx.config.themeDim), "Controls only your personal session and lifetime graph.");
+
+            bool graphFollowCurrentPlaylist =
+                ctx.config.graph_follow_current_playlist;
+            std::string graphFollowLabel =
+                "Follow current playlist##Graph" + idSuffix;
+            if (ImGui::Checkbox(
+                    graphFollowLabel.c_str(),
+                    &graphFollowCurrentPlaylist)) {
+                Config::Update([graphFollowCurrentPlaylist](ConfigData& c) {
+                    c.graph_follow_current_playlist =
+                        graphFollowCurrentPlaylist;
+                });
+                if (!graphFollowCurrentPlaylist) {
+                    ctx.state.ui.graphMmrCategory.store(
+                        StringToMmrCategory(
+                            ctx.config.graph_mmr_category));
+                }
+            }
+
+            std::vector<std::pair<const char*, MmrCategory>> graphCategories = {
+                {"1v1", MmrCategory::OneVOne},
+                {"2v2", MmrCategory::TwoVTwo},
+                {"3v3", MmrCategory::ThreeVThree},
+                {"Casual", MmrCategory::Casual},
+                {"Tournament", MmrCategory::Tourny}};
+            if (ctx.config.show_extra_playlists) {
+                graphCategories.insert(
+                    graphCategories.begin() + 3,
+                    {{"Hoops", MmrCategory::Hoops},
+                     {"Rumble", MmrCategory::Rumble},
+                     {"Dropshot", MmrCategory::Dropshot},
+                     {"Snow Day", MmrCategory::SnowDay},
+                     {"Heatseeker", MmrCategory::Heatseeker}});
+            }
+            std::vector<const char*> graphLabels;
+            for (const auto& category : graphCategories) {
+                graphLabels.push_back(category.first);
+            }
+            int currentGraphCategory = 1;
+            const MmrCategory loadedGraphCategory =
+                StringToMmrCategory(ctx.config.graph_mmr_category);
+            for (int i = 0; i < static_cast<int>(graphCategories.size()); ++i) {
+                if (graphCategories[i].second == loadedGraphCategory) {
+                    currentGraphCategory = i;
+                    break;
+                }
+            }
+            std::string graphCategoryLabel =
+                "Default graph category##" + idSuffix;
+            if (ImGui::Combo(
+                    graphCategoryLabel.c_str(),
+                    &currentGraphCategory,
+                    graphLabels.data(),
+                    static_cast<int>(graphLabels.size()))) {
+                const MmrCategory selected =
+                    graphCategories[currentGraphCategory].second;
+                Config::Update([selected](ConfigData& c) {
+                    c.graph_mmr_category =
+                        MmrCategoryToString(selected);
+                });
+                ctx.state.ui.graphMmrCategory.store(selected);
+            }
+            if (ImGui::IsItemHovered()) {
+                ImGui::SetTooltip(
+                    "Used when no supported playlist is being followed.");
             }
 
             bool showExtraPlaylists = ctx.config.show_extra_playlists;
@@ -439,8 +548,16 @@ void SettingsPanel::RenderContent(const std::string& idSuffix, bool& styleChange
             if (ImGui::Checkbox(showExtraPlaylistsLabel.c_str(), &showExtraPlaylists)) {
                 Config::Update([showExtraPlaylists](ConfigData& c) {
                     c.show_extra_playlists = showExtraPlaylists;
-                    if (!showExtraPlaylists && IsExtraMmrCategory(StringToMmrCategory(c.mmr_category))) {
+                    if (!showExtraPlaylists &&
+                        IsExtraMmrCategory(
+                            StringToMmrCategory(c.mmr_category))) {
                         c.mmr_category = "best";
+                    }
+                    if (!showExtraPlaylists &&
+                        IsExtraMmrCategory(
+                            StringToMmrCategory(
+                                c.graph_mmr_category))) {
+                        c.graph_mmr_category = "2v2";
                     }
                 });
                 if (!showExtraPlaylists) {
@@ -574,15 +691,6 @@ void SettingsPanel::RenderContent(const std::string& idSuffix, bool& styleChange
             std::string showSummaryLabel = "Auto Match Summary Popup##" + idSuffix;
             if (ImGui::Checkbox(showSummaryLabel.c_str(), &showSummary)) {
                 Config::Update([showSummary](ConfigData& c) { c.show_match_summary = showSummary; });
-            }
-
-            bool autoSwitchMmrCategory = ctx.config.auto_switch_mmr_category;
-            std::string autoSwitchMmrCategoryLabel = "Auto-Switch Live Match Playlist##" + idSuffix;
-            if (ImGui::Checkbox(autoSwitchMmrCategoryLabel.c_str(), &autoSwitchMmrCategory)) {
-                Config::Update([autoSwitchMmrCategory](ConfigData& c) { c.auto_switch_mmr_category = autoSwitchMmrCategory; });
-            }
-            if (ImGui::IsItemHovered()) {
-                ImGui::SetTooltip("Automatically switches Live Match ranks to the detected playlist.");
             }
 
             bool showIndicator = ctx.config.show_running_indicator;

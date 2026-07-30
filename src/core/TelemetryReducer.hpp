@@ -111,4 +111,5 @@ class TelemetryReducer {
     std::unordered_set<std::string> m_identityCandidates;
     int m_missedMyIdCount = 0;
     MmrCategory m_autoSwitchedPlaylistCategory = MmrCategory::Best;
+    MmrCategory m_followedGraphPlaylistCategory = MmrCategory::Best;
 };

@@ -9,6 +9,38 @@
 #include <memory>
 
 namespace {
+    struct ScopedConfigRestore {
+        ConfigData original = Config::Read();
+
+        ~ScopedConfigRestore() {
+            Config::Update(
+                [this](ConfigData& config) { config = original; },
+                false);
+        }
+    };
+
+    nlohmann::json TeamUpdate(
+        int teamSize,
+        nlohmann::json game = nlohmann::json::object()) {
+        if (!game.contains("bReplay")) game["bReplay"] = false;
+        if (!game.contains("bSpectator")) game["bSpectator"] = false;
+
+        nlohmann::json players = nlohmann::json::array();
+        for (int team = 0; team < 2; ++team) {
+            for (int index = 0; index < teamSize; ++index) {
+                const int number = team * teamSize + index + 1;
+                nlohmann::json player = {
+                    {"PrimaryId", "Steam|" + std::to_string(number)},
+                    {"TeamNum", team},
+                    {"Name", "P" + std::to_string(number)}};
+                if (number == 1) player["Boost"] = 100;
+                players.push_back(std::move(player));
+            }
+        }
+        return nlohmann::json{
+            {"Game", std::move(game)},
+            {"Players", std::move(players)}};
+    }
     void StartRankedOnesMatch(
         TelemetryReducer& reducer,
         const std::shared_ptr<SessionState>& state,
@@ -337,7 +369,12 @@ TEST(TelemetryReducerMatchValidation, NormalLossCounts) {
 
 TEST(TelemetryReducerMatchValidation, ActivePlaylistSwitchesOncePerMatch) {
     Storage::InitializeEnvironment();
-    Config::Update([](ConfigData& c) { c.auto_switch_mmr_category = true; }, false);
+    ScopedConfigRestore restore;
+    Config::Update([](ConfigData& c) {
+        c.auto_switch_mmr_category = true;
+        c.graph_follow_current_playlist = true;
+    },
+                   false);
     auto state = std::make_shared<SessionState>();
     TelemetryReducer reducer(state);
 
@@ -398,7 +435,13 @@ TEST(TelemetryReducerMatchValidation, ActivePlaylistSwitchesOncePerMatch) {
 
 TEST(TelemetryReducerMatchValidation, ActivePlaylistAutoSwitchCanBeDisabled) {
     Storage::InitializeEnvironment();
-    Config::Update([](ConfigData& c) { c.auto_switch_mmr_category = false; }, false);
+    ScopedConfigRestore restore;
+    Config::Update([](ConfigData& c) {
+        c.auto_switch_mmr_category = false;
+        c.graph_mmr_category = "3v3";
+        c.graph_follow_current_playlist = false;
+    },
+                   false);
     auto state = std::make_shared<SessionState>();
     TelemetryReducer reducer(state);
 
@@ -421,8 +464,6 @@ TEST(TelemetryReducerMatchValidation, ActivePlaylistAutoSwitchCanBeDisabled) {
 
     EXPECT_EQ(state->ui.rosterMmrCategory.load(), MmrCategory::Best);
     EXPECT_EQ(state->ui.graphMmrCategory.load(), MmrCategory::ThreeVThree);
-
-    Config::Update([](ConfigData& c) { c.auto_switch_mmr_category = true; }, false);
 }
 
 TEST(TelemetryReducerMatchValidation, ExtraArenaAutoSwitchesBeforePlayerCount) {
@@ -430,6 +471,7 @@ TEST(TelemetryReducerMatchValidation, ExtraArenaAutoSwitchesBeforePlayerCount) {
     Config::Update([](ConfigData& c) {
         c.auto_switch_mmr_category = true;
         c.show_extra_playlists = true;
+        c.graph_follow_current_playlist = true;
     },
                    false);
     auto state = std::make_shared<SessionState>();
@@ -462,6 +504,7 @@ TEST(TelemetryReducerMatchValidation, SnowMapAutoSwitchesToSnowDay) {
     Config::Update([](ConfigData& c) {
         c.auto_switch_mmr_category = true;
         c.show_extra_playlists = true;
+        c.graph_follow_current_playlist = true;
     },
                    false);
     auto state = std::make_shared<SessionState>();
@@ -489,6 +532,279 @@ TEST(TelemetryReducerMatchValidation, SnowMapAutoSwitchesToSnowDay) {
     EXPECT_EQ(state->ui.graphMmrCategory.load(), MmrCategory::SnowDay);
 }
 
+TEST(
+    TelemetryReducerMatchValidation,
+    GraphFollowsInferredRankedOneVersusOneIndependently) {
+    Storage::InitializeEnvironment();
+    ScopedConfigRestore restore;
+    Config::Update([](ConfigData& c) {
+        c.mmr_category = "best";
+        c.auto_switch_mmr_category = false;
+        c.graph_mmr_category = "2v2";
+        c.graph_follow_current_playlist = true;
+    },
+                   false);
+    auto state = std::make_shared<SessionState>();
+    state->ui.rosterMmrCategory.store(MmrCategory::Best);
+    state->ui.graphMmrCategory.store(MmrCategory::TwoVTwo);
+    TelemetryReducer reducer(state);
+
+    reducer.Reduce(
+        std::string(Constants::EVT_MATCH_CREATED),
+        nlohmann::json{{"MatchGuid", "graph-follow-ones"}});
+    reducer.Reduce(
+        std::string(Constants::EVT_ROUND_STARTED),
+        nlohmann::json{});
+    reducer.Reduce(
+        std::string(Constants::EVT_UPDATE_STATE),
+        TeamUpdate(1));
+
+    EXPECT_EQ(
+        state->ui.rosterMmrCategory.load(),
+        MmrCategory::Best);
+    EXPECT_EQ(
+        state->ui.graphMmrCategory.load(),
+        MmrCategory::OneVOne);
+    EXPECT_EQ(Config::Read().graph_mmr_category, "2v2");
+}
+
+TEST(
+    TelemetryReducerMatchValidation,
+    GraphFollowsMultipleInferredRankedPlaylists) {
+    Storage::InitializeEnvironment();
+    ScopedConfigRestore restore;
+    Config::Update([](ConfigData& c) {
+        c.auto_switch_mmr_category = false;
+        c.graph_mmr_category = "1v1";
+        c.graph_follow_current_playlist = true;
+    },
+                   false);
+    auto state = std::make_shared<SessionState>();
+    state->ui.rosterMmrCategory.store(MmrCategory::Best);
+    state->ui.graphMmrCategory.store(MmrCategory::OneVOne);
+    TelemetryReducer reducer(state);
+
+    reducer.Reduce(
+        std::string(Constants::EVT_MATCH_CREATED),
+        nlohmann::json{{"MatchGuid", "graph-follow-twos"}});
+    reducer.Reduce(
+        std::string(Constants::EVT_UPDATE_STATE),
+        TeamUpdate(2));
+    EXPECT_EQ(
+        state->ui.graphMmrCategory.load(),
+        MmrCategory::TwoVTwo);
+    EXPECT_EQ(
+        state->ui.rosterMmrCategory.load(),
+        MmrCategory::Best);
+
+    reducer.Reduce(
+        std::string(Constants::EVT_MATCH_CREATED),
+        nlohmann::json{{"MatchGuid", "graph-follow-threes"}});
+    reducer.Reduce(
+        std::string(Constants::EVT_UPDATE_STATE),
+        TeamUpdate(3));
+    EXPECT_EQ(
+        state->ui.graphMmrCategory.load(),
+        MmrCategory::ThreeVThree);
+    EXPECT_EQ(
+        state->ui.rosterMmrCategory.load(),
+        MmrCategory::Best);
+    EXPECT_EQ(Config::Read().graph_mmr_category, "1v1");
+}
+
+TEST(
+    TelemetryReducerMatchValidation,
+    LiveFollowAndGraphFollowCanBeEnabledIndependently) {
+    Storage::InitializeEnvironment();
+    ScopedConfigRestore restore;
+    Config::Update([](ConfigData& c) {
+        c.auto_switch_mmr_category = true;
+        c.graph_mmr_category = "3v3";
+        c.graph_follow_current_playlist = false;
+    },
+                   false);
+    auto state = std::make_shared<SessionState>();
+    state->ui.rosterMmrCategory.store(MmrCategory::Best);
+    state->ui.graphMmrCategory.store(MmrCategory::ThreeVThree);
+    TelemetryReducer reducer(state);
+
+    reducer.Reduce(
+        std::string(Constants::EVT_MATCH_CREATED),
+        nlohmann::json{{"MatchGuid", "live-only-follow"}});
+    reducer.Reduce(
+        std::string(Constants::EVT_UPDATE_STATE),
+        TeamUpdate(2));
+
+    EXPECT_EQ(
+        state->ui.rosterMmrCategory.load(),
+        MmrCategory::TwoVTwo);
+    EXPECT_EQ(
+        state->ui.graphMmrCategory.load(),
+        MmrCategory::ThreeVThree);
+}
+
+TEST(
+    TelemetryReducerMatchValidation,
+    DisabledGraphFollowKeepsConfiguredFallback) {
+    Storage::InitializeEnvironment();
+    ScopedConfigRestore restore;
+    Config::Update([](ConfigData& c) {
+        c.auto_switch_mmr_category = false;
+        c.graph_mmr_category = "2v2";
+        c.graph_follow_current_playlist = false;
+    },
+                   false);
+    auto state = std::make_shared<SessionState>();
+    state->ui.rosterMmrCategory.store(MmrCategory::Best);
+    state->ui.graphMmrCategory.store(MmrCategory::TwoVTwo);
+    TelemetryReducer reducer(state);
+
+    reducer.Reduce(
+        std::string(Constants::EVT_MATCH_CREATED),
+        nlohmann::json{{"MatchGuid", "graph-follow-disabled"}});
+    reducer.Reduce(
+        std::string(Constants::EVT_ROUND_STARTED),
+        nlohmann::json{});
+    reducer.Reduce(
+        std::string(Constants::EVT_UPDATE_STATE),
+        TeamUpdate(1));
+
+    EXPECT_EQ(
+        state->ui.graphMmrCategory.load(),
+        MmrCategory::TwoVTwo);
+    EXPECT_EQ(
+        state->ui.rosterMmrCategory.load(),
+        MmrCategory::Best);
+}
+
+TEST(
+    TelemetryReducerMatchValidation,
+    RepeatedTelemetryDoesNotReassignSameFollowedPlaylist) {
+    Storage::InitializeEnvironment();
+    ScopedConfigRestore restore;
+    Config::Update([](ConfigData& c) {
+        c.auto_switch_mmr_category = false;
+        c.graph_mmr_category = "1v1";
+        c.graph_follow_current_playlist = true;
+    },
+                   false);
+    auto state = std::make_shared<SessionState>();
+    state->ui.graphMmrCategory.store(MmrCategory::OneVOne);
+    TelemetryReducer reducer(state);
+    const nlohmann::json update = TeamUpdate(2);
+
+    reducer.Reduce(
+        std::string(Constants::EVT_MATCH_CREATED),
+        nlohmann::json{{"MatchGuid", "graph-follow-repeat"}});
+    reducer.Reduce(
+        std::string(Constants::EVT_UPDATE_STATE),
+        update);
+    EXPECT_EQ(
+        state->ui.graphMmrCategory.load(),
+        MmrCategory::TwoVTwo);
+
+    state->ui.graphMmrCategory.store(MmrCategory::ThreeVThree);
+    reducer.Reduce(
+        std::string(Constants::EVT_UPDATE_STATE),
+        update);
+    EXPECT_EQ(
+        state->ui.graphMmrCategory.load(),
+        MmrCategory::ThreeVThree);
+    EXPECT_EQ(Config::Read().graph_mmr_category, "1v1");
+}
+
+TEST(
+    TelemetryReducerMatchValidation,
+    UnsupportedContextsDoNotSwitchFollowedGraph) {
+    Storage::InitializeEnvironment();
+    ScopedConfigRestore restore;
+    Config::Update([](ConfigData& c) {
+        c.auto_switch_mmr_category = false;
+        c.graph_mmr_category = "3v3";
+        c.graph_follow_current_playlist = true;
+    },
+                   false);
+
+    const auto expectUnchanged =
+        [](const std::string& guid,
+           const nlohmann::json& update,
+           bool savedReplay) {
+            auto state = std::make_shared<SessionState>();
+            state->ui.graphMmrCategory.store(
+                MmrCategory::ThreeVThree);
+            TelemetryReducer reducer(state);
+            reducer.Reduce(
+                std::string(Constants::EVT_MATCH_CREATED),
+                nlohmann::json{{"MatchGuid", guid}});
+            if (savedReplay) {
+                reducer.Reduce(
+                    std::string(Constants::EVT_REPLAY_CREATED),
+                    nlohmann::json{});
+            }
+            reducer.Reduce(
+                std::string(Constants::EVT_UPDATE_STATE),
+                update);
+            EXPECT_EQ(
+                state->ui.graphMmrCategory.load(),
+                MmrCategory::ThreeVThree);
+        };
+
+    expectUnchanged(
+        "freeplay-context",
+        TeamUpdate(
+            2,
+            nlohmann::json{
+                {"bTraining", true},
+                {"TrainingType", "Freeplay"}}),
+        false);
+    expectUnchanged(
+        "training-context",
+        TeamUpdate(
+            2,
+            nlohmann::json{
+                {"bTraining", true},
+                {"TrainingType", "CustomTraining"}}),
+        false);
+    expectUnchanged(
+        "saved-replay-context",
+        TeamUpdate(2),
+        true);
+    expectUnchanged(
+        "spectator-context",
+        TeamUpdate(
+            2,
+            nlohmann::json{{"bSpectator", true}}),
+        false);
+    expectUnchanged(
+        "private-context",
+        TeamUpdate(
+            2,
+            nlohmann::json{{"bPrivateMatch", true}}),
+        false);
+    expectUnchanged(
+        "casual-context",
+        TeamUpdate(
+            2,
+            nlohmann::json{{"bCasualMatch", true}}),
+        false);
+    expectUnchanged(
+        "unknown-context",
+        nlohmann::json{
+            {"Game", nlohmann::json::object()},
+            {"Players", nlohmann::json::array()}},
+        false);
+
+    nlohmann::json incomplete = TeamUpdate(1);
+    incomplete["Players"].push_back(
+        nlohmann::json{
+            {"PrimaryId", "Steam|3"},
+            {"TeamNum", 0},
+            {"Name", "P3"}});
+    expectUnchanged(
+        "incomplete-context",
+        incomplete,
+        false);
+}
 TEST(TelemetryReducerMatchValidation, RumbleManualSelectionInfersRumbleOnStandardArena) {
     Storage::InitializeEnvironment();
     auto state = std::make_shared<SessionState>();
@@ -869,8 +1185,8 @@ TEST(TelemetryReducerMatchValidation, DelayedMatchEndedResolvesPendingMatchExact
     EXPECT_FALSE(destroyed.saveMatch);
 
     SideEffects ended = reducer.Reduce(std::string(Constants::EVT_MATCH_ENDED), CurrentMatchEvent(state, nlohmann::json{
-        {"MatchGuid", "delayed-ended-guid"},
-        {"WinnerTeamNum", 1}}));
+                                                                                                             {"MatchGuid", "delayed-ended-guid"},
+                                                                                                             {"WinnerTeamNum", 1}}));
     ASSERT_TRUE(ended.saveMatch);
     ASSERT_TRUE(ended.resolvedDestroyedMatch.has_value());
     EXPECT_EQ(
@@ -880,8 +1196,8 @@ TEST(TelemetryReducerMatchValidation, DelayedMatchEndedResolvesPendingMatchExact
     EXPECT_EQ(state->game.sessionTotals.losses, 1);
 
     SideEffects duplicateEnded = reducer.Reduce(std::string(Constants::EVT_MATCH_ENDED), CurrentMatchEvent(state, nlohmann::json{
-        {"MatchGuid", "delayed-ended-guid"},
-        {"WinnerTeamNum", 1}}));
+                                                                                                                      {"MatchGuid", "delayed-ended-guid"},
+                                                                                                                      {"WinnerTeamNum", 1}}));
     SideEffects duplicateDestroyed = reducer.Reduce(std::string(Constants::EVT_MATCH_DESTROYED), CurrentMatchEvent(state, nlohmann::json{}));
     SideEffects duplicateConfirmation =
         reducer.ConfirmPendingDestroyedMatch(
@@ -914,12 +1230,12 @@ TEST(TelemetryReducerMatchValidation, StaleMatchEndedDoesNotFinalizeNextMatch) {
     ASSERT_FALSE(state->game.matchFinalized);
 
     SideEffects staleA = reducer.Reduce(std::string(Constants::EVT_MATCH_ENDED), CurrentMatchEvent(state, nlohmann::json{
-        {"MatchGuid", "stale-ended-match-a"},
-        {"WinnerTeamNum", 0},
-        {"Teams",
-         nlohmann::json::array(
-             {{{"TeamNum", 0}, {"Score", 5}},
-              {{"TeamNum", 1}, {"Score", 0}}})}}));
+                                                                                                              {"MatchGuid", "stale-ended-match-a"},
+                                                                                                              {"WinnerTeamNum", 0},
+                                                                                                              {"Teams",
+                                                                                                               nlohmann::json::array(
+                                                                                                                   {{{"TeamNum", 0}, {"Score", 5}},
+                                                                                                                    {{"TeamNum", 1}, {"Score", 0}}})}}));
 
     EXPECT_FALSE(staleA.saveMatch);
     EXPECT_FALSE(staleA.resolvedDestroyedMatch.has_value());
@@ -931,12 +1247,12 @@ TEST(TelemetryReducerMatchValidation, StaleMatchEndedDoesNotFinalizeNextMatch) {
     EXPECT_EQ(state->game.sessionTotals.losses, 1);
 
     SideEffects endedB = reducer.Reduce(std::string(Constants::EVT_MATCH_ENDED), CurrentMatchEvent(state, nlohmann::json{
-        {"MatchGuid", "stale-ended-match-b"},
-        {"WinnerTeamNum", 0},
-        {"Teams",
-         nlohmann::json::array(
-             {{{"TeamNum", 0}, {"Score", 2}},
-              {{"TeamNum", 1}, {"Score", 1}}})}}));
+                                                                                                              {"MatchGuid", "stale-ended-match-b"},
+                                                                                                              {"WinnerTeamNum", 0},
+                                                                                                              {"Teams",
+                                                                                                               nlohmann::json::array(
+                                                                                                                   {{{"TeamNum", 0}, {"Score", 2}},
+                                                                                                                    {{"TeamNum", 1}, {"Score", 1}}})}}));
 
     ASSERT_TRUE(endedB.saveMatch);
     EXPECT_EQ(
@@ -1242,8 +1558,8 @@ TEST(TelemetryReducerMatchValidation, ExplicitGuidFinalizesPendingMatchWithoutTo
         state->game.activeMatchGeneration;
 
     SideEffects endedA = reducer.Reduce(std::string(Constants::EVT_MATCH_ENDED), CurrentMatchEvent(state, nlohmann::json{
-        {"MatchGuid", "pending-explicit-a"},
-        {"WinnerTeamNum", 1}}));
+                                                                                                              {"MatchGuid", "pending-explicit-a"},
+                                                                                                              {"WinnerTeamNum", 1}}));
 
     ASSERT_TRUE(endedA.saveMatch);
     ASSERT_TRUE(endedA.resolvedDestroyedMatch.has_value());
@@ -1344,10 +1660,10 @@ TEST(TelemetryReducerMatchValidation, NormalLifecycleSavesOnceAndStartsNextGener
         state->game.activeMatchGeneration;
 
     SideEffects endedA = reducer.Reduce(std::string(Constants::EVT_MATCH_ENDED), CurrentMatchEvent(state, nlohmann::json{
-        {"MatchGuid", "normal-lifecycle-a"},
-        {"WinnerTeamNum", 0}}));
+                                                                                                              {"MatchGuid", "normal-lifecycle-a"},
+                                                                                                              {"WinnerTeamNum", 0}}));
     SideEffects destroyedA = reducer.Reduce(std::string(Constants::EVT_MATCH_DESTROYED), CurrentMatchEvent(state, nlohmann::json{
-        {"MatchGuid", "normal-lifecycle-a"}}));
+                                                                                                                      {"MatchGuid", "normal-lifecycle-a"}}));
     ASSERT_TRUE(endedA.saveMatch);
     EXPECT_FALSE(destroyedA.saveMatch);
     EXPECT_EQ(state->game.sessionTotals.wins, 1);
@@ -1384,13 +1700,13 @@ TEST(TelemetryReducerMatchValidation, EarlyExitDelayedMissingGuidEventDoesNotFin
     EXPECT_EQ(state->game.sessionTotals.losses, 0);
 
     SideEffects explicitA = reducer.Reduce(std::string(Constants::EVT_MATCH_ENDED), CurrentMatchEvent(state, nlohmann::json{
-        {"MatchGuid", "early-exit-a"},
-        {"WinnerTeamNum", 1}}));
+                                                                                                                 {"MatchGuid", "early-exit-a"},
+                                                                                                                 {"WinnerTeamNum", 1}}));
     ASSERT_TRUE(explicitA.saveMatch);
 
     SideEffects explicitB = reducer.Reduce(std::string(Constants::EVT_MATCH_ENDED), CurrentMatchEvent(state, nlohmann::json{
-        {"MatchGuid", "early-exit-b"},
-        {"WinnerTeamNum", 0}}));
+                                                                                                                 {"MatchGuid", "early-exit-b"},
+                                                                                                                 {"WinnerTeamNum", 0}}));
     ASSERT_TRUE(explicitB.saveMatch);
     EXPECT_EQ(state->game.sessionTotals.wins, 1);
     EXPECT_EQ(state->game.sessionTotals.losses, 1);
@@ -1585,7 +1901,6 @@ TEST(TelemetryReducerMatchValidation, InactiveMissingGuidMatchCreatedStartsOffli
     EXPECT_EQ(state->game.sessionTotals.losses, 1);
 }
 
-
 TEST(TelemetryReducerMatchValidation, ReconnectCannotApplyMissingGuidToNewIdentifiedMatch) {
     Storage::InitializeEnvironment();
     auto state = std::make_shared<SessionState>();
@@ -1632,8 +1947,8 @@ TEST(TelemetryReducerMatchValidation, StaleMatchDestroyedCannotFinalizeOrDestroy
     const uint64_t generationB =
         state->game.activeMatchGeneration;
     SideEffects staleDestroyedA = reducer.Reduce(std::string(Constants::EVT_MATCH_DESTROYED), CurrentMatchEvent(state, nlohmann::json{
-        {"MatchGuid", "stale-destroyed-a"},
-        {"WinnerTeamNum", 1}}));
+                                                                                                                           {"MatchGuid", "stale-destroyed-a"},
+                                                                                                                           {"WinnerTeamNum", 1}}));
 
     EXPECT_FALSE(staleDestroyedA.saveMatch);
     EXPECT_FALSE(
@@ -1666,7 +1981,7 @@ TEST(TelemetryReducerMatchValidation, ConfirmedDestroyedMatchStillBlocksDelayedM
         reducer, state, "confirmed-before-delay-a", 1, 1);
 
     SideEffects destroyedA = reducer.Reduce(std::string(Constants::EVT_MATCH_DESTROYED), CurrentMatchEvent(state, nlohmann::json{
-        {"MatchGuid", "confirmed-before-delay-a"}}));
+                                                                                                                      {"MatchGuid", "confirmed-before-delay-a"}}));
     ASSERT_TRUE(destroyedA.pendingDestroyedMatch.has_value());
     SideEffects confirmedA =
         reducer.ConfirmPendingDestroyedMatch(
@@ -1705,8 +2020,8 @@ TEST(TelemetryReducerMatchValidation, ConfirmedDestroyedMatchStillBlocksDelayedM
     EXPECT_EQ(state->game.sessionTotals.losses, 1);
 
     SideEffects endedB = reducer.Reduce(std::string(Constants::EVT_MATCH_ENDED), CurrentMatchEvent(state, nlohmann::json{
-        {"MatchGuid", "confirmed-before-delay-b"},
-        {"WinnerTeamNum", 0}}));
+                                                                                                              {"MatchGuid", "confirmed-before-delay-b"},
+                                                                                                              {"WinnerTeamNum", 0}}));
     ASSERT_TRUE(endedB.saveMatch);
     EXPECT_EQ(state->game.sessionTotals.wins, 1);
     EXPECT_EQ(state->game.sessionTotals.losses, 1);
@@ -1719,7 +2034,7 @@ TEST(TelemetryReducerMatchValidation, ExplicitPendingEndKeepsBarrierAgainstMissi
     StartRankedOnesMatch(
         reducer, state, "explicit-then-missing-a", 1, 1);
     SideEffects destroyedA = reducer.Reduce(std::string(Constants::EVT_MATCH_DESTROYED), CurrentMatchEvent(state, nlohmann::json{
-        {"MatchGuid", "explicit-then-missing-a"}}));
+                                                                                                                      {"MatchGuid", "explicit-then-missing-a"}}));
     ASSERT_TRUE(destroyedA.pendingDestroyedMatch.has_value());
 
     StartRankedOnesMatch(
@@ -1727,8 +2042,8 @@ TEST(TelemetryReducerMatchValidation, ExplicitPendingEndKeepsBarrierAgainstMissi
     const uint64_t generationB =
         state->game.activeMatchGeneration;
     SideEffects explicitA = reducer.Reduce(std::string(Constants::EVT_MATCH_ENDED), CurrentMatchEvent(state, nlohmann::json{
-        {"MatchGuid", "explicit-then-missing-a"},
-        {"WinnerTeamNum", 1}}));
+                                                                                                                 {"MatchGuid", "explicit-then-missing-a"},
+                                                                                                                 {"WinnerTeamNum", 1}}));
     ASSERT_TRUE(explicitA.saveMatch);
     ASSERT_TRUE(explicitA.resolvedDestroyedMatch.has_value());
     EXPECT_EQ(state->game.sessionTotals.losses, 1);
@@ -1760,8 +2075,8 @@ TEST(TelemetryReducerMatchValidation, ExplicitPendingEndKeepsBarrierAgainstMissi
     EXPECT_EQ(state->game.sessionTotals.losses, 1);
 
     SideEffects endedB = reducer.Reduce(std::string(Constants::EVT_MATCH_ENDED), CurrentMatchEvent(state, nlohmann::json{
-        {"MatchGuid", "explicit-then-missing-b"},
-        {"WinnerTeamNum", 0}}));
+                                                                                                              {"MatchGuid", "explicit-then-missing-b"},
+                                                                                                              {"WinnerTeamNum", 0}}));
     ASSERT_TRUE(endedB.saveMatch);
     EXPECT_EQ(state->game.sessionTotals.wins, 1);
     EXPECT_EQ(state->game.sessionTotals.losses, 1);
@@ -1775,12 +2090,12 @@ TEST(TelemetryReducerMatchValidation, NormalDepartureKeepsBarrierAgainstDelayedM
         reducer, state, "normal-departure-a", 2, 1);
 
     SideEffects endedA = reducer.Reduce(std::string(Constants::EVT_MATCH_ENDED), CurrentMatchEvent(state, nlohmann::json{
-        {"MatchGuid", "normal-departure-a"},
-        {"WinnerTeamNum", 0}}));
+                                                                                                              {"MatchGuid", "normal-departure-a"},
+                                                                                                              {"WinnerTeamNum", 0}}));
     ASSERT_TRUE(endedA.saveMatch);
     EXPECT_EQ(state->game.sessionTotals.wins, 1);
     SideEffects destroyedA = reducer.Reduce(std::string(Constants::EVT_MATCH_DESTROYED), CurrentMatchEvent(state, nlohmann::json{
-        {"MatchGuid", "normal-departure-a"}}));
+                                                                                                                      {"MatchGuid", "normal-departure-a"}}));
     EXPECT_FALSE(destroyedA.saveMatch);
 
     StartRankedOnesMatch(
@@ -1812,8 +2127,8 @@ TEST(TelemetryReducerMatchValidation, NormalDepartureKeepsBarrierAgainstDelayedM
     EXPECT_EQ(state->game.sessionTotals.losses, 0);
 
     SideEffects endedB = reducer.Reduce(std::string(Constants::EVT_MATCH_ENDED), CurrentMatchEvent(state, nlohmann::json{
-        {"MatchGuid", "normal-departure-b"},
-        {"WinnerTeamNum", 0}}));
+                                                                                                              {"MatchGuid", "normal-departure-b"},
+                                                                                                              {"WinnerTeamNum", 0}}));
     ASSERT_TRUE(endedB.saveMatch);
     EXPECT_EQ(state->game.sessionTotals.wins, 2);
     EXPECT_EQ(state->game.sessionTotals.losses, 0);

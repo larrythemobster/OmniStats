@@ -49,6 +49,8 @@ struct ConfigData {
     bool gamepad_menu_raw = false;
     int gamepad_menu_raw_button = -1;
     std::string mmr_category = "best";
+    std::string graph_mmr_category = "2v2";
+    bool graph_follow_current_playlist = true;
     std::string last_primary_id = "";
     std::vector<std::string> known_primary_ids; // previously used/seen accounts for faster identity detection
 

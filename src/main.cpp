@@ -204,14 +204,20 @@ int main(int argc, char* argv[]) {
     auto g_state = std::make_shared<SessionState>();
     // Remember the selected MMR category from previous session
     ConfigData startupConf = Config::Read();
-    MmrCategory savedCat = StringToMmrCategory(startupConf.mmr_category);
-    if (!startupConf.show_extra_playlists && IsExtraMmrCategory(savedCat)) {
-        savedCat = MmrCategory::Best;
+    MmrCategory liveCategory = StringToMmrCategory(startupConf.mmr_category);
+    if (!startupConf.show_extra_playlists && IsExtraMmrCategory(liveCategory)) {
+        liveCategory = MmrCategory::Best;
     }
-    g_state->ui.rosterMmrCategory.store(savedCat);
-    if (savedCat != MmrCategory::Best) {
-        g_state->ui.graphMmrCategory.store(savedCat);
+    g_state->ui.rosterMmrCategory.store(liveCategory);
+
+    MmrCategory graphCategory =
+        StringToMmrCategory(startupConf.graph_mmr_category);
+    if (graphCategory == MmrCategory::Best ||
+        (!startupConf.show_extra_playlists &&
+         IsExtraMmrCategory(graphCategory))) {
+        graphCategory = MmrCategory::TwoVTwo;
     }
+    g_state->ui.graphMmrCategory.store(graphCategory);
     // Stats API config check
     std::string apiPath = startupConf.rocket_league_stats_api_config_path;
     if (apiPath.empty()) {

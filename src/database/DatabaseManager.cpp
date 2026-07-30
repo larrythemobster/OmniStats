@@ -272,7 +272,7 @@ void DatabaseManager::SaveMatch(const MatchSaveSnapshot& snapshot) {
         playerCount,
         static_cast<int>(snapshot.roster.size()),
         snapshot.rosterMmrCategory,
-        snapshot.graphMmrCategory,
+        MmrCategory::Best,
         arenaKey);
 
     char* errMsg = nullptr;

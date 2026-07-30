@@ -1469,20 +1469,6 @@ void Overlay::RenderSessionView() {
         std::string playlistUpper = playlist;
         std::transform(playlistUpper.begin(), playlistUpper.end(), playlistUpper.begin(), ::toupper);
 
-        // Dynamic Database Refresh for Lifetime graph
-        static MmrCategory lastCategory = MmrCategory::Best;
-        static bool lastShowLifetime = false;
-        static std::string lastLifetimePrimaryId = "";
-        MmrCategory curCat = m_state->ui.graphMmrCategory.load();
-        if (curCat != lastCategory || m_snap.showLifetimeGraph != lastShowLifetime || m_snap.myPrimaryId != lastLifetimePrimaryId) {
-            lastCategory = curCat;
-            lastShowLifetime = m_snap.showLifetimeGraph;
-            lastLifetimePrimaryId = m_snap.myPrimaryId;
-            if (m_snap.showLifetimeGraph && m_dbManager && !m_snap.myPrimaryId.empty()) {
-                m_dbManager->AsyncGetLifetimeMmrHistory(m_snap.myPrimaryId, playlist);
-            }
-        }
-
         if (m_state->ui.showGraphView) {
             // Theme colors mapped to ImColor.
             auto& t = m_frameConfig;
@@ -1906,9 +1892,8 @@ void Overlay::RenderUI() {
         }
     }
 
-    // Trigger DB fetches (lifetime history + cached DB stats) when the effective
-    // primary id for the UI changes. We use m_lastDbFetchPrimaryId to avoid
-    // repeatedly enqueueing async DB jobs every frame.
+    // Fetch lifetime history when either the player or displayed graph category
+    // changes. Tracking both values prevents duplicate requests per frame.
     {
         std::string effectivePrimary = m_snap.myPrimaryId;
         if (effectivePrimary.empty()) {
@@ -1916,9 +1901,26 @@ void Overlay::RenderUI() {
             effectivePrimary = conf.last_primary_id;
         }
         if (!effectivePrimary.empty() && m_dbManager) {
+            const MmrCategory graphCategory =
+                m_state->ui.graphMmrCategory.load();
+            if (effectivePrimary != m_lastLifetimeHistoryPrimaryId ||
+                graphCategory != m_lastLifetimeHistoryCategory) {
+                {
+                    std::unique_lock<std::shared_mutex> historyLock(
+                        m_state->history.mutex);
+                    m_state->history.lifetimeMmrX.clear();
+                    m_state->history.lifetimeMmrY.clear();
+                    m_state->history.version++;
+                }
+                m_snap.lifetimeMmrX.clear();
+                m_snap.lifetimeMmrY.clear();
+                m_dbManager->AsyncGetLifetimeMmrHistory(
+                    effectivePrimary,
+                    MmrCategoryToString(graphCategory));
+                m_lastLifetimeHistoryPrimaryId = effectivePrimary;
+                m_lastLifetimeHistoryCategory = graphCategory;
+            }
             if (effectivePrimary != m_lastDbFetchPrimaryId) {
-                std::string playlist = MmrCategoryToString(m_state->ui.graphMmrCategory.load());
-                m_dbManager->AsyncGetLifetimeMmrHistory(effectivePrimary, playlist);
                 m_dbManager->AsyncRefreshDbStats(effectivePrimary);
                 m_lastDbFetchPrimaryId = effectivePrimary;
             }
@@ -2233,10 +2235,10 @@ void Overlay::RenderWidgetContent(DashboardLayout::WidgetId id, const char* suff
         if (ImGui::Combo((std::string("##GraphCatCombo_") + suffix).c_str(), &currentGraphCat, graphLabels.data(), static_cast<int>(graphLabels.size()))) {
             MmrCategory selectedGraphCat = graphCategories[currentGraphCat].second;
             m_state->ui.graphMmrCategory.store(selectedGraphCat);
-            if (m_state->history.showLifetimeGraph.load() && m_dbManager && !m_snap.myPrimaryId.empty()) {
-                std::string playlist = MmrCategoryToString(selectedGraphCat);
-                m_dbManager->AsyncGetLifetimeMmrHistory(m_snap.myPrimaryId, playlist);
-            }
+            Config::Update([selectedGraphCat](ConfigData& config) {
+                config.graph_mmr_category =
+                    MmrCategoryToString(selectedGraphCat);
+            });
         }
 
         ImGui::SameLine(0.0f, gap);

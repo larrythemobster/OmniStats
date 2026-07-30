@@ -186,6 +186,41 @@ TEST_F(DatabaseManagerTest, ExtraPlaylistSelectionDoesNotOverrideStandardArena) 
     EXPECT_EQ(matches[0].mode, "Doubles");
 }
 
+TEST_F(DatabaseManagerTest, GraphSelectionDoesNotOverrideMatchMode) {
+    const std::string pid = "Steam|graph-mode";
+    MatchSaveSnapshot snap;
+    snap.arenaName = "DFH Stadium";
+    snap.matchGuid = "graph-mode-independent-guid";
+    snap.myTeam = 0;
+    snap.winnerTeam = 0;
+    snap.validResult = true;
+    snap.score[0] = 2;
+    snap.score[1] = 1;
+    snap.maxPlayersSeen = 6;
+    snap.myPrimaryId = pid;
+    snap.rosterMmrCategory = MmrCategory::Best;
+    snap.graphMmrCategory = MmrCategory::Rumble;
+    for (int index = 0; index < 6; ++index) {
+        const std::string playerId =
+            index == 0
+                ? pid
+                : "Steam|graph-mode-" + std::to_string(index);
+        snap.roster[playerId] = PlayerData{
+            .primaryId = playerId,
+            .name = "Player" + std::to_string(index),
+            .team = index < 3 ? 0 : 1,
+            .mmr = 1000};
+    }
+
+    dbManager->SaveMatch(snap);
+
+    std::vector<SessionMatchSummary> matches;
+    dbManager->GetRecentMatchHistory(pid, matches, 10);
+    ASSERT_EQ(matches.size(), 1u);
+    EXPECT_TRUE(matches[0].ranked);
+    EXPECT_EQ(matches[0].mode, "Standard");
+}
+
 TEST_F(DatabaseManagerTest, ExtraArenaOverridesStandardPlayerCount) {
     std::string pid = "Steam|123456";
 

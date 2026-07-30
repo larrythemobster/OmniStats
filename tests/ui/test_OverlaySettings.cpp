@@ -93,12 +93,27 @@ TEST_F(OverlaySettingsTest, MultipleFrames_NoAccumulationCrash) {
         EXPECT_NO_THROW(RenderOneFrame());
 }
 
-TEST_F(OverlaySettingsTest, MmrCategoryChange_UpdatesSessionState) {
-    Config::Update([](ConfigData& c) { c.mmr_category = "3v3"; });
-    m_state->ui.rosterMmrCategory.store(MmrCategory::ThreeVThree);
-    m_state->ui.graphMmrCategory.store(MmrCategory::ThreeVThree);
-    EXPECT_EQ(m_state->ui.rosterMmrCategory.load(), MmrCategory::ThreeVThree);
+TEST_F(OverlaySettingsTest, IndependentMmrCategoriesRender) {
+    const ConfigData original = Config::Read();
+    Config::Update([](ConfigData& c) {
+        c.mmr_category = "best";
+        c.auto_switch_mmr_category = false;
+        c.graph_mmr_category = "3v3";
+        c.graph_follow_current_playlist = true;
+    });
+    m_state->ui.rosterMmrCategory.store(MmrCategory::Best);
+    m_state->ui.graphMmrCategory.store(
+        MmrCategory::ThreeVThree);
     m_state->ui.showMenu = true;
+
     EXPECT_NO_THROW(RenderOneFrame());
-    Config::Update([](ConfigData& c) { c.mmr_category = "best"; });
+    EXPECT_EQ(
+        m_state->ui.rosterMmrCategory.load(),
+        MmrCategory::Best);
+    EXPECT_EQ(
+        m_state->ui.graphMmrCategory.load(),
+        MmrCategory::ThreeVThree);
+
+    Config::Update(
+        [original](ConfigData& c) { c = original; });
 }

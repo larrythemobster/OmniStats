@@ -95,6 +95,24 @@ static ColorRGBA JsonToColor(const nlohmann::json& j, const ColorRGBA& fallback)
     return {j[0].get<float>(), j[1].get<float>(), j[2].get<float>(), j[3].get<float>()};
 }
 
+static bool IsKnownMmrCategory(const std::string& category) {
+    return category == "best" || category == "1v1" ||
+           category == "2v2" || category == "3v3" ||
+           category == "casual" || category == "t" ||
+           category == "hoops" || category == "rumble" ||
+           category == "dropshot" || category == "snowday" ||
+           category == "heatseeker";
+}
+
+static bool IsGraphMmrCategory(const std::string& category) {
+    return category != "best" && IsKnownMmrCategory(category);
+}
+
+static bool IsExtraMmrCategory(const std::string& category) {
+    return category == "hoops" || category == "rumble" ||
+           category == "dropshot" || category == "snowday" ||
+           category == "heatseeker";
+}
 namespace Config {
     static ConfigData Current;
     static std::shared_mutex Mutex;
@@ -214,13 +232,39 @@ namespace Config {
             if (j.contains("gamepad_menu")) Current.gamepad_menu = j["gamepad_menu"];
             if (j.contains("gamepad_menu_raw")) Current.gamepad_menu_raw = j["gamepad_menu_raw"];
             if (j.contains("gamepad_menu_raw_button")) Current.gamepad_menu_raw_button = j["gamepad_menu_raw_button"];
-            if (j.contains("mmr_category")) Current.mmr_category = j["mmr_category"];
+            if (j.contains("mmr_category") && j["mmr_category"].is_string()) {
+                Current.mmr_category = j["mmr_category"];
+            }
+            if (!IsKnownMmrCategory(Current.mmr_category)) {
+                Current.mmr_category = "best";
+                needsSave = true;
+            }
             if (j.contains("last_primary_id")) Current.last_primary_id = j["last_primary_id"];
             if (j.contains("require_rl_focus")) Current.require_rl_focus = j["require_rl_focus"];
             if (j.contains("show_match_summary")) Current.show_match_summary = j["show_match_summary"];
             if (j.contains("discord_rpc_enabled")) Current.discord_rpc_enabled = j["discord_rpc_enabled"];
             if (j.contains("enable_mmr_tracking")) Current.enable_mmr_tracking = j["enable_mmr_tracking"];
             if (j.contains("auto_switch_mmr_category")) Current.auto_switch_mmr_category = j["auto_switch_mmr_category"];
+            if (j.contains("graph_mmr_category") &&
+                j["graph_mmr_category"].is_string() &&
+                IsGraphMmrCategory(j["graph_mmr_category"].get<std::string>())) {
+                Current.graph_mmr_category = j["graph_mmr_category"];
+            } else {
+                Current.graph_mmr_category =
+                    IsGraphMmrCategory(Current.mmr_category)
+                        ? Current.mmr_category
+                        : "2v2";
+                needsSave = true;
+            }
+            if (j.contains("graph_follow_current_playlist") &&
+                j["graph_follow_current_playlist"].is_boolean()) {
+                Current.graph_follow_current_playlist =
+                    j["graph_follow_current_playlist"];
+            } else {
+                Current.graph_follow_current_playlist =
+                    Current.auto_switch_mmr_category;
+                needsSave = true;
+            }
             if (j.contains("check_for_updates")) {
                 Current.check_for_updates = j["check_for_updates"];
             } else if (j.contains("enable_auto_updates") && j["enable_auto_updates"].is_boolean()) {
@@ -241,6 +285,11 @@ namespace Config {
             if (j.contains("use_roman_numerals")) Current.use_roman_numerals = j["use_roman_numerals"];
             if (j.contains("use_rank_icons")) Current.use_rank_icons = j["use_rank_icons"];
             if (j.contains("show_extra_playlists")) Current.show_extra_playlists = j["show_extra_playlists"];
+            if (!Current.show_extra_playlists &&
+                IsExtraMmrCategory(Current.graph_mmr_category)) {
+                Current.graph_mmr_category = "2v2";
+                needsSave = true;
+            }
             if (j.contains("rocket_league_stats_api_config_path")) Current.rocket_league_stats_api_config_path = j["rocket_league_stats_api_config_path"];
             if (j.contains("check_stats_api_config_on_startup")) Current.check_stats_api_config_on_startup = j["check_stats_api_config_on_startup"];
             if (j.contains("ballchasing_token") && j["ballchasing_token"].is_string()) {
@@ -423,6 +472,8 @@ namespace Config {
         j["gamepad_menu_raw_button"] = Current.gamepad_menu_raw_button;
         j["controller_default_back_migrated"] = true;
         j["mmr_category"] = Current.mmr_category;
+        j["graph_mmr_category"] = Current.graph_mmr_category;
+        j["graph_follow_current_playlist"] = Current.graph_follow_current_playlist;
         j["last_primary_id"] = Current.last_primary_id;
         j["known_primary_ids"] = Current.known_primary_ids;
         j["require_rl_focus"] = Current.require_rl_focus;

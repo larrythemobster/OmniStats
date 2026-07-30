@@ -111,8 +111,10 @@ class Overlay {
     uint64_t m_lastGameVersion = 0;
     uint64_t m_lastHistoryVersion = 0;
 
-    // Track the last primary id we requested DB updates for to avoid repeated async calls
+    // Deduplicate database refreshes by the values that select their results.
     std::string m_lastDbFetchPrimaryId;
+    std::string m_lastLifetimeHistoryPrimaryId;
+    MmrCategory m_lastLifetimeHistoryCategory = MmrCategory::Best;
     std::string m_lastRecentMatchHistoryPrimaryId;
     int m_lastRecentMatchHistoryLimit = 0;
 
