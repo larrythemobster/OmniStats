@@ -11,6 +11,19 @@
 
 class InputManager {
   public:
+    enum HotKeyId : int {
+        HotKeyMenu = 1,
+        HotKeyCycle = 2,
+        HotKeyExpand = 3,
+        HotKeySession = 4,
+        HotKeyDashboardEdit = 5,
+    };
+
+    static void HandleHotKeyAction(
+        SessionState& state,
+        int hotKeyId,
+        bool showExtraPlaylists);
+
     InputManager(std::shared_ptr<SessionState> state);
     ~InputManager();
 
@@ -52,9 +65,9 @@ class InputManager {
     std::atomic<int> m_gamepadMenu{-1};
     std::atomic<bool> m_gamepadMenuRaw{false};
     std::atomic<int> m_gamepadMenuRawButton{-1};
-    std::atomic<bool> m_secondMonitorMode{false};
     std::atomic<bool> m_showExtraPlaylists{true};
 #if OMNISTATS_ENABLE_LOW_LEVEL_HOOK
+    std::atomic<bool> m_sessionKeyDown{false};
     static inline HHOOK m_hook = nullptr;
 #endif
     static inline std::atomic<InputManager*> g_instance{nullptr};

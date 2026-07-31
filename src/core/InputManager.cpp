@@ -18,14 +18,6 @@ namespace {
     constexpr int GAMEPAD_STICK_RS_RIGHT = 29;
     constexpr int MAX_TRACKED_BUTTONS = 35;
 
-    enum HotKeyId {
-        HotKeyMenu = 1,
-        HotKeyCycle = 2,
-        HotKeyExpand = 3,
-        HotKeySession = 4,
-        HotKeyDashboardEdit = 5,
-    };
-
     bool IsRocketLeagueForeground() {
         HWND foreground = GetForegroundWindow();
         if (!foreground) {
@@ -102,7 +94,72 @@ namespace {
         return MmrCategory::Best;
     }
 
+    MmrCategory NextGraphMmrCategory(MmrCategory current, bool showExtraPlaylists) {
+        MmrCategory next = NextMmrCategory(current, showExtraPlaylists);
+        return next == MmrCategory::Best ? MmrCategory::OneVOne : next;
+    }
+
+    void CycleMmrCategory(SessionState& state, bool showExtraPlaylists) {
+        const MmrCategory nextRoster = NextMmrCategory(
+            state.ui.rosterMmrCategory.load(), showExtraPlaylists);
+        state.ui.rosterMmrCategory.store(nextRoster);
+
+        Config::Update(
+            [&state, nextRoster, showExtraPlaylists](ConfigData& conf) {
+                conf.mmr_category = MmrCategoryToString(nextRoster);
+                if (conf.graph_follow_current_playlist) {
+                    return;
+                }
+
+                const MmrCategory nextGraph = NextGraphMmrCategory(
+                    state.ui.graphMmrCategory.load(), showExtraPlaylists);
+                state.ui.graphMmrCategory.store(nextGraph);
+                conf.graph_mmr_category = MmrCategoryToString(nextGraph);
+            });
+    }
+
+    void ExpandActiveView(SessionState& state) {
+        if (state.ui.showSessionView.load()) {
+            state.ui.showGraphView = !state.ui.showGraphView;
+        } else if (state.ui.showOverlay.load()) {
+            state.ui.h2hExpanded = !state.ui.h2hExpanded;
+        }
+    }
+
+    void ToggleSessionView(SessionState& state) {
+        bool showSessionView = !state.ui.showSessionView.load();
+        state.ui.showSessionView = showSessionView;
+        if (!showSessionView) {
+            state.ui.showGraphView = false;
+        }
+    }
+
 } // namespace
+
+void InputManager::HandleHotKeyAction(
+    SessionState& state,
+    int hotKeyId,
+    bool showExtraPlaylists) {
+    switch (hotKeyId) {
+    case HotKeyMenu:
+        ToggleSettingsMenu(state);
+        break;
+    case HotKeyCycle:
+        CycleMmrCategory(state, showExtraPlaylists);
+        break;
+    case HotKeyExpand:
+        ExpandActiveView(state);
+        break;
+    case HotKeySession:
+        ToggleSessionView(state);
+        break;
+    case HotKeyDashboardEdit:
+        if (state.ui.showMenu.load()) {
+            ToggleDashboardEditMode(state);
+        }
+        break;
+    }
+}
 
 InputManager::InputManager(std::shared_ptr<SessionState> state)
     : m_state(state) {
@@ -170,7 +227,6 @@ void InputManager::RefreshConfigCache() {
     m_gamepadMenu.store(conf.gamepad_menu, std::memory_order_relaxed);
     m_gamepadMenuRaw.store(conf.gamepad_menu_raw, std::memory_order_relaxed);
     m_gamepadMenuRawButton.store(conf.gamepad_menu_raw_button, std::memory_order_relaxed);
-    m_secondMonitorMode.store(conf.second_monitor_mode, std::memory_order_relaxed);
     m_showExtraPlaylists.store(conf.show_extra_playlists, std::memory_order_relaxed);
 }
 
@@ -260,6 +316,7 @@ void InputManager::KeyboardThreadLoop() {
             return;
         }
 
+        // RegisterHotKey suppresses held-key repeats at the OS message source.
         if (RegisterHotKey(NULL, id, MOD_NOREPEAT, static_cast<UINT>(key))) {
             registeredKey = key;
         } else {
@@ -290,54 +347,10 @@ void InputManager::KeyboardThreadLoop() {
             return;
         }
 
-        if (hotKeyId == HotKeyMenu) {
-            ToggleSettingsMenu(state);
-            return;
-        }
-
-        if (hotKeyId == HotKeyCycle) {
-            if (!state.ui.showOverlay.load()) {
-                return;
-            }
-            MmrCategory next = NextMmrCategory(
-                state.ui.rosterMmrCategory.load(),
-                m_showExtraPlaylists.load(std::memory_order_relaxed));
-            state.ui.rosterMmrCategory.store(next);
-            if (!m_secondMonitorMode.load(std::memory_order_relaxed)) {
-                state.ui.graphMmrCategory.store(next);
-            }
-            Config::Update([next](ConfigData& conf) {
-                conf.mmr_category = MmrCategoryToString(next);
-            });
-            return;
-        }
-
-        if (hotKeyId == HotKeyExpand) {
-            if (!state.ui.showOverlay.load()) {
-                return;
-            }
-            if (state.ui.showSessionView) {
-                state.ui.showGraphView = !state.ui.showGraphView;
-            } else {
-                state.ui.h2hExpanded = !state.ui.h2hExpanded;
-            }
-            return;
-        }
-
-        if (hotKeyId == HotKeySession) {
-            if (!state.ui.showOverlay.load()) {
-                return;
-            }
-            state.ui.showSessionView = !state.ui.showSessionView;
-            if (!state.ui.showSessionView) {
-                state.ui.showGraphView = false;
-            }
-            return;
-        }
-
-        if (hotKeyId == HotKeyDashboardEdit && state.ui.showMenu.load()) {
-            ToggleDashboardEditMode(state);
-        }
+        HandleHotKeyAction(
+            state,
+            hotKeyId,
+            m_showExtraPlaylists.load(std::memory_order_relaxed));
     };
 
     while (m_isRunning) {
@@ -419,7 +432,6 @@ LRESULT CALLBACK InputManager::LowLevelKeyboardProc(int nCode, WPARAM wParam,
         const int keyExpand = self->m_keyExpand.load(std::memory_order_relaxed);
         const int keySession = self->m_keySession.load(std::memory_order_relaxed);
         const int keyMenu = self->m_keyMenu.load(std::memory_order_relaxed);
-        const bool secondMonitorMode = self->m_secondMonitorMode.load(std::memory_order_relaxed);
         const bool showExtraPlaylists = self->m_showExtraPlaylists.load(std::memory_order_relaxed);
 
         if (kb->vkCode == keyOverlay) {
@@ -433,29 +445,21 @@ LRESULT CALLBACK InputManager::LowLevelKeyboardProc(int nCode, WPARAM wParam,
             }
         }
 
-        if (kb->vkCode == keyCycle && wParam == WM_KEYDOWN && st->ui.showOverlay.load()) {
-            MmrCategory next = NextMmrCategory(st->ui.rosterMmrCategory.load(), showExtraPlaylists);
-            st->ui.rosterMmrCategory.store(next);
-            if (!secondMonitorMode) {
-                st->ui.graphMmrCategory.store(next);
-            }
-            Config::Update([next](ConfigData& conf) {
-                conf.mmr_category = MmrCategoryToString(next);
-            });
+        if (kb->vkCode == keyCycle && wParam == WM_KEYDOWN) {
+            CycleMmrCategory(*st, showExtraPlaylists);
         }
 
-        if (kb->vkCode == keyExpand && wParam == WM_KEYDOWN && st->ui.showOverlay.load()) {
-            if (st->ui.showSessionView) {
-                st->ui.showGraphView = !st->ui.showGraphView;
-            } else {
-                st->ui.h2hExpanded = !st->ui.h2hExpanded;
-            }
+        if (kb->vkCode == keyExpand && wParam == WM_KEYDOWN) {
+            ExpandActiveView(*st);
         }
 
-        if (kb->vkCode == keySession && wParam == WM_KEYDOWN && st->ui.showOverlay.load()) {
-            st->ui.showSessionView = !st->ui.showSessionView;
-            if (!st->ui.showSessionView) {
-                st->ui.showGraphView = false;
+        // The low-level hook still receives repeated keydowns, so track the F8 edge.
+        if (kb->vkCode == keySession) {
+            if (wParam == WM_KEYUP || wParam == WM_SYSKEYUP) {
+                self->m_sessionKeyDown.store(false, std::memory_order_relaxed);
+            } else if ((wParam == WM_KEYDOWN || wParam == WM_SYSKEYDOWN) &&
+                       !self->m_sessionKeyDown.exchange(true, std::memory_order_relaxed)) {
+                ToggleSessionView(*st);
             }
         }
 
@@ -611,26 +615,19 @@ void InputManager::GamepadThreadLoop() {
                         if (overlayVisible && isPressed(self->m_gamepadCycle.load(std::memory_order_relaxed),
                                                         self->m_gamepadCycleRaw.load(std::memory_order_relaxed),
                                                         self->m_gamepadCycleRawButton.load(std::memory_order_relaxed))) {
-                            MmrCategory next = NextMmrCategory(st->ui.rosterMmrCategory.load(), self->m_showExtraPlaylists.load(std::memory_order_relaxed));
-                            st->ui.rosterMmrCategory.store(next);
-                            if (!self->m_secondMonitorMode.load(std::memory_order_relaxed)) st->ui.graphMmrCategory.store(next);
-                            Config::Update([next](ConfigData& conf) { conf.mmr_category = MmrCategoryToString(next); });
+                            CycleMmrCategory(*st, self->m_showExtraPlaylists.load(std::memory_order_relaxed));
                         }
 
                         if (overlayVisible && isPressed(self->m_gamepadExpand.load(std::memory_order_relaxed),
                                                         self->m_gamepadExpandRaw.load(std::memory_order_relaxed),
                                                         self->m_gamepadExpandRawButton.load(std::memory_order_relaxed))) {
-                            if (st->ui.showSessionView)
-                                st->ui.showGraphView = !st->ui.showGraphView;
-                            else
-                                st->ui.h2hExpanded = !st->ui.h2hExpanded;
+                            ExpandActiveView(*st);
                         }
 
                         if (overlayVisible && isPressed(self->m_gamepadSession.load(std::memory_order_relaxed),
                                                         self->m_gamepadSessionRaw.load(std::memory_order_relaxed),
                                                         self->m_gamepadSessionRawButton.load(std::memory_order_relaxed))) {
-                            st->ui.showSessionView = !st->ui.showSessionView;
-                            if (!st->ui.showSessionView) st->ui.showGraphView = false;
+                            ToggleSessionView(*st);
                         }
 
                         if (isPressed(self->m_gamepadMenu.load(std::memory_order_relaxed),
@@ -684,26 +681,19 @@ void InputManager::GamepadThreadLoop() {
                         if (overlayVisible && isPressed(self->m_gamepadCycle.load(std::memory_order_relaxed),
                                                         self->m_gamepadCycleRaw.load(std::memory_order_relaxed),
                                                         self->m_gamepadCycleRawButton.load(std::memory_order_relaxed))) {
-                            MmrCategory next = NextMmrCategory(st->ui.rosterMmrCategory.load(), self->m_showExtraPlaylists.load(std::memory_order_relaxed));
-                            st->ui.rosterMmrCategory.store(next);
-                            if (!self->m_secondMonitorMode.load(std::memory_order_relaxed)) st->ui.graphMmrCategory.store(next);
-                            Config::Update([next](ConfigData& conf) { conf.mmr_category = MmrCategoryToString(next); });
+                            CycleMmrCategory(*st, self->m_showExtraPlaylists.load(std::memory_order_relaxed));
                         }
 
                         if (overlayVisible && isPressed(self->m_gamepadExpand.load(std::memory_order_relaxed),
                                                         self->m_gamepadExpandRaw.load(std::memory_order_relaxed),
                                                         self->m_gamepadExpandRawButton.load(std::memory_order_relaxed))) {
-                            if (st->ui.showSessionView)
-                                st->ui.showGraphView = !st->ui.showGraphView;
-                            else
-                                st->ui.h2hExpanded = !st->ui.h2hExpanded;
+                            ExpandActiveView(*st);
                         }
 
                         if (overlayVisible && isPressed(self->m_gamepadSession.load(std::memory_order_relaxed),
                                                         self->m_gamepadSessionRaw.load(std::memory_order_relaxed),
                                                         self->m_gamepadSessionRawButton.load(std::memory_order_relaxed))) {
-                            st->ui.showSessionView = !st->ui.showSessionView;
-                            if (!st->ui.showSessionView) st->ui.showGraphView = false;
+                            ToggleSessionView(*st);
                         }
 
                         if (isPressed(self->m_gamepadMenu.load(std::memory_order_relaxed),

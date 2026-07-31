@@ -123,14 +123,14 @@ TEST_F(OverlayDashboardTest, PopulatedRoster_RendersDashboard_NoCrash) {
 
 // -- Session view and graph view toggles --
 
-TEST_F(OverlayDashboardTest, SessionView_NoCrash) {
-    m_state->ui.showOverlay = true;
+TEST_F(OverlayDashboardTest, SessionViewRendersWhileOverlayHidden) {
+    m_state->ui.showOverlay = false;
     m_state->ui.showSessionView = true;
     EXPECT_NO_THROW(RenderOneFrame());
 }
 
-TEST_F(OverlayDashboardTest, GraphView_NoCrash) {
-    m_state->ui.showOverlay = true;
+TEST_F(OverlayDashboardTest, GraphViewRendersWhileOverlayHidden) {
+    m_state->ui.showOverlay = false;
     m_state->ui.showSessionView = true;
     m_state->ui.showGraphView = true;
     EXPECT_NO_THROW(RenderOneFrame());
