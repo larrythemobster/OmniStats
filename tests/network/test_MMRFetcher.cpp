@@ -151,7 +151,6 @@ class MMRFetcherTest : public ::testing::Test {
         fetcher->EnqueuePendingDestroyedMatch(pending);
     }
 
-
     std::shared_ptr<SessionState> sessionState;
     std::shared_ptr<MMRFetcher> fetcher;
 
@@ -391,7 +390,7 @@ TEST_F(MMRFetcherTest, WinThenLossKeepsDirectionalPointsAndConfirmsNewest) {
 
     const auto points = fetcher->PlaylistMatchPointsForTests("2v2");
     ASSERT_EQ(points.size(), 2u);
-    EXPECT_EQ(points[0].mmr, 1216);
+    EXPECT_EQ(points[0].mmr, 1217);
     EXPECT_LT(points[1].mmr, points[0].mmr);
     EXPECT_EQ(points[1].matchGuid, "loss");
     EXPECT_EQ(points[1].mmr, 1215);
@@ -411,7 +410,7 @@ TEST_F(MMRFetcherTest, TwoWinsWithSmallCumulativeGainRemainIncreasing) {
     const auto points = fetcher->PlaylistMatchPointsForTests("2v2");
     ASSERT_EQ(points.size(), 2u);
     EXPECT_EQ(points[0].matchGuid, "small-win-a");
-    EXPECT_EQ(points[0].mmr, 1203);
+    EXPECT_EQ(points[0].mmr, 1202);
     EXPECT_EQ(points[1].matchGuid, "small-win-b");
     EXPECT_EQ(points[1].mmr, 1205);
     EXPECT_GT(points[1].mmr, points[0].mmr);
@@ -797,7 +796,7 @@ TEST_F(MMRFetcherTest, CumulativeCatchUpPreservesDestroyedThenNormalMatch) {
         fetcher->PlaylistMatchPointsForTests("2v2");
     ASSERT_EQ(points.size(), 2u);
     EXPECT_EQ(points[0].matchGuid, "catch-up-a");
-    EXPECT_EQ(points[0].mmr, 1199);
+    EXPECT_EQ(points[0].mmr, 1195);
     EXPECT_EQ(points[1].matchGuid, "catch-up-b");
     EXPECT_EQ(points[1].mmr, 1200);
     EXPECT_TRUE(points[0].trackerCovered);

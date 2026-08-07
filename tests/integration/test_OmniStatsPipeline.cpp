@@ -527,7 +527,7 @@ TEST_F(
         fetcher->PlaylistMatchPointsForTests("1v1");
     ASSERT_EQ(points.size(), 2u);
     EXPECT_EQ(points[0].matchGuid, "pipeline-catch-up-a");
-    EXPECT_EQ(points[0].mmr, 1199);
+    EXPECT_EQ(points[0].mmr, 1191);
     EXPECT_EQ(points[1].matchGuid, "pipeline-catch-up-b");
     EXPECT_EQ(points[1].mmr, 1200);
     EXPECT_TRUE(points[0].trackerCovered);

@@ -135,54 +135,91 @@ namespace {
     static constexpr auto kTransientRetryDelay = std::chrono::milliseconds(3000);
 #endif
 
-    static std::vector<int> BuildDirectionalMmrPath(int baselineMmr,
-                                                    int finalMmr,
-                                                    const std::vector<bool>& wins) {
-        if (wins.empty() || baselineMmr <= 0 || finalMmr <= 0) return {};
+    static std::vector<int> BuildDirectionalMmrPath(
+        int initialMmr,
+        int finalMmr,
+        const std::vector<bool>& results) {
+        if (results.empty() || initialMmr <= 0 || finalMmr <= 0)
+            return {};
 
-        std::vector<int> magnitudes(wins.size(), 1);
-        int minimumNetChange = 0;
-        size_t winCount = 0;
-        size_t lossCount = 0;
-        for (const bool won : wins) {
-            minimumNetChange += won ? 1 : -1;
-            if (won) {
-                ++winCount;
-            } else {
-                ++lossCount;
-            }
+        const size_t n = results.size();
+        size_t wins = 0;
+        size_t losses = 0;
+        for (bool won : results) {
+            if (won)
+                ++wins;
+            else
+                ++losses;
         }
+        const int totalDelta = finalMmr - initialMmr;
+        if (totalDelta > 0 && wins == 0) return {};
+        if (totalDelta < 0 && losses == 0) return {};
+        if (totalDelta == 0 && (wins == 0 || losses == 0) && (wins > 0 || losses > 0)) return {};
 
-        int remainingChange = finalMmr - baselineMmr - minimumNetChange;
-        const bool distributeToWins = remainingChange > 0;
-        const size_t recipientCount = distributeToWins ? winCount : lossCount;
-        if (remainingChange != 0 && recipientCount == 0) return {};
+        double winStep = 9.0;
+        double lossStep = 9.0;
 
-        const int remainingMagnitude = std::abs(remainingChange);
-        const int sharedExtra = recipientCount > 0
-                                    ? remainingMagnitude / static_cast<int>(recipientCount)
-                                    : 0;
-        int remainder = recipientCount > 0
-                            ? remainingMagnitude % static_cast<int>(recipientCount)
-                            : 0;
-        for (size_t index = 0; index < wins.size(); ++index) {
-            if (wins[index] != distributeToWins) continue;
-            magnitudes[index] += sharedExtra;
-            if (remainder > 0) {
-                ++magnitudes[index];
-                --remainder;
-            }
+        if (totalDelta > 0) {
+            lossStep = 9.0;
+            winStep = (totalDelta + lossStep * losses) / static_cast<double>(wins);
+        } else if (totalDelta < 0) {
+            winStep = 9.0;
+            lossStep = (winStep * wins - totalDelta) / static_cast<double>(losses);
+        } else if (wins > 0 && losses > 0) {
+            winStep = 9.0;
+            lossStep = (winStep * wins) / static_cast<double>(losses);
         }
 
         std::vector<int> path;
-        path.reserve(wins.size());
-        int currentMmr = baselineMmr;
-        for (size_t index = 0; index < wins.size(); ++index) {
-            currentMmr += wins[index] ? magnitudes[index] : -magnitudes[index];
-            if (currentMmr <= 0) return {};
-            path.push_back(currentMmr);
+        path.reserve(n);
+        double currentMmr = static_cast<double>(initialMmr);
+
+        for (size_t i = 0; i < n; ++i) {
+            if (results[i]) {
+                currentMmr += winStep;
+            } else {
+                currentMmr -= lossStep;
+            }
+            if (i == n - 1) {
+                path.push_back(finalMmr);
+            } else {
+                path.push_back(static_cast<int>(std::round(currentMmr)));
+            }
         }
-        if (path.back() != finalMmr) return {};
+
+        return path;
+    }
+
+    static std::vector<int> ReconcileEstimatedPath(
+        int finalMmr,
+        const std::vector<int>& estimatedPath) {
+        if (estimatedPath.empty())
+            return {};
+
+        std::vector<int> path = estimatedPath;
+
+        const int estimatedFinal = path.back();
+        const int error = finalMmr - estimatedFinal;
+
+        if (error == 0) {
+            path.back() = finalMmr;
+            return path;
+        }
+
+        // Spread the correction over the entire estimated path.
+        const int n = static_cast<int>(path.size());
+
+        for (int i = 0; i < n; ++i) {
+            // Linear interpolation of the correction.
+            const int correction =
+                static_cast<int>(std::round(
+                    static_cast<double>(error) * (i + 1) / n));
+
+            path[i] = estimatedPath[i] + correction;
+        }
+
+        path.back() = finalMmr;
+
         return path;
     }
 
@@ -654,16 +691,48 @@ bool MMRFetcher::ReconcileTrackerResponse(const MMRRequest& req, int fetchedMmr,
             }
         }
 
-        std::vector<bool> coveredResults;
-        coveredResults.reserve(coveredCount);
+        std::vector<int> estimatedPath;
+        estimatedPath.reserve(coveredCount);
+
+        int lastEstimatedMmr = pathBaselineMmr;
+
         for (size_t index = 0; index < coveredCount; ++index) {
-            const auto recordIt = m_postMatchRecordsByGuid.find(pendingGuids[index]);
-            coveredResults.push_back(
-                recordIt != m_postMatchRecordsByGuid.end() && recordIt->second.won);
+            const std::string& guid = pendingGuids[index];
+            const auto recordIt = m_postMatchRecordsByGuid.find(guid);
+
+            const auto pointIt = std::find_if(
+                points.begin(),
+                points.end(),
+                [&](const SessionMmrPoint& point) {
+                    return point.matchGuid == guid;
+                });
+            if (pointIt != points.end() && pointIt->mmr > 0 && pointIt->valueEstimated) {
+                estimatedPath.push_back(pointIt->mmr);
+                lastEstimatedMmr = pointIt->mmr;
+            } else {
+                bool won = true;
+                if (recordIt != m_postMatchRecordsByGuid.end()) {
+                    won = recordIt->second.won;
+                } else if (index == 0) {
+                    won = req.won;
+                }
+                const int step = won ? 9 : -9;
+                int synthesizedMmr = lastEstimatedMmr + step;
+                if (synthesizedMmr <= 0) {
+                    synthesizedMmr = (std::max)(1, lastEstimatedMmr);
+                }
+                estimatedPath.push_back(synthesizedMmr);
+                lastEstimatedMmr = synthesizedMmr;
+            }
         }
-        const std::vector<int> directionalPath =
-            BuildDirectionalMmrPath(pathBaselineMmr, fetchedMmr, coveredResults);
-        const bool directionalPathAvailable = directionalPath.size() == coveredCount;
+
+        const std::vector<int> reconciledPath =
+            ReconcileEstimatedPath(
+                fetchedMmr,
+                estimatedPath);
+
+        const bool reconciledPathAvailable =
+            reconciledPath.size() == coveredCount;
         int chainMmr = pathBaselineMmr;
         for (size_t index = 0; index < coveredCount; ++index) {
             const std::string guid = pendingGuids[index];
@@ -674,12 +743,12 @@ bool MMRFetcher::ReconcileTrackerResponse(const MMRRequest& req, int fetchedMmr,
             auto pointIt = std::find_if(points.begin(), points.end(), [&](const SessionMmrPoint& point) {
                 return point.matchGuid == guid;
             });
-            const bool valueEstimated = index + 1 < coveredCount;
+            const bool valueEstimated = index < coveredCount - 1;
             int resolvedMmr = 0;
             if (!valueEstimated) {
                 resolvedMmr = fetchedMmr;
-            } else if (directionalPathAvailable) {
-                resolvedMmr = directionalPath[index];
+            } else if (reconciledPathAvailable) {
+                resolvedMmr = reconciledPath[index];
             } else if (pointIt != points.end() && pointIt->mmr > 0) {
                 resolvedMmr = pointIt->mmr;
             } else {
@@ -748,7 +817,8 @@ bool MMRFetcher::ReconcileTrackerResponse(const MMRRequest& req, int fetchedMmr,
                 << ", fetchedMatches=" << fetchedMatches
                 << ", pending=" << pendingGuids.size()
                 << ", point=" << (appended ? "appended" : "replaced")
-                << ", direction=" << (directionalPathAvailable ? "preserved" : "infeasible")
+                << ", reconciliation="
+                << (reconciledPathAvailable ? "adjusted" : "fallback")
                 << ", coverage=tracker-covered"
                 << ", value=" << (valueEstimated ? "estimated" : "exact") << ".\n";
             if (record.destroyedMatch) {
