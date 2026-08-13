@@ -1286,10 +1286,12 @@ void Overlay::RenderPreviousGamesOverlay() {
 void Overlay::RenderDemoTrackerTable(const char* tableId) {
     const auto& cm = m_snap.currentMatch;
     const auto& s = m_snap.sessionTotals;
-    const int gameDemos = cm.demosSelf;
-    const int gameDemoed = cm.demoedSelf;
-    const int sessionDemos = s.demos + gameDemos;
-    const int sessionDemoed = s.demoed + gameDemoed;
+    const DemolitionCounts gameCounts{
+        cm.demosSelf,
+        cm.demoedSelf};
+    const DemolitionCounts sessionCounts =
+        CalculateSessionDemolitionCounts(
+            s, cm, m_snap.matchFinalized);
 
     if (ImGui::BeginTable(tableId, 3, ImGuiTableFlags_None)) {
         ImGui::TableSetupColumn("Label", ImGuiTableColumnFlags_WidthFixed, 92.0f * m_dpiScale);
@@ -1316,8 +1318,8 @@ void Overlay::RenderDemoTrackerTable(const char* tableId) {
             ImGui::PopFont();
         };
 
-        renderRow("GAME K/D", FormatDemoKd(gameDemos, gameDemoed), std::to_string(gameDemos) + ":" + std::to_string(gameDemoed), gameDemos >= gameDemoed);
-        renderRow("SESSION K/D", FormatDemoKd(sessionDemos, sessionDemoed), std::to_string(sessionDemos) + ":" + std::to_string(sessionDemoed), sessionDemos >= sessionDemoed);
+        renderRow("GAME K/D", FormatDemoKd(gameCounts.demos, gameCounts.demoed), std::to_string(gameCounts.demos) + ":" + std::to_string(gameCounts.demoed), gameCounts.demos >= gameCounts.demoed);
+        renderRow("SESSION K/D", FormatDemoKd(sessionCounts.demos, sessionCounts.demoed), std::to_string(sessionCounts.demos) + ":" + std::to_string(sessionCounts.demoed), sessionCounts.demos >= sessionCounts.demoed);
 
         ImGui::EndTable();
     }
@@ -1838,6 +1840,7 @@ void Overlay::RenderUI() {
             m_snap.inMatch = m_state->game.inMatch;
             m_snap.inReplay = m_state->game.inReplay;
             m_snap.maxPlayersSeen = m_state->game.maxPlayersSeen;
+            m_snap.matchFinalized = m_state->game.matchFinalized;
             m_snap.myPrimaryId = m_state->game.myPrimaryId;
             m_snap.myTeam = m_state->game.myTeam;
             m_snap.currentMatch = m_state->game.currentMatch;

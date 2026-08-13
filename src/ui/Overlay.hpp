@@ -29,6 +29,7 @@ struct RenderSnapshot {
     int score[2] = {0, 0};
     bool inMatch = false;
     bool inReplay = false;
+    bool matchFinalized = false;
     int maxPlayersSeen = 0;
     std::string myPrimaryId;
     int myTeam = -1;

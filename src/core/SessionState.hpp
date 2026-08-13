@@ -111,6 +111,22 @@ struct SessionTotals {
     int goalParticipations = 0; // User goals + user assists, clamped per match
 };
 
+struct DemolitionCounts {
+    int demos = 0;
+    int demoed = 0;
+};
+
+inline DemolitionCounts CalculateSessionDemolitionCounts(
+    const SessionTotals& sessionTotals,
+    const MatchStats& currentMatch,
+    bool matchFinalized) {
+    const int liveDemos = matchFinalized ? 0 : currentMatch.demosSelf;
+    const int liveDemoed = matchFinalized ? 0 : currentMatch.demoedSelf;
+    return {
+        sessionTotals.demos + liveDemos,
+        sessionTotals.demoed + liveDemoed};
+}
+
 inline int CalculateTrackedSessionMmrChange(const std::map<std::string, int>& changes) {
     int total = 0;
     for (const auto& [playlist, change] : changes) {
