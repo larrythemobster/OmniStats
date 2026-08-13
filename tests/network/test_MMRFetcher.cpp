@@ -400,6 +400,49 @@ TEST_F(MMRFetcherTest, WinThenLossKeepsDirectionalPointsAndConfirmsNewest) {
     EXPECT_FALSE(points[1].valueEstimated);
 }
 
+TEST_F(MMRFetcherTest, EarlyForfeitEstimateStaysDirectionalAfterNextWin) {
+    EnqueuePostMatch(
+        "early-forfeit", false, 1274, 352);
+    fetcher->ProcessPostMatchResponseForTests(
+        "early-forfeit", 1274, 352);
+    EnqueuePostMatch(
+        "next-win", true, 1274, 352);
+
+    fetcher->ProcessPostMatchResponseForTests(
+        "next-win", 1273, 354);
+
+    const auto points =
+        fetcher->PlaylistMatchPointsForTests("2v2");
+    ASSERT_EQ(points.size(), 2u);
+    EXPECT_EQ(points[0].matchGuid, "early-forfeit");
+    EXPECT_EQ(points[0].mmr, 1265);
+    EXPECT_LT(points[0].mmr, 1274);
+    EXPECT_EQ(points[1].matchGuid, "next-win");
+    EXPECT_EQ(points[1].mmr, 1273);
+    EXPECT_GT(points[1].mmr, points[0].mmr);
+    EXPECT_TRUE(points[0].valueEstimated);
+    EXPECT_FALSE(points[1].valueEstimated);
+}
+
+TEST_F(MMRFetcherTest, LargeCorrectionDoesNotReverseKnownLoss) {
+    EnqueuePostMatch("large-correction-win", true);
+    fetcher->ProcessPostMatchResponseForTests(
+        "large-correction-win", 1200, 50);
+    EnqueuePostMatch("large-correction-loss", false);
+
+    fetcher->ProcessPostMatchResponseForTests(
+        "large-correction-loss", 1220, 52);
+
+    const auto points =
+        fetcher->PlaylistMatchPointsForTests("2v2");
+    ASSERT_EQ(points.size(), 2u);
+    EXPECT_GT(points[0].mmr, 1200);
+    EXPECT_EQ(points[1].mmr, 1220);
+    EXPECT_LT(points[1].mmr, points[0].mmr);
+    EXPECT_TRUE(points[0].valueEstimated);
+    EXPECT_FALSE(points[1].valueEstimated);
+}
+
 TEST_F(MMRFetcherTest, TwoWinsWithSmallCumulativeGainRemainIncreasing) {
     EnqueuePostMatch("small-win-a", true);
     fetcher->ProcessPostMatchResponseForTests("small-win-a", 1200, 50);
@@ -804,6 +847,25 @@ TEST_F(MMRFetcherTest, CumulativeCatchUpPreservesDestroyedThenNormalMatch) {
     EXPECT_FALSE(
         fetcher->HasPendingDestroyedMatchForTests(
             "catch-up-a"));
+}
+
+TEST_F(MMRFetcherTest, ImpossibleLowMmrPathDoesNotInferDestroyedLoss) {
+    std::vector<std::pair<std::string, bool>> confirmations;
+    fetcher->SetDestroyedMatchConfirmationCallback(
+        [&](const std::string& matchGuid, bool won) {
+            confirmations.emplace_back(matchGuid, won);
+        });
+    EnqueueDestroyedMatch("low-mmr-unknown", 5, 11);
+    EnqueuePostMatch(
+        "low-mmr-win", true, 5, 11, "2v2", true);
+
+    fetcher->ProcessPostMatchResponseForTests(
+        "low-mmr-win", 5, 13);
+
+    EXPECT_TRUE(confirmations.empty());
+    EXPECT_TRUE(
+        fetcher->HasPendingDestroyedMatchForTests(
+            "low-mmr-unknown"));
 }
 
 TEST(SessionMmrAggregationTest, SumsOnlyTrackedCompetitivePlaylists) {

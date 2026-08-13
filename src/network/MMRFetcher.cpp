@@ -135,6 +135,11 @@ namespace {
     static constexpr auto kTransientRetryDelay = std::chrono::milliseconds(3000);
 #endif
 
+    static bool MmrPathPreservesResults(
+        int initialMmr,
+        const std::vector<int>& path,
+        const std::vector<bool>& results);
+
     static std::vector<int> BuildDirectionalMmrPath(
         int initialMmr,
         int finalMmr,
@@ -180,6 +185,8 @@ namespace {
             } else {
                 currentMmr -= lossStep;
             }
+            if (currentMmr <= 0)
+                return {};
             if (i == n - 1) {
                 path.push_back(finalMmr);
             } else {
@@ -187,40 +194,67 @@ namespace {
             }
         }
 
-        return path;
+        return MmrPathPreservesResults(initialMmr, path, results)
+                   ? path
+                   : std::vector<int>{};
+    }
+
+    static bool MmrPathPreservesResults(
+        int initialMmr,
+        const std::vector<int>& path,
+        const std::vector<bool>& results) {
+        if (initialMmr <= 0 || path.size() != results.size())
+            return false;
+
+        int previousMmr = initialMmr;
+        for (size_t i = 0; i < path.size(); ++i) {
+            const int currentMmr = path[i];
+            if (currentMmr <= 0)
+                return false;
+            if (results[i] ? currentMmr <= previousMmr
+                           : currentMmr >= previousMmr) {
+                return false;
+            }
+            previousMmr = currentMmr;
+        }
+        return true;
     }
 
     static std::vector<int> ReconcileEstimatedPath(
+        int initialMmr,
         int finalMmr,
-        const std::vector<int>& estimatedPath) {
-        if (estimatedPath.empty())
+        const std::vector<int>& estimatedPath,
+        const std::vector<bool>& results) {
+        if (estimatedPath.empty() ||
+            estimatedPath.size() != results.size() ||
+            initialMmr <= 0 ||
+            finalMmr <= 0) {
             return {};
+        }
 
         std::vector<int> path = estimatedPath;
-
-        const int estimatedFinal = path.back();
-        const int error = finalMmr - estimatedFinal;
-
-        if (error == 0) {
-            path.back() = finalMmr;
+        path.back() = finalMmr;
+        if (MmrPathPreservesResults(initialMmr, path, results))
             return path;
-        }
 
-        // Spread the correction over the entire estimated path.
-        const int n = static_cast<int>(path.size());
+        const int estimatedFinal = estimatedPath.back();
+        const int error = finalMmr - estimatedFinal;
+        const int pathLength = static_cast<int>(path.size());
 
-        for (int i = 0; i < n; ++i) {
-            // Linear interpolation of the correction.
+        for (int i = 0; i < pathLength; ++i) {
             const int correction =
                 static_cast<int>(std::round(
-                    static_cast<double>(error) * (i + 1) / n));
-
+                    static_cast<double>(error) * (i + 1) /
+                    pathLength));
             path[i] = estimatedPath[i] + correction;
         }
-
         path.back() = finalMmr;
 
-        return path;
+        if (MmrPathPreservesResults(initialMmr, path, results))
+            return path;
+
+        return BuildDirectionalMmrPath(
+            initialMmr, finalMmr, results);
     }
 
 } // namespace
@@ -693,6 +727,8 @@ bool MMRFetcher::ReconcileTrackerResponse(const MMRRequest& req, int fetchedMmr,
 
         std::vector<int> estimatedPath;
         estimatedPath.reserve(coveredCount);
+        std::vector<bool> coveredResults;
+        coveredResults.reserve(coveredCount);
 
         int lastEstimatedMmr = pathBaselineMmr;
 
@@ -706,16 +742,20 @@ bool MMRFetcher::ReconcileTrackerResponse(const MMRRequest& req, int fetchedMmr,
                 [&](const SessionMmrPoint& point) {
                     return point.matchGuid == guid;
                 });
-            if (pointIt != points.end() && pointIt->mmr > 0 && pointIt->valueEstimated) {
+            bool won = true;
+            if (recordIt != m_postMatchRecordsByGuid.end()) {
+                won = recordIt->second.won;
+            } else if (index == 0) {
+                won = req.won;
+            }
+            coveredResults.push_back(won);
+
+            if (pointIt != points.end() &&
+                pointIt->mmr > 0 &&
+                pointIt->valueEstimated) {
                 estimatedPath.push_back(pointIt->mmr);
                 lastEstimatedMmr = pointIt->mmr;
             } else {
-                bool won = true;
-                if (recordIt != m_postMatchRecordsByGuid.end()) {
-                    won = recordIt->second.won;
-                } else if (index == 0) {
-                    won = req.won;
-                }
                 const int step = won ? 9 : -9;
                 int synthesizedMmr = lastEstimatedMmr + step;
                 if (synthesizedMmr <= 0) {
@@ -728,8 +768,10 @@ bool MMRFetcher::ReconcileTrackerResponse(const MMRRequest& req, int fetchedMmr,
 
         const std::vector<int> reconciledPath =
             ReconcileEstimatedPath(
+                pathBaselineMmr,
                 fetchedMmr,
-                estimatedPath);
+                estimatedPath,
+                coveredResults);
 
         const bool reconciledPathAvailable =
             reconciledPath.size() == coveredCount;
