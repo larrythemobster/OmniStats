@@ -1061,7 +1061,7 @@ void Overlay::RenderSessionStatsTable(const char* tableId, bool isDashboard, boo
             if (showStreak && m_frameConfig.show_streaks_stats) {
                 ImGui::TableNextRow();
                 ImGui::TableNextColumn();
-                ImGui::Text("Streak");
+                ImGui::Text("Session");
                 ImGui::TableNextColumn();
                 ImGui::Text("%d", m_snap.sessionTotals.wins - m_snap.sessionTotals.losses);
             }
@@ -1111,7 +1111,7 @@ void Overlay::RenderSessionStatsTable(const char* tableId, bool isDashboard, boo
             if (showStreak) {
                 ImGui::TableNextRow();
                 ImGui::TableNextColumn();
-                ImGui::Text("Streak");
+                ImGui::Text("Session");
                 ImGui::TableNextColumn();
                 ImGui::Text("%d", m_snap.sessionTotals.wins - m_snap.sessionTotals.losses);
             }
