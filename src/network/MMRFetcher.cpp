@@ -642,12 +642,25 @@ bool MMRFetcher::ReconcileTrackerResponse(const MMRRequest& req, int fetchedMmr,
                 m_postMatchRecordsByGuid.find(pendingGuids[index]);
             if (recordIt == m_postMatchRecordsByGuid.end() ||
                 recordIt->second.resultKnown ||
-                !recordIt->second.localPlayerDisappeared ||
                 !confirmationCallback) {
                 continue;
             }
-            recordIt->second.won = false;
-            recordIt->second.resultKnown = true;
+
+            auto& record = recordIt->second;
+            if (record.localPlayerDisappeared) {
+                record.won = false;
+                record.resultKnown = true;
+                continue;
+            }
+            if ((record.localTeam != 0 && record.localTeam != 1) ||
+                record.score[0] == record.score[1]) {
+                continue;
+            }
+
+            record.won =
+                record.score[record.localTeam] >
+                record.score[1 - record.localTeam];
+            record.resultKnown = true;
         }
 
         const bool allCoveredResultsKnown =

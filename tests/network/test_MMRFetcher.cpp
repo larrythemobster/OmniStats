@@ -136,14 +136,15 @@ class MMRFetcherTest : public ::testing::Test {
         const std::string& guid,
         int previousMmr = 1200,
         int previousMatches = 50,
-        const std::string& playlist = "2v2") {
+        const std::string& playlist = "2v2",
+        std::array<int, 2> score = {0, 0}) {
         PendingDestroyedMatchMmrRefresh pending;
         pending.matchGuid = guid;
         pending.primaryId = "Steam|123";
         pending.name = "Player";
         pending.playlist = playlist;
         pending.localTeam = 0;
-        pending.score = {0, 0};
+        pending.score = score;
         pending.previousMmr = previousMmr;
         pending.previousMatches = previousMatches;
         pending.previousMmrIsPlaylistSpecific = true;
@@ -847,6 +848,32 @@ TEST_F(MMRFetcherTest, CumulativeCatchUpPreservesDestroyedThenNormalMatch) {
     EXPECT_FALSE(
         fetcher->HasPendingDestroyedMatchForTests(
             "catch-up-a"));
+}
+
+TEST_F(MMRFetcherTest, ScoreResolvesAmbiguousDestroyedMatchCatchUp) {
+    std::vector<std::pair<std::string, bool>> confirmations;
+    fetcher->SetDestroyedMatchConfirmationCallback(
+        [&](const std::string& matchGuid, bool won) {
+            confirmations.emplace_back(matchGuid, won);
+        });
+    EnqueueDestroyedMatch(
+        "score-catch-up-a",
+        680,
+        254,
+        "1v1",
+        {5, 0});
+    EnqueuePostMatch(
+        "score-catch-up-b", false, 680, 254, "1v1", true);
+
+    fetcher->ProcessPostMatchResponseForTests(
+        "score-catch-up-b", 653, 256);
+
+    ASSERT_EQ(confirmations.size(), 1u);
+    EXPECT_EQ(confirmations[0].first, "score-catch-up-a");
+    EXPECT_TRUE(confirmations[0].second);
+    EXPECT_FALSE(
+        fetcher->HasPendingDestroyedMatchForTests(
+            "score-catch-up-a"));
 }
 
 TEST_F(MMRFetcherTest, ImpossibleLowMmrPathDoesNotInferDestroyedLoss) {
