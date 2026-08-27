@@ -39,3 +39,9 @@ inline void ComputeWindowStyles(bool secondMonitorMode, bool showMenu, LONG& sty
             exStyle &= ~WS_EX_TRANSPARENT;
     }
 }
+
+// Determine if second-monitor dashboard should be raised to the top of the non-topmost
+// window band when Rocket League regains active foreground status.
+inline bool ShouldRaiseSecondMonitorWindow(bool secondMonitorMode, bool isRLActive, bool wasRLActive, bool isWindowVisible) {
+    return secondMonitorMode && isRLActive && !wasRLActive && isWindowVisible;
+}

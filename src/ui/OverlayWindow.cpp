@@ -157,10 +157,10 @@ void OverlayWindow::UpdatePosition(bool resetSecondMonitorPlacement) {
                 conf.second_monitor_x + conf.second_monitor_w,
                 conf.second_monitor_y + conf.second_monitor_h};
             if (MonitorFromRect(&savedRect, MONITOR_DEFAULTTONULL)) {
-                SetWindowPos(m_hwnd, HWND_NOTOPMOST,
+                SetWindowPos(m_hwnd, nullptr,
                              conf.second_monitor_x, conf.second_monitor_y,
                              conf.second_monitor_w, conf.second_monitor_h,
-                             SWP_NOACTIVATE);
+                             SWP_NOACTIVATE | SWP_NOZORDER);
                 return;
             }
         }
@@ -174,7 +174,7 @@ void OverlayWindow::UpdatePosition(bool resetSecondMonitorPlacement) {
         int x = rect.left + (rect.right - rect.left - w) / 2;
         int y = rect.top + (rect.bottom - rect.top - h) / 2;
 
-        SetWindowPos(m_hwnd, HWND_NOTOPMOST, x, y, w, h, SWP_NOACTIVATE);
+        SetWindowPos(m_hwnd, nullptr, x, y, w, h, SWP_NOACTIVATE | SWP_NOZORDER);
     } else {
         SetWindowPos(m_hwnd, HWND_TOPMOST, rect.left, rect.top, w, h, SWP_NOACTIVATE);
     }

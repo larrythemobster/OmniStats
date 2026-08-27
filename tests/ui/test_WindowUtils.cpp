@@ -28,3 +28,50 @@ TEST(WindowUtils, ComputeWindowStyles_SecondMonitor) {
     EXPECT_TRUE((style & WS_OVERLAPPEDWINDOW) != 0);
     EXPECT_TRUE((ex & WS_EX_APPWINDOW) != 0);
 }
+
+TEST(WindowUtils, ShouldRaiseSecondMonitorWindow_TriggersOnlyOnTransition) {
+    // True when transitioning to active in second-monitor mode while visible
+    EXPECT_TRUE(ShouldRaiseSecondMonitorWindow(true, true, false, true));
+
+    // False if RL was already active on previous frame (prevent repeated Z-order churn)
+    EXPECT_FALSE(ShouldRaiseSecondMonitorWindow(true, true, true, true));
+
+    // False if RL is not active
+    EXPECT_FALSE(ShouldRaiseSecondMonitorWindow(true, false, false, true));
+    EXPECT_FALSE(ShouldRaiseSecondMonitorWindow(true, false, true, true));
+
+    // False if window is not visible
+    EXPECT_FALSE(ShouldRaiseSecondMonitorWindow(true, true, false, false));
+
+    // False if not in second monitor mode (overlay mode manages HWND_TOPMOST separately)
+    EXPECT_FALSE(ShouldRaiseSecondMonitorWindow(false, true, false, true));
+}
+
+TEST(WindowUtils, ShouldRaiseSecondMonitorWindow_SimulatedFocusLifecycle) {
+    bool wasRLActive = false;
+    bool secondMonitorMode = true;
+
+    // Frame 1: RL is inactive (browser/Discord focused) -> do not raise
+    bool isRLActive = false;
+    EXPECT_FALSE(ShouldRaiseSecondMonitorWindow(secondMonitorMode, isRLActive, wasRLActive, true));
+    wasRLActive = isRLActive;
+
+    // Frame 2: Alt+Tab back to RL -> raise dashboard
+    isRLActive = true;
+    EXPECT_TRUE(ShouldRaiseSecondMonitorWindow(secondMonitorMode, isRLActive, wasRLActive, true));
+    wasRLActive = isRLActive;
+
+    // Frame 3: Still in RL -> do not raise again
+    EXPECT_FALSE(ShouldRaiseSecondMonitorWindow(secondMonitorMode, isRLActive, wasRLActive, true));
+    wasRLActive = isRLActive;
+
+    // Frame 4: Alt+Tab to another window -> do not raise
+    isRLActive = false;
+    EXPECT_FALSE(ShouldRaiseSecondMonitorWindow(secondMonitorMode, isRLActive, wasRLActive, true));
+    wasRLActive = isRLActive;
+
+    // Frame 5: Alt+Tab directly back to RL -> raise dashboard again
+    isRLActive = true;
+    EXPECT_TRUE(ShouldRaiseSecondMonitorWindow(secondMonitorMode, isRLActive, wasRLActive, true));
+    wasRLActive = isRLActive;
+}

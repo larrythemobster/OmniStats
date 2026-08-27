@@ -10,6 +10,7 @@
 #include "ui/RankIconAssets.hpp"
 #include "ui/ThemeManager.hpp"
 #include "ui/ImGuiGuards.hpp"
+#include "ui/WindowUtils.hpp"
 #include <imgui.h>
 #include <imgui_impl_win32.h>
 #include <imgui_impl_dx11.h>
@@ -377,7 +378,8 @@ void Overlay::RunLoop() {
     bool done = false;
     bool isClickThrough = (GetWindowLong(m_hwnd, GWL_EXSTYLE) & WS_EX_TRANSPARENT) != 0;
     HWND cachedRlHwnd = nullptr;
-    auto lastRescan = std::chrono::steady_clock::now();
+    bool wasRLActive = false;
+    auto lastRescan = std::chrono::steady_clock::now() - std::chrono::seconds(2);
     auto lastFrameTime = std::chrono::steady_clock::now();
     while (!done) {
         if (m_state->ui.appExitRequested.load()) {
@@ -406,10 +408,12 @@ void Overlay::RunLoop() {
         if (m_fontReloadPending || std::abs(desiredFontScale - m_loadedFontScale) > 0.05f) {
             (void)RebuildFontsForCurrentScale();
         }
-        bool shouldDraw = true;
-        if (m_frameConfig.require_rl_focus) {
+        bool isRLActive = false;
+        bool checkFocus = m_frameConfig.require_rl_focus || m_frameConfig.second_monitor_mode;
+        if (checkFocus) {
             auto now = std::chrono::steady_clock::now();
-            if (!cachedRlHwnd || !IsWindow(cachedRlHwnd) || std::chrono::duration_cast<std::chrono::seconds>(now - lastRescan).count() >= 2) {
+            bool hasValidCachedHwnd = cachedRlHwnd && IsWindow(cachedRlHwnd);
+            if (!hasValidCachedHwnd && std::chrono::duration_cast<std::chrono::seconds>(now - lastRescan).count() >= 2) {
                 lastRescan = now;
                 cachedRlHwnd = ::FindWindowA("LaunchUnrealUWindowsClient", nullptr);
                 if (!cachedRlHwnd) cachedRlHwnd = ::FindWindowA(nullptr, "Rocket League (64-bit, DX11)");
@@ -417,7 +421,6 @@ void Overlay::RunLoop() {
                 if (!cachedRlHwnd) cachedRlHwnd = ::FindWindowA(nullptr, "Rocket League");
             }
             HWND fg = GetForegroundWindow();
-            bool isRLActive = false;
             if (fg) {
                 if (fg == m_hwnd) {
                     isRLActive = true;
@@ -445,6 +448,10 @@ void Overlay::RunLoop() {
                     }
                 }
             }
+        }
+
+        bool shouldDraw = true;
+        if (m_frameConfig.require_rl_focus) {
             if (m_frameConfig.second_monitor_mode) {
                 if (!cachedRlHwnd) {
                     shouldDraw = false;
@@ -457,22 +464,30 @@ void Overlay::RunLoop() {
         }
         if (!shouldDraw) {
             if (IsWindowVisible(m_hwnd)) ShowWindow(m_hwnd, SW_HIDE);
+            wasRLActive = false;
             lastFrameTime = std::chrono::steady_clock::now();
             std::this_thread::sleep_for(std::chrono::milliseconds(150)); // Sleep to save CPU while game is out of focus
             continue;
-        } else {
-            if (!IsWindowVisible(m_hwnd)) {
-                // Borderless games can reclaim z-order while the overlay is hidden.
-                UpdateWindowStyle();
-                ShowWindow(m_hwnd, SW_SHOWNOACTIVATE);
-                SetWindowPos(m_hwnd,
-                             m_frameConfig.second_monitor_mode ? HWND_NOTOPMOST : HWND_TOPMOST,
-                             0, 0, 0, 0,
-                             SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_SHOWWINDOW | SWP_FRAMECHANGED);
-                UpdateWindow(m_hwnd);
-                isClickThrough = (GetWindowLong(m_hwnd, GWL_EXSTYLE) & WS_EX_TRANSPARENT) != 0;
-            }
         }
+
+        bool wasVisible = IsWindowVisible(m_hwnd) != FALSE;
+        if (!wasVisible) {
+            // Borderless games can reclaim z-order while the overlay is hidden.
+            UpdateWindowStyle();
+            ShowWindow(m_hwnd, SW_SHOWNOACTIVATE);
+            SetWindowPos(m_hwnd,
+                         m_frameConfig.second_monitor_mode ? HWND_NOTOPMOST : HWND_TOPMOST,
+                         0, 0, 0, 0,
+                         SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_SHOWWINDOW | SWP_FRAMECHANGED);
+            if (m_frameConfig.second_monitor_mode && isRLActive) {
+                SetWindowPos(m_hwnd, HWND_TOP, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+            }
+            UpdateWindow(m_hwnd);
+            isClickThrough = (GetWindowLong(m_hwnd, GWL_EXSTYLE) & WS_EX_TRANSPARENT) != 0;
+        } else if (ShouldRaiseSecondMonitorWindow(m_frameConfig.second_monitor_mode, isRLActive, wasRLActive, true)) {
+            SetWindowPos(m_hwnd, HWND_TOP, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+        }
+        wasRLActive = isRLActive;
         bool needsInteract = m_state->ui.showMenu || m_frameConfig.second_monitor_mode;
         isClickThrough = (GetWindowLong(m_hwnd, GWL_EXSTYLE) & WS_EX_TRANSPARENT) != 0;
         if (needsInteract && isClickThrough) {
