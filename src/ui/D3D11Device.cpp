@@ -77,6 +77,10 @@ bool D3D11Device::CreateRenderTarget() {
 }
 
 void D3D11Device::CleanupRenderTarget() {
+    if (m_context) {
+        m_context->OMSetRenderTargets(0, nullptr, nullptr);
+    }
+
     if (m_renderTargetView) {
         m_renderTargetView->Release();
         m_renderTargetView = nullptr;
@@ -84,13 +88,31 @@ void D3D11Device::CleanupRenderTarget() {
 }
 
 HRESULT D3D11Device::ResizeBuffers(int width, int height) {
-    if (!m_swapChain) return E_FAIL;
+    if (!m_swapChain || !m_device || !m_context) return E_POINTER;
+    if (width <= 0 || height <= 0) return S_FALSE;
+
     CleanupRenderTarget();
-    HRESULT hr = m_swapChain->ResizeBuffers(0, width, height, DXGI_FORMAT_UNKNOWN, 0);
+
+    HRESULT hr = m_swapChain->ResizeBuffers(
+        0,
+        static_cast<UINT>(width),
+        static_cast<UINT>(height),
+        DXGI_FORMAT_UNKNOWN,
+        0);
     if (FAILED(hr)) {
-        std::cout << "[D3D11] Failed to resize swapchain buffers: " << std::hex << hr << std::dec << "\n";
+        std::cout << "[D3D11] Failed to resize swapchain buffers to "
+                  << width << "x" << height << ": "
+                  << std::hex << hr << std::dec << "\n";
+
+        if (!CreateRenderTarget()) {
+            std::cout << "[D3D11] Failed to restore render target after resize failure.\n";
+        }
         return hr;
     }
-    if (!CreateRenderTarget()) return E_FAIL;
+
+    if (!CreateRenderTarget()) {
+        std::cout << "[D3D11] Failed to create render target after resize.\n";
+        return E_FAIL;
+    }
     return S_OK;
 }

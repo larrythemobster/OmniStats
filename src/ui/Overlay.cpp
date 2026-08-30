@@ -42,11 +42,15 @@ LRESULT WINAPI WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
     switch (msg) {
     case WM_SIZE:
         if (wParam != SIZE_MINIMIZED) {
-            LONG_PTR ptr = GetWindowLongPtrW(hWnd, GWLP_USERDATA);
-            if (ptr != 0) {
-                Overlay* overlay = reinterpret_cast<Overlay*>(ptr);
-                overlay->ResizeSwapChain(static_cast<int>(LOWORD(lParam)), static_cast<int>(HIWORD(lParam)));
-                overlay->SaveSecondMonitorWindowBounds();
+            const int width = static_cast<int>(LOWORD(lParam));
+            const int height = static_cast<int>(HIWORD(lParam));
+            if (width > 0 && height > 0) {
+                LONG_PTR ptr = GetWindowLongPtrW(hWnd, GWLP_USERDATA);
+                if (ptr != 0) {
+                    Overlay* overlay = reinterpret_cast<Overlay*>(ptr);
+                    overlay->ResizeSwapChain(width, height);
+                    overlay->SaveSecondMonitorWindowBounds();
+                }
             }
         }
         return 0;
@@ -595,18 +599,13 @@ void Overlay::Shutdown() {
 }
 void Overlay::UpdateWindowPosition(bool resetSecondMonitorPlacement) {
     if (!m_window || !m_hwnd) return;
+
+    // SetWindowPos synchronously produces WM_SIZE when the client size changes.
+    // WndProc owns swap-chain resizing, so do not call ResizeBuffers a second
+    // time here for the same window transition.
     m_window->UpdatePosition(resetSecondMonitorPlacement);
-    if (m_d3d11) {
-        RECT client;
-        GetClientRect(m_hwnd, &client);
-        HRESULT hr = m_d3d11->ResizeBuffers(client.right - client.left, client.bottom - client.top);
-        if (hr == DXGI_ERROR_DEVICE_REMOVED || hr == DXGI_ERROR_DEVICE_RESET) {
-            (void)HandleDeviceLost("ResizeBuffers", hr);
-        } else if (FAILED(hr)) {
-            std::cout << "[D3D11] Resize failed while updating window position.\n";
-        }
-    }
 }
+
 void Overlay::SaveSecondMonitorWindowBounds() {
     if (!m_hwnd || IsIconic(m_hwnd)) return;
     if (GetForegroundWindow() != m_hwnd && (GetAsyncKeyState(VK_LBUTTON) & 0x8000) == 0) {
