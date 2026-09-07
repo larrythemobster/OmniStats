@@ -92,6 +92,7 @@ struct ConfigData {
 
     // Theme colors
     ColorRGBA themeBg = {0.05f, 0.06f, 0.08f, 0.90f};
+    ColorRGBA themeSettingsPanel = {0.08f, 0.09f, 0.11f, 1.00f};
     ColorRGBA themeText = {0.92f, 0.94f, 0.96f, 1.00f};
     ColorRGBA themeAccent = {1.00f, 0.00f, 0.13f, 1.00f};
     ColorRGBA themeWin = {0.2629031836986542f, 0.85f, 0.15f, 1.00f};

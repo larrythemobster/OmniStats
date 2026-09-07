@@ -55,6 +55,21 @@ TEST_F(ConfigTest, SaveAndLoad) {
     EXPECT_EQ(loadedData.host, "test_host");
 }
 
+TEST_F(ConfigTest, PersistsSettingsPanelThemeColor) {
+    const ColorRGBA expected = {0.12f, 0.34f, 0.56f, 0.78f};
+    Config::Update([expected](ConfigData& c) { c.themeSettingsPanel = expected; });
+    Config::Save();
+
+    Config::Update([](ConfigData& c) { c.themeSettingsPanel = {0.0f, 0.0f, 0.0f, 0.0f}; }, false);
+    Config::Load();
+
+    const ColorRGBA actual = Config::Read().themeSettingsPanel;
+    EXPECT_FLOAT_EQ(actual.r, expected.r);
+    EXPECT_FLOAT_EQ(actual.g, expected.g);
+    EXPECT_FLOAT_EQ(actual.b, expected.b);
+    EXPECT_FLOAT_EQ(actual.a, expected.a);
+}
+
 TEST_F(ConfigTest, ConcurrencyReadUpdate) {
     std::atomic<bool> start{false};
     std::atomic<int> completed{0};

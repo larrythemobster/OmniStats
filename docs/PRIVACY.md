@@ -25,7 +25,9 @@ Tracker Network, Discord, Ballchasing, GitHub, and other third-party services ap
 
 ## Local controls
 
-The Settings UI can disable optional services and delete saved match history. Deleting `%APPDATA%\omnistats` while OmniStats is closed removes local configuration, history, logs, crash dumps, and the installation ID. Back up anything you want to keep first.
+In Settings, **Replays & services** controls optional integrations. **Data & privacy** contains crash report sharing, history exports, and **Delete History & Identity**. Deletion requires confirmation and keeps settings and tokens. Ballchasing tokens are hidden unless **Show token** is selected.
+
+Deleting `%APPDATA%\omnistats` while OmniStats is closed removes local configuration, history, logs, crash dumps, and the installation ID. Back up anything you want to keep first.
 
 Normal HTTPS infrastructure may process the connecting IP address. Current retention details and the contact method for privacy requests are published at <https://omnistats.org/privacy>.
 

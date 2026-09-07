@@ -15,6 +15,17 @@ class SettingsPanel {
     void RenderContent(const std::string& idSuffix, bool& styleChanged, bool& windowChanged);
 
   private:
+    enum class Page {
+        General,
+        Cards,
+        Ranks,
+        Shortcuts,
+        Appearance,
+        Integrations,
+        Data,
+        Troubleshooting
+    };
+
     enum class BindCaptureTarget {
         None,
         KeyOverlay,
@@ -32,4 +43,6 @@ class SettingsPanel {
 
     RenderContext ctx;
     BindCaptureTarget m_bindCaptureTarget = BindCaptureTarget::None;
+    Page m_page = Page::General;
+    bool m_showReplayToken = false;
 };
