@@ -35,6 +35,9 @@ typedef int (*pfn_curl_easy_impersonate)(void*, const char*, int);
 #define CI_CURLOPT_XFERINFOFUNCTION 20219
 #define CI_CURLOPT_XFERINFODATA 10057
 #define CI_CURLINFO_RESPONSE_CODE 0x200002
+#define CI_CURLOPT_HEADERFUNCTION 20079
+#define CI_CURLOPT_HEADERDATA 10029
+#define CI_CURLOPT_ACCEPT_ENCODING 10102
 
 class CurlImpersonate {
   public:

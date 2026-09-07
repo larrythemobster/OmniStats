@@ -121,7 +121,7 @@ class MMRFetcher {
     std::vector<SessionMmrPoint> PlaylistMatchPointsForTests(const std::string& playlist);
     bool HasPendingDestroyedMatchForTests(const std::string& matchGuid);
     void FetchRosterProfileForTests(const std::string& primaryId, const std::string& name);
-
+    bool IsRateLimitedForTests() const;
 #endif
 
   private:
@@ -151,7 +151,7 @@ class MMRFetcher {
     DestroyedMatchConfirmationCallback m_destroyedMatchConfirmationCallback;
     std::mutex m_queueMutex;
     std::condition_variable m_cv;
-
+    std::chrono::steady_clock::time_point m_rateLimitedUntil{};
     std::jthread m_workerThread;
     std::atomic<bool> m_isRunning{false};
 };

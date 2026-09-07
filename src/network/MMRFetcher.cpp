@@ -129,10 +129,14 @@ namespace {
     static constexpr auto kPostMatchInitialDelay = std::chrono::milliseconds(20);
     static constexpr auto kStalePostMatchRetryDelay = std::chrono::milliseconds(20);
     static constexpr auto kTransientRetryDelay = std::chrono::milliseconds(20);
+    static constexpr auto kQueueSpacing = std::chrono::milliseconds(20);
+    static constexpr auto kRateLimitLockoutMinimum = std::chrono::milliseconds(50);
 #else
     static constexpr auto kPostMatchInitialDelay = std::chrono::milliseconds(2500);
     static constexpr auto kStalePostMatchRetryDelay = std::chrono::milliseconds(3000);
     static constexpr auto kTransientRetryDelay = std::chrono::milliseconds(3000);
+    static constexpr auto kQueueSpacing = std::chrono::milliseconds(1500);
+    static constexpr auto kRateLimitLockoutMinimum = std::chrono::seconds(120);
 #endif
 
     static bool MmrPathPreservesResults(
@@ -258,6 +262,46 @@ namespace {
     }
 
 } // namespace
+
+struct FetchHeaderState {
+    long retryAfterSeconds = 0;
+};
+
+static size_t HeaderCallback(char* buffer, size_t size, size_t nitems, void* userdata) {
+    const size_t total = size * nitems;
+    if (!userdata || !buffer) return total;
+    auto* state = static_cast<FetchHeaderState*>(userdata);
+
+    std::string_view line(buffer, total);
+    while (!line.empty() && (line.back() == '\r' || line.back() == '\n')) {
+        line.remove_suffix(1);
+    }
+
+    constexpr std::string_view kRetryAfter = "retry-after:";
+    if (line.size() >= kRetryAfter.size()) {
+        bool match = true;
+        for (size_t i = 0; i < kRetryAfter.size(); ++i) {
+            if (std::tolower(static_cast<unsigned char>(line[i])) != kRetryAfter[i]) {
+                match = false;
+                break;
+            }
+        }
+        if (match) {
+            std::string_view val = line.substr(kRetryAfter.size());
+            while (!val.empty() && (val.front() == ' ' || val.front() == '\t')) {
+                val.remove_prefix(1);
+            }
+            try {
+                long parsed = std::stol(std::string(val));
+                if (parsed > 0) {
+                    state->retryAfterSeconds = parsed;
+                }
+            } catch (...) {
+            }
+        }
+    }
+    return total;
+}
 
 // Helper function for libcurl to write the HTTP response into a std::string
 static size_t WriteCallback(void* contents, size_t size, size_t nmemb, void* userp) {
@@ -1114,6 +1158,10 @@ bool MMRFetcher::HasPendingDestroyedMatchForTests(
            recordIt->second.destroyedMatch &&
            !recordIt->second.databaseMatchFinalized;
 }
+bool MMRFetcher::IsRateLimitedForTests() const {
+    return m_rateLimitedUntil > std::chrono::steady_clock::now();
+}
+
 #endif
 
 void MMRFetcher::Start() {
@@ -1341,13 +1389,19 @@ void MMRFetcher::WorkerLoop() {
             }
             if (!m_isRunning && m_queue.empty()) break;
 
+            const auto now = std::chrono::steady_clock::now();
+            if (m_rateLimitedUntil > now) {
+                const auto wakeAt = m_rateLimitedUntil;
+                m_cv.wait_until(lock, wakeAt);
+                continue;
+            }
+
             auto nextIt = std::min_element(
                 m_queue.begin(), m_queue.end(),
                 [](const MMRRequest& lhs, const MMRRequest& rhs) {
                     return lhs.notBefore < rhs.notBefore;
                 });
 
-            const auto now = std::chrono::steady_clock::now();
             if (nextIt->notBefore > now) {
                 const auto wakeAt = nextIt->notBefore;
                 m_cv.wait_until(lock, wakeAt);
@@ -1362,7 +1416,7 @@ void MMRFetcher::WorkerLoop() {
         if (!requeued) FinishRequest(req);
 
         std::unique_lock<std::mutex> lock(m_queueMutex);
-        m_cv.wait_for(lock, std::chrono::milliseconds(500), [this] { return !m_isRunning; });
+        m_cv.wait_for(lock, kQueueSpacing, [this] { return !m_isRunning; });
     }
 }
 
@@ -1447,20 +1501,24 @@ bool MMRFetcher::FetchProfile(MMRRequest req) {
     const std::string url = "https://api.tracker.gg/api/v2/rocket-league/standard/profile/" + plat + "/" + finalIdent;
     std::cout << "[MMRFetcher] Fetching " << PrivacyLog::Sensitive(req.name, "player name") << " via " << plat << "...\n";
 
-    ci.easy_impersonate(ci_curl, "chrome136", 0);
+    ci.easy_impersonate(ci_curl, "chrome124", 0);
 
     std::string readBuffer;
+    FetchHeaderState headerState;
     void* headers = nullptr;
     headers = ci.slist_append(headers, "Accept: application/json, text/plain, */*");
     headers = ci.slist_append(headers, "Accept-Language: en-US,en;q=0.9");
     headers = ci.slist_append(headers, "Origin: https://rocketleague.tracker.network");
     headers = ci.slist_append(headers, "Referer: https://rocketleague.tracker.network/");
-    headers = ci.slist_append(headers, "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36");
+    headers = ci.slist_append(headers, "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36");
 
     ci.easy_setopt(ci_curl, CI_CURLOPT_URL, url.c_str());
     ci.easy_setopt(ci_curl, CI_CURLOPT_HTTPHEADER, headers);
     ci.easy_setopt(ci_curl, CI_CURLOPT_WRITEFUNCTION, WriteCallback);
     ci.easy_setopt(ci_curl, CI_CURLOPT_WRITEDATA, &readBuffer);
+    ci.easy_setopt(ci_curl, CI_CURLOPT_HEADERFUNCTION, HeaderCallback);
+    ci.easy_setopt(ci_curl, CI_CURLOPT_HEADERDATA, &headerState);
+    ci.easy_setopt(ci_curl, CI_CURLOPT_ACCEPT_ENCODING, "");
     ci.easy_setopt(ci_curl, CI_CURLOPT_TIMEOUT, 15L);
     ci.easy_setopt(ci_curl, CI_CURLOPT_SSL_OPTIONS, static_cast<long>(CI_CURLSSLOPT_NATIVE_CA));
     ci.easy_setopt(ci_curl, CI_CURLOPT_FOLLOWLOCATION, 1L);
@@ -1480,7 +1538,16 @@ bool MMRFetcher::FetchProfile(MMRRequest req) {
                   << " (HTTP " << httpCode << ") - Curl error: " << res << "\n";
 
         if (httpCode == 429) {
-            if (ScheduleRetry(req, std::chrono::seconds(15), "rate limited")) return true;
+            const auto retryDuration = std::chrono::duration_cast<std::chrono::milliseconds>(
+                std::chrono::seconds(headerState.retryAfterSeconds));
+            const auto lockout = (retryDuration > kRateLimitLockoutMinimum) ? retryDuration : kRateLimitLockoutMinimum;
+            {
+                std::lock_guard<std::mutex> lock(m_queueMutex);
+                m_rateLimitedUntil = std::chrono::steady_clock::now() + lockout;
+            }
+            std::cout << "[MMRFetcher] Rate limited by Tracker.gg (HTTP 429). Pausing requests for "
+                      << std::chrono::duration_cast<std::chrono::seconds>(lockout).count() << " seconds.\n";
+            if (ScheduleRetry(req, lockout, "rate limited")) return true;
         } else if (res != 0 || httpCode == 408 || (httpCode >= 500 && httpCode <= 599)) {
             if (ScheduleRetry(req, kTransientRetryDelay, "transient Tracker failure")) return true;
         }

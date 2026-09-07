@@ -9,9 +9,13 @@
 #include <atomic>
 
 typedef size_t (*WriteCallbackType)(void*, size_t, size_t, void*);
+typedef size_t (*HeaderCallbackType)(char*, size_t, size_t, void*);
 static WriteCallbackType g_write_callback = nullptr;
 static void* g_write_data = nullptr;
+static HeaderCallbackType g_header_callback = nullptr;
+static void* g_header_data = nullptr;
 static std::string g_mock_response = "";
+static std::string g_mock_headers = "";
 static long g_mock_response_code = 200;
 static std::atomic<int> g_mock_perform_count{0};
 
@@ -22,6 +26,10 @@ static int mock_easy_setopt(void* curl, int option, ...) {
         g_write_callback = va_arg(args, WriteCallbackType);
     } else if (option == CI_CURLOPT_WRITEDATA) {
         g_write_data = va_arg(args, void*);
+    } else if (option == CI_CURLOPT_HEADERFUNCTION) {
+        g_header_callback = va_arg(args, HeaderCallbackType);
+    } else if (option == CI_CURLOPT_HEADERDATA) {
+        g_header_data = va_arg(args, void*);
     }
     va_end(args);
     return 0;
@@ -29,6 +37,9 @@ static int mock_easy_setopt(void* curl, int option, ...) {
 
 static int mock_easy_perform(void* curl) {
     g_mock_perform_count.fetch_add(1);
+    if (g_header_callback && g_header_data && !g_mock_headers.empty()) {
+        g_header_callback((char*)g_mock_headers.data(), 1, g_mock_headers.size(), g_header_data);
+    }
     if (g_write_callback && g_write_data && g_mock_response_code == 200) {
         g_write_callback((void*)g_mock_response.data(), 1, g_mock_response.size(), g_write_data);
     }
@@ -70,6 +81,9 @@ class MMRFetcherTest : public ::testing::Test {
         originalConfig = Config::Read();
         Config::Update([](ConfigData& config) { config.enable_mmr_tracking = true; }, false);
         g_mock_perform_count.store(0);
+        g_mock_response_code = 200;
+        g_mock_headers.clear();
+        g_mock_response.clear();
         sessionState = std::make_shared<SessionState>();
         fetcher = std::make_shared<MMRFetcher>(sessionState);
 
@@ -205,6 +219,20 @@ TEST_F(MMRFetcherTest, FetchProfileServerError) {
 
     fetcher->Stop();
     SUCCEED();
+}
+
+TEST_F(MMRFetcherTest, FetchProfileRateLimitedPausesQueue) {
+    g_mock_response_code = 429;
+    g_mock_headers = "Retry-After: 90\r\n";
+
+    fetcher->Start();
+    fetcher->Enqueue("Epic|429", "RateLimitedPlayer");
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+
+    EXPECT_TRUE(fetcher->IsRateLimitedForTests());
+
+    fetcher->Stop();
 }
 
 TEST(MMRFetcherTournamentRankTest, UsesTournamentMmrThresholds) {
