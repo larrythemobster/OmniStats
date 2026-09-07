@@ -103,7 +103,7 @@ SettingsResult SettingsPanel::Render() {
 
     ImGui::SetNextWindowPos(
         ImVec2(io.DisplaySize.x * 0.5f, io.DisplaySize.y * 0.5f),
-        ImGuiCond_Always, ImVec2(0.5f, 0.5f));
+        ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
     ImGui::SetNextWindowBgAlpha(1.0f);
     ImVec4 settingsBackground = Format::C(ctx.config.themeBg);
     settingsBackground.w = 1.0f;
@@ -120,7 +120,7 @@ SettingsResult SettingsPanel::Render() {
         fminf(620.0f * ctx.dpiScale, io.DisplaySize.x - 24.0f * ctx.dpiScale),
         fminf(500.0f * ctx.dpiScale, io.DisplaySize.y - 24.0f * ctx.dpiScale)));
 
-    ImGuiWindowFlags flags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove;
+    ImGuiWindowFlags flags = ImGuiWindowFlags_NoDecoration;
     if (ImGui::Begin("Settings", nullptr, flags)) {
         RenderContent("Main", styleChanged, windowChanged);
     }
