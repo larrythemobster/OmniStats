@@ -34,10 +34,18 @@ class D3D11Device {
     ID3D11RenderTargetView* const* RenderTargetViewAddress() const {
         return &m_renderTargetView;
     }
+    int Width() const {
+        return m_width;
+    }
+    int Height() const {
+        return m_height;
+    }
 
   private:
     ID3D11Device* m_device = nullptr;
     ID3D11DeviceContext* m_context = nullptr;
     IDXGISwapChain* m_swapChain = nullptr;
     ID3D11RenderTargetView* m_renderTargetView = nullptr;
+    int m_width = 0;
+    int m_height = 0;
 };

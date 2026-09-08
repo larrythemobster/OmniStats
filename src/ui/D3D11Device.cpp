@@ -57,6 +57,8 @@ void D3D11Device::Shutdown() {
         m_device->Release();
         m_device = nullptr;
     }
+    m_width = 0;
+    m_height = 0;
 }
 
 bool D3D11Device::CreateRenderTarget() {
@@ -64,13 +66,18 @@ bool D3D11Device::CreateRenderTarget() {
     ID3D11Texture2D* pBackBuffer = nullptr;
     HRESULT hr = m_swapChain->GetBuffer(0, IID_PPV_ARGS(&pBackBuffer));
     if (FAILED(hr)) {
-        std::cout << "[D3D11] Failed to get swapchain back buffer: " << std::hex << hr << std::dec << "\n";
+        std::cout << "[D3D11] Failed to get swapchain back buffer: 0x" << std::hex << hr << std::dec << "\n";
         return false;
     }
+    D3D11_TEXTURE2D_DESC desc;
+    pBackBuffer->GetDesc(&desc);
+    m_width = static_cast<int>(desc.Width);
+    m_height = static_cast<int>(desc.Height);
+
     hr = m_device->CreateRenderTargetView(pBackBuffer, nullptr, &m_renderTargetView);
     pBackBuffer->Release();
     if (FAILED(hr)) {
-        std::cout << "[D3D11] Failed to create render target view: " << std::hex << hr << std::dec << "\n";
+        std::cout << "[D3D11] Failed to create render target view: 0x" << std::hex << hr << std::dec << "\n";
         return false;
     }
     return true;
@@ -85,11 +92,20 @@ void D3D11Device::CleanupRenderTarget() {
         m_renderTargetView->Release();
         m_renderTargetView = nullptr;
     }
+
+    if (m_context) {
+        m_context->ClearState();
+        m_context->Flush();
+    }
 }
 
 HRESULT D3D11Device::ResizeBuffers(int width, int height) {
     if (!m_swapChain || !m_device || !m_context) return E_POINTER;
     if (width <= 0 || height <= 0) return S_FALSE;
+
+    if (m_renderTargetView && width == m_width && height == m_height) {
+        return S_OK;
+    }
 
     CleanupRenderTarget();
 
@@ -100,15 +116,24 @@ HRESULT D3D11Device::ResizeBuffers(int width, int height) {
         DXGI_FORMAT_UNKNOWN,
         0);
     if (FAILED(hr)) {
-        std::cout << "[D3D11] Failed to resize swapchain buffers to "
-                  << width << "x" << height << ": "
-                  << std::hex << hr << std::dec << "\n";
-
-        if (!CreateRenderTarget()) {
-            std::cout << "[D3D11] Failed to restore render target after resize failure.\n";
+        if (hr == DXGI_ERROR_DEVICE_REMOVED) {
+            HRESULT reason = m_device->GetDeviceRemovedReason();
+            std::cout << "[D3D11] Device removed during ResizeBuffers: 0x" << std::hex << hr
+                      << " (Reason: 0x" << reason << ")" << std::dec << "\n";
+        } else if (hr == DXGI_ERROR_DEVICE_RESET) {
+            std::cout << "[D3D11] Device reset during ResizeBuffers: 0x" << std::hex << hr << std::dec << "\n";
+        } else if (hr == DXGI_ERROR_DEVICE_HUNG) {
+            std::cout << "[D3D11] Device hung during ResizeBuffers: 0x" << std::hex << hr << std::dec << "\n";
+        } else {
+            std::cout << "[D3D11] Failed to resize swapchain buffers to "
+                      << width << "x" << height << ": 0x"
+                      << std::hex << hr << std::dec << "\n";
         }
         return hr;
     }
+
+    m_width = width;
+    m_height = height;
 
     if (!CreateRenderTarget()) {
         std::cout << "[D3D11] Failed to create render target after resize.\n";

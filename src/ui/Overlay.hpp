@@ -4,6 +4,7 @@
 #include <memory>
 #include <string>
 #include <thread>
+#include <atomic>
 #include "core/SessionState.hpp"
 #include "core/StatsScope.hpp"
 #include "ui/RenderContext.hpp"
@@ -142,6 +143,9 @@ class Overlay {
     std::unique_ptr<RankIconAssets> m_rankIcons;
     bool m_imguiDx11Initialized = false;
 
+    std::atomic<bool> m_resizePending{false};
+    std::atomic<int> m_pendingWidth{0};
+    std::atomic<int> m_pendingHeight{0};
     // Panels
     std::unique_ptr<SettingsPanel> m_settingsPanel;
     std::unique_ptr<DashboardPanel> m_dashboardPanel;

@@ -48,7 +48,9 @@ LRESULT WINAPI WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                 LONG_PTR ptr = GetWindowLongPtrW(hWnd, GWLP_USERDATA);
                 if (ptr != 0) {
                     Overlay* overlay = reinterpret_cast<Overlay*>(ptr);
-                    overlay->ResizeSwapChain(width, height);
+                    overlay->m_pendingWidth.store(width, std::memory_order_relaxed);
+                    overlay->m_pendingHeight.store(height, std::memory_order_relaxed);
+                    overlay->m_resizePending.store(true, std::memory_order_release);
                     overlay->SaveSecondMonitorWindowBounds();
                 }
             }
@@ -406,6 +408,19 @@ void Overlay::RunLoop() {
             if (msg.message == WM_QUIT) done = true;
         }
         if (done) break;
+        if (m_resizePending.load(std::memory_order_acquire)) {
+            m_resizePending.store(false, std::memory_order_relaxed);
+            int width = m_pendingWidth.load(std::memory_order_relaxed);
+            int height = m_pendingHeight.load(std::memory_order_relaxed);
+            if (width > 0 && height > 0) {
+                ResizeSwapChain(width, height);
+            }
+        }
+
+        if (!m_d3d11 || !m_d3d11->RenderTargetView()) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+            continue;
+        }
         // Re-read config after processing messages because a settings change might have occurred
         m_frameConfig = Config::Read();
         float desiredFontScale = ClampFontScale(m_dpiScale * m_frameConfig.ui_scale);
@@ -526,7 +541,7 @@ void Overlay::RunLoop() {
 
         UINT syncInterval = m_frameConfig.vsync ? 1 : 0;
         HRESULT presentHr = m_d3d11->SwapChain()->Present(syncInterval, 0);
-        if (presentHr == DXGI_ERROR_DEVICE_REMOVED || presentHr == DXGI_ERROR_DEVICE_RESET) {
+        if (presentHr == DXGI_ERROR_DEVICE_REMOVED || presentHr == DXGI_ERROR_DEVICE_RESET || presentHr == DXGI_ERROR_DEVICE_HUNG) {
             if (!HandleDeviceLost("Present", presentHr)) {
                 done = true;
             }
@@ -634,10 +649,10 @@ void Overlay::SaveSecondMonitorWindowBounds() {
 void Overlay::ResizeSwapChain(int width, int height) {
     if (m_d3d11) {
         HRESULT hr = m_d3d11->ResizeBuffers(width, height);
-        if (hr == DXGI_ERROR_DEVICE_REMOVED || hr == DXGI_ERROR_DEVICE_RESET) {
+        if (hr == DXGI_ERROR_DEVICE_REMOVED || hr == DXGI_ERROR_DEVICE_RESET || hr == DXGI_ERROR_DEVICE_HUNG) {
             (void)HandleDeviceLost("ResizeBuffers", hr);
         } else if (FAILED(hr)) {
-            std::cout << "[D3D11] Resize failed for " << width << "x" << height << ".\n";
+            std::cout << "[D3D11] Resize failed for " << width << "x" << height << ": 0x" << std::hex << hr << std::dec << "\n";
         }
     }
 }
@@ -673,7 +688,17 @@ bool Overlay::RecreateD3DDevice() {
     return true;
 }
 bool Overlay::HandleDeviceLost(const char* reason, HRESULT hr) {
-    std::cout << "[D3D11] Device lost during " << reason << ": " << std::hex << hr << std::dec << ". Recreating device.\n";
+    const char* errorName = "Unknown";
+    if (hr == DXGI_ERROR_DEVICE_REMOVED) {
+        errorName = "DXGI_ERROR_DEVICE_REMOVED";
+    } else if (hr == DXGI_ERROR_DEVICE_RESET) {
+        errorName = "DXGI_ERROR_DEVICE_RESET";
+    } else if (hr == DXGI_ERROR_DEVICE_HUNG) {
+        errorName = "DXGI_ERROR_DEVICE_HUNG";
+    }
+
+    std::cout << "[D3D11] Device lost (" << errorName << ") during " << reason
+              << ": 0x" << std::hex << hr << std::dec << ". Recreating device.\n";
     if (RecreateD3DDevice()) {
         std::cout << "[D3D11] Device recreated successfully.\n";
         return true;
