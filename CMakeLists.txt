@@ -183,6 +183,8 @@ if(MSVC)
         $<$<CONFIG:Release>:/OPT:REF>     # Remove Unreferenced Functions/Data (Dead code elimination)
         $<$<CONFIG:Release>:/OPT:ICF>     # Merge Identical COMDATs (Identical template folding)
         $<$<CONFIG:Release>:/DEBUG>       # Generate PDB file
+        $<$<CONFIG:Release>:/SUBSYSTEM:WINDOWS>
+        $<$<CONFIG:Release>:/ENTRY:mainCRTStartup>
     )
 endif()
 
@@ -219,6 +221,8 @@ if(OMNISTATS_BUILD_UPDATER)
             $<$<CONFIG:Release>:/OPT:REF>
             $<$<CONFIG:Release>:/OPT:ICF>
             $<$<CONFIG:Release>:/DEBUG>
+            $<$<CONFIG:Release>:/SUBSYSTEM:WINDOWS>
+            $<$<CONFIG:Release>:/ENTRY:mainCRTStartup>
         )
     endif()
 endif()
