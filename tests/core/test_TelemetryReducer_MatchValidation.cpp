@@ -1263,6 +1263,33 @@ TEST(TelemetryReducerMatchValidation, StaleMatchEndedDoesNotFinalizeNextMatch) {
     EXPECT_EQ(state->game.sessionTotals.losses, 1);
 }
 
+TEST(TelemetryReducerMatchValidation, DestroyedCompetitiveMatchAppearsInHistoryWhileTrackerPending) {
+    Storage::InitializeEnvironment();
+    auto state = std::make_shared<SessionState>();
+    TelemetryReducer reducer(state);
+    StartRankedOnesMatch(
+        reducer, state, "pending-history-guid", 4, 2);
+
+    SideEffects effects = reducer.Reduce(
+        std::string(Constants::EVT_MATCH_DESTROYED),
+        CurrentMatchEvent(state, nlohmann::json{}));
+
+    ASSERT_TRUE(effects.pendingDestroyedMatch.has_value());
+    ASSERT_EQ(state->history.pendingRecentMatches.size(), 1u);
+    const auto& summary = state->history.pendingRecentMatches.front();
+    EXPECT_EQ(summary.matchGuid, "pending-history-guid");
+    EXPECT_EQ(summary.mode, "Duel");
+    EXPECT_EQ(summary.ourScore, 4);
+    EXPECT_EQ(summary.theirScore, 2);
+    EXPECT_EQ(summary.mmr, 0);
+    EXPECT_TRUE(summary.pendingTrackerConfirmation);
+    EXPECT_TRUE(summary.win);
+    EXPECT_GT(summary.endedAtUnix, 0);
+    EXPECT_FALSE(effects.saveMatch);
+    EXPECT_EQ(state->game.sessionTotals.wins, 0);
+    EXPECT_EQ(state->game.sessionTotals.losses, 0);
+}
+
 TEST(TelemetryReducerMatchValidation, DuplicateMatchDestroyedKeepsOnePendingRecord) {
     Storage::InitializeEnvironment();
     auto state = std::make_shared<SessionState>();
@@ -1277,6 +1304,7 @@ TEST(TelemetryReducerMatchValidation, DuplicateMatchDestroyedKeepsOnePendingReco
     EXPECT_FALSE(second.pendingDestroyedMatch.has_value());
     EXPECT_FALSE(first.saveMatch);
     EXPECT_FALSE(second.saveMatch);
+    EXPECT_EQ(state->history.pendingRecentMatches.size(), 1u);
 
     SideEffects confirmed =
         reducer.ConfirmPendingDestroyedMatch(

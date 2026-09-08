@@ -410,6 +410,24 @@ void DatabaseManager::AsyncUpdateMatchPlayerMmr(std::string matchGuid, std::stri
                         mmr]() {
         if (!UpdateMatchPlayerMmr(matchGuid, primaryId, mmr)) {
             std::cout << "[Database] Post-match MMR update found no saved row for match GUID.\n";
+            return;
+        }
+
+        ConfigData conf = Config::Read();
+        std::vector<SessionMatchSummary> matches;
+        GetRecentMatchHistory(
+            primaryId, matches, conf.previous_games_limit);
+        if (m_state) {
+            std::unique_lock<std::shared_mutex> lock(
+                m_state->history.mutex);
+            m_state->history.recentSavedMatches = std::move(matches);
+            std::erase_if(
+                m_state->history.pendingRecentMatches,
+                [&](const SessionMatchSummary& summary) {
+                    return summary.matchGuid == matchGuid;
+                });
+            m_state->history.recentSavedMatchesLoaded = true;
+            m_state->history.version++;
         }
     },
                        DbJobPriority::Critical);
@@ -474,7 +492,7 @@ void DatabaseManager::GetRecentMatchHistory(const std::string& primaryId, std::v
 
     const char* sql = R"(
         SELECT Matches.our_score, Matches.their_score, Matches.win, Matches.gamemode, Matches.player_count,
-               strftime('%s', Matches.timestamp), COALESCE(MatchPlayers.mmr, 0)
+               strftime('%s', Matches.timestamp), COALESCE(MatchPlayers.mmr, 0), Matches.match_guid
         FROM Matches
         LEFT JOIN MatchPlayers ON MatchPlayers.match_id = Matches.id AND MatchPlayers.primary_id = ?
         ORDER BY Matches.timestamp DESC, Matches.id DESC
@@ -496,6 +514,7 @@ void DatabaseManager::GetRecentMatchHistory(const std::string& primaryId, std::v
         SessionMatchSummary summary;
         summary.ranked = gamemode != "casual";
         summary.mode = FormatMatchHistoryMode(gamemode, playerCount);
+        summary.matchGuid = SqlColumnText(stmt, 7);
         summary.ourScore = sqlite3_column_int(stmt, 0);
         summary.theirScore = sqlite3_column_int(stmt, 1);
         summary.mmr = sqlite3_column_int(stmt, 6);

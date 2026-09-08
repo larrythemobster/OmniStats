@@ -142,6 +142,7 @@ TEST_F(DatabaseManagerTest, GetRecentMatchHistoryReturnsNewestSavedMatches) {
 
     ASSERT_EQ(matches.size(), 3u);
     EXPECT_FALSE(matches[0].ranked);
+    EXPECT_EQ(matches[0].matchGuid, "guid_3");
     EXPECT_EQ(matches[0].mode, "Doubles");
     EXPECT_EQ(matches[0].ourScore, 5);
     EXPECT_EQ(matches[0].theirScore, 0);
@@ -149,6 +150,7 @@ TEST_F(DatabaseManagerTest, GetRecentMatchHistoryReturnsNewestSavedMatches) {
     EXPECT_TRUE(matches[0].win);
 
     EXPECT_TRUE(matches[1].ranked);
+    EXPECT_EQ(matches[1].matchGuid, "guid_2");
     EXPECT_EQ(matches[1].mode, "Doubles");
     EXPECT_EQ(matches[1].ourScore, 2);
     EXPECT_EQ(matches[1].theirScore, 4);
@@ -277,6 +279,79 @@ TEST_F(DatabaseManagerTest, UpdatesSavedLocalPlayerMmrByMatchGuid) {
     dbManager->GetRecentMatchHistory(pid, matches, 10);
     ASSERT_EQ(matches.size(), 1u);
     EXPECT_EQ(matches[0].mmr, 1211);
+}
+
+TEST_F(DatabaseManagerTest, ConfirmedMmrRefreshReplacesPendingHistoryPlaceholder) {
+    const std::string pid = "Steam|pending-history";
+    MatchSaveSnapshot snap;
+    snap.arenaName = "DFH Stadium";
+    snap.matchGuid = "pending-history-db-guid";
+    snap.myTeam = 0;
+    snap.winnerTeam = 0;
+    snap.validResult = true;
+    snap.score[0] = 4;
+    snap.score[1] = 2;
+    snap.maxPlayersSeen = 2;
+    snap.myPrimaryId = pid;
+    snap.rosterMmrCategory = MmrCategory::OneVOne;
+    snap.graphMmrCategory = MmrCategory::OneVOne;
+    snap.roster[pid] = PlayerData{
+        .primaryId = pid,
+        .name = "Player",
+        .team = 0,
+        .mmr = 1200};
+    snap.roster["Steam|opponent"] = PlayerData{
+        .primaryId = "Steam|opponent",
+        .name = "Opponent",
+        .team = 1,
+        .mmr = 1190};
+
+    {
+        std::unique_lock<std::shared_mutex> lock(
+            sessionState->history.mutex);
+        SessionMatchSummary pending;
+        pending.matchGuid = snap.matchGuid;
+        pending.mode = "Duel";
+        pending.ourScore = 4;
+        pending.theirScore = 2;
+        pending.pendingTrackerConfirmation = true;
+        sessionState->history.pendingRecentMatches.push_back(
+            std::move(pending));
+    }
+
+    dbManager->SaveMatch(snap);
+    dbManager->AsyncUpdateMatchPlayerMmr(
+        snap.matchGuid, pid, 1211);
+    dbManager->AsyncSetSetting(
+        "pending_history_barrier", "complete");
+
+    for (int attempt = 0;
+         attempt < 200 &&
+         dbManager->GetSetting("pending_history_barrier", "") !=
+             "complete";
+         ++attempt) {
+        std::this_thread::sleep_for(
+            std::chrono::milliseconds(5));
+    }
+    ASSERT_EQ(
+        dbManager->GetSetting("pending_history_barrier", ""),
+        "complete");
+
+    std::shared_lock<std::shared_mutex> lock(
+        sessionState->history.mutex);
+    EXPECT_TRUE(
+        sessionState->history.pendingRecentMatches.empty());
+    ASSERT_EQ(
+        sessionState->history.recentSavedMatches.size(), 1u);
+    EXPECT_EQ(
+        sessionState->history.recentSavedMatches[0].matchGuid,
+        snap.matchGuid);
+    EXPECT_EQ(
+        sessionState->history.recentSavedMatches[0].mmr,
+        1211);
+    EXPECT_FALSE(
+        sessionState->history.recentSavedMatches[0]
+            .pendingTrackerConfirmation);
 }
 
 TEST_F(DatabaseManagerTest, AsyncSavePublishesOrderedStreakCacheAndLeavesItClean) {

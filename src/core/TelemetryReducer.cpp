@@ -95,6 +95,18 @@ static bool IsTrackedRankedEarlyExitMode(const std::string& mode) {
            mode == "snowday" || mode == "heatseeker";
 }
 
+static std::string FormatPendingMatchHistoryMode(const std::string& mode) {
+    if (mode == "1v1") return "Duel";
+    if (mode == "2v2") return "Doubles";
+    if (mode == "3v3") return "Standard";
+    if (mode == "hoops") return "Hoops";
+    if (mode == "rumble") return "Rumble";
+    if (mode == "dropshot") return "Dropshot";
+    if (mode == "snowday") return "Snow Day";
+    if (mode == "heatseeker") return "Heatseeker";
+    return mode.empty() ? "Unknown" : mode;
+}
+
 static std::string Lowercase(std::string value) {
     std::transform(value.begin(), value.end(), value.begin(), [](unsigned char c) {
         return static_cast<char>(std::tolower(c));
@@ -1691,6 +1703,42 @@ void TelemetryReducer::HandleMatchDestroyed(
                     match.explicitLocalForfeit;
                 pending.destroyedAtUnixMs = match.endedAtUnixMs;
                 pending.validCompetitiveMatch = true;
+
+                SessionMatchSummary pendingSummary;
+                pendingSummary.ranked = true;
+                pendingSummary.mode = FormatPendingMatchHistoryMode(match.mode);
+                pendingSummary.matchGuid = match.matchGuid;
+                pendingSummary.ourScore =
+                    match.myTeam == 1 ? match.score[1] : match.score[0];
+                pendingSummary.theirScore =
+                    match.myTeam == 1 ? match.score[0] : match.score[1];
+                pendingSummary.mmr = 0;
+                pendingSummary.win =
+                    pendingSummary.ourScore > pendingSummary.theirScore;
+                pendingSummary.pendingTrackerConfirmation = true;
+                pendingSummary.endedAtUnix = match.endedAtUnixMs / 1000;
+                {
+                    std::unique_lock<std::shared_mutex> historyLock(
+                        m_state->history.mutex);
+                    const auto duplicate = std::find_if(
+                        m_state->history.pendingRecentMatches.begin(),
+                        m_state->history.pendingRecentMatches.end(),
+                        [&](const SessionMatchSummary& summary) {
+                            return summary.matchGuid == pendingSummary.matchGuid;
+                        });
+                    if (duplicate ==
+                        m_state->history.pendingRecentMatches.end()) {
+                        m_state->history.pendingRecentMatches.insert(
+                            m_state->history.pendingRecentMatches.begin(),
+                            std::move(pendingSummary));
+                        if (m_state->history.pendingRecentMatches.size() >
+                            static_cast<size_t>(kPreviousGamesMaxLimit)) {
+                            m_state->history.pendingRecentMatches.resize(
+                                kPreviousGamesMaxLimit);
+                        }
+                        m_state->history.version++;
+                    }
+                }
 
                 m_pendingDestroyedMatches.emplace(
                     match.matchGuid, std::move(match));

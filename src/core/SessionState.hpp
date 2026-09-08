@@ -156,10 +156,12 @@ struct LocalPreMatchMmrSnapshot {
 struct SessionMatchSummary {
     bool ranked = true;
     std::string mode;
+    std::string matchGuid;
     int ourScore = 0;
     int theirScore = 0;
     int mmr = 0;
     bool win = false;
+    bool pendingTrackerConfirmation = false;
     int64_t endedAtUnix = 0;
 };
 
@@ -317,8 +319,12 @@ struct HistoryState {
     std::vector<float> lifetimeMmrX;
     std::atomic<bool> showLifetimeGraph{false};
 
-    // Recent saved match history for the previous-games dashboard card
+    // Recent saved match history for the previous-games dashboard card.
+    // Destroyed competitive matches can also appear here provisionally while
+    // Tracker confirmation is pending; those are kept separate so normal DB
+    // refreshes cannot make the pending row disappear.
     std::vector<SessionMatchSummary> recentSavedMatches;
+    std::vector<SessionMatchSummary> pendingRecentMatches;
     bool recentSavedMatchesLoaded = false;
 
     int initialMmr = -1;

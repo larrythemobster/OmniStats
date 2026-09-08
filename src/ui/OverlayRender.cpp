@@ -1203,7 +1203,7 @@ void Overlay::RenderPreviousGamesOverlay() {
         ImGui::PopFont();
         ImGui::SameLine();
         ImGui::PushFont(fontSmall);
-        ImGui::TextColored(Format::C(m_frameConfig.themeMuted), "last %d saved games", m_frameConfig.previous_games_limit);
+        ImGui::TextColored(Format::C(m_frameConfig.themeMuted), "last %d games", m_frameConfig.previous_games_limit);
         ImGui::PopFont();
         ImGui::Separator();
 
@@ -1212,7 +1212,8 @@ void Overlay::RenderPreviousGamesOverlay() {
         } else if (matches.empty()) {
             ImGui::TextColored(Format::C(m_frameConfig.themeMuted), "No saved games in local history.");
         } else {
-            const size_t displayCount = matches.size();
+            const size_t displayCount = (std::min)(matches.size(),
+                                                   static_cast<size_t>(m_frameConfig.previous_games_limit));
             const bool twoColumns = io.DisplaySize.x >= 860.0f * m_dpiScale && displayCount > 10;
             const int columnSets = twoColumns ? 2 : 1;
             const int rowsPerColumn = twoColumns ? static_cast<int>((displayCount + 1) / 2) : static_cast<int>(displayCount);
@@ -1261,7 +1262,9 @@ void Overlay::RenderPreviousGamesOverlay() {
                         ImGui::TableNextColumn();
                         ImGui::TextColored(rowColor, "%s", score.c_str());
                         ImGui::TableNextColumn();
-                        if (match.mmr > 0)
+                        if (match.pendingTrackerConfirmation)
+                            ImGui::TextColored(Format::C(m_frameConfig.themeMuted), "***");
+                        else if (match.mmr > 0)
                             ImGui::TextColored(rowColor, "%d", match.mmr);
                         else
                             ImGui::TextColored(Format::C(m_frameConfig.themeMuted), "--");
@@ -1879,8 +1882,32 @@ void Overlay::RenderUI() {
             }
             m_snap.lifetimeMmrX = m_state->history.lifetimeMmrX;
             m_snap.lifetimeMmrY = m_state->history.lifetimeMmrY;
-            m_snap.recentSavedMatches = m_state->history.recentSavedMatches;
-            m_snap.recentSavedMatchesLoaded = m_state->history.recentSavedMatchesLoaded;
+            m_snap.recentSavedMatches =
+                m_state->history.pendingRecentMatches;
+            for (const auto& saved :
+                 m_state->history.recentSavedMatches) {
+                const bool hiddenByPending =
+                    !saved.matchGuid.empty() &&
+                    std::any_of(
+                        m_state->history.pendingRecentMatches.begin(),
+                        m_state->history.pendingRecentMatches.end(),
+                        [&](const SessionMatchSummary& pending) {
+                            return pending.matchGuid == saved.matchGuid;
+                        });
+                if (!hiddenByPending) {
+                    m_snap.recentSavedMatches.push_back(saved);
+                }
+            }
+            std::stable_sort(
+                m_snap.recentSavedMatches.begin(),
+                m_snap.recentSavedMatches.end(),
+                [](const SessionMatchSummary& lhs,
+                   const SessionMatchSummary& rhs) {
+                    return lhs.endedAtUnix > rhs.endedAtUnix;
+                });
+            m_snap.recentSavedMatchesLoaded =
+                m_state->history.recentSavedMatchesLoaded ||
+                !m_state->history.pendingRecentMatches.empty();
         }
     }
 
@@ -2320,7 +2347,7 @@ void Overlay::RenderWidgetContent(DashboardLayout::WidgetId id, const char* suff
         ImGui::PopFont();
         ImGui::SameLine();
         ImGui::PushFont(fontSmall);
-        ImGui::TextColored(Format::C(m_frameConfig.themeMuted), "last %d saved games", m_frameConfig.previous_games_limit);
+        ImGui::TextColored(Format::C(m_frameConfig.themeMuted), "last %d games", m_frameConfig.previous_games_limit);
         ImGui::PopFont();
         ImGui::Separator();
         ImGui::Spacing();
@@ -2333,7 +2360,8 @@ void Overlay::RenderWidgetContent(DashboardLayout::WidgetId id, const char* suff
             ImGui::TextColored(Format::C(m_frameConfig.themeMuted), "No saved games in local history.");
             ImGui::Dummy(ImVec2(0, 6.0f * m_dpiScale));
         } else {
-            const size_t displayCount = matches.size();
+            const size_t displayCount = (std::min)(matches.size(),
+                                                   static_cast<size_t>(m_frameConfig.previous_games_limit));
             const bool twoColumns = ImGui::GetContentRegionAvail().x >= 720.0f * m_dpiScale && displayCount > 10;
             const int columnSets = twoColumns ? 2 : 1;
             const int rowsPerColumn = twoColumns ? static_cast<int>((displayCount + 1) / 2) : static_cast<int>(displayCount);
@@ -2383,7 +2411,9 @@ void Overlay::RenderWidgetContent(DashboardLayout::WidgetId id, const char* suff
                         ImGui::TableNextColumn();
                         ImGui::TextColored(rowColor, "%s", score.c_str());
                         ImGui::TableNextColumn();
-                        if (match.mmr > 0)
+                        if (match.pendingTrackerConfirmation)
+                            ImGui::TextColored(Format::C(m_frameConfig.themeMuted), "***");
+                        else if (match.mmr > 0)
                             ImGui::TextColored(rowColor, "%d", match.mmr);
                         else
                             ImGui::TextColored(Format::C(m_frameConfig.themeMuted), "--");

@@ -715,7 +715,7 @@ void DashboardPanel::RenderPreviousGamesWidget(const char* idSuffix) {
     ImGui::PopFont();
     ImGui::SameLine();
     ImGui::PushFont(ctx.fontSmall);
-    ImGui::TextColored(Format::C(ctx.config.themeMuted), "last %d saved games", ctx.config.previous_games_limit);
+    ImGui::TextColored(Format::C(ctx.config.themeMuted), "last %d games", ctx.config.previous_games_limit);
     ImGui::PopFont();
     ImGui::Separator();
     ImGui::Spacing();
@@ -728,7 +728,8 @@ void DashboardPanel::RenderPreviousGamesWidget(const char* idSuffix) {
         ImGui::TextColored(Format::C(ctx.config.themeMuted), "No saved games in local history.");
         ImGui::Dummy(ImVec2(0, 6.0f * ctx.dpiScale));
     } else {
-        const size_t displayCount = matches.size();
+        const size_t displayCount = (std::min)(matches.size(),
+                                               static_cast<size_t>(ctx.config.previous_games_limit));
         const bool twoColumns = ImGui::GetContentRegionAvail().x >= 720.0f * ctx.dpiScale && displayCount > 10;
         const int columnSets = twoColumns ? 2 : 1;
         const int rowsPerColumn = twoColumns ? static_cast<int>((displayCount + 1) / 2) : static_cast<int>(displayCount);
@@ -778,7 +779,9 @@ void DashboardPanel::RenderPreviousGamesWidget(const char* idSuffix) {
                     ImGui::TableNextColumn();
                     ImGui::TextColored(rowColor, "%s", score.c_str());
                     ImGui::TableNextColumn();
-                    if (match.mmr > 0)
+                    if (match.pendingTrackerConfirmation)
+                        ImGui::TextColored(Format::C(ctx.config.themeMuted), "***");
+                    else if (match.mmr > 0)
                         ImGui::TextColored(rowColor, "%d", match.mmr);
                     else
                         ImGui::TextColored(Format::C(ctx.config.themeMuted), "--");
