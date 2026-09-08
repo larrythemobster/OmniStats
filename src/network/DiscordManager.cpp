@@ -36,7 +36,11 @@ void DiscordManager::Initialize() {
     handlers.disconnected = handleDisconnected;
     handlers.errored = handleError;
 
-    Discord_Initialize(DISCORD_APP_ID, &handlers, 1, nullptr);
+    // OmniStats only uses Rich Presence. It does not use Discord join/spectate
+    // launch handlers, so automatic discord-<app-id>:// protocol registration
+    // is unnecessary. Keeping autoRegister disabled also avoids writing those
+    // protocol-handler registry keys on startup.
+    Discord_Initialize(DISCORD_APP_ID, &handlers, 0, nullptr);
     m_initialized = true;
 
     // Start a background thread to pump Discord callbacks

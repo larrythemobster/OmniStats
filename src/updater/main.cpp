@@ -334,6 +334,7 @@ int main(int argc, char* argv[]) {
     std::string targetPath = "";
     DWORD parentPid = 0;
     bool repair = false;
+    std::string resultFile = "";
 
     for (int i = 1; i < argc; ++i) {
         std::string arg = argv[i];
@@ -353,6 +354,8 @@ int main(int argc, char* argv[]) {
             i += 2;
         } else if (arg == "--repair") {
             repair = true;
+        } else if (arg == "--result-file" && i + 1 < argc) {
+            resultFile = argv[++i];
         }
     }
 
@@ -367,15 +370,31 @@ int main(int argc, char* argv[]) {
     if (check) {
         std::string latestVersion;
         bool updateAvailable = PerformUpdateCheck(serverUrl, latestVersion);
+
+        if (!resultFile.empty() && !latestVersion.empty()) {
+            std::ofstream result(resultFile, std::ios::trunc);
+            if (result.is_open()) {
+                result << latestVersion << "\n";
+            } else {
+                std::cout << "[Updater] Failed to write update-check result file: " << resultFile << "\n";
+            }
+        }
+
         if (updateAvailable) {
             std::cout << "[Updater] Update is available: " << latestVersion << "\n";
             curl_global_cleanup();
             return 0; // 0 means update available
-        } else {
-            std::cout << "[Updater] No update available.\n";
-            curl_global_cleanup();
-            return 1; // 1 means no update
         }
+
+        if (latestVersion.empty()) {
+            std::cout << "[Updater] Update check failed.\n";
+            curl_global_cleanup();
+            return 2; // 2 means the check itself failed
+        }
+
+        std::cout << "[Updater] No update available.\n";
+        curl_global_cleanup();
+        return 1; // 1 means no update
     }
 
     if (!targetPath.empty()) {
