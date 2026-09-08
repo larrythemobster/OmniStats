@@ -93,6 +93,7 @@ id_rsa.*
 id_ed25519
 id_ed25519.*
 *_deploy_key*
+*.ps1
 deploy.local.ps1
 config.local.json
 secrets.*

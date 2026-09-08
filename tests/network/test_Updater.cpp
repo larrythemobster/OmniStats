@@ -4,7 +4,7 @@
 #include <gtest/gtest.h>
 #include "core/AppVersion.hpp"
 #include "network/UpdaterCommon.hpp"
-
+#include "core/FileHash.hpp"
 TEST(UpdaterTest, VersionStringIsPopulated) {
     EXPECT_NE(AppVersion::Current[0], '\0');
 }
@@ -78,4 +78,101 @@ TEST(ExternalUpdaterLauncherTest, RepairStatsApiLaunchesUpdaterProcess) {
 
     std::error_code ec;
     std::filesystem::remove_all(tempDir, ec);
+}
+
+TEST(UpdaterCommonTest, VerifyAuthenticodeSignatureRejectsNonExistentFile) {
+    auto result = UpdaterCommon::VerifyAuthenticodeSignature("C:\\NonExistentPath\\FakeFile.msi");
+    EXPECT_FALSE(result.digestValid);
+}
+
+TEST(UpdaterCommonTest, VerifyAuthenticodeSignatureRejectsUnsignedFile) {
+    const std::filesystem::path tempFile = std::filesystem::temp_directory_path() / "omnistats_unsigned_test.tmp";
+    {
+        std::ofstream out(tempFile, std::ios::binary);
+        out << "Not a signed file content\n";
+    }
+    auto result = UpdaterCommon::VerifyAuthenticodeSignature(tempFile.string());
+    EXPECT_FALSE(result.digestValid);
+    std::error_code ec;
+    std::filesystem::remove(tempFile, ec);
+}
+
+TEST(UpdaterCommonTest, VerifyMsiPackageRejectsFileHashMismatch) {
+    const std::filesystem::path tempFile = std::filesystem::temp_directory_path() / "omnistats_hash_mismatch.msi";
+    {
+        std::ofstream out(tempFile, std::ios::binary);
+        out << "Fake MSI payload for hash mismatch test\n";
+    }
+    const std::string wrongHash = "0000000000000000000000000000000000000000000000000000000000000000";
+    bool ok = UpdaterCommon::VerifyMsiPackage(tempFile.string(), wrongHash, "fake_cert_hash");
+    EXPECT_FALSE(ok);
+    std::error_code ec;
+    std::filesystem::remove(tempFile, ec);
+}
+
+TEST(UpdaterCommonTest, VerifyMsiPackageRejectsUnsignedFileEvenIfFileHashMatches) {
+    const std::filesystem::path tempFile = std::filesystem::temp_directory_path() / "omnistats_unsigned_hash_ok.msi";
+    {
+        std::ofstream out(tempFile, std::ios::binary);
+        out << "Dummy payload for unsigned check\n";
+    }
+    std::string realHash = CalculateSHA256(tempFile.string());
+    ASSERT_FALSE(realHash.empty());
+
+    // Pass matching file hash, but unsigned file must still be rejected
+    bool ok = UpdaterCommon::VerifyMsiPackage(tempFile.string(), realHash,
+                                              SigningConfig::CURRENT_CERT_SHA256);
+    EXPECT_FALSE(ok);
+    std::error_code ec;
+    std::filesystem::remove(tempFile, ec);
+}
+
+TEST(UpdaterCommonTest, VerifyMsiPackageRejectsWrongCertHash) {
+    const std::filesystem::path tempFile = std::filesystem::temp_directory_path() / "omnistats_wrong_cert.msi";
+    {
+        std::ofstream out(tempFile, std::ios::binary);
+        out << "Another dummy payload\n";
+    }
+    std::string realHash = CalculateSHA256(tempFile.string());
+
+    bool ok = UpdaterCommon::VerifyMsiPackage(tempFile.string(), realHash,
+                                              "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
+    EXPECT_FALSE(ok);
+    std::error_code ec;
+    std::filesystem::remove(tempFile, ec);
+}
+
+TEST(UpdaterCommonTest, VerifyMsiPackageAcceptsSignedArtifactWhenHashesMatch) {
+    const std::filesystem::path msiPath =
+        std::filesystem::path(OMNISTATS_BINARY_DIR) / "Release" / "OmniStats.msi";
+    if (!std::filesystem::exists(msiPath)) {
+        GTEST_SKIP() << "OmniStats.msi not present in build directory, skipping signed artifact check.";
+    }
+
+    std::string realHash = CalculateSHA256(msiPath.string());
+    ASSERT_FALSE(realHash.empty());
+
+    // 1. Accepts with default current pinned cert
+    bool ok = UpdaterCommon::VerifyMsiPackage(msiPath.string(), realHash);
+    EXPECT_TRUE(ok);
+
+    // 2. Rotation support: accepts if nextPinnedCertSha matches even if current differs
+    bool rotationOk = UpdaterCommon::VerifyMsiPackage(
+        msiPath.string(), realHash,
+        "0000000000000000000000000000000000000000000000000000000000000000",
+        SigningConfig::CURRENT_CERT_SHA256);
+    EXPECT_TRUE(rotationOk);
+
+    // 3. Rejects if neither current nor next matches
+    bool neitherMatches = UpdaterCommon::VerifyMsiPackage(
+        msiPath.string(), realHash,
+        "0000000000000000000000000000000000000000000000000000000000000000",
+        "1111111111111111111111111111111111111111111111111111111111111111");
+    EXPECT_FALSE(neitherMatches);
+
+    // 4. Rejects if file SHA-256 does not match even if signature is valid
+    bool wrongFileHash = UpdaterCommon::VerifyMsiPackage(
+        msiPath.string(),
+        "0000000000000000000000000000000000000000000000000000000000000000");
+    EXPECT_FALSE(wrongFileHash);
 }

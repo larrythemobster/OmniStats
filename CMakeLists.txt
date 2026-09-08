@@ -52,7 +52,6 @@ option(ENABLE_COVERAGE "Enable code coverage instrumentation" OFF)
 option(OMNISTATS_BUILD_UPDATER "Build OmniStatsUpdater.exe" ON)
 option(OMNISTATS_BUILD_INSTALLER "Deprecated compatibility option; the WiX MSI is the only supported installer" OFF)
 option(OMNISTATS_ENABLE_LOW_LEVEL_HOOK "Enable the legacy low-level keyboard hook" OFF)
-set(OMNISTATS_EXPECTED_PUBLISHER "" CACHE STRING "Expected Authenticode publisher for MSI updates; empty keeps SHA-256-only compatibility")
 if(OMNISTATS_BUILD_INSTALLER)
     message(FATAL_ERROR "The legacy bootstrap installer was retired. Build the supported WiX MSI from installer/wix.")
 endif()
@@ -195,8 +194,7 @@ if(OMNISTATS_BUILD_UPDATER)
     target_include_directories(OmniStatsUpdater PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
     target_compile_definitions(OmniStatsUpdater PRIVATE
         OMNISTATS_VERSION="${OMNISTATS_VERSION}"
-        OMNISTATS_EXPECTED_PUBLISHER="${OMNISTATS_EXPECTED_PUBLISHER}"
-        )
+    )
     target_link_libraries(OmniStatsUpdater PRIVATE
         CURL::libcurl
         version.lib
@@ -262,6 +260,7 @@ if(BUILD_TESTING)
         Imm32.lib
         Setupapi.lib
         crypt32.lib
+        wintrust.lib
         Ws2_32.lib
         Wldap32.lib
         Normaliz.lib

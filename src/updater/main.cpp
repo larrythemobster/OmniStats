@@ -17,10 +17,7 @@
 #ifndef OMNISTATS_VERSION
 #define OMNISTATS_VERSION "2.0.0"
 #endif
-
-#ifndef OMNISTATS_EXPECTED_PUBLISHER
-#define OMNISTATS_EXPECTED_PUBLISHER ""
-#endif
+#include "network/SigningConfig.hpp"
 
 // Global override for test server URL
 static std::string g_serverOverride = "";
@@ -232,89 +229,8 @@ bool PerformUpdateCheck(const std::string& serverUrl, std::string& latestVersion
 
 namespace {
 
-    struct SignatureVerificationResult {
-        bool trusted = false;
-        std::string signer;
-    };
-
-    SignatureVerificationResult VerifyAuthenticodeSignature(const std::string& filePath) {
-        SignatureVerificationResult result;
-
-        WINTRUST_FILE_INFO fileInfo = {};
-        fileInfo.cbStruct = sizeof(fileInfo);
-
-        const int wideLength = MultiByteToWideChar(CP_UTF8, 0, filePath.c_str(), -1, nullptr, 0);
-        if (wideLength <= 0) {
-            return result;
-        }
-        std::vector<wchar_t> widePath(static_cast<size_t>(wideLength));
-        if (MultiByteToWideChar(CP_UTF8, 0, filePath.c_str(), -1, widePath.data(), wideLength) <= 0) {
-            return result;
-        }
-        fileInfo.pcwszFilePath = widePath.data();
-
-        WINTRUST_DATA trustData = {};
-        trustData.cbStruct = sizeof(trustData);
-        trustData.dwUIChoice = WTD_UI_NONE;
-        trustData.fdwRevocationChecks = WTD_REVOKE_WHOLECHAIN;
-        trustData.dwUnionChoice = WTD_CHOICE_FILE;
-        trustData.pFile = &fileInfo;
-        trustData.dwStateAction = WTD_STATEACTION_VERIFY;
-        trustData.dwProvFlags = WTD_REVOCATION_CHECK_CHAIN_EXCLUDE_ROOT;
-
-        GUID action = WINTRUST_ACTION_GENERIC_VERIFY_V2;
-        const LONG status = WinVerifyTrust(nullptr, &action, &trustData);
-        if (status == ERROR_SUCCESS) {
-            result.trusted = true;
-
-            CRYPT_PROVIDER_DATA* providerData = WTHelperProvDataFromStateData(trustData.hWVTStateData);
-            if (providerData) {
-                CRYPT_PROVIDER_SGNR* signer = WTHelperGetProvSignerFromChain(providerData, 0, FALSE, 0);
-                if (signer && signer->csCertChain > 0 && signer->pasCertChain && signer->pasCertChain[0].pCert) {
-                    PCCERT_CONTEXT cert = signer->pasCertChain[0].pCert;
-                    const DWORD chars = CertGetNameStringA(cert, CERT_NAME_SIMPLE_DISPLAY_TYPE, 0, nullptr, nullptr, 0);
-                    if (chars > 1) {
-                        std::vector<char> name(chars);
-                        if (CertGetNameStringA(cert, CERT_NAME_SIMPLE_DISPLAY_TYPE, 0, nullptr, name.data(), chars) > 1) {
-                            result.signer.assign(name.data());
-                        }
-                    }
-                }
-            }
-        }
-
-        trustData.dwStateAction = WTD_STATEACTION_CLOSE;
-        WinVerifyTrust(nullptr, &action, &trustData);
-        return result;
-    }
-
     bool VerifyMsiPackage(const std::string& msiPath, const std::string& expectedSha) {
-        if (!UpdaterCommon::VerifyFileSHA256(msiPath, expectedSha)) {
-            std::cout << "[Updater] MSI SHA-256 verification failed.\n";
-            return false;
-        }
-        std::cout << "[Updater] MSI SHA-256 verification passed.\n";
-
-        const std::string expectedPublisher = OMNISTATS_EXPECTED_PUBLISHER;
-        if (expectedPublisher.empty()) {
-            std::cout << "[Updater] Authenticode publisher enforcement is not configured for this build.\n";
-            return true;
-        }
-
-        const SignatureVerificationResult signature = VerifyAuthenticodeSignature(msiPath);
-        if (!signature.trusted) {
-            std::cout << "[Updater] MSI Authenticode verification failed.\n";
-            return false;
-        }
-        if (_stricmp(signature.signer.c_str(), expectedPublisher.c_str()) != 0) {
-            std::cout << "[Updater] MSI signer mismatch. Expected '" << expectedPublisher
-                      << "', got '" << signature.signer << "'.\n";
-            return false;
-        }
-
-        std::cout << "[Updater] MSI Authenticode verification passed for publisher '"
-                  << signature.signer << "'.\n";
-        return true;
+        return UpdaterCommon::VerifyMsiPackage(msiPath, expectedSha);
     }
 
     std::string QuoteCommandLineArg(const std::string& value) {
