@@ -70,7 +70,7 @@ namespace TelemetryManager {
             } else {
                 g_testSecret.clear();
             }
-            std::cout << "[Telemetry] Test environment detected (:memory:). X-Test-Mode is only sent when OMNISTATS_TEST_SECRET is set.\n";
+            std::cout << "[Telemetry] Test environment detected (:memory:). Live network transmissions disabled.\n";
         } else {
             g_isTestMode = false;
         }
@@ -94,6 +94,11 @@ namespace TelemetryManager {
         Config::Update([&uuid](ConfigData& c) {
             c.client_uuid = uuid;
         });
+
+        if (g_isTestMode) {
+            std::cout << "[Telemetry] Test environment detected. Skipping background telemetry worker thread.\n";
+            return;
+        }
 
         std::cout << "[Telemetry] Scheduling required startup diagnostics.\n";
         g_isRunning.store(true);
@@ -133,6 +138,11 @@ namespace TelemetryManager {
     }
 
     void SendTelemetryAsync() {
+        if (g_isTestMode) {
+            std::cout << "[Telemetry] Test environment detected. Skipping live telemetry ping.\n";
+            return;
+        }
+
         ConfigData conf = Config::Read();
 
         nlohmann::json j;
@@ -185,6 +195,11 @@ namespace TelemetryManager {
     }
 
     void SendCrashAsync(const std::string& crashFilePath) {
+        if (g_isTestMode) {
+            std::cout << "[Telemetry] Test environment detected. Skipping live crash report upload.\n";
+            return;
+        }
+
         ConfigData conf = Config::Read();
         if (!conf.crash_reports_enabled) {
             std::cout << "[Telemetry] Crash report upload skipped because crash reports are disabled.\n";

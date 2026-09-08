@@ -20,4 +20,5 @@ TEST(TelemetryManagerTest, InitializeDoesNotCrash) {
     db->Initialize(":memory:");
 
     EXPECT_NO_THROW(TelemetryManager::Initialize(db));
+    TelemetryManager::Shutdown();
 }
