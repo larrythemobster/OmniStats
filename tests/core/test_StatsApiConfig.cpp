@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 #include "core/StatsApiConfig.hpp"
+#include "updater/StatsApiRepair.hpp"
 #include <fstream>
 #include <filesystem>
 
@@ -120,7 +121,7 @@ TEST_F(StatsApiConfigTest, FixConfigPreservesCommentsAndFormat) {
     WriteFile(content);
 
     // Call repair
-    int exitCode = StatsApiConfig::FixConfigStrictHeadless(testFilePath.string(), 49123);
+    int exitCode = UpdaterStatsApiRepair::FixConfigStrictHeadless(testFilePath.string(), 49123);
     EXPECT_EQ(exitCode, 0);
 
     // Verify file content
@@ -155,7 +156,7 @@ TEST_F(StatsApiConfigTest, FixConfigDoesNotOverwriteExistingBackup) {
         "Port=12345\r\n";
     WriteFile(modifiedContent);
 
-    int exitCode = StatsApiConfig::FixConfigStrictHeadless(testFilePath.string(), 49123);
+    int exitCode = UpdaterStatsApiRepair::FixConfigStrictHeadless(testFilePath.string(), 49123);
     EXPECT_EQ(exitCode, 0);
 
     // Verify backup content was not overwritten
@@ -169,13 +170,13 @@ TEST_F(StatsApiConfigTest, FixConfigStrictValidationErrors) {
         std::ofstream f(wrongNamePath);
         f << "Port=123";
     }
-    int exitCode = StatsApiConfig::FixConfigStrictHeadless(wrongNamePath.string(), 49123);
+    int exitCode = UpdaterStatsApiRepair::FixConfigStrictHeadless(wrongNamePath.string(), 49123);
     EXPECT_EQ(exitCode, 2);
 
     // 2. File must exist
     std::filesystem::path nonExistentPath = tempDir / "DefaultStatsAPI.ini.missing";
     // We pass filename DefaultStatsAPI.ini but inside a missing folder
     std::filesystem::path missingSubdir = tempDir / "missing_subdir" / "DefaultStatsAPI.ini";
-    exitCode = StatsApiConfig::FixConfigStrictHeadless(missingSubdir.string(), 49123);
+    exitCode = UpdaterStatsApiRepair::FixConfigStrictHeadless(missingSubdir.string(), 49123);
     EXPECT_EQ(exitCode, 2);
 }

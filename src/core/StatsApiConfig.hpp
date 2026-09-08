@@ -28,7 +28,5 @@ namespace StatsApiConfig {
     std::string GetStatusMessage(Status status);
     std::string DetectConfigPath();
     CheckResult VerifyConfig(const std::string& filePath, int expectedPort);
-    Status FixConfig(const std::string& filePath, int expectedPort);
-    int FixConfigStrictHeadless(const std::string& filePath, int expectedPort);
 
 } // namespace StatsApiConfig

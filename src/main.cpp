@@ -160,17 +160,6 @@ int main(int argc, char* argv[]) {
                         MB_OK | MB_ICONINFORMATION | MB_SETFOREGROUND);
             return 0;
         }
-        if (arg == "--repair-stats-api" && i + 1 < argc) {
-            std::string path = argv[i + 1];
-            int port = 49123;
-            if (i + 2 < argc) {
-                try {
-                    port = std::stoi(argv[i + 2]);
-                } catch (...) {
-                }
-            }
-            return StatsApiConfig::FixConfigStrictHeadless(path, port);
-        }
     }
     (void)argc;
     (void)argv;
@@ -232,8 +221,8 @@ int main(int argc, char* argv[]) {
         }
         int msgRes = MessageBoxW(NULL, text.c_str(), title.c_str(), MB_YESNO | MB_ICONWARNING | MB_SYSTEMMODAL);
         if (msgRes == IDYES) {
-            StatsApiConfig::Status fixStatus = StatsApiConfig::FixConfig(apiPath, startupConf.port);
-            if (fixStatus == StatsApiConfig::Status::Valid) {
+            const bool repaired = ExternalUpdaterLauncher::RepairStatsApiConfig(apiPath, startupConf.port);
+            if (repaired) {
                 checkRes = StatsApiConfig::VerifyConfig(apiPath, startupConf.port);
                 MessageBoxW(NULL, L"Rocket League Stats API configuration successfully updated!", title.c_str(), MB_OK | MB_ICONINFORMATION | MB_SYSTEMMODAL);
             } else {

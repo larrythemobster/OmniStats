@@ -1,3 +1,6 @@
+#include "network/ExternalUpdaterLauncher.hpp"
+#include <filesystem>
+#include <fstream>
 #include <gtest/gtest.h>
 #include "core/AppVersion.hpp"
 #include "network/UpdaterCommon.hpp"
@@ -51,4 +54,28 @@ TEST(UpdaterCommonTest, GetLocalAppDataDir) {
     std::string localAppData = UpdaterCommon::GetLocalAppDataDir();
     EXPECT_FALSE(localAppData.empty());
     EXPECT_EQ(localAppData.substr(localAppData.length() - 11), "\\OmniStats\\");
+}
+
+TEST(ExternalUpdaterLauncherTest, RepairStatsApiLaunchesUpdaterProcess) {
+    const std::filesystem::path tempDir = std::filesystem::temp_directory_path() / "OmniStatsLauncherTest";
+    std::filesystem::create_directories(tempDir);
+    const std::filesystem::path iniPath = tempDir / "DefaultStatsAPI.ini";
+
+    {
+        std::ofstream file(iniPath, std::ios::binary);
+        file << "[StatsAPI]\r\nPacketSendRate=0\r\nPort=12345\r\n";
+    }
+
+    bool ok = ExternalUpdaterLauncher::RepairStatsApiConfig(iniPath.string(), 49123);
+    EXPECT_TRUE(ok);
+
+    {
+        std::ifstream result(iniPath, std::ios::binary);
+        std::string content((std::istreambuf_iterator<char>(result)), std::istreambuf_iterator<char>());
+        EXPECT_NE(content.find("PacketSendRate=30"), std::string::npos);
+        EXPECT_NE(content.find("Port=49123"), std::string::npos);
+    }
+
+    std::error_code ec;
+    std::filesystem::remove_all(tempDir, ec);
 }

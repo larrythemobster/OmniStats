@@ -1493,10 +1493,10 @@ void SettingsPanel::RenderContent(const std::string& idSuffix, bool& styleChange
                 if (result.status != StatsApiConfig::Status::Valid && !result.path.empty()) {
                     ImGui::SameLine();
                     if (ImGui::Button("Fix Config##StatsApi")) {
-                        auto fixStatus = StatsApiConfig::FixConfig(result.path, ctx.config.port);
+                        const bool repaired = ExternalUpdaterLauncher::RepairStatsApiConfig(result.path, ctx.config.port);
                         auto newResult = StatsApiConfig::VerifyConfig(result.path, ctx.config.port);
-                        if (newResult.status != StatsApiConfig::Status::Valid) {
-                            newResult.message = "Failed to fix automatically. Please run OmniStats as admin once, or manually edit:\n" + result.path + "\nto set PacketSendRate=30 and Port=" + std::to_string(ctx.config.port);
+                        if (!repaired || newResult.status != StatsApiConfig::Status::Valid) {
+                            newResult.message = "Failed to fix automatically. Please approve the updater elevation prompt if shown, or manually edit:\n" + result.path + "\nto set PacketSendRate=30 and Port=" + std::to_string(ctx.config.port);
                         }
                         {
                             std::lock_guard<std::mutex> lock(ctx.state.ui.statsApiMutex);

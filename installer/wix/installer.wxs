@@ -13,6 +13,7 @@
     <Property Id="ARPPRODUCTICON" Value="LogoIcon" />
     <Property Id="ARPHELPLINK" Value="https://omnistats.org/support" />
     <Property Id="ARPURLINFOABOUT" Value="https://omnistats.org" />
+    <Property Id="OMNISTATS_AUTOSTART" Value="0" />
 
     <ui:WixUI Id="WixUI_Minimal" />
     <WixVariable Id="WixUILicenseRtf" Value="installer/wix/license.rtf" />
@@ -51,6 +52,20 @@
         </Component>
       </Directory>
     </StandardDirectory>
+
+
+    <CustomAction Id="LaunchOmniStatsAfterUpdate"
+                  FileRef="OmniStatsExe"
+                  ExeCommand=""
+                  Execute="immediate"
+                  Return="asyncNoWait"
+                  Impersonate="yes" />
+
+    <InstallExecuteSequence>
+      <Custom Action="LaunchOmniStatsAfterUpdate"
+              After="InstallFinalize"
+              Condition="OMNISTATS_AUTOSTART = 1 AND NOT REMOVE~=&quot;ALL&quot;" />
+    </InstallExecuteSequence>
 
     <Feature Id="MainFeature" Title="OmniStats Application" Level="1">
       <ComponentRef Id="ApplicationFiles" />

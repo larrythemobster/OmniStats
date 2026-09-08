@@ -108,7 +108,7 @@ namespace {
         commandLineBuffer.push_back('\0');
 
         const std::string workingDirectory = GetDirectoryForPath(updaterPath);
-        if (!CreateProcessA(NULL, commandLineBuffer.data(), NULL, NULL, FALSE, CREATE_NO_WINDOW, NULL,
+        if (!CreateProcessA(NULL, commandLineBuffer.data(), NULL, NULL, FALSE, 0, NULL,
                             workingDirectory.c_str(), &si, &pi)) {
             std::cout << "[UpdaterLauncher] Failed to launch installed updater. Error: " << GetLastError() << "\n";
             return false;
@@ -130,6 +130,9 @@ namespace {
             return false;
         }
 
+        // Keep the legacy --update-app command shape so older installed updaters do not
+        // break during the one-time migration to MSI-based updater replacement. New updaters
+        // interpret the same command as an MSI upgrade and ignore the target path.
         const std::string arguments = "--update-app \"" + currentExePath + "\" " +
                                       std::to_string(GetCurrentProcessId());
         return LaunchUpdater(arguments);
@@ -185,6 +188,30 @@ namespace {
             std::cout << "[UpdaterLauncher] Installed updater check failed with exit code " << exitCode << ".\n";
         }
         return false;
+    }
+
+    bool RunStatsApiRepair(const std::string& filePath, int expectedPort) {
+        if (filePath.empty()) {
+            return false;
+        }
+
+        HANDLE processHandle = nullptr;
+        const std::string arguments = "--repair-stats-api \"" + filePath + "\" " +
+                                      std::to_string(expectedPort);
+        if (!LaunchUpdater(arguments, &processHandle) || !processHandle) {
+            return false;
+        }
+
+        const DWORD waitResult = WaitForSingleObject(processHandle, INFINITE);
+        if (waitResult != WAIT_OBJECT_0) {
+            CloseHandle(processHandle);
+            return false;
+        }
+
+        DWORD exitCode = static_cast<DWORD>(-1);
+        const bool readExitCode = GetExitCodeProcess(processHandle, &exitCode) != FALSE;
+        CloseHandle(processHandle);
+        return readExitCode && exitCode == 0;
     }
 
     void JoinBackgroundThreads() {
@@ -267,6 +294,10 @@ namespace ExternalUpdaterLauncher {
         }
 
         state->ui.appExitRequested.store(true);
+    }
+
+    bool RepairStatsApiConfig(const std::string& filePath, int expectedPort) {
+        return RunStatsApiRepair(filePath, expectedPort);
     }
 
     void ShutdownBackgroundTasks() {
