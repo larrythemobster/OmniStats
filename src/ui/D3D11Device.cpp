@@ -116,6 +116,11 @@ HRESULT D3D11Device::ResizeBuffers(int width, int height) {
         DXGI_FORMAT_UNKNOWN,
         0);
     if (FAILED(hr)) {
+        const bool deviceLost =
+            hr == DXGI_ERROR_DEVICE_REMOVED ||
+            hr == DXGI_ERROR_DEVICE_RESET ||
+            hr == DXGI_ERROR_DEVICE_HUNG;
+
         if (hr == DXGI_ERROR_DEVICE_REMOVED) {
             HRESULT reason = m_device->GetDeviceRemovedReason();
             std::cout << "[D3D11] Device removed during ResizeBuffers: 0x" << std::hex << hr
@@ -128,6 +133,14 @@ HRESULT D3D11Device::ResizeBuffers(int width, int height) {
             std::cout << "[D3D11] Failed to resize swapchain buffers to "
                       << width << "x" << height << ": 0x"
                       << std::hex << hr << std::dec << "\n";
+        }
+
+        // CleanupRenderTarget() released our RTV before ResizeBuffers. For
+        // ordinary resize failures DXGI keeps the existing swap-chain buffers,
+        // so restore the RTV instead of leaving the render loop permanently
+        // without a render target. A lost device is recreated by Overlay.
+        if (!deviceLost && !CreateRenderTarget()) {
+            std::cout << "[D3D11] Failed to restore render target after resize failure.\n";
         }
         return hr;
     }

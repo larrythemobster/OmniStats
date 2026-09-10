@@ -18,6 +18,7 @@
 #include <dwmapi.h>
 #include <iostream>
 #include <algorithm>
+#include <chrono>
 #include <thread>
 #include <filesystem>
 #include <cmath>
@@ -228,6 +229,10 @@ bool Overlay::Initialize() {
         return false;
     }
     m_imguiDx11Initialized = true;
+
+    // Do all of ImGui's baseline D3D11 resource allocation now instead of
+    // deferring it until Rocket League first gains focus.
+    if (!WarmUpD3DRenderer()) return false;
     m_rankIcons = std::make_unique<RankIconAssets>();
     if (!m_rankIcons->Load(m_d3d11->Device())) {
         std::cout << "[RankIcons] Rank icon resources failed to load. Text labels will be used.\n";
@@ -292,6 +297,54 @@ bool Overlay::LoadFonts() {
     if (!fontMono) fontMono = fontRegular;
     if (!lobbyFontSmall) lobbyFontSmall = fontSmall;
     m_loadedFontScale = scale;
+    return true;
+}
+
+bool Overlay::WarmUpD3DRenderer() {
+    if (!m_imguiDx11Initialized ||
+        !ImGui::GetCurrentContext() ||
+        !m_d3d11 ||
+        !m_d3d11->Device() ||
+        !m_d3d11->Context() ||
+        !m_d3d11->RenderTargetView()) {
+        std::cout << "[D3D11] Renderer warm-up skipped because the renderer is incomplete.\n";
+        return false;
+    }
+
+    const HRESULT removedReason = m_d3d11->Device()->GetDeviceRemovedReason();
+    if (removedReason != S_OK) {
+        std::cout << "[D3D11] Renderer warm-up found an unhealthy device: 0x"
+                  << std::hex << removedReason << std::dec << "\n";
+        return false;
+    }
+
+    // ImGui_ImplDX11_Init() intentionally leaves shaders, states, the font
+    // texture and constant buffer lazy. Create them before Rocket League's
+    // launch/focus transition, where the AMD UMD has been observed failing an
+    // allocation and then dereferencing its null output pointer.
+    if (!ImGui_ImplDX11_CreateDeviceObjects()) {
+        std::cout << "[D3D11] Failed to pre-create ImGui DX11 device objects.\n";
+        return false;
+    }
+
+    // One tiny frame also forces imgui_impl_dx11 to allocate its dynamic
+    // vertex/index buffers. Do not Present it, so this warm-up is invisible.
+    ImGui_ImplDX11_NewFrame();
+    ImGui_ImplWin32_NewFrame();
+    ImGui::NewFrame();
+    ImGui::GetForegroundDrawList()->AddRectFilled(
+        ImVec2(0.0f, 0.0f),
+        ImVec2(1.0f, 1.0f),
+        IM_COL32(255, 255, 255, 1));
+    ImGui::Render();
+
+    const float clearColor[4] = {0.0f, 0.0f, 0.0f, 0.0f};
+    m_d3d11->Context()->OMSetRenderTargets(1, m_d3d11->RenderTargetViewAddress(), nullptr);
+    m_d3d11->Context()->ClearRenderTargetView(m_d3d11->RenderTargetView(), clearColor);
+    ImGui_ImplDX11_RenderDrawData(ImGui::GetDrawData());
+    m_d3d11->Context()->Flush();
+
+    std::cout << "[D3D11] ImGui renderer resources pre-created successfully.\n";
     return true;
 }
 bool Overlay::RebuildFontsForCurrentScale() {
@@ -386,6 +439,8 @@ void Overlay::RunLoop() {
     HWND cachedRlHwnd = nullptr;
     bool wasRLActive = false;
     auto lastRescan = std::chrono::steady_clock::now() - std::chrono::seconds(2);
+    auto rlFocusReadyAt = (std::chrono::steady_clock::time_point::min)();
+    bool validateDeviceAfterFocus = false;
     auto lastFrameTime = std::chrono::steady_clock::now();
     while (!done) {
         if (m_state->ui.appExitRequested.load()) {
@@ -487,6 +542,44 @@ void Overlay::RunLoop() {
             lastFrameTime = std::chrono::steady_clock::now();
             std::this_thread::sleep_for(std::chrono::milliseconds(150)); // Sleep to save CPU while game is out of focus
             continue;
+        }
+
+        // The AMD DX11 user-mode driver can fail an allocation while Rocket
+        // League is taking over the adapter during its foreground transition.
+        // Avoid making the overlay's first resumed D3D calls at that exact
+        // moment. This is only used by the normal in-game focus-gated overlay;
+        // second-monitor mode keeps rendering independently.
+        const auto renderNow = std::chrono::steady_clock::now();
+        if (m_frameConfig.require_rl_focus &&
+            !m_frameConfig.second_monitor_mode &&
+            isRLActive &&
+            !wasRLActive) {
+            rlFocusReadyAt = renderNow + std::chrono::milliseconds(500);
+            validateDeviceAfterFocus = true;
+            wasRLActive = true;
+            lastFrameTime = renderNow;
+            std::cout << "[D3D11] Rocket League gained focus; delaying overlay rendering for 500 ms.\n";
+        }
+
+        if (validateDeviceAfterFocus && renderNow < rlFocusReadyAt) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(25));
+            continue;
+        }
+
+        if (validateDeviceAfterFocus) {
+            validateDeviceAfterFocus = false;
+            if (m_d3d11 && m_d3d11->Device()) {
+                const HRESULT deviceReason = m_d3d11->Device()->GetDeviceRemovedReason();
+                if (deviceReason != S_OK) {
+                    std::cout << "[D3D11] Device unhealthy after Rocket League focus transition: 0x"
+                              << std::hex << deviceReason << std::dec << "\n";
+                    if (!HandleDeviceLost("Rocket League focus transition", deviceReason)) {
+                        done = true;
+                    }
+                    lastFrameTime = std::chrono::steady_clock::now();
+                    continue;
+                }
+            }
         }
 
         bool wasVisible = IsWindowVisible(m_hwnd) != FALSE;
@@ -675,6 +768,10 @@ bool Overlay::RecreateD3DDevice() {
         return false;
     }
     m_imguiDx11Initialized = true;
+
+    // Device loss invalidates every backend-owned D3D object. Rebuild and
+    // preallocate them here instead of on the first frame after recovery.
+    if (!WarmUpD3DRenderer()) return false;
     if (m_rankIcons && !m_rankIcons->Load(m_d3d11->Device())) {
         std::cout << "[RankIcons] Failed to reload rank icons after D3D device recreation.\n";
     }

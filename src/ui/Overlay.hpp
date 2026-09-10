@@ -91,6 +91,7 @@ class Overlay {
     void RenderSessionView();
     void ApplyTheme();
     bool LoadFonts();
+    bool WarmUpD3DRenderer();
     bool RebuildFontsForCurrentScale();
     void RefreshPanelContexts();
     void UpdateWindowPosition(bool resetSecondMonitorPlacement = true);
