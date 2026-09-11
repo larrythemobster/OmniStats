@@ -41,6 +41,226 @@ static std::string FormatArenaName(const std::string& asset) {
     return asset;
 }
 
+// Game.PlaylistId is authoritative when Rocket League provides it. Do not
+// infer the playlist from a retained roster: casual backfill/replacements can
+// make a 2v2 look like 3v3/4v4 if every player seen during the match is counted.
+static bool IsCasualPlaylistId(int playlistId) {
+    // Casual skill/MMR bucket and unranked/LTM playlists.
+    // Competitive Extra Modes (Hoops 27, Rumble 28, Dropshot 29, Snow Day 30,
+    // Heatseeker 38/43) are ranked and tracked in their own competitive playlists.
+    switch (playlistId) {
+    case 0: // Generic casual skill/MMR bucket
+    case 1: // Duel
+    case 2: // Doubles
+    case 3: // Standard
+    case 4: // Chaos / 4v4
+
+    // Unranked extra / casual modes
+    case 15: // Snow Day (unranked)
+    case 16: // Rocket Labs
+    case 17: // Hoops (unranked)
+    case 18: // Rumble (unranked)
+    case 23: // Dropshot (unranked)
+    case 31: // Ghost Hunt
+    case 32: // Beach Ball
+    case 33: // Spike Rush
+    case 35: // Rocket Labs
+    case 37: // Dropshot Rumble
+    case 41: // Boomer Ball
+    case 44: // Winter Breakaway
+    case 46: // Gridiron
+    case 47: // Super Cube
+    case 48: // Tactical Rumble
+    case 49: // Spring Loaded
+    case 50: // Speed Demon
+    case 52: // Gotham City Rumble
+    case 54: // Knockout
+    case 55: // confidential_thirdwheel_test
+    case 61: // 4v4 Quads
+    case 62: // MagnusFutball
+    case 64: // GodBallSpooky
+    case 65: // GodBallHaunted
+    case 66: // GodBallRicochet
+    case 67: // CubicSpooky
+    case 68: // GForceFrenzy
+    case 70: // RumShotDoubles
+    case 72: // Territory
+    case 74: // TerritoryDoubles
+    case 75: // GodballTerritory
+    case 76: // GodballTerritoryDoubles
+    case 77: // NonStandardSoccar
+    case 79: // SnowdayTerritory
+    case 80: // RunItBack
+    case 81: // CarWars
+    case 82: // PizzaParty
+    case 83: // PushThePuck
+    case 84: // Possession
+    case 86: // FCShowdown
+    case 87: // Sacrifice
+    case 88: // JumpJam
+        return true;
+    default:
+        return false;
+    }
+}
+
+static const char* NonRecordablePlaylistReason(int playlistId) {
+    switch (playlistId) {
+    case -2:
+        return "intermission_playlist";
+    case 6:
+        return "private_match_playlist";
+    case 7:
+        return "season_playlist";
+    case 8:
+        return "exhibition_playlist";
+    case 9:
+        return "training_playlist";
+    case 19:
+        return "workshop_playlist";
+    case 20:
+        return "custom_training_editor_playlist";
+    case 21:
+        return "custom_training_playlist";
+    case 24:
+        return "local_match_playlist";
+    case 73:
+        return "online_freeplay_playlist";
+    default:
+        return nullptr;
+    }
+}
+
+static std::string ModeFromPlaylistId(int playlistId) {
+    if (IsCasualPlaylistId(playlistId)) {
+        switch (playlistId) {
+        case 4:
+        case 61:
+            return "4v4";
+        case 15:
+            return "snowday";
+        case 17:
+            return "hoops";
+        case 18:
+            return "rumble";
+        case 23:
+            return "dropshot";
+        default:
+            return "casual";
+        }
+    }
+
+    switch (playlistId) {
+    case -2:
+        return "intermission";
+    case 6:
+        return "private";
+    case 7:
+        return "season";
+    case 8:
+        return "exhibition";
+    case 9:
+        return "training";
+    case 10:
+        return "1v1";
+    case 11:
+        return "2v2";
+    case 12: // Legacy Ranked Solo Standard
+    case 13:
+        return "3v3";
+    case 19:
+        return "workshop";
+    case 20:
+    case 21:
+        return "training";
+    case 22:
+    case 34:
+        return "t";
+    case 24:
+        return "local";
+    case 26:
+        return "external";
+    case 27:
+        return "hoops";
+    case 28:
+        return "rumble";
+    case 29:
+        return "dropshot";
+    case 30:
+        return "snowday";
+    case 38:
+    case 43:
+        return "heatseeker";
+    case 73:
+        return "training";
+    default:
+        return "";
+    }
+}
+
+static MmrCategory CategoryFromPlaylistId(int playlistId) {
+    if (IsCasualPlaylistId(playlistId)) return MmrCategory::Casual;
+
+    switch (playlistId) {
+    case 10:
+        return MmrCategory::OneVOne;
+    case 11:
+        return MmrCategory::TwoVTwo;
+    case 12:
+    case 13:
+        return MmrCategory::ThreeVThree;
+    case 22:
+    case 34:
+        return MmrCategory::Tourny;
+    case 27:
+        return MmrCategory::Hoops;
+    case 28:
+        return MmrCategory::Rumble;
+    case 29:
+        return MmrCategory::Dropshot;
+    case 30:
+        return MmrCategory::SnowDay;
+    case 38:
+    case 43:
+        return MmrCategory::Heatseeker;
+    default:
+        return MmrCategory::Best;
+    }
+}
+
+static int PlayerCountFromPlaylistId(int playlistId) {
+    switch (playlistId) {
+    case 1:
+    case 10:
+        return 2;
+    case 2:
+    case 11:
+    case 17:
+    case 27:
+    case 43:
+    case 70:
+    case 74:
+    case 76:
+        return 4;
+    case 3:
+    case 12:
+    case 13:
+    case 15:
+    case 18:
+    case 23:
+    case 28:
+    case 29:
+    case 30:
+    case 38:
+        return 6;
+    case 4:
+    case 61:
+        return 8;
+    default:
+        return 0;
+    }
+}
+
 static MmrCategory CategoryFromTeamCounts(const std::array<int, 2>& teamCounts, bool roundStarted) {
     int teamSize = std::min(teamCounts[0], teamCounts[1]);
     if (teamSize >= 3) return MmrCategory::ThreeVThree;
@@ -64,6 +284,8 @@ static MmrCategory CategoryFromMode(const std::string& mode) {
 static std::string InferModeFromMatchState(
     const GameState& game,
     MmrCategory rosterCategory) {
+    const std::string playlistMode = ModeFromPlaylistId(game.playlistId);
+    if (!playlistMode.empty()) return playlistMode;
     std::string arenaKey = !game.arenaAsset.empty()
                                ? game.arenaAsset
                                : game.arenaName;
@@ -76,6 +298,10 @@ static std::string InferModeFromMatchState(
 }
 
 static MmrCategory CategoryFromMatchContext(const GameState& game) {
+    const MmrCategory playlistCategory = CategoryFromPlaylistId(game.playlistId);
+    if (playlistCategory != MmrCategory::Best) return playlistCategory;
+    if (NonRecordablePlaylistReason(game.playlistId)) return MmrCategory::Best;
+
     std::string arenaKey = !game.arenaAsset.empty() ? game.arenaAsset : game.arenaName;
     MmrCategory arenaCategory = CategoryFromMode(GamemodeUtils::InferFromArenaName(arenaKey));
     if (arenaCategory != MmrCategory::Best) return arenaCategory;
@@ -87,6 +313,10 @@ static bool IsSupportedGraphCategory(MmrCategory category) {
            category == MmrCategory::TwoVTwo ||
            category == MmrCategory::ThreeVThree ||
            IsExtraMmrCategory(category);
+}
+
+static bool IsSupportedRosterCategory(MmrCategory category) {
+    return category == MmrCategory::Casual || IsSupportedGraphCategory(category);
 }
 
 static bool IsTrackedRankedEarlyExitMode(const std::string& mode) {
@@ -408,6 +638,19 @@ void TelemetryReducer::UpdateLifecycleSignalsLocked(const nlohmann::json& data) 
         data.contains("Game") && data["Game"].is_object() ? &data["Game"] : nullptr;
     if (!game) return;
 
+    // PlaylistId is stronger than optional flags/strings. Training, freeplay,
+    // private/offline contexts must never be promoted into a ranked match, and
+    // casual must never enter ranked early-exit recovery.
+    if (const char* reason =
+            NonRecordablePlaylistReason(m_state->game.playlistId)) {
+        m_state->game.excludedEarlyExitContext = true;
+        m_state->game.earlyExitExclusionReason = reason;
+    } else if (CategoryFromPlaylistId(m_state->game.playlistId) ==
+               MmrCategory::Casual) {
+        m_state->game.excludedEarlyExitContext = true;
+        m_state->game.earlyExitExclusionReason = "casual_playlist";
+    }
+
     if (ReadTrueBoolean(
             *game,
             {"bPrivateMatch",
@@ -476,6 +719,17 @@ void TelemetryReducer::HandleUpdateState(const nlohmann::json& data, SideEffects
                 effects.discordSnapshot = BuildDiscordSnapshotLocked();
             }
         }
+        if (game.contains("PlaylistId") &&
+            game["PlaylistId"].is_number_integer()) {
+            const int newPlaylistId = game["PlaylistId"].get<int>();
+            if (newPlaylistId != m_state->game.playlistId) {
+                const std::string mode = ModeFromPlaylistId(newPlaylistId);
+                std::cout << "[Playlist] PlaylistId=" << newPlaylistId
+                          << ", mode="
+                          << (mode.empty() ? "unknown" : mode) << "\n";
+            }
+            m_state->game.playlistId = newPlaylistId;
+        }
         if (game.contains("Teams") && game["Teams"].is_array()) {
             for (const auto& t : game["Teams"]) {
                 if (t.contains("TeamNum") && t.contains("Score")) {
@@ -508,6 +762,16 @@ void TelemetryReducer::HandleUpdateState(const nlohmann::json& data, SideEffects
         m_state->game.maxTeamPlayersSeen[0] = std::max(m_state->game.maxTeamPlayersSeen[0], teamCounts[0]);
         m_state->game.maxTeamPlayersSeen[1] = std::max(m_state->game.maxTeamPlayersSeen[1], teamCounts[1]);
 
+        // Use the current telemetry frame or the playlist's fixed size. Never
+        // use the retained roster, because it contains leavers/replacements.
+        const int observedPlayerCount = teamCounts[0] + teamCounts[1];
+        const int playlistPlayerCount =
+            PlayerCountFromPlaylistId(m_state->game.playlistId);
+        const int effectivePlayerCount = playlistPlayerCount > 0
+                                             ? playlistPlayerCount
+                                             : observedPlayerCount;
+        m_state->game.maxPlayersSeen =
+            std::max(m_state->game.maxPlayersSeen, effectivePlayerCount);
         for (const auto& p : data["Players"]) {
             if (p.contains("PrimaryId") && p["PrimaryId"].is_string() &&
                 p.contains("TeamNum") && p["TeamNum"].is_number_integer() &&
@@ -724,7 +988,7 @@ void TelemetryReducer::HandleUpdateState(const nlohmann::json& data, SideEffects
             if (m_cachedConf.auto_switch_mmr_category &&
                 !inferredCategoryIsHiddenExtra &&
                 !liveCategoryChangedAfterAutoSwitch &&
-                IsSupportedGraphCategory(inferredPlaylistCat) &&
+                IsSupportedRosterCategory(inferredPlaylistCat) &&
                 inferredPlaylistCat != lastAutoCat) {
                 m_autoSwitchedPlaylistCategory = inferredPlaylistCat;
                 if (m_state->ui.rosterMmrCategory.load() !=
@@ -806,7 +1070,6 @@ void TelemetryReducer::HandleUpdateState(const nlohmann::json& data, SideEffects
                 ++it;
             }
         }
-        m_state->game.maxPlayersSeen = std::max(m_state->game.maxPlayersSeen, static_cast<int>(m_state->game.roster.size()));
 
         {
             const MmrCategory rosterCategory =
@@ -1026,6 +1289,7 @@ TelemetryReducer::CapturedMatch TelemetryReducer::CaptureMatchLocked() const {
     match.arenaName = game.arenaName;
     match.arenaAsset = game.arenaAsset;
     match.matchGuid = game.matchGuid;
+    match.playlistId = game.playlistId;
     match.matchGeneration = game.activeMatchGeneration;
     match.myPrimaryId = game.myPrimaryId;
     match.myTeam = game.myTeam;
@@ -1066,7 +1330,8 @@ bool TelemetryReducer::BuildPostMatchMmrRefreshLocked(
     const CapturedMatch& match,
     bool won,
     PostMatchMmrRefresh& refresh) const {
-    if (match.matchGuid.empty() || match.myPrimaryId.empty() ||
+    if (IsCasualPlaylistId(match.playlistId) ||
+        match.matchGuid.empty() || match.myPrimaryId.empty() ||
         !GamemodeUtils::IsTrackedCompetitiveMode(match.mode)) {
         return false;
     }
@@ -1125,6 +1390,13 @@ TelemetryReducer::MatchEndDecision TelemetryReducer::ClassifyMatchEndLocked(
 
     if (match.nonLiveReplay) {
         decision.voidReason = "non_live_replay";
+        return decision;
+    }
+
+    // These sessions can emit normal-looking MatchEnded events but they are
+    // not real tracked matches and must not invalidate/refresh rank state.
+    if (const char* reason = NonRecordablePlaylistReason(match.playlistId)) {
+        decision.voidReason = reason;
         return decision;
     }
 
@@ -1402,7 +1674,8 @@ void TelemetryReducer::FinalizeCapturedMatchLocked(
         sessionTotals.goalParticipations += participationThisMatch;
     }
 
-    if (GamemodeUtils::IsTrackedCompetitiveMode(match.mode)) {
+    if (!IsCasualPlaylistId(match.playlistId) &&
+        GamemodeUtils::IsTrackedCompetitiveMode(match.mode)) {
         auto& gamemode = m_state->game.sessionGamemodes[match.mode];
         if (iWon) {
             gamemode.wins++;
@@ -1479,6 +1752,7 @@ void TelemetryReducer::FinalizeCapturedMatchLocked(
     nlohmann::json matchRecord = {
         {"match_guid", match.matchGuid},
         {"arena", match.arenaName},
+        {"playlist_id", match.playlistId},
         {"result", iWon ? "Win" : "Loss"},
         {"score", {match.score[0], match.score[1]}},
         {"stats",
@@ -1493,6 +1767,7 @@ void TelemetryReducer::FinalizeCapturedMatchLocked(
     snapshot.arenaName = match.arenaName;
     snapshot.arenaAsset = match.arenaAsset;
     snapshot.matchGuid = match.matchGuid;
+    snapshot.gamemode = match.mode;
     snapshot.myTeam = match.myTeam;
     snapshot.winnerTeam = winnerTeam;
     snapshot.validResult = decision.shouldPersist;
@@ -1501,8 +1776,9 @@ void TelemetryReducer::FinalizeCapturedMatchLocked(
     snapshot.score[0] = match.score[0];
     snapshot.score[1] = match.score[1];
     snapshot.maxPlayersSeen =
-        std::max(match.maxPlayersSeen,
-                 static_cast<int>(match.roster.size()));
+        match.maxPlayersSeen > 0
+            ? match.maxPlayersSeen
+            : match.maxTeamPlayersSeen[0] + match.maxTeamPlayersSeen[1];
     snapshot.roster = std::move(match.roster);
     snapshot.rosterMmrCategory = match.rosterMmrCategory;
     snapshot.graphMmrCategory = match.graphMmrCategory;

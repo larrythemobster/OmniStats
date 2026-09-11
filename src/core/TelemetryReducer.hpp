@@ -42,6 +42,7 @@ class TelemetryReducer {
         std::string arenaName;
         std::string arenaAsset;
         std::string matchGuid;
+        int playlistId = -1;
         uint64_t matchGeneration = 0;
         std::string myPrimaryId;
         int myTeam = -1;

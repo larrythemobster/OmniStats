@@ -55,6 +55,7 @@ void SessionState::resetMatch(const std::string& newArena, const std::string& ne
     game.myTeam = -1;
     game.arenaName = newArena;
     game.arenaAsset = newArenaAsset;
+    game.playlistId = -1;
     game.score[0] = 0;
     game.score[1] = 0;
     game.maxPlayersSeen = 0;

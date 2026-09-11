@@ -9,6 +9,7 @@ struct MatchSaveSnapshot {
     std::string arenaName;
     std::string arenaAsset;
     std::string matchGuid;
+    std::string gamemode;
     int myTeam = -1;
     int winnerTeam = -1;
     bool validResult = false;

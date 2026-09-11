@@ -266,6 +266,7 @@ struct GameState {
     std::string arenaName = "";
     std::string arenaAsset = "";
     std::string matchGuid = "";
+    int playlistId = -1;
     uint64_t activeMatchGeneration = 0;
     std::array<int, 2> score{};
     int maxPlayersSeen = 0;

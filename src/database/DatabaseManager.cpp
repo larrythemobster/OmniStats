@@ -268,12 +268,15 @@ void DatabaseManager::SaveMatch(const MatchSaveSnapshot& snapshot) {
 
     int playerCount = snapshot.maxPlayersSeen > 0 ? snapshot.maxPlayersSeen : static_cast<int>(snapshot.roster.size());
     const std::string arenaKey = !snapshot.arenaAsset.empty() ? snapshot.arenaAsset : snapshot.arenaName;
-    std::string gamemode = GamemodeUtils::InferFromSnapshot(
-        playerCount,
-        static_cast<int>(snapshot.roster.size()),
-        snapshot.rosterMmrCategory,
-        MmrCategory::Best,
-        arenaKey);
+    std::string gamemode = snapshot.gamemode;
+    if (gamemode.empty()) {
+        gamemode = GamemodeUtils::InferFromSnapshot(
+            playerCount,
+            static_cast<int>(snapshot.roster.size()),
+            snapshot.rosterMmrCategory,
+            MmrCategory::Best,
+            arenaKey);
+    }
 
     char* errMsg = nullptr;
     if (sqlite3_exec(m_db, "BEGIN IMMEDIATE;", nullptr, nullptr, &errMsg) != SQLITE_OK) {
