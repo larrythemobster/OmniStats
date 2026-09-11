@@ -131,13 +131,25 @@ namespace {
     static constexpr auto kTransientRetryDelay = std::chrono::milliseconds(20);
     static constexpr auto kQueueSpacing = std::chrono::milliseconds(20);
     static constexpr auto kRateLimitLockoutMinimum = std::chrono::milliseconds(50);
+    static constexpr auto kForbiddenLockoutFirst = std::chrono::milliseconds(50);
+    static constexpr auto kForbiddenLockoutSecond = std::chrono::milliseconds(100);
+    static constexpr auto kForbiddenLockoutMaximum = std::chrono::milliseconds(150);
 #else
     static constexpr auto kPostMatchInitialDelay = std::chrono::milliseconds(2500);
     static constexpr auto kStalePostMatchRetryDelay = std::chrono::milliseconds(3000);
     static constexpr auto kTransientRetryDelay = std::chrono::milliseconds(3000);
     static constexpr auto kQueueSpacing = std::chrono::milliseconds(1500);
     static constexpr auto kRateLimitLockoutMinimum = std::chrono::seconds(120);
+    static constexpr auto kForbiddenLockoutFirst = std::chrono::minutes(5);
+    static constexpr auto kForbiddenLockoutSecond = std::chrono::minutes(15);
+    static constexpr auto kForbiddenLockoutMaximum = std::chrono::minutes(30);
 #endif
+
+    static auto ForbiddenLockoutForStrike(size_t strike) {
+        if (strike <= 1) return kForbiddenLockoutFirst;
+        if (strike == 2) return kForbiddenLockoutSecond;
+        return kForbiddenLockoutMaximum;
+    }
 
     static bool MmrPathPreservesResults(
         int initialMmr,
@@ -1179,8 +1191,118 @@ void MMRFetcher::Stop() {
     }
 }
 
+bool MMRFetcher::TrySatisfyLocalRosterRequest(const std::string& primaryId) {
+    CachedLocalProfile cached;
+    bool hasCachedProfile = false;
+    bool postMatchRefreshPending = false;
+    {
+        std::lock_guard<std::mutex> lock(m_queueMutex);
+        if (m_localProfileCache.valid &&
+            m_localProfileCache.primaryId == primaryId) {
+            cached = m_localProfileCache;
+            hasCachedProfile = true;
+        } else {
+            // A completed match already owns a dedicated local-player refresh.
+            // Do not create a second roster request while that refresh is queued
+            // or in flight; its response updates the current roster as well.
+            for (const auto& guid : m_pendingPostMatchGuids) {
+                const auto recordIt = m_postMatchRecordsByGuid.find(guid);
+                if (recordIt != m_postMatchRecordsByGuid.end() &&
+                    recordIt->second.primaryId == primaryId) {
+                    postMatchRefreshPending = true;
+                    break;
+                }
+            }
+        }
+    }
+
+    if (!hasCachedProfile) return postMatchRefreshPending;
+
+    std::unique_lock<std::shared_mutex> gameLock(m_state->game.mutex);
+    if (m_state->game.myPrimaryId != primaryId) return false;
+
+    const auto playerIt = m_state->game.roster.find(primaryId);
+    if (playerIt == m_state->game.roster.end()) return false;
+
+    auto& player = playerIt->second;
+    player.playlists = cached.playlists;
+    player.playlistTiers = cached.playlistTiers;
+    player.playlistMatches = cached.playlistMatches;
+    player.totalWins = cached.totalWins;
+    player.mmr = cached.bestMmr;
+    player.rankTier = cached.bestTier;
+    player.fetched = true;
+    player.fetchFailed = false;
+
+    // If the cached value is still valid, it is also the correct pre-match
+    // baseline for a newly joined game. This preserves post-match MMR tracking
+    // without fetching the local profile again at match start.
+    if (m_state->game.inMatch &&
+        !m_state->game.matchGuid.empty() &&
+        m_state->game.preMatchMmrByGuid.count(m_state->game.matchGuid) == 0) {
+        const bool hasPlaylistMmr = std::any_of(
+            cached.playlists.begin(), cached.playlists.end(),
+            [](const auto& entry) {
+                return entry.first != "best" && entry.second > 0;
+            });
+        if (hasPlaylistMmr) {
+            m_state->game.preMatchMmrByGuid.emplace(
+                m_state->game.matchGuid,
+                LocalPreMatchMmrSnapshot{
+                    .playlistMmrs = cached.playlists,
+                    .playlistMatches = cached.playlistMatches});
+        }
+    }
+
+    m_state->game.version++;
+    return true;
+}
+
+void MMRFetcher::StoreLocalProfileCache(
+    const MMRRequest& req,
+    int bestMmr,
+    const std::string& bestTier,
+    const std::map<std::string, int>& playlists,
+    const std::map<std::string, std::string>& playlistTiers,
+    const std::map<std::string, int>& playlistMatches,
+    int totalWins,
+    bool postMatchConfirmed) {
+    {
+        std::shared_lock<std::shared_mutex> gameLock(m_state->game.mutex);
+        if (m_state->game.myPrimaryId != req.primaryId) return;
+    }
+
+    std::lock_guard<std::mutex> lock(m_queueMutex);
+
+    // Once a match completes, the old cache is deliberately invalid. Do not
+    // make it valid again from a stale roster response or an unconfirmed
+    // post-match response. Wait until every pending completed match has been
+    // reconciled against Tracker.
+    if (req.reason == MMRRequestReason::PostMatch && !postMatchConfirmed) return;
+    for (const auto& [playlist, guids] : m_pendingPostMatchesByPlaylist) {
+        if (!guids.empty()) return;
+    }
+
+    m_localProfileCache.valid = true;
+    m_localProfileCache.primaryId = req.primaryId;
+    m_localProfileCache.bestMmr = bestMmr;
+    m_localProfileCache.bestTier = bestTier;
+    m_localProfileCache.playlists = playlists;
+    m_localProfileCache.playlistTiers = playlistTiers;
+    m_localProfileCache.playlistMatches = playlistMatches;
+    m_localProfileCache.totalWins = totalWins;
+}
+
 void MMRFetcher::Enqueue(const std::string& primaryId, const std::string& name) {
     if (!Config::Read().enable_mmr_tracking || primaryId.empty()) return;
+
+    // Only the local player's successful profile is cached. It stays valid
+    // until an actual completed match can have changed that player's rank.
+    // Opponents never hit this path because their primaryId cannot match the
+    // local cache. On first launch there is no cache, so training or a real
+    // lobby performs one normal fetch for the local player. While a dedicated
+    // post-match refresh is pending, do not duplicate that request either.
+    if (TrySatisfyLocalRosterRequest(primaryId)) return;
 
     {
         std::lock_guard<std::mutex> lock(m_queueMutex);
@@ -1212,6 +1334,10 @@ void MMRFetcher::EnqueuePostMatch(const std::string& primaryId,
     std::optional<MMRRequest> provisionalRequest;
     {
         std::lock_guard<std::mutex> lock(m_queueMutex);
+        if (m_localProfileCache.primaryId == primaryId) {
+            m_localProfileCache.valid = false;
+        }
+
         if (m_postMatchRecordsByGuid.count(matchGuid) ||
             m_pendingPostMatchGuids.count(matchGuid) ||
             m_completedPostMatchGuids.count(matchGuid)) {
@@ -1269,6 +1395,10 @@ void MMRFetcher::EnqueuePendingDestroyedMatch(
     MMRRequest request;
     {
         std::lock_guard<std::mutex> lock(m_queueMutex);
+        if (m_localProfileCache.primaryId == pending.primaryId) {
+            m_localProfileCache.valid = false;
+        }
+
         if (m_postMatchRecordsByGuid.count(pending.matchGuid) ||
             m_pendingPostMatchGuids.count(pending.matchGuid) ||
             m_completedPostMatchGuids.count(pending.matchGuid)) {
@@ -1537,7 +1667,33 @@ bool MMRFetcher::FetchProfile(MMRRequest req) {
         std::cout << "[MMRFetcher] Failed to fetch " << PrivacyLog::Sensitive(req.name, "player name")
                   << " (HTTP " << httpCode << ") - Curl error: " << res << "\n";
 
-        if (httpCode == 429) {
+        if (httpCode == 403) {
+            if (!m_isRunning) return false;
+
+            size_t strike = 0;
+            std::chrono::steady_clock::duration lockout{};
+            {
+                std::lock_guard<std::mutex> lock(m_queueMutex);
+                strike = ++m_forbiddenStrikeCount;
+                lockout = ForbiddenLockoutForStrike(strike);
+                const auto retryAt = std::chrono::steady_clock::now() + lockout;
+
+                // Treat a 403 as a Tracker-wide/WAF block. Keep the failed
+                // request queued without consuming its ordinary retry budget.
+                // The global gate means only one queued request probes Tracker
+                // after each cooldown expires.
+                m_rateLimitedUntil = retryAt;
+                req.notBefore = retryAt;
+                m_queue.push_front(std::move(req));
+            }
+            std::cout
+                << "[MMRFetcher] Tracker.gg blocked requests (HTTP 403). Circuit breaker strike "
+                << strike << "; pausing all Tracker requests for "
+                << std::chrono::duration_cast<std::chrono::seconds>(lockout).count()
+                << " seconds.\n";
+            m_cv.notify_one();
+            return true;
+        } else if (httpCode == 429) {
             const auto retryDuration = std::chrono::duration_cast<std::chrono::milliseconds>(
                 std::chrono::seconds(headerState.retryAfterSeconds));
             const auto lockout = (retryDuration > kRateLimitLockoutMinimum) ? retryDuration : kRateLimitLockoutMinimum;
@@ -1560,6 +1716,18 @@ bool MMRFetcher::FetchProfile(MMRRequest req) {
             m_state->game.version++;
         }
         return false;
+    }
+
+    bool recoveredFromForbidden = false;
+    {
+        std::lock_guard<std::mutex> lock(m_queueMutex);
+        recoveredFromForbidden = m_forbiddenStrikeCount > 0;
+        m_forbiddenStrikeCount = 0;
+        m_rateLimitedUntil = {};
+    }
+    if (recoveredFromForbidden) {
+        std::cout
+            << "[MMRFetcher] Tracker.gg requests recovered; circuit breaker reset.\n";
     }
 
     try {
@@ -1742,6 +1910,19 @@ bool MMRFetcher::FetchProfile(MMRRequest req) {
                 }
             }
         }
+
+        // Cache only the local player's successful Tracker profile. A normal
+        // roster result can populate the cache on first use (including solo
+        // training). After a completed match, EnqueuePostMatch invalidates the
+        // cache and only a fully reconciled result can make it valid again.
+        StoreLocalProfileCache(req,
+                               bestMMR,
+                               bestTier,
+                               playlistMMRs,
+                               playlistTiers,
+                               playlistMatches,
+                               profileTotals.totalWins,
+                               postMatchConfirmed);
 
         std::unordered_set<std::string> playlistsAwaitingPostMatch;
         {

@@ -5,6 +5,7 @@
 #include <deque>
 #include <memory>
 #include <functional>
+#include <map>
 #include <mutex>
 #include <string>
 #include <thread>
@@ -125,11 +126,31 @@ class MMRFetcher {
 #endif
 
   private:
+    struct CachedLocalProfile {
+        bool valid = false;
+        std::string primaryId;
+        int bestMmr = 0;
+        std::string bestTier;
+        std::map<std::string, int> playlists;
+        std::map<std::string, std::string> playlistTiers;
+        std::map<std::string, int> playlistMatches;
+        int totalWins = -1;
+    };
+
     void WorkerLoop();
     bool FetchProfile(MMRRequest req);
     bool ScheduleRetry(MMRRequest req, std::chrono::milliseconds delay, const char* reason);
     std::string GetTRNPlatform(const std::string& primaryId);
     void FinishRequest(const MMRRequest& req);
+    bool TrySatisfyLocalRosterRequest(const std::string& primaryId);
+    void StoreLocalProfileCache(const MMRRequest& req,
+                                int bestMmr,
+                                const std::string& bestTier,
+                                const std::map<std::string, int>& playlists,
+                                const std::map<std::string, std::string>& playlistTiers,
+                                const std::map<std::string, int>& playlistMatches,
+                                int totalWins,
+                                bool postMatchConfirmed);
     bool ReconcileTrackerResponse(const MMRRequest& req, int fetchedMmr, int fetchedMatches);
     void EnsureProvisionalPoint(const MMRRequest& req,
                                 int baselineMmr,
@@ -143,6 +164,7 @@ class MMRFetcher {
 
     std::deque<MMRRequest> m_queue;
     std::unordered_set<std::string> m_rosterQueuedOrInFlight;
+    CachedLocalProfile m_localProfileCache;
     std::unordered_set<std::string> m_pendingPostMatchGuids;
     std::unordered_set<std::string> m_completedPostMatchGuids;
     std::unordered_map<std::string, PendingPostMatchRecord> m_postMatchRecordsByGuid;
@@ -152,6 +174,7 @@ class MMRFetcher {
     std::mutex m_queueMutex;
     std::condition_variable m_cv;
     std::chrono::steady_clock::time_point m_rateLimitedUntil{};
+    size_t m_forbiddenStrikeCount = 0;
     std::jthread m_workerThread;
     std::atomic<bool> m_isRunning{false};
 };
