@@ -76,6 +76,10 @@ void RmlSystemInterfaceWin32::SetMouseCursor(const Rml::String& cursorName) {
     // hover cursor, producing a visible arrow/hand flash over clickable items.
     // Cache the cursor selected by RmlUi and re-apply it from WM_SETCURSOR.
     m_mouseCursor = cursor;
+    if (m_cursorUpdateDepth != 0) {
+        m_cursorPending = true;
+        return;
+    }
     ApplyMouseCursor();
 }
 
@@ -84,6 +88,18 @@ bool RmlSystemInterfaceWin32::ApplyMouseCursor() {
     if (!m_mouseCursor) return false;
     SetCursor(m_mouseCursor);
     return true;
+}
+
+void RmlSystemInterfaceWin32::BeginCursorUpdate() {
+    ++m_cursorUpdateDepth;
+}
+
+void RmlSystemInterfaceWin32::EndCursorUpdate() {
+    if (m_cursorUpdateDepth == 0) return;
+    if (--m_cursorUpdateDepth == 0) {
+        m_cursorPending = false;
+        ApplyMouseCursor();
+    }
 }
 
 void RmlSystemInterfaceWin32::LockCursor(const char* cursorName) {

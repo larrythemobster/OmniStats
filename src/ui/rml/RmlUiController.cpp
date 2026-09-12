@@ -970,8 +970,15 @@ void RmlUiController::SetRootRml(const char* id, const std::string& rml) {
     if (auto* root = Root(id)) {
         const bool prev = m_rebuildingUi;
         m_rebuildingUi = true;
+        // Overlay telemetry replaces its DOM frequently. Batch cursor writes
+        // and replay the last pointer coordinate against the new tree, matching
+        // Settings' stable hover behavior instead of flashing arrow/move.
+        m_systemInterface.BeginCursorUpdate();
         root->SetInnerRML(rml);
         UpdateThemeProperties();
+        if (m_hasPointerPosition)
+            m_context->ProcessMouseMove(m_lastPointerX, m_lastPointerY, 0);
+        m_systemInterface.EndCursorUpdate();
         m_rebuildingUi = prev;
     }
 }
@@ -1283,6 +1290,8 @@ void RmlUiController::RebuildVisibleUi(bool force) {
     uint64_t dbStatsVersion = 0;
     if (m_state) {
         dbStatsVersion = m_state->ui.dbStatsVersion.load(std::memory_order_relaxed);
+        fp << '|' << m_state->ui.graphWindow.load(std::memory_order_relaxed)
+           << '|' << m_state->ui.graphOffset.load(std::memory_order_relaxed);
         fp << '|' << m_state->ui.updateChecked.load(std::memory_order_relaxed)
            << '|' << m_state->ui.updateAvailable.load(std::memory_order_relaxed)
            << '|' << m_state->ui.updateDownloading.load(std::memory_order_relaxed)
@@ -2102,23 +2111,62 @@ std::string RmlUiController::RenderLobbyRanks() {
 std::string RmlUiController::RenderMmrGraph(bool showCategoryBadge) {
     const auto category = m_state ? m_state->ui.graphMmrCategory.load() : MmrCategory::TwoVTwo;
     const std::string playlist = MmrCategoryToString(category);
-    std::vector<float> values;
-    std::vector<bool> estimated;
+    std::vector<float> series;
+    std::vector<bool> seriesEstimated;
+    std::vector<float> seriesTimes;
     float baseline = -1.0f;
     if (m_snap.showLifetimeGraph) {
-        values = m_snap.lifetimeMmrY;
-        if (!values.empty()) baseline = values.front();
-        estimated.assign(values.size(), false);
+        series = m_snap.lifetimeMmrY;
+        seriesTimes = m_snap.lifetimeMmrX;
+        if (!series.empty()) baseline = series.front();
+        seriesEstimated.assign(series.size(), false);
     } else {
-        if (auto it = m_snap.playlistHistoryY.find(playlist); it != m_snap.playlistHistoryY.end()) values = it->second;
-        if (auto it = m_snap.playlistHistoryEstimated.find(playlist); it != m_snap.playlistHistoryEstimated.end()) estimated = it->second;
+        if (auto it = m_snap.playlistHistoryY.find(playlist); it != m_snap.playlistHistoryY.end()) series = it->second;
+        if (auto it = m_snap.playlistHistoryEstimated.find(playlist); it != m_snap.playlistHistoryEstimated.end()) seriesEstimated = it->second;
         if (auto it = m_snap.playlistInitialMmr.find(playlist); it != m_snap.playlistInitialMmr.end()) baseline = static_cast<float>(it->second);
     }
+
+    // Viewport over the series. A lifetime history of several hundred matches
+    // collapses into an unreadable smear at 430dp wide, so the graph plots a
+    // window of the most recent samples that the expand key, the header
+    // buttons, and the mouse wheel can resize and scroll.
+    const int total = static_cast<int>(series.size());
+    int window = m_state ? m_state->ui.graphWindow.load() : 0;
+    int offset = m_state ? m_state->ui.graphOffset.load() : 0;
+    if (window <= 0 || window >= total) {
+        window = total;
+        offset = 0;
+    }
+    offset = std::clamp(offset, 0, std::max(0, total - window));
+    const int firstIndex = std::max(0, total - window - offset);
+    const bool zoomed = window < total;
+
+    std::vector<float> values(series.begin() + firstIndex, series.begin() + firstIndex + std::max(window, 0));
+    std::vector<bool> estimated;
+    if (!seriesEstimated.empty()) {
+        const int estimatedEnd = std::min(firstIndex + window, static_cast<int>(seriesEstimated.size()));
+        if (firstIndex < estimatedEnd)
+            estimated.assign(seriesEstimated.begin() + firstIndex, seriesEstimated.begin() + estimatedEnd);
+    }
+    // A zoomed window starts mid-history, so its own first sample is the only
+    // meaningful reference for the dashed baseline and the delta label.
+    if (zoomed && !values.empty()) baseline = values.front();
+
     std::ostringstream header;
     header << "<div class='row graph-header'>";
     if (showCategoryBadge) header << "<span class='badge'>" << Escape(MmrLabel(category)) << "</span>";
-    header << "<div class='grow'></div>"
-           << Button("graph-mode", m_snap.showLifetimeGraph ? "Lifetime" : "Session", "ghost") << "</div>";
+    header << "<div class='grow'></div>";
+    if (total > 1) {
+        header << "<div class='graph-zoom'>";
+        if (zoomed) {
+            header << Button("graph-pan-older", "&#8592;", "ghost zoom-step")
+                   << Button("graph-pan-newer", "&#8594;", "ghost zoom-step");
+        }
+        header << Button("graph-zoom-out", "&#8722;", "ghost zoom-step")
+               << Button("graph-zoom-in", "+", "ghost zoom-step")
+               << "</div>";
+    }
+    header << Button("graph-mode", m_snap.showLifetimeGraph ? "Lifetime" : "Session", "ghost") << "</div>";
 
     if (values.empty()) {
         std::ostringstream empty;
@@ -2160,13 +2208,34 @@ std::string RmlUiController::RenderMmrGraph(bool showCategoryBadge) {
     auto xPct = [&](size_t i) { return values.size() <= 1 ? (xMin + xMax) * 0.5f : xMin + static_cast<float>(i) / static_cast<float>(values.size() - 1) * (xMax - xMin); };
 
     std::ostringstream out;
-    out << header.str() << "<div class='graph-wrap'>";
+    out << header.str() << "<div class='graph-wrap' data-action='graph-zoom-area'>";
 
+    const float midV = (minV + maxV) * 0.5f;
     out << "<div class='graph-gridline graph-boundary' style='left:" << xMin << "%;top:" << yMin << "%;width:" << (xMax - xMin) << "%'></div>"
         << "<div class='graph-gridline graph-boundary' style='left:" << xMin << "%;top:" << yMax << "%;width:" << (xMax - xMin) << "%'></div>"
+        << "<div class='graph-gridline' style='left:" << xMin << "%;top:" << yPct(midV) << "%;width:" << (xMax - xMin) << "%'></div>"
         << "<div class='graph-label graph-max' style='left:" << xMin << "%;top:1%'>" << static_cast<int>(maxV) << "</div>"
-        << "<div class='graph-label graph-min' style='left:" << xMin << "%;top:89%'>" << static_cast<int>(minV) << "</div>"
-        << "<div class='graph-label graph-last' style='right:20%;top:1%'>last " << values.size() << "</div>";
+        << "<div class='graph-label' style='left:" << xMin << "%;top:" << (yPct(midV) + 1.0f) << "%'>" << static_cast<int>(midV) << "</div>"
+        << "<div class='graph-label graph-min' style='left:" << xMin << "%;top:89%'>" << static_cast<int>(minV) << "</div>";
+
+    // Range readout: which slice of the history is on screen, so zooming and
+    // panning are legible without a visible scrollbar.
+    out << "<div class='graph-label graph-last' style='right:20%;top:1%'>";
+    if (zoomed)
+        out << (firstIndex + 1) << '-' << (firstIndex + window) << " of " << total;
+    else
+        out << "last " << total;
+    out << "</div>";
+
+    // Time span of the window. Lifetime samples carry match timestamps; session
+    // history does not, so those fall back to sample positions.
+    if (!seriesTimes.empty() && firstIndex < static_cast<int>(seriesTimes.size())) {
+        const int lastIndex = std::min(firstIndex + window - 1, static_cast<int>(seriesTimes.size()) - 1);
+        out << "<div class='graph-label' style='left:" << (xMin + 7.0f) << "%;top:89%'>"
+            << Escape(FormatClock(static_cast<int64_t>(seriesTimes[static_cast<size_t>(firstIndex)]))) << "</div>"
+            << "<div class='graph-label graph-last' style='right:20%;top:89%'>"
+            << Escape(FormatClock(static_cast<int64_t>(seriesTimes[static_cast<size_t>(lastIndex)]))) << "</div>";
+    }
 
     // RmlUi's compatibility renderer does not need a custom primitive for a dashed
     // baseline; short positioned DOM segments preserve the old visual exactly enough.
@@ -2193,7 +2262,14 @@ std::string RmlUiController::RenderMmrGraph(bool showCategoryBadge) {
     }
     out << "'></mmrgraphlines>";
 
+    // Past ~45 samples the dots touch and the win/loss coloring turns into a
+    // solid band, which is what made long histories unreadable. Drop to the
+    // polyline alone and keep only the current sample marked.
+    constexpr size_t kMaxPlottedPoints = 45;
+    const bool showPoints = values.size() <= kMaxPlottedPoints;
     for (size_t i = 0; i < values.size(); ++i) {
+        const bool isCurrent = i + 1 == values.size();
+        if (!showPoints && !isCurrent) continue;
         const bool isEstimated = i < estimated.size() && estimated[i];
         std::string cls;
         if (i == 0) {
@@ -2210,7 +2286,7 @@ std::string RmlUiController::RenderMmrGraph(bool showCategoryBadge) {
         else
             cls = " neutral";
         if (isEstimated) cls += " estimated";
-        if (i + 1 == values.size()) {
+        if (isCurrent) {
             out << "<div class='graph-point-halo" << cls << "' style='left:" << xPct(i) << "%;top:" << yPct(values[i]) << "%'></div>";
             cls += " current";
         }
@@ -3360,9 +3436,21 @@ void RmlUiController::HandleClick(Rml::Element* target) {
         RebuildSettings();
         ShowToast("Overlay layout reset.");
     } else if (action == "graph-mode") {
-        if (m_state) m_state->history.showLifetimeGraph.store(!m_state->history.showLifetimeGraph.load());
+        if (m_state) {
+            m_state->history.showLifetimeGraph.store(!m_state->history.showLifetimeGraph.load());
+            m_state->ui.graphWindow.store(0);
+            m_state->ui.graphOffset.store(0);
+        }
         SnapshotState();
         RebuildVisibleUi(true);
+    } else if (action == "graph-zoom-in") {
+        AdjustGraphZoom(-1);
+    } else if (action == "graph-zoom-out") {
+        AdjustGraphZoom(1);
+    } else if (action == "graph-pan-older") {
+        PanGraph(-1);
+    } else if (action == "graph-pan-newer") {
+        PanGraph(1);
     } else if (action == "capture-bind") {
         const int value = std::atoi(Attribute(target, "data-bind").c_str());
         if (value >= static_cast<int>(BindCaptureTarget::KeyOverlay) && value <= static_cast<int>(BindCaptureTarget::GamepadMenu) &&
@@ -3435,6 +3523,58 @@ void RmlUiController::HandleClick(Rml::Element* target) {
         CheckStatsApi(true);
         RebuildSettings();
     }
+}
+
+void RmlUiController::AdjustGraphZoom(int direction) {
+    if (!m_state || direction == 0) return;
+    const auto category = m_state->ui.graphMmrCategory.load();
+    const std::string playlist = MmrCategoryToString(category);
+    const int total = m_snap.showLifetimeGraph
+                          ? static_cast<int>(m_snap.lifetimeMmrY.size())
+                          : (m_snap.playlistHistoryY.contains(playlist)
+                                 ? static_cast<int>(m_snap.playlistHistoryY.at(playlist).size())
+                                 : 0);
+    if (total <= 1) return;
+
+    int window = m_state->ui.graphWindow.load();
+    if (window <= 0 || window > total) window = total;
+    constexpr int zoomLevels[] = {25, 50, 100};
+    if (direction < 0) {
+        for (int level : zoomLevels) {
+            if (level < window) {
+                window = std::min(level, total);
+                break;
+            }
+        }
+    } else {
+        for (int i = static_cast<int>(std::size(zoomLevels)) - 1; i >= 0; --i) {
+            if (zoomLevels[i] > window) {
+                window = std::min(zoomLevels[i], total);
+                break;
+            }
+        }
+        if (window == m_state->ui.graphWindow.load()) window = 0;
+    }
+    m_state->ui.graphWindow.store(window >= total ? 0 : window);
+    m_state->ui.graphOffset.store(0);
+    RebuildVisibleUi(false);
+}
+
+void RmlUiController::PanGraph(int direction) {
+    if (!m_state || direction == 0) return;
+    const auto category = m_state->ui.graphMmrCategory.load();
+    const std::string playlist = MmrCategoryToString(category);
+    const int total = m_snap.showLifetimeGraph
+                          ? static_cast<int>(m_snap.lifetimeMmrY.size())
+                          : (m_snap.playlistHistoryY.contains(playlist)
+                                 ? static_cast<int>(m_snap.playlistHistoryY.at(playlist).size())
+                                 : 0);
+    const int window = m_state->ui.graphWindow.load();
+    if (window <= 0 || window >= total) return;
+    const int step = std::max(1, window / 2);
+    const int offset = m_state->ui.graphOffset.load();
+    m_state->ui.graphOffset.store(std::clamp(offset - direction * step, 0, total - window));
+    RebuildVisibleUi(false);
 }
 
 void RmlUiController::HandleInput(Rml::Element* target) {
@@ -4065,6 +4205,9 @@ void RmlUiController::ApplyColorPick(float mouseX, float mouseY) {
 }
 
 void RmlUiController::HandleMouseMove(Rml::Event& event) {
+    m_lastPointerX = static_cast<int>(std::lround(event.GetParameter<float>("mouse_x", 0.0f)));
+    m_lastPointerY = static_cast<int>(std::lround(event.GetParameter<float>("mouse_y", 0.0f)));
+    m_hasPointerPosition = true;
     if (m_drag.kind == DragKind::SettingsMove) {
         const float mouseX = event.GetParameter<float>("mouse_x", 0.0f);
         const float mouseY = event.GetParameter<float>("mouse_y", 0.0f);

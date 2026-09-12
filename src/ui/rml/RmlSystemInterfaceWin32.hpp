@@ -16,6 +16,8 @@ class RmlSystemInterfaceWin32 final : public Rml::SystemInterface {
     bool ApplyMouseCursor();
     void LockCursor(const char* cursorName = nullptr);
     void UnlockCursor();
+    void BeginCursorUpdate();
+    void EndCursorUpdate();
     void SetClipboardText(const Rml::String& text) override;
     void GetClipboardText(Rml::String& text) override;
     void ActivateKeyboard(Rml::Vector2f caretPosition, float lineHeight) override;
@@ -24,6 +26,8 @@ class RmlSystemInterfaceWin32 final : public Rml::SystemInterface {
     HWND m_window = nullptr;
     HCURSOR m_mouseCursor = nullptr;
     bool m_cursorLocked = false;
+    unsigned int m_cursorUpdateDepth = 0;
+    bool m_cursorPending = false;
     LARGE_INTEGER m_start{};
     double m_secondsPerTick = 0.0;
 };

@@ -224,6 +224,13 @@ struct UIState {
     std::atomic<bool> showSessionView{false}; // F8: Show session stats/graph instead of H2H
     std::atomic<bool> showGraphView{false};   // F7 while F8 active: Toggle between text and graph
 
+    // MMR graph viewport. `graphWindow` is the number of most recent samples
+    // plotted (0 plots every sample) and `graphOffset` how many samples the
+    // window is scrolled back from the newest one. A lifetime series spanning
+    // hundreds of matches is unreadable at full width, so it can be zoomed.
+    std::atomic<int> graphWindow{0};
+    std::atomic<int> graphOffset{0};
+
     // Auto match summary popup
     std::atomic<bool> showMatchSummary{false};
     std::atomic<int64_t> matchSummaryStartMs{0};

@@ -660,6 +660,8 @@ scrollbarvertical sliderbar {
 scrollbarvertical sliderbar:hover { background-color: #596376dd; }
 scrollbarvertical sliderbar:active { background-color: #ff0021cc; }
 .graph-header { min-height: 28dp; margin-bottom: 6dp; }
+.graph-zoom { display: flex; flex-direction: row; gap: 3dp; margin-right: 5dp; }
+.graph-zoom .zoom-step { min-width: 24dp; padding-left: 6dp; padding-right: 6dp; font-family: "JetBrains Mono"; }
 
 scrollbarhorizontal {
     height: 9dp;

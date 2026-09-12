@@ -119,18 +119,32 @@ namespace {
     }
 
     // Inside the session view the expand key cycles session stats -> session MMR
-    // graph -> lifetime MMR graph. The overlay is click-through in game, so the
-    // graph card's Lifetime button is unreachable without this.
+    // graph -> lifetime graph at full range -> lifetime zoomed to the last 50 and
+    // 25 matches. The overlay is click-through in game, so neither the graph
+    // card's Lifetime button nor its zoom controls are reachable without this.
     void ExpandActiveView(SessionState& state) {
         if (state.ui.showSessionView.load()) {
+            const auto showLifetimeGraph = [&](int window) {
+                state.history.showLifetimeGraph = true;
+                state.ui.graphWindow.store(window);
+                state.ui.graphOffset.store(0);
+            };
             if (!state.ui.showGraphView.load()) {
                 state.ui.showGraphView = true;
                 state.history.showLifetimeGraph = false;
+                state.ui.graphWindow.store(0);
+                state.ui.graphOffset.store(0);
             } else if (!state.history.showLifetimeGraph.load()) {
-                state.history.showLifetimeGraph = true;
+                showLifetimeGraph(0);
+            } else if (state.ui.graphWindow.load() == 0) {
+                showLifetimeGraph(50);
+            } else if (state.ui.graphWindow.load() > 25) {
+                showLifetimeGraph(25);
             } else {
                 state.ui.showGraphView = false;
                 state.history.showLifetimeGraph = false;
+                state.ui.graphWindow.store(0);
+                state.ui.graphOffset.store(0);
             }
         } else if (state.ui.showOverlay.load()) {
             state.ui.h2hExpanded = !state.ui.h2hExpanded;
@@ -143,6 +157,8 @@ namespace {
         if (!showSessionView) {
             state.ui.showGraphView = false;
             state.history.showLifetimeGraph = false;
+            state.ui.graphWindow.store(0);
+            state.ui.graphOffset.store(0);
         }
     }
 

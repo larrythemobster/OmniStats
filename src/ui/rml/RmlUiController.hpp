@@ -174,6 +174,8 @@ class RmlUiController final : public Rml::EventListener {
     void ApplyColorPick(float mouseX, float mouseY);
     void HandleMouseMove(Rml::Event& event);
     void HandleMouseUp(Rml::Event& event);
+    void AdjustGraphZoom(int direction);
+    void PanGraph(int direction);
     void BeginBindCapture(BindCaptureTarget target);
     void FinishBindCapture();
     void ClearBind(BindCaptureTarget target);
@@ -267,6 +269,12 @@ class RmlUiController final : public Rml::EventListener {
     bool m_statusError = false;
     int64_t m_statusUntilMs = 0;
     bool m_rebuildingUi = false;
+
+    // Replayed after an overlay DOM rebuild so RmlUi immediately resolves the
+    // new hover chain instead of briefly falling back to the arrow cursor.
+    bool m_hasPointerPosition = false;
+    int m_lastPointerX = 0;
+    int m_lastPointerY = 0;
 
     // Settings is a movable native-style panel. Coordinates are kept in context
     // pixels so dragging remains stable regardless of RmlUi dp scaling.
