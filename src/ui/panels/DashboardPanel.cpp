@@ -781,6 +781,8 @@ void DashboardPanel::RenderPreviousGamesWidget(const char* idSuffix) {
                     ImGui::TableNextColumn();
                     if (match.pendingTrackerConfirmation)
                         ImGui::TextColored(Format::C(ctx.config.themeMuted), "***");
+                    else if (match.mmrEstimated && match.mmr > 0)
+                        ImGui::TextColored(Format::C(ctx.config.themeMuted), "~%d", match.mmr);
                     else if (match.mmr > 0)
                         ImGui::TextColored(rowColor, "%d", match.mmr);
                     else

@@ -258,6 +258,10 @@ TEST(MMRFetcherPlaylistMappingTest, MapsExtraModesToSeparatePlaylists) {
     EXPECT_EQ(MMRFetcher::PlaylistNameForTrackerId(29), "dropshot");
     EXPECT_EQ(MMRFetcher::PlaylistNameForTrackerId(30), "snowday");
     EXPECT_EQ(MMRFetcher::PlaylistNameForTrackerId(34), "t");
+    EXPECT_EQ(MMRFetcher::PlaylistNameForTrackerId(43), "heatseeker");
+    EXPECT_EQ(MMRFetcher::PlaylistNameForTrackerId(0), "casual");
+    // Gameplay playlist IDs are not automatically Tracker segment IDs.
+    EXPECT_EQ(MMRFetcher::PlaylistNameForTrackerId(2), "");
     EXPECT_EQ(MMRFetcher::PlaylistNameForTrackerId(999), "");
 }
 
@@ -339,6 +343,22 @@ TEST_F(MMRFetcherTest, NormalPublishedUpdateCreatesOneConfirmedOwnedPoint) {
     EXPECT_FALSE(points[0].valueEstimated);
 }
 
+TEST_F(MMRFetcherTest, CasualPostMatchUsesTheSingleCasualBucket) {
+    EnqueuePostMatch("casual-published", true, 900, 30, "casual");
+
+    fetcher->ProcessPostMatchResponseForTests(
+        "casual-published", 912, 31);
+
+    const auto points =
+        fetcher->PlaylistMatchPointsForTests("casual");
+    ASSERT_EQ(points.size(), 1u);
+    EXPECT_EQ(points[0].matchGuid, "casual-published");
+    EXPECT_EQ(points[0].mmr, 912);
+    EXPECT_EQ(points[0].trackerMatchesPlayed, 31);
+    EXPECT_TRUE(points[0].trackerCovered);
+    EXPECT_FALSE(points[0].valueEstimated);
+}
+
 TEST_F(MMRFetcherTest, StaleResponseStillCreatesOneProvisionalOwnedPoint) {
     EnqueuePostMatch("stale", true);
 
@@ -388,6 +408,56 @@ TEST_F(MMRFetcherTest, MissingBaselineRemainsPendingUntilPlaylistInitialMmrExist
     EXPECT_EQ(points[0].mmr, 1191);
     EXPECT_FALSE(points[0].trackerCovered);
     EXPECT_TRUE(points[0].valueEstimated);
+}
+
+TEST_F(MMRFetcherTest, PlaylistReconciliationStateDoesNotCrossContaminate) {
+    EnqueuePostMatch("twos-pending", true, 1200, 50, "2v2");
+    fetcher->ProcessPostMatchResponseForTests("twos-pending", 1200, 50);
+
+    EnqueuePostMatch("threes-published", true, 900, 100, "3v3");
+    fetcher->ProcessPostMatchResponseForTests("threes-published", 909, 101);
+
+    auto twos = fetcher->PlaylistMatchPointsForTests("2v2");
+    auto threes = fetcher->PlaylistMatchPointsForTests("3v3");
+    ASSERT_EQ(twos.size(), 1u);
+    ASSERT_EQ(threes.size(), 1u);
+    EXPECT_EQ(twos[0].matchGuid, "twos-pending");
+    EXPECT_TRUE(twos[0].valueEstimated);
+    EXPECT_FALSE(twos[0].trackerCovered);
+    EXPECT_EQ(threes[0].matchGuid, "threes-published");
+    EXPECT_EQ(threes[0].mmr, 909);
+    EXPECT_FALSE(threes[0].valueEstimated);
+    EXPECT_TRUE(threes[0].trackerCovered);
+
+    fetcher->ProcessPostMatchResponseForTests("twos-pending", 1209, 51);
+    twos = fetcher->PlaylistMatchPointsForTests("2v2");
+    ASSERT_EQ(twos.size(), 1u);
+    EXPECT_EQ(twos[0].mmr, 1209);
+    EXPECT_FALSE(twos[0].valueEstimated);
+    EXPECT_TRUE(twos[0].trackerCovered);
+}
+
+TEST_F(MMRFetcherTest, MatchesPlayedCounterRollbackStartsNewPublicationEpoch) {
+    EnqueuePostMatch("old-season", true, 1200, 100, "2v2");
+    fetcher->ProcessPostMatchResponseForTests("old-season", 1209, 101);
+    auto points = fetcher->PlaylistMatchPointsForTests("2v2");
+    ASSERT_EQ(points.size(), 1u);
+    EXPECT_TRUE(points[0].trackerCovered);
+    EXPECT_FALSE(points[0].valueEstimated);
+
+    // Tracker's per-playlist counter can reset between seasons. With no
+    // unresolved matches from the old epoch, the lower pre-match count is the
+    // authoritative baseline for the next reconciliation chain.
+    EnqueuePostMatch("new-season", true, 1000, 0, "2v2");
+    fetcher->ProcessPostMatchResponseForTests("new-season", 1009, 1);
+
+    points = fetcher->PlaylistMatchPointsForTests("2v2");
+    ASSERT_EQ(points.size(), 2u);
+    EXPECT_EQ(points[1].matchGuid, "new-season");
+    EXPECT_EQ(points[1].mmr, 1009);
+    EXPECT_EQ(points[1].trackerMatchesPlayed, 1);
+    EXPECT_TRUE(points[1].trackerCovered);
+    EXPECT_FALSE(points[1].valueEstimated);
 }
 
 TEST_F(MMRFetcherTest, DelayedCumulativeUpdatePreservesOnePointPerMatch) {

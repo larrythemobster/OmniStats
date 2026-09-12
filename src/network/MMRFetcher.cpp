@@ -2,6 +2,7 @@
 #include "CurlImpersonate.hpp"
 #include "core/Config.hpp"
 #include "core/GamemodeUtils.hpp"
+#include "core/PlaylistMetadata.hpp"
 #include "core/PrivacyLog.hpp"
 #include "database/DatabaseManager.hpp"
 #include <nlohmann/json.hpp>
@@ -352,30 +353,10 @@ std::string MMRFetcher::GetTournamentTierForMmr(int mmr) {
 }
 
 std::string MMRFetcher::PlaylistNameForTrackerId(int playlistId) {
-    switch (playlistId) {
-    case 10:
-        return "1v1";
-    case 11:
-        return "2v2";
-    case 13:
-        return "3v3";
-    case 27:
-        return "hoops";
-    case 28:
-        return "rumble";
-    case 29:
-        return "dropshot";
-    case 30:
-        return "snowday";
-    case 34:
-        return "t";
-    case 43:
-        return "heatseeker";
-    case 0:
-        return "casual";
-    default:
-        return "";
-    }
+    // Tracker profile segments use a subset of Rocket League playlist IDs.
+    // Keep this mapping in the same metadata table as gameplay classification
+    // so the two paths cannot silently drift apart.
+    return PlaylistMetadata::TrackerKey(playlistId);
 }
 
 MMRProfileTotals MMRFetcher::ExtractProfileTotals(const nlohmann::json& jsonResp) {
@@ -466,6 +447,28 @@ size_t MMRFetcher::PendingPlaylistCountLocked(const std::string& playlist) const
     return it == m_pendingPostMatchesByPlaylist.end() ? 0 : it->second.size();
 }
 
+void MMRFetcher::ResetPublicationBaselineForCounterRollbackLocked(
+    const std::string& playlist, int previousMatches) {
+    if (playlist.empty() || previousMatches < 0 ||
+        PendingPlaylistCountLocked(playlist) != 0) {
+        return;
+    }
+
+    const auto baselineIt =
+        m_trackerPublicationBaselineByPlaylist.find(playlist);
+    if (baselineIt == m_trackerPublicationBaselineByPlaylist.end() ||
+        previousMatches >= baselineIt->second - 1) {
+        return;
+    }
+
+    std::cout
+        << "[MMRFetcher] Tracker matchesPlayed counter rolled back: playlist="
+        << playlist << ", previousBaseline=" << baselineIt->second
+        << ", newPreMatchCount=" << previousMatches
+        << ", action=reset-publication-baseline.\n";
+    baselineIt->second = previousMatches;
+}
+
 void MMRFetcher::UpdateSessionAggregateLocked() {
     m_state->game.sessionTotals.totalMmrChange = static_cast<float>(
         CalculateTrackedSessionMmrChange(m_state->game.sessionTotals.mmrChangeByPlaylist));
@@ -478,6 +481,7 @@ bool MMRFetcher::ReconcileTrackerResponse(const MMRRequest& req, int fetchedMmr,
         std::string matchGuid;
         std::string primaryId;
         int mmr = 0;
+        bool estimated = false;
     };
     std::vector<DbUpdate> dbUpdates;
     bool requestConfirmed = false;
@@ -910,7 +914,7 @@ bool MMRFetcher::ReconcileTrackerResponse(const MMRRequest& req, int fetchedMmr,
             m_completedPostMatchGuids.insert(guid);
             requestConfirmed = requestConfirmed || guid == req.matchGuid;
             chainMmr = resolvedMmr;
-            dbUpdates.push_back({guid, record.primaryId, resolvedMmr});
+            dbUpdates.push_back({guid, record.primaryId, resolvedMmr, valueEstimated});
             if (record.destroyedMatch &&
                 !record.databaseMatchFinalized) {
                 record.databaseMatchFinalized = true;
@@ -972,7 +976,9 @@ bool MMRFetcher::ReconcileTrackerResponse(const MMRRequest& req, int fetchedMmr,
 
     if (auto db = m_dbManager.lock()) {
         for (const auto& update : dbUpdates) {
-            db->AsyncUpdateMatchPlayerMmr(update.matchGuid, update.primaryId, update.mmr);
+            db->AsyncUpdateMatchPlayerMmr(
+                update.matchGuid, update.primaryId, update.mmr,
+                update.estimated);
         }
     }
     return requestConfirmed;
@@ -1115,7 +1121,7 @@ void MMRFetcher::EnsureProvisionalPoint(const MMRRequest& req,
     if (appended && shouldUpdateDatabase) {
         if (auto db = m_dbManager.lock()) {
             db->AsyncUpdateMatchPlayerMmr(
-                req.matchGuid, req.primaryId, provisionalMmr);
+                req.matchGuid, req.primaryId, provisionalMmr, true);
         }
     }
 }
@@ -1344,6 +1350,8 @@ void MMRFetcher::EnqueuePostMatch(const std::string& primaryId,
             return;
         }
 
+        ResetPublicationBaselineForCounterRollbackLocked(
+            playlist, previousMatches);
         m_pendingPostMatchGuids.insert(matchGuid);
         m_postMatchRecordsByGuid.emplace(
             matchGuid,
@@ -1405,6 +1413,8 @@ void MMRFetcher::EnqueuePendingDestroyedMatch(
             return;
         }
 
+        ResetPublicationBaselineForCounterRollbackLocked(
+            pending.playlist, pending.previousMatches);
         m_pendingPostMatchGuids.insert(pending.matchGuid);
         m_postMatchRecordsByGuid.emplace(
             pending.matchGuid,

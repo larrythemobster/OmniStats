@@ -158,6 +158,8 @@ class MMRFetcher {
                                 int fetchedMatches = -1);
     void UpdateSessionAggregateLocked();
     size_t PendingPlaylistCountLocked(const std::string& playlist) const;
+    void ResetPublicationBaselineForCounterRollbackLocked(
+        const std::string& playlist, int previousMatches);
 
     std::shared_ptr<SessionState> m_state;
     std::weak_ptr<DatabaseManager> m_dbManager;
