@@ -125,6 +125,12 @@ namespace {
         auto it = playlistMMRs.find(playlistName);
         return it == playlistMMRs.end() || mmr > it->second;
     }
+    static constexpr int kTrackerForbiddenAttempts = 3;
+    static constexpr const char* kTrackerImpersonation = "chrome136";
+    static constexpr const char* kTrackerUserAgent =
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/136.0.0.0 Safari/537.36";
 
 #ifdef OMNISTATS_TEST_ENVIRONMENT
     static constexpr auto kPostMatchInitialDelay = std::chrono::milliseconds(20);
@@ -135,6 +141,7 @@ namespace {
     static constexpr auto kForbiddenLockoutFirst = std::chrono::milliseconds(50);
     static constexpr auto kForbiddenLockoutSecond = std::chrono::milliseconds(100);
     static constexpr auto kForbiddenLockoutMaximum = std::chrono::milliseconds(150);
+    static constexpr auto kForbiddenAttemptDelay = std::chrono::milliseconds(1);
 #else
     static constexpr auto kPostMatchInitialDelay = std::chrono::milliseconds(2500);
     static constexpr auto kStalePostMatchRetryDelay = std::chrono::milliseconds(3000);
@@ -144,6 +151,7 @@ namespace {
     static constexpr auto kForbiddenLockoutFirst = std::chrono::minutes(5);
     static constexpr auto kForbiddenLockoutSecond = std::chrono::minutes(15);
     static constexpr auto kForbiddenLockoutMaximum = std::chrono::minutes(30);
+    static constexpr auto kForbiddenAttemptDelay = std::chrono::milliseconds(500);
 #endif
 
     static auto ForbiddenLockoutForStrike(size_t strike) {
@@ -1566,7 +1574,8 @@ void MMRFetcher::WorkerLoop() {
             if (!m_isRunning && m_queue.empty()) break;
 
             const auto now = std::chrono::steady_clock::now();
-            if (m_rateLimitedUntil > now && !m_useCustomApiFallback.load()) {
+            if (m_rateLimitedUntil > now &&
+                !m_useCustomApiFallback.load()) {
                 const auto wakeAt = m_rateLimitedUntil;
                 m_cv.wait_until(lock, wakeAt);
                 continue;
@@ -1885,7 +1894,7 @@ bool MMRFetcher::FetchProfile(MMRRequest req) {
     const std::string url = "https://api.tracker.gg/api/v2/rocket-league/standard/profile/" + plat + "/" + finalIdent;
     std::cout << "[MMRFetcher] Fetching " << PrivacyLog::Sensitive(req.name, "player name") << " via " << plat << "...\n";
 
-    ci.easy_impersonate(ci_curl, "chrome124", 0);
+    ci.easy_impersonate(ci_curl, kTrackerImpersonation, 0);
 
     std::string readBuffer;
     FetchHeaderState headerState;
@@ -1894,7 +1903,8 @@ bool MMRFetcher::FetchProfile(MMRRequest req) {
     headers = ci.slist_append(headers, "Accept-Language: en-US,en;q=0.9");
     headers = ci.slist_append(headers, "Origin: https://rocketleague.tracker.network");
     headers = ci.slist_append(headers, "Referer: https://rocketleague.tracker.network/");
-    headers = ci.slist_append(headers, "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36");
+    headers = ci.slist_append(
+        headers, (std::string("User-Agent: ") + kTrackerUserAgent).c_str());
 
     ci.easy_setopt(ci_curl, CI_CURLOPT_URL, url.c_str());
     ci.easy_setopt(ci_curl, CI_CURLOPT_HTTPHEADER, headers);
@@ -1910,9 +1920,23 @@ bool MMRFetcher::FetchProfile(MMRRequest req) {
     ci.easy_setopt(ci_curl, CI_CURLOPT_XFERINFODATA, &m_isRunning);
     ci.easy_setopt(ci_curl, CI_CURLOPT_NOPROGRESS, 0L);
 
-    const int res = ci.easy_perform(ci_curl);
+    int res = 0;
     long httpCode = 0;
-    ci.easy_getinfo(ci_curl, CI_CURLINFO_RESPONSE_CODE, &httpCode);
+    for (int attempt = 1; attempt <= kTrackerForbiddenAttempts; ++attempt) {
+        readBuffer.clear();
+        headerState = {};
+        res = ci.easy_perform(ci_curl);
+        ci.easy_getinfo(ci_curl, CI_CURLINFO_RESPONSE_CODE, &httpCode);
+        if (res != 0 || httpCode != 403 ||
+            attempt == kTrackerForbiddenAttempts) {
+            break;
+        }
+        std::cout
+            << "[MMRFetcher] Tracker.gg returned HTTP 403; retrying with "
+            << "Chrome 136 (attempt " << attempt + 1 << "/"
+            << kTrackerForbiddenAttempts << ").\n";
+        std::this_thread::sleep_for(kForbiddenAttemptDelay);
+    }
 
     ci.slist_free_all(headers);
     ci.easy_cleanup(ci_curl);
@@ -1922,7 +1946,10 @@ bool MMRFetcher::FetchProfile(MMRRequest req) {
                   << " (HTTP " << httpCode << ") - Curl error: " << res << "\n";
 
         if (httpCode == 403) {
-            std::cout << "[MMRFetcher] Tracker.gg returned HTTP 403. Attempting fallback to custom API...\n";
+            std::cout
+                << "[MMRFetcher] Tracker.gg returned HTTP 403 after "
+                << kTrackerForbiddenAttempts
+                << " attempts. Attempting fallback to custom API...\n";
             if (FetchProfileFromCustomApi(req)) {
                 std::cout << "[MMRFetcher] Successfully fetched ranks from custom API for "
                           << PrivacyLog::Sensitive(req.name, "player name") << "!\n";

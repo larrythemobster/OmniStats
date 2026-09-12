@@ -21,6 +21,8 @@ static std::string g_mock_url = "";
 static long g_mock_custom_api_response_code = 0;
 static std::string g_mock_custom_api_response = "";
 static std::atomic<int> g_mock_perform_count{0};
+static std::string g_mock_impersonation_profile;
+static std::string g_mock_user_agent_header;
 
 static int mock_easy_setopt(void* curl, int option, ...) {
     va_list args;
@@ -76,6 +78,10 @@ static int mock_easy_getinfo(void* curl, int info, ...) {
 static void mock_easy_cleanup(void* curl) {}
 static void mock_slist_free_all(void* list) {}
 static void* mock_slist_append(void* list, const char* str) {
+    const std::string header = str ? str : "";
+    if (header.rfind("User-Agent: ", 0) == 0) {
+        g_mock_user_agent_header = header;
+    }
     return (void*)1;
 }
 static void* mock_easy_init() {
@@ -87,7 +93,8 @@ static char* mock_easy_escape(void*, const char* value, int length) {
     return g_mock_escaped_value.data();
 }
 static void mock_curl_free(void*) {}
-static int mock_easy_impersonate(void*, const char*, int) {
+static int mock_easy_impersonate(void*, const char* profile, int) {
+    g_mock_impersonation_profile = profile ? profile : "";
     return 0;
 }
 
@@ -100,6 +107,8 @@ class MMRFetcherTest : public ::testing::Test {
         g_mock_response_code = 200;
         g_mock_headers.clear();
         g_mock_response.clear();
+        g_mock_impersonation_profile.clear();
+        g_mock_user_agent_header.clear();
         sessionState = std::make_shared<SessionState>();
         fetcher = std::make_shared<MMRFetcher>(sessionState);
 
@@ -1054,7 +1063,11 @@ TEST_F(MMRFetcherTest, FallsBackToCustomApiWhenTrackerReturns403) {
     sessionState->game.myPrimaryId = "Epic|test_epic_id";
     g_mock_response_code = 403;
     g_mock_custom_api_response_code = 200;
-    Config::Update([](ConfigData& config) { config.custom_api_key = "oms_test_account_key"; }, false);
+    Config::Update([](ConfigData& config) {
+        config.custom_api_enabled = true;
+        config.custom_api_key = "oms_test_account_key";
+    },
+                   false);
     g_mock_custom_api_response = R"({
         "players": [{
             "platform": "Epic",
@@ -1072,6 +1085,16 @@ TEST_F(MMRFetcherTest, FallsBackToCustomApiWhenTrackerReturns403) {
     })";
 
     fetcher->FetchRosterProfileForTests("Epic|test_epic_id", "TestPlayer");
+    EXPECT_EQ(g_mock_perform_count.load(), 4);
+    EXPECT_EQ(g_mock_impersonation_profile, "chrome136");
+    EXPECT_EQ(
+        g_mock_user_agent_header,
+        "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/136.0.0.0 Safari/537.36");
+
+    fetcher->FetchRosterProfileForTests("Epic|test_epic_id", "TestPlayer");
+    EXPECT_EQ(g_mock_perform_count.load(), 5);
 
     std::shared_lock<std::shared_mutex> lock(sessionState->game.mutex);
     ASSERT_TRUE(sessionState->game.roster.count("Epic|test_epic_id") > 0);
