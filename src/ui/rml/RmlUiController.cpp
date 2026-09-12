@@ -2767,9 +2767,9 @@ void RmlUiController::RebuildDashboard() {
     out << "<div class='topbar-actions'>"
         << Button("dashboard-edit", editMode ? "Done Editing" : "Edit Layout", editMode ? "primary compact" : "ghost compact")
         << Button("open-settings", "Settings", "ghost compact")
-        << "<button class='window-control' data-action='window-minimize'><div class='icon-minimize'></div></button>"
-        << "<button class='window-control' data-action='window-maximize'><div class='" << (isMaximized ? "icon-restore" : "icon-maximize") << "'></div></button>"
-        << "<button class='window-control danger' data-action='window-close'><span class='icon-close'>&times;</span></button>"
+        << Button("window-minimize", "-", "window-control compact")
+        << Button("window-maximize", isMaximized ? "=" : "+", "window-control compact")
+        << Button("window-close", "x", "window-control danger compact")
         << "</div></div>";
 
     out << "<div class='dashboard-content'>";
