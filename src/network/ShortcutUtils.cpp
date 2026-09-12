@@ -53,7 +53,7 @@ namespace UpdaterCommon {
     }
 
     bool RepairExistingOmniStatsShortcuts(const std::string& exePath) {
-        const std::string description = "OmniStats Rocket League live telemetry companion";
+        const std::string description = "OmniStats";
         bool ok = true;
 
         char szPath[MAX_PATH];

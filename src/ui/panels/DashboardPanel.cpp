@@ -107,7 +107,7 @@ void DashboardPanel::Render() {
     }
     ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, rounding);
 
-    if (ImGui::Begin("OmniStats Unified Dashboard", nullptr, flags)) {
+    if (ImGui::Begin("OmniStats##Dashboard", nullptr, flags)) {
         bool isWindowed = ctx.config.second_monitor_mode;
 
         // Prompt user for update if available and auto-update is disabled
@@ -153,7 +153,7 @@ void DashboardPanel::Render() {
             ImGui::BeginChild("DashboardContents", ImVec2(0, -44.0f * ctx.dpiScale), ImGuiChildFlags_AlwaysUseWindowPadding);
         } else {
             ImGui::PushFont(ctx.fontBold);
-            ImGui::TextColored(Format::C(ctx.config.themeAccent), "OMNISTATS UNIFIED DASHBOARD");
+            ImGui::TextColored(Format::C(ctx.config.themeAccent), "OMNISTATS");
             ImGui::PopFont();
             ImGui::SameLine();
             ImGui::PushFont(ctx.fontSmallBold);
@@ -298,7 +298,7 @@ void DashboardPanel::RenderCustomTitleBar() {
 
     ImGui::SetCursorPos(ImVec2(32.0f * ctx.dpiScale, textYOffset));
     ImGui::PushFont(ctx.fontBold);
-    ImGui::TextColored(Format::C(ctx.config.themeAccent), "OMNISTATS UNIFIED DASHBOARD");
+    ImGui::TextColored(Format::C(ctx.config.themeAccent), "OMNISTATS");
     ImGui::PopFont();
 
     ImGui::SameLine();
