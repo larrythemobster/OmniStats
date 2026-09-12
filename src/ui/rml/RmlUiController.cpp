@@ -553,7 +553,7 @@ namespace {
             size = {340.0f, 210.0f};
             break;
         case DashboardLayout::WidgetId::LobbyRanks:
-            size = {720.0f, 360.0f};
+            size = {560.0f, 220.0f};
             break;
         case DashboardLayout::WidgetId::DemoTracker:
             size = {280.0f, 84.0f};
@@ -2000,9 +2000,11 @@ std::string RmlUiController::RenderLobbyRanks() {
             if (auto it = p->playlistTiers.find(pl.key); it != p->playlistTiers.end()) tier = it->second;
             out << "<div class='lobby-rank-cell tooltip-host' style='color:" << CssColor(Format::RankColor(tier)) << "'>";
             if (mmr > 0) {
-                out << "<div>" << Escape(Format::AbbreviateRank(tier)) << "</div><div class='mono'>" << mmr;
-                if (matches > 0) out << " <span class='muted'>(" << matches << ")</span>";
-                out << "</div><span class='tooltip-bubble'>" << Escape(Format::RankTier(tier, m_config.use_roman_numerals)) << " · MMR " << mmr << " · " << matches << " matches</span>";
+                // One text run per cell. The match count lives in the tooltip:
+                // the compact column has no room for it.
+                out << "<div class='mono'>" << Escape(Format::AbbreviateRank(tier)) << ' ' << mmr
+                    << "</div><span class='tooltip-bubble'>" << Escape(Format::RankTier(tier, m_config.use_roman_numerals))
+                    << " · MMR " << mmr << " · " << matches << " matches</span>";
             } else {
                 out << "<div>" << (p->fetched ? "-" : "...") << "</div>";
                 if (!p->fetched) out << "<span class='tooltip-bubble'>Fetching rank...</span>";
@@ -2361,10 +2363,9 @@ std::string RmlUiController::RenderOverlayContainer(const OverlayLayout::Contain
             rankColumns += m_config.show_lobby_rank_snowday ? 1 : 0;
             rankColumns += m_config.show_lobby_rank_heatseeker ? 1 : 0;
         }
-        // Keep a protected identity column plus evenly sized rank columns.
-        // This is deliberately wider than the old 400px default so names and
-        // rank/MMR lines never fight for the same horizontal space.
-        const float lobbyContentMinDp = 226.0f + 84.0f * static_cast<float>(std::max(rankColumns, 1));
+        // Keep a protected identity column plus one column per enabled playlist,
+        // matching the compact `.lobby-rank-*` metrics in the stylesheet.
+        const float lobbyContentMinDp = 200.0f + 84.0f * static_cast<float>(std::max(rankColumns, 1));
         minW = std::max(minW, lobbyContentMinDp * rmlScale);
         w = std::max(w, minW);
     }

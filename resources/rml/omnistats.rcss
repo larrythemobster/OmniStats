@@ -174,45 +174,49 @@ div.value { display: block; }
 /* Compact lobby table. Fixed playlist columns match the legacy overlay and
    keep the player identity column from collapsing when five or more ranks are
    enabled. */
-.lobby-rank-row { align-items: center; min-height: 44dp; margin-top: 0; padding-top: 5dp; padding-bottom: 5dp; border-left: 0; border-right: 0; border-bottom: 0; border-radius: 0; background-color: transparent; }
+.lobby-rank-row { align-items: center; min-height: 30dp; margin-top: 0; padding-top: 2dp; padding-bottom: 2dp; border-left: 0; border-right: 0; border-bottom: 0; border-radius: 0; background-color: transparent; }
 .lobby-rank-row .player-name {
     flex-grow: 0;
     flex-shrink: 0;
-    width: 198dp;
-    min-width: 198dp;
-    padding-right: 10dp;
-    white-space: normal;
+    width: 176dp;
+    min-width: 176dp;
+    padding-right: 8dp;
+    font-size: 12dp;
+    white-space: nowrap;
 }
+.lobby-rank-row .player-name { overflow: hidden; }
 .lobby-rank-row .player-name > .value {
-    display: block;
-    white-space: normal;
-    word-break: break-all;
+    display: inline;
+    white-space: nowrap;
 }
+/* The platform sits on the name's baseline so each player costs one row. */
 .lobby-rank-row .player-name .label {
-    display: block;
-    overflow: hidden;
-    text-overflow: ellipsis;
+    display: inline;
+    margin-top: 0;
+    margin-left: 6dp;
+    font-size: 10dp;
     white-space: nowrap;
 }
 .lobby-rank-cell {
     display: flex;
-    flex-direction: column;
+    flex-direction: row;
     align-items: center;
-    justify-content: center;
+    justify-content: flex-end;
     flex-grow: 0;
     flex-shrink: 0;
-    width: 92dp;
-    min-width: 92dp;
-    padding: 0 5dp;
-    text-align: center;
-    font-size: 11dp;
+    width: 84dp;
+    min-width: 84dp;
+    overflow: hidden;
+    padding: 0 4dp;
+    text-align: right;
+    font-size: 10dp;
     font-weight: 600;
-    line-height: 1.2;
+    line-height: 1.15;
     white-space: nowrap;
 }
-.lobby-rank-cell > div { display: block; width: 100%; text-align: center; white-space: nowrap; }
-.lobby-rank-cell > div:first-child { margin-bottom: 3dp; }
-.lobby-rank-header { min-height: 30dp; font-size: 10dp; font-weight: 700; letter-spacing: 0.3dp; color: #8993a2; }
+.lobby-rank-cell > div { display: inline; width: auto; text-align: right; white-space: nowrap; }
+.lobby-rank-header { min-height: 22dp; font-size: 9dp; font-weight: 700; letter-spacing: 0.3dp; color: #8993a2; }
+.lobby-rank-header .lobby-rank-cell .lobby-rank-heading { text-align: right; }
 .lobby-rank-header .player-name { display: flex; align-items: center; }
 .rank-icon { width: 30dp; height: 20dp; margin-right: 5dp; }
 

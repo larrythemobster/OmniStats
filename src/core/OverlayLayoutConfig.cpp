@@ -6,7 +6,7 @@ namespace OverlayLayout {
 
     LayoutConfig DefaultOverlayLayout() {
         LayoutConfig config;
-        config.version = 1;
+        config.version = 2;
         config.toolboxOpen = false;
 
         // 1. Session Card (Top-Left)
@@ -79,6 +79,21 @@ namespace OverlayLayout {
     void Sanitize(LayoutConfig& layout) {
         if (layout.version < 1) {
             layout.version = 1;
+        }
+
+        // Version 2 compacted the lobby-rank table to single-line rows and
+        // narrower columns. Widths persisted against the old metrics leave a
+        // large empty card, so drop them once and let the container auto-size.
+        if (layout.version < 2) {
+            for (auto& container : layout.containers) {
+                const bool hasLobbyRanks =
+                    std::find(container.widgets.begin(), container.widgets.end(),
+                              DashboardLayout::WidgetId::LobbyRanks) != container.widgets.end();
+                if (!hasLobbyRanks) continue;
+                container.w = 0.0f;
+                container.h = 0.0f;
+            }
+            layout.version = 2;
         }
 
         // Ensure we don't have duplicate widgets across multiple containers
