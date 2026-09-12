@@ -9,7 +9,7 @@ static void BM_ParseUpdateState(benchmark::State& state) {
     auto session = std::make_shared<SessionState>();
     auto fetcher = std::make_shared<MMRFetcher>(session);
     auto db = std::make_shared<DatabaseManager>(session);
-    db->Initialize(":memory:");
+    (void)db->Initialize(":memory:");
     StatsClient client(session, fetcher, db);
 
     // Simulated Rocket League state update JSON line
@@ -52,7 +52,7 @@ static void BM_ParseStatFeed(benchmark::State& state) {
     auto session = std::make_shared<SessionState>();
     auto fetcher = std::make_shared<MMRFetcher>(session);
     auto db = std::make_shared<DatabaseManager>(session);
-    db->Initialize(":memory:");
+    (void)db->Initialize(":memory:");
     StatsClient client(session, fetcher, db);
 
     // Preset player in roster

@@ -67,7 +67,7 @@ class OmniStatsPipelineTest : public ::testing::Test {
         session = std::make_shared<SessionState>();
         fetcher = std::make_shared<MMRFetcher>(session);
         db = std::make_shared<DatabaseManager>(session);
-        db->Initialize(":memory:");
+        ASSERT_TRUE(db->Initialize(":memory:"));
         client = std::make_shared<StatsClient>(session, fetcher, db);
 
         // Setup Curl mocking for MMRFetcher

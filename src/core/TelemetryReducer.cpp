@@ -1,4 +1,3 @@
-#define NOMINMAX
 #include "TelemetryReducer.hpp"
 #include "core/Config.hpp"
 #include "core/Constants.hpp"

@@ -1,5 +1,7 @@
 #include <gtest/gtest.h>
 #include <RmlUi/Core/Core.h>
+#include <RmlUi/Core/Element.h>
+#include <RmlUi/Core/ElementDocument.h>
 #include <d3d11.h>
 #include <wrl/client.h>
 
@@ -26,6 +28,7 @@ class RmlUiControllerStateTest : public ::testing::Test {
             c.graph_mmr_category = "2v2";
             c.show_running_indicator = false;
             c.second_monitor_mode = false;
+            c.ballchasing_token.clear();
         },
                        true);
     }
@@ -115,6 +118,36 @@ class RmlUiControllerStateTest : public ::testing::Test {
     }
     void SetSettingsPage(RmlUiController& controller, int page) {
         controller.m_settingsPage = static_cast<RmlUiController::SettingsPage>(page);
+    }
+    Rml::Element* OverlayRoot(RmlUiController& controller) {
+        return controller.Root("overlay-root");
+    }
+    Rml::Element* SettingsRoot(RmlUiController& controller) {
+        return controller.Root("settings-root");
+    }
+    void RefreshSettings(RmlUiController& controller) {
+        controller.RebuildSettings();
+        controller.Render();
+    }
+    void SimulateOverlayDragStart(RmlUiController& controller, const std::string& containerId, float x, float y) {
+        controller.m_drag = {};
+        controller.m_drag.kind = RmlUiController::DragKind::OverlayMove;
+        controller.m_drag.containerId = containerId;
+        controller.m_drag.startX = x;
+        controller.m_drag.startY = y;
+        for (auto& c : controller.m_config.overlay_layout.containers) {
+            if (c.id == containerId) {
+                c.x = x;
+                c.y = y;
+                break;
+            }
+        }
+    }
+    std::pair<float, float> GetContainerPos(const RmlUiController& controller, const std::string& containerId) const {
+        for (const auto& c : controller.m_config.overlay_layout.containers) {
+            if (c.id == containerId) return {c.x, c.y};
+        }
+        return {-1.0f, -1.0f};
     }
 
     ConfigData original;
@@ -843,7 +876,161 @@ TEST_F(RmlUiControllerStateTest, LiveTelemetryDoesNotInvalidateOpenSettingsDom) 
     EXPECT_EQ(LastSettingsFingerprint(controller), before);
 }
 
-TEST_F(RmlUiControllerStateTest, FullSettingsOpenAndRenderDoesNotCrash) {
+TEST_F(RmlUiControllerStateTest, ActiveOverlayDragPreservesCoordinatesAndPreventsRebuilds) {
+    auto state = std::make_shared<SessionState>();
+    state->ui.showMenu.store(true);
+    RmlUiController controller(state, nullptr);
+    ConfigData config = Config::Read();
+    ASSERT_FALSE(config.overlay_layout.containers.empty());
+    controller.Update(config);
+
+    const std::string containerId = config.overlay_layout.containers.front().id;
+    SimulateOverlayDragStart(controller, containerId, 550.0f, 350.0f);
+
+    EXPECT_TRUE(controller.WantsInteraction());
+
+    // Call Update with global config (which still has old coordinates)
+    controller.Update(config);
+
+    // The in-flight coordinates must be preserved, not overwritten with old config
+    const auto [curX, curY] = GetContainerPos(controller, containerId);
+    EXPECT_EQ(curX, 550.0f);
+    EXPECT_EQ(curY, 350.0f);
+}
+
+TEST_F(RmlUiControllerStateTest, LobbyRanksContainerWidthGrowsWithEnabledColumns) {
+    auto state = std::make_shared<SessionState>();
+    state->ui.showOverlay.store(true);
+    RmlUiController controller(state, nullptr);
+
+    OverlayLayout::ContainerConfig container;
+    container.id = "lobby_ranks";
+    container.widgets = {DashboardLayout::WidgetId::LobbyRanks};
+
+    const auto widthOf = [&](const std::string& html) {
+        const auto pos = html.find("width:");
+        if (pos == std::string::npos) return -1.0f;
+        return std::strtof(html.c_str() + pos + 6, nullptr);
+    };
+
+    ConfigData config = Config::Read();
+    config.show_lobby_ranks_overlay = true;
+    config.show_extra_playlists = false;
+    config.show_lobby_rank_1v1 = true;
+    config.show_lobby_rank_2v2 = true;
+    config.show_lobby_rank_3v3 = true;
+    config.show_lobby_rank_casual = true;
+    config.show_lobby_rank_tourny = true;
+    controller.Update(config);
+    const float fiveColumns = widthOf(RenderOverlayContainer(controller, container));
+    ASSERT_GT(fiveColumns, 0.0f);
+
+    config.show_extra_playlists = true;
+    config.show_lobby_rank_hoops = true;
+    config.show_lobby_rank_rumble = true;
+    config.show_lobby_rank_dropshot = true;
+    config.show_lobby_rank_snowday = true;
+    config.show_lobby_rank_heatseeker = true;
+    controller.Update(config);
+    const float tenColumns = widthOf(RenderOverlayContainer(controller, container));
+    EXPECT_GT(tenColumns, fiveColumns) << "ten rank columns must reserve more width than five";
+
+    // Docking other widgets into the lobby container must not shrink the rank
+    // table below the width its columns need.
+    OverlayLayout::ContainerConfig merged = container;
+    merged.widgets = {DashboardLayout::WidgetId::LobbyRanks, DashboardLayout::WidgetId::DemoTracker,
+                      DashboardLayout::WidgetId::SessionStats};
+    const float mergedWidth = widthOf(RenderOverlayContainer(controller, merged));
+    EXPECT_GE(mergedWidth, fiveColumns) << "merged container clipped the lobby rank columns";
+}
+
+// Live telemetry must not replace the overlay DOM between mousedown and
+// mouseup: RmlUi only emits `click` when both land on the same element, so a
+// rebuild in between silently swallowed every overlay control click.
+TEST_F(RmlUiControllerStateTest, OverlayControlsStayClickableWhileTelemetryUpdates) {
+    Microsoft::WRL::ComPtr<ID3D11Device> device;
+    Microsoft::WRL::ComPtr<ID3D11DeviceContext> context;
+    D3D_FEATURE_LEVEL featureLevel;
+    if (FAILED(D3D11CreateDevice(nullptr, D3D_DRIVER_TYPE_WARP, nullptr, 0, nullptr, 0, D3D11_SDK_VERSION,
+                                 &device, &featureLevel, &context))) {
+        GTEST_SKIP() << "WARP device creation not available in this environment.";
+    }
+    HWND hwnd = CreateWindowExA(0, "STATIC", "test", WS_POPUP, 0, 0, 1920, 1080, nullptr, nullptr,
+                                GetModuleHandle(nullptr), nullptr);
+    ASSERT_NE(hwnd, nullptr);
+
+    Config::Update([](ConfigData& c) { c.overlay_layout.toolboxOpen = false; }, true);
+    auto state = std::make_shared<SessionState>();
+    state->ui.showMenu.store(true);
+    state->ui.dashboardLayoutEditMode.store(true);
+    RmlUiController controller(state, nullptr);
+    ASSERT_TRUE(controller.Initialize(hwnd, device.Get(), context.Get(), 1920, 1080, 1.0f));
+    controller.Update(Config::Read());
+    controller.Render();
+
+    auto* toggle = OverlayRoot(controller)->QuerySelector("[data-action='overlay-toggle-toolbox']");
+    ASSERT_NE(toggle, nullptr);
+    const Rml::Vector2f center = toggle->GetAbsoluteOffset() +
+                                 Rml::Vector2f(toggle->GetOffsetWidth() * 0.5f, toggle->GetOffsetHeight() * 0.5f);
+    const LPARAM position = MAKELPARAM(static_cast<int>(center.x), static_cast<int>(center.y));
+
+    controller.ProcessWindowMessage(hwnd, WM_MOUSEMOVE, 0, position);
+    controller.Render();
+    controller.ProcessWindowMessage(hwnd, WM_LBUTTONDOWN, MK_LBUTTON, position);
+
+    // A telemetry tick between press and release must not invalidate the target.
+    {
+        std::unique_lock lock(state->game.mutex);
+        state->game.currentMatch.goals += 1;
+        state->game.version.fetch_add(1);
+    }
+    controller.Update(Config::Read());
+    controller.Render();
+    EXPECT_EQ(OverlayRoot(controller)->QuerySelector("[data-action='overlay-toggle-toolbox']"), toggle);
+
+    controller.ProcessWindowMessage(hwnd, WM_LBUTTONUP, 0, position);
+    controller.Render();
+    EXPECT_TRUE(Config::Read().overlay_layout.toolboxOpen) << "overlay toolbox click was swallowed";
+
+    DestroyWindow(hwnd);
+}
+
+// Switching window modes changes the client size. Settings must be re-centered
+// for the new size instead of staying positioned for the old one, which clipped
+// every control off the right edge of the dashboard window.
+TEST_F(RmlUiControllerStateTest, SettingsWindowStaysInsideClientAreaAfterResize) {
+    Microsoft::WRL::ComPtr<ID3D11Device> device;
+    Microsoft::WRL::ComPtr<ID3D11DeviceContext> context;
+    D3D_FEATURE_LEVEL featureLevel;
+    if (FAILED(D3D11CreateDevice(nullptr, D3D_DRIVER_TYPE_WARP, nullptr, 0, nullptr, 0, D3D11_SDK_VERSION,
+                                 &device, &featureLevel, &context))) {
+        GTEST_SKIP() << "WARP device creation not available in this environment.";
+    }
+    HWND hwnd = CreateWindowExA(0, "STATIC", "test", WS_POPUP, 0, 0, 1920, 1080, nullptr, nullptr,
+                                GetModuleHandle(nullptr), nullptr);
+    ASSERT_NE(hwnd, nullptr);
+
+    auto state = std::make_shared<SessionState>();
+    state->ui.showMenu.store(true);
+    RmlUiController controller(state, nullptr);
+    ASSERT_TRUE(controller.Initialize(hwnd, device.Get(), context.Get(), 1920, 1080, 1.0f));
+    controller.Update(Config::Read());
+    controller.Render();
+
+    controller.Resize(1223, 1032, 1.0f);
+    controller.Update(Config::Read());
+    controller.Render();
+
+    auto* window = SettingsRoot(controller)->QuerySelector(".settings-window");
+    ASSERT_NE(window, nullptr);
+    EXPECT_GE(window->GetAbsoluteOffset().x, 0.0f);
+    EXPECT_LE(window->GetAbsoluteOffset().x + window->GetOffsetWidth(), 1223.0f);
+    EXPECT_LE(window->GetAbsoluteOffset().y + window->GetOffsetHeight(), 1032.0f);
+
+    DestroyWindow(hwnd);
+}
+
+TEST_F(RmlUiControllerStateTest, LongSettingsPagesScrollAndPreservePositionAfterChanges) {
     Microsoft::WRL::ComPtr<ID3D11Device> device;
     Microsoft::WRL::ComPtr<ID3D11DeviceContext> context;
     D3D_FEATURE_LEVEL featureLevel;
@@ -860,7 +1047,7 @@ TEST_F(RmlUiControllerStateTest, FullSettingsOpenAndRenderDoesNotCrash) {
     RmlUiController controller(state, nullptr);
     ASSERT_TRUE(controller.Initialize(hwnd, device.Get(), context.Get(), 1920, 1080, 1.0f));
 
-    // 1. Open settings and render General page
+    // The footer must remain reachable on every page, including Cards.
     state->ui.showMenu.store(true);
     controller.Update(Config::Read());
     controller.Render();
@@ -870,6 +1057,38 @@ TEST_F(RmlUiControllerStateTest, FullSettingsOpenAndRenderDoesNotCrash) {
         SetSettingsPage(controller, page);
         controller.Update(Config::Read());
         controller.Render();
+        auto* root = SettingsRoot(controller);
+        ASSERT_NE(root, nullptr);
+        auto* body = root->QuerySelector(".settings-page");
+        auto* footer = root->QuerySelector(".settings-footer");
+        ASSERT_NE(body, nullptr);
+        ASSERT_NE(footer, nullptr);
+        EXPECT_GT(body->GetClientHeight(), 0.0f);
+        EXPECT_LE(footer->GetAbsoluteOffset().y + footer->GetOffsetHeight(), 1080.0f);
+        if (page == 1) {
+            ASSERT_GT(body->GetScrollHeight(), body->GetClientHeight());
+            body->SetScrollTop(220.0f);
+            const float offset = body->GetScrollTop();
+            ASSERT_GT(offset, 0.0f);
+            RefreshSettings(controller);
+            body = SettingsRoot(controller)->QuerySelector(".settings-page");
+            ASSERT_NE(body, nullptr);
+            EXPECT_FLOAT_EQ(body->GetScrollTop(), offset);
+        }
+        if (page == 5) {
+            auto* token = root->QuerySelector("[data-setting='ballchasing_token']");
+            ASSERT_NE(token, nullptr);
+            ASSERT_TRUE(token->Focus());
+            const std::string value = "qa-token-with-many-characters";
+            for (char ch : value) {
+                controller.ProcessWindowMessage(hwnd, WM_CHAR, static_cast<WPARAM>(ch), 0);
+                state->game.version.fetch_add(1);
+                controller.Update(Config::Read());
+                controller.Render();
+            }
+            EXPECT_EQ(Config::Read().ballchasing_token, value);
+            EXPECT_EQ(SettingsRoot(controller)->QuerySelector("[data-setting='ballchasing_token']"), token);
+        }
     }
 
     // 3. Close settings (like pressing F5 or Escape again)

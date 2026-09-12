@@ -308,7 +308,7 @@ namespace {
         std::ostringstream out;
         out << "<div class='setting-row'><div class='setting-info'><div class='setting-name'>" << label << "</div>";
         if (!help.empty()) out << "<div class='setting-help'>" << help << "</div>";
-        out << "</div><input type='checkbox' class='checkbox' data-setting='" << key << "' " << (checked ? "checked='checked' " : "") << (disabled ? "disabled='disabled' " : "") << "/></div>";
+        out << "</div><div class='toggle-switch'><input type='checkbox' class='checkbox' data-setting='" << key << "' " << (checked ? "checked='checked' " : "") << (disabled ? "disabled='disabled' " : "") << "/><span class='toggle-thumb'></span></div></div>";
         return out.str();
     }
 
@@ -550,12 +550,18 @@ bool RmlUiController::Initialize(HWND hwnd, ID3D11Device* device, ID3D11DeviceCo
     for (const char* event : {"click", "change", "input", "mousedown", "mousemove", "mouseup"}) {
         m_context->AddEventListener(event, this);
     }
+    m_context->AddEventListener("blur", this, true);
     m_config = Config::Read();
     if (m_pendingBallchasingToken.empty()) m_pendingBallchasingToken = m_config.ballchasing_token;
     SetDpiScale(m_dpiScale);
     SnapshotState();
     RefreshAsyncData();
     UpdateThemeProperties();
+    if (!m_config.second_monitor_mode) {
+        SetRootRml("dashboard-root", "");
+    } else {
+        SetRootRml("overlay-root", "");
+    }
     RebuildVisibleUi(true);
     return true;
 }
@@ -565,6 +571,7 @@ void RmlUiController::Shutdown() {
         for (const char* event : {"click", "change", "input", "mousedown", "mousemove", "mouseup"}) {
             m_context->RemoveEventListener(event, this);
         }
+        m_context->RemoveEventListener("blur", this, true);
         m_context = nullptr;
         m_document = nullptr;
     }
@@ -592,11 +599,18 @@ void RmlUiController::Shutdown() {
 }
 
 void RmlUiController::Resize(int width, int height, float dpiScale) {
+    const bool sizeChanged = m_width != std::max(width, 1) || m_height != std::max(height, 1);
     m_width = std::max(width, 1);
     m_height = std::max(height, 1);
     m_renderInterface.SetViewport(m_width, m_height);
     if (m_context) m_context->SetDimensions(Rml::Vector2i(m_width, m_height));
     SetDpiScale(dpiScale);
+    // A window-mode switch changes the client size. Re-center Settings for the
+    // new size instead of leaving it positioned (and clipped) for the old one.
+    if (sizeChanged) {
+        m_settingsPositioned = false;
+        if (m_state && m_state->ui.showMenu.load()) RebuildSettings();
+    }
 }
 
 void RmlUiController::SetDpiScale(float dpiScale) {
@@ -605,6 +619,9 @@ void RmlUiController::SetDpiScale(float dpiScale) {
 }
 
 bool RmlUiController::ProcessWindowMessage(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam) {
+    // Losing the button (focus change or capture loss) never delivers `mouseup`,
+    // so release the rebuild hold here or live updates would stay frozen.
+    if (message == WM_KILLFOCUS || message == WM_CAPTURECHANGED || message == WM_LBUTTONUP) m_pointerPressed = false;
     return RmlInputWin32::ProcessWindowMessage(m_context, hwnd, message, wParam, lParam);
 }
 
@@ -624,7 +641,7 @@ bool RmlUiController::WantsInteraction() const {
     // becomes interactive while Settings/layout editing is open; otherwise
     // mouse input must continue through to Rocket League. Second-monitor mode
     // is a normal interactive window. RmlUi hover state must not override this.
-    return m_state->ui.showMenu.load() || m_config.second_monitor_mode;
+    return m_state->ui.showMenu.load() || m_config.second_monitor_mode || m_drag.kind != DragKind::None;
 }
 
 void RmlUiController::Update(const ConfigData& config) {
@@ -643,7 +660,35 @@ void RmlUiController::Update(const ConfigData& config) {
                               !sameColor(config.themeGraphLine, m_config.themeGraphLine) ||
                               !sameColor(config.themeGraphBaseline, m_config.themeGraphBaseline);
 
+    const auto activeDragKind = m_drag.kind;
+    const std::string draggingId = m_drag.containerId;
+    float inFlightX = 0.0f, inFlightY = 0.0f, inFlightW = 0.0f, inFlightH = 0.0f;
+    bool hasInFlight = false;
+    if (activeDragKind == DragKind::OverlayMove || activeDragKind == DragKind::OverlayResize) {
+        auto it = std::find_if(m_config.overlay_layout.containers.begin(), m_config.overlay_layout.containers.end(),
+                               [&](const auto& c) { return c.id == draggingId; });
+        if (it != m_config.overlay_layout.containers.end()) {
+            inFlightX = it->x;
+            inFlightY = it->y;
+            inFlightW = it->w;
+            inFlightH = it->h;
+            hasInFlight = true;
+        }
+    }
+
     m_config = config;
+
+    if (hasInFlight) {
+        for (auto& c : m_config.overlay_layout.containers) {
+            if (c.id == draggingId) {
+                c.x = inFlightX;
+                c.y = inFlightY;
+                c.w = inFlightW;
+                c.h = inFlightH;
+                break;
+            }
+        }
+    }
     SnapshotState();
     RefreshAsyncData();
     const bool settingsOpen = m_state && m_state->ui.showMenu.load();
@@ -793,7 +838,6 @@ void RmlUiController::UpdateThemeProperties() {
         for (Rml::Element* element : elements)
             element->SetProperty(property, value);
     };
-
     const std::string bg = CssColor(m_config.themeBg);
     const std::string panel = CssColor(m_config.themeSettingsPanel);
     const std::string text = CssColor(m_config.themeText);
@@ -816,9 +860,14 @@ void RmlUiController::UpdateThemeProperties() {
 
     app->SetProperty("color", text);
     setClass("card", "background-color", bg);
+    // Dashboard widgets sit one layer above the shell so each card reads as a
+    // surface instead of one long text list.
+    setClass("dashboard-shell", "background-color", scaledColor(m_config.themeBg, 0.55f, 1.0f));
+    setClass("dashboard-widget", "background-color", scaledColor(m_config.themeBg, 1.45f, 1.0f));
     setClass("card", "color", text);
     setClass("card-title", "color", text);
     setClass("value", "color", text);
+    setClass("metric-value", "color", text);
     setClass("setting-name", "color", text);
     setClass("debug-value", "color", text);
     setSelector("button, .button, input.text, input.password, select", "color", text);
@@ -828,10 +877,17 @@ void RmlUiController::UpdateThemeProperties() {
     setClass("tooltip-bubble", "color", text);
 
     setClass("settings-window", "background-color", panel);
+    setClass("settings-header", "background-color", scaledColor(m_config.themeSettingsPanel, 1.08f, 1.0f));
+    setClass("settings-nav", "background-color", scaledColor(m_config.themeSettingsPanel, 0.90f, 1.0f));
+    setClass("settings-page", "background-color", panel);
+    setClass("settings-footer", "background-color", scaledColor(m_config.themeSettingsPanel, 1.05f, 1.0f));
     setClass("update-dialog", "background-color", panel);
 
     setClass("card-subtitle", "color", muted);
+    setClass("overlay-widget-title", "color", muted);
+    setClass("stat-section-title", "color", accent);
     setClass("label", "color", muted);
+    setClass("metric-label", "color", muted);
     setClass("muted", "color", muted);
     setClass("badge", "color", muted);
     setClass("running-indicator", "color", muted);
@@ -846,7 +902,6 @@ void RmlUiController::UpdateThemeProperties() {
     setClass("match-time", "color", dim);
     setClass("lobby-rank-header", "color", muted);
     setClass("lobby-rank-header", "background-color", scaledColor(m_config.themeBg, 0.70f, 0.80f));
-
     setClass("accent", "color", accent);
     setClass("setting-title", "color", accent);
     setSelector(".badge.accent", "color", accent);
@@ -868,10 +923,8 @@ void RmlUiController::UpdateThemeProperties() {
     setSelector(".badge.win", "color", win);
     setClass("loss", "color", loss);
     setSelector(".badge.loss", "color", loss);
-    // Previous Games uses outcome color across the useful row data, matching
-    // the compact tracker presentation instead of coloring only the W/L glyph.
-    setSelector(".match-win .match-mode, .match-win .match-score, .match-win .match-mmr, .match-win .match-time", "color", win);
-    setSelector(".match-loss .match-mode, .match-loss .match-score, .match-loss .match-mmr, .match-loss .match-time", "color", loss);
+    setClass("match-win", "color", win);
+    setClass("match-loss", "color", loss);
 
     setClass("graph-line", "background-color", graph);
     setClass("graph-polyline", "color", graph);
@@ -886,6 +939,13 @@ void RmlUiController::UpdateThemeProperties() {
 }
 
 void RmlUiController::RebuildVisibleUi(bool force) {
+    if (m_rebuildingUi) return;
+    if (m_drag.kind != DragKind::None) return;
+    // RmlUi only emits `click` when the element that received `mousedown` is
+    // still the hovered element on `mouseup`. Live telemetry used to replace the
+    // overlay DOM between those two events, which silently swallowed every
+    // click on overlay controls (toolbox, widget remove buttons).
+    if (m_pointerPressed && !force) return;
     // Keep this fingerprint complete for any configuration value that changes
     // rendered RML or conditional control state. Live-edited text/theme values
     // are intentionally excluded so an `input` event never replaces the
@@ -1458,27 +1518,30 @@ std::string RmlUiController::RenderPlayerRoster(int team, const char* label) {
         }
         out << "</div></div>";
         const auto color = Format::RankColor(tier);
-        out << "<div class='player-rank" << (m_config.use_rank_icons ? " icon-mode" : "")
-            << "' style='color:" << CssColor(color) << "'>";
-        if (mmr > 0) {
-            const auto matchesIt = p->playlistMatches.find(category == "best" ? "best" : rankSource);
-            if (!m_config.use_rank_icons) {
-                out << Escape(Format::RankTier(tier, m_config.use_roman_numerals));
-            }
-            out << "<div class='rank-matches'>";
-            if (m_config.use_rank_icons && category == "best" && rankSource != "best") {
-                out << Escape(MmrLabel(StringToMmrCategory(rankSource)));
-                if (matchesIt != p->playlistMatches.end() && matchesIt->second > 0) out << " · ";
-            }
-            if (matchesIt != p->playlistMatches.end() && matchesIt->second > 0) {
-                out << matchesIt->second << (m_config.use_rank_icons ? "" : " matches");
+        const auto matchesIt = p->playlistMatches.find(category == "best" ? "best" : rankSource);
+        const int matchCount = matchesIt != p->playlistMatches.end() ? matchesIt->second : 0;
+        if (!m_config.use_rank_icons || (category == "best" && rankSource != "best")) {
+            out << "<div class='player-rank" << (m_config.use_rank_icons ? " icon-mode" : "")
+                << "' style='color:" << CssColor(color) << "'>";
+            if (mmr > 0) {
+                if (!m_config.use_rank_icons) {
+                    out << "<div>" << Escape(Format::RankTier(tier, m_config.use_roman_numerals)) << "</div>";
+                } else {
+                    // The crest already carries the rank, so only name which
+                    // playlist produced the player's best rank.
+                    out << "<div class='rank-source'>" << Escape(MmrLabel(StringToMmrCategory(rankSource))) << "</div>";
+                }
+            } else if (!m_config.use_rank_icons) {
+                out << "<div>" << (p->fetched ? "Unranked" : "Fetching") << "</div>";
             }
             out << "</div>";
-        } else if (!m_config.use_rank_icons) {
-            out << (p->fetched ? "Unranked" : "Fetching");
         }
-        out << "</div>";
-        out << "<div class='player-mmr'>" << (mmr > 0 ? std::to_string(mmr) : (p->fetched ? "-" : "...")) << "</div></div>";
+        out << "<div class='player-mmr'><div class='player-mmr-value'>"
+            << (mmr > 0 ? std::to_string(mmr) : (p->fetched ? "-" : "..."))
+            << "</div>";
+        if (mmr > 0 && matchCount > 0)
+            out << "<div class='rank-matches'>" << matchCount << " matches</div>";
+        out << "</div></div>";
     }
     out << "</div>";
     return out.str();
@@ -1666,11 +1729,16 @@ std::string RmlUiController::RenderDemoTracker() {
         << " <span class='muted'>" << FormatDemoKd(session.demos, session.demoed) << "</span></div></div></div>";
     return out.str();
 }
-std::string RmlUiController::RenderPreviousGames() {
+std::string RmlUiController::RenderPreviousGames(bool includeHeading) {
     std::ostringstream out;
     const int configuredLimit = std::clamp(m_config.previous_games_limit, 10, kPreviousGamesMaxLimit);
-    out << "<div class='row previous-games-header'><div class='card-title grow'>PREVIOUS GAMES</div>"
-        << "<div class='label'>last " << configuredLimit << " games</div></div>";
+    // The dashboard already labels the widget, so only the meta line is needed there.
+    out << "<div class='row previous-games-header'>";
+    if (includeHeading)
+        out << "<div class='card-title grow'>PREVIOUS GAMES</div>";
+    else
+        out << "<div class='grow'></div>";
+    out << "<div class='label'>last " << configuredLimit << " games</div></div>";
     if (!m_snap.recentSavedMatchesLoaded) {
         out << "<div class='muted'>Loading saved match history...</div>";
     } else if (m_snap.recentSavedMatches.empty()) {
@@ -1715,10 +1783,12 @@ std::string RmlUiController::RenderLobbyRanks() {
         return a->name < b->name;
     });
     std::ostringstream out;
-    out << "<div class='player-row lobby-rank-row lobby-rank-header'><div class='player-name'>Name</div>";
+    out << "<div class='lobby-rank-table'><div class='player-row lobby-rank-row lobby-rank-header'><div class='player-name'><div class='lobby-rank-heading'>Name</div></div>";
     for (const auto& pl : playlists) {
         if (!pl.show) continue;
-        out << "<div class='lobby-rank-cell'>" << Escape(pl.label) << "</div>";
+        // Wrap header text in a block: RmlUi drops bare text nodes in a flex
+        // container, which is what left the lobby header row blank.
+        out << "<div class='lobby-rank-cell'><div class='lobby-rank-heading'>" << Escape(pl.label) << "</div></div>";
     }
     out << "</div>";
     for (const auto* p : players) {
@@ -1747,7 +1817,7 @@ std::string RmlUiController::RenderLobbyRanks() {
                 if (matches > 0) out << " <span class='muted'>(" << matches << ")</span>";
                 out << "</div><span class='tooltip-bubble'>" << Escape(Format::RankTier(tier, m_config.use_roman_numerals)) << " · MMR " << mmr << " · " << matches << " matches</span>";
             } else {
-                out << (p->fetched ? "-" : "...");
+                out << "<div>" << (p->fetched ? "-" : "...") << "</div>";
                 if (!p->fetched) out << "<span class='tooltip-bubble'>Fetching rank...</span>";
             }
             out << "</div>";
@@ -1755,10 +1825,11 @@ std::string RmlUiController::RenderLobbyRanks() {
         out << "</div>";
     }
     if (players.empty()) out << "<div class='muted'>Waiting for lobby ranks...</div>";
+    out << "</div>";
     return out.str();
 }
 
-std::string RmlUiController::RenderMmrGraph() {
+std::string RmlUiController::RenderMmrGraph(bool showCategoryBadge) {
     const auto category = m_state ? m_state->ui.graphMmrCategory.load() : MmrCategory::TwoVTwo;
     const std::string playlist = MmrCategoryToString(category);
     std::vector<float> values;
@@ -1774,8 +1845,9 @@ std::string RmlUiController::RenderMmrGraph() {
         if (auto it = m_snap.playlistInitialMmr.find(playlist); it != m_snap.playlistInitialMmr.end()) baseline = static_cast<float>(it->second);
     }
     std::ostringstream header;
-    header << "<div class='row' style='margin-bottom:6dp'><span class='badge'>" << Escape(MmrLabel(category))
-           << "</span><div class='grow'></div>"
+    header << "<div class='row graph-header'>";
+    if (showCategoryBadge) header << "<span class='badge'>" << Escape(MmrLabel(category)) << "</span>";
+    header << "<div class='grow'></div>"
            << Button("graph-mode", m_snap.showLifetimeGraph ? "Lifetime" : "Session", "ghost") << "</div>";
 
     if (values.empty()) {
@@ -1952,7 +2024,7 @@ std::string RmlUiController::RenderWidget(DashboardLayout::WidgetId id, bool das
     case DashboardLayout::WidgetId::DemoTracker:
         return RenderDemoTracker();
     case DashboardLayout::WidgetId::PreviousGames:
-        return RenderPreviousGames();
+        return RenderPreviousGames(!dashboard);
     }
     return {};
 }
@@ -2029,7 +2101,8 @@ std::string RmlUiController::RenderSessionView() {
         << (graph ? "MMR · " : "SESSION · ") << Escape(MmrLabel(category)) << "</div><span class='badge'>F7 session · F6 playlist</span></div>";
     // Legacy F8 Session View uses the same configurable compact session
     // table as the dashboard/overlay card, with the session streak enabled.
-    out << (graph ? RenderMmrGraph() : RenderSessionStats(true, true));
+    // The card title already names the playlist, so the graph must not repeat it.
+    out << (graph ? RenderMmrGraph(false) : RenderSessionStats(true, true));
     out << "</div>";
     return out.str();
 }
@@ -2104,7 +2177,7 @@ std::string RmlUiController::RenderOverlayContainer(const OverlayLayout::Contain
         // Keep a protected identity column plus evenly sized rank columns.
         // This is deliberately wider than the old 400px default so names and
         // rank/MMR lines never fight for the same horizontal space.
-        const float lobbyContentMinDp = 212.0f + 70.0f * static_cast<float>(std::max(rankColumns, 1));
+        const float lobbyContentMinDp = 226.0f + 84.0f * static_cast<float>(std::max(rankColumns, 1));
         minW = std::max(minW, lobbyContentMinDp * rmlScale);
         w = std::max(w, minW);
     }
@@ -2138,7 +2211,7 @@ std::string RmlUiController::RenderOverlayContainer(const OverlayLayout::Contain
     out << "' data-container='" << Escape(container.id) << "'";
     if (settingsOpen && !editMode) out << " data-action='overlay-drag'";
     out << " style='left:" << toDp(x) << "dp;top:" << toDp(container.y) << "dp;width:" << toDp(w) << "dp;";
-    // Match the legacy ImGui behavior: the saved height is edit-mode geometry.
+    // The saved height is edit-mode geometry, matching the pre-RmlUi overlay.
     // During normal play (and while Settings is merely open), overlay windows
     // auto-size vertically to their currently visible widgets. Keeping the saved
     // default height as a permanent min-height is what produced the huge empty
@@ -2168,7 +2241,7 @@ std::string RmlUiController::RenderOverlayToolbox(bool editMode) {
     if (!editMode) return {};
 
     std::ostringstream out;
-    out << "<button class='overlay-toolbox-toggle' data-action='overlay-toggle-toolbox' title='Toggle overlay toolbox'>☰</button>";
+    out << "<button class='overlay-toolbox-toggle' data-action='overlay-toggle-toolbox' title='Toggle overlay toolbox'>Widgets</button>";
     if (!m_config.overlay_layout.toolboxOpen) return out.str();
 
     std::set<DashboardLayout::WidgetId> present;
@@ -2197,6 +2270,10 @@ std::string RmlUiController::RenderOverlayToolbox(bool editMode) {
 }
 
 void RmlUiController::RebuildOverlay() {
+    if (m_config.second_monitor_mode) {
+        SetRootRml("overlay-root", "");
+        return;
+    }
     std::ostringstream out;
     if (m_config.show_running_indicator) out << "<div class='running-indicator'><span class='win'>●</span> OmniStats</div>";
 
@@ -2221,6 +2298,10 @@ void RmlUiController::RebuildOverlay() {
 }
 
 void RmlUiController::RebuildDashboard() {
+    if (!m_config.second_monitor_mode) {
+        SetRootRml("dashboard-root", "");
+        return;
+    }
     const bool editMode = m_state && m_state->ui.dashboardLayoutEditMode.load();
     DashboardLayout::LayoutConfig layout = m_config.dashboard_layout;
     DashboardLayout::Sanitize(layout);
@@ -2683,6 +2764,13 @@ std::string RmlUiController::RenderSettingsTroubleshooting() {
 }
 
 void RmlUiController::RebuildSettings() {
+    float scrollTop = 0.0f;
+    if (auto* root = Root("settings-root")) {
+        if (auto* page = root->QuerySelector(".settings-page");
+            page && page->GetAttribute<int>("data-page", -1) == static_cast<int>(m_settingsPage)) {
+            scrollTop = page->GetScrollTop();
+        }
+    }
     std::ostringstream content;
     switch (m_settingsPage) {
     case SettingsPage::General:
@@ -2729,7 +2817,7 @@ void RmlUiController::RebuildSettings() {
     const float settingsTopDp = m_settingsY / std::max(rmlScale, 0.01f);
 
     std::ostringstream out;
-    out << "<div class='modal-backdrop'><div class='settings-window' style='left:" << settingsLeftDp
+    out << "<div class='settings-window' style='left:" << settingsLeftDp
         << "dp;top:" << settingsTopDp << "dp'><div class='settings-header row' data-action='settings-drag'>"
         << "<div class='grow'><div class='brand-title'>Settings</div><div class='label'>Changes apply automatically.</div></div>";
     if (m_state && m_state->ui.updateAvailable.load()) {
@@ -2750,10 +2838,10 @@ void RmlUiController::RebuildSettings() {
         const auto page = static_cast<SettingsPage>(i);
         out << "<button class='" << (page == m_settingsPage ? "active" : "") << "' data-action='settings-page' data-page='" << i << "'>" << SettingsPageName(page) << "</button>";
     }
-    out << "</div><div class='settings-page'>" << content.str() << "</div></div><div class='settings-footer'>" << Button("help-discord", "Help / Discord", "ghost") << Button("close-settings", "Done", "primary") << "</div></div></div>";
+    out << "</div><div class='settings-page' data-page='" << static_cast<int>(m_settingsPage) << "'>" << content.str() << "</div></div><div class='settings-footer'>" << Button("help-discord", "Help / Discord", "ghost") << Button("close-settings", "Done", "primary") << "</div></div>";
 
     if (m_confirmReplayUploads) {
-        out << "<div class='modal-backdrop'><div class='card privacy-dialog'><div class='card-title'>Replay Upload Privacy Warning</div>"
+        out << "<div class='confirm-backdrop'><div class='card privacy-dialog'><div class='card-title'>Replay Upload Privacy Warning</div>"
             << "<div class='setting-help'>Rocket League replay files can include player names, platform IDs, match timestamps, teams, scores, gameplay events, and other participants in the match.</div>"
             << "<div class='setting-help' style='margin-top:8dp'>Only enable this if you understand that replay data leaves your PC and is handled by Ballchasing under its own terms and privacy policy.</div>"
             << "<div class='setting-help' style='margin-top:8dp'>Current visibility: <b>" << Escape(m_config.ballchasing_visibility) << "</b></div>";
@@ -2761,9 +2849,15 @@ void RmlUiController::RebuildSettings() {
         out << "<div class='row gap-sm' style='margin-top:12dp'>" << Button("confirm-replay-upload", "Enable Replay Uploads", "primary") << Button("cancel-replay-upload", "Cancel", "ghost") << "</div></div></div>";
     }
     if (m_confirmDeleteHistory) {
-        out << "<div class='modal-backdrop'><div class='card' style='width:470dp'><div class='card-title loss'>Delete local history and saved identity?</div><div class='setting-help'>This removes local match history and your selected account identity. Settings and service tokens are kept. This cannot be undone.</div><div class='row gap-sm' style='margin-top:12dp'>" << Button("confirm-delete-history", "Delete", "danger") << Button("cancel-delete-history", "Cancel", "ghost") << "</div></div></div>";
+        out << "<div class='confirm-backdrop'><div class='card' style='width:470dp'><div class='card-title loss'>Delete local history and saved identity?</div><div class='setting-help'>This removes local match history and your selected account identity. Settings and service tokens are kept. This cannot be undone.</div><div class='row gap-sm' style='margin-top:12dp'>" << Button("confirm-delete-history", "Delete", "danger") << Button("cancel-delete-history", "Cancel", "ghost") << "</div></div></div>";
     }
     SetRootRml("settings-root", out.str());
+    if (scrollTop > 0.0f && m_document) {
+        m_document->UpdateDocument();
+        if (auto* root = Root("settings-root")) {
+            if (auto* page = root->QuerySelector(".settings-page")) page->SetScrollTop(scrollTop);
+        }
+    }
 }
 
 void RmlUiController::RebuildToast() {
@@ -2797,12 +2891,15 @@ void RmlUiController::ProcessEvent(Rml::Event& event) {
     Rml::Element* target = event.GetTargetElement();
     if (!target) return;
     const std::string type = event.GetType().c_str();
+    if (type == "mousedown") m_pointerPressed = true;
     if (type == "click")
         HandleClick(target);
     else if (type == "change")
         HandleChange(target, event);
     else if (type == "input")
         HandleInput(target);
+    else if (type == "blur" && Attribute(target, "data-setting") == "statsapi_path")
+        HandleChange(target, event);
     else if (type == "mousedown")
         HandleMouseDown(target, event);
     else if (type == "mousemove")
@@ -3027,9 +3124,8 @@ void RmlUiController::HandleInput(Rml::Element* target) {
     const std::string key = Attribute(target, "data-setting");
     if (key.empty()) return;
 
-    // RmlUi fires `input` on every text edit. Do not rebuild the settings DOM
-    // here: doing so would replace the focused control after every keystroke.
-    // Commit/check side effects still happen on the later `change` event.
+    // RmlUi text and range controls emit change events during editing.
+    // Update their values without replacing the focused control.
     const std::string value = ControlValue(target);
     bool themeChanged = false;
     auto parseColor = [](std::string text, ColorRGBA& out) {
@@ -3057,8 +3153,7 @@ void RmlUiController::HandleInput(Rml::Element* target) {
     } else if (key == "custom_api_key") {
         Config::Update([&](ConfigData& c) { c.custom_api_key = value; });
     } else if (key == "statsapi_path") {
-        // The old settings UI validated this field before persistence. Keep the
-        // in-progress edit local to RmlUi and validate it on the `change` event.
+        // Validate the completed path on blur, not after each character.
         return;
     } else if (key.rfind("theme_", 0) == 0) {
         std::string_view componentColorKey;
@@ -3087,6 +3182,11 @@ void RmlUiController::HandleInput(Rml::Element* target) {
 void RmlUiController::HandleChange(Rml::Element* target, Rml::Event& event) {
     const std::string key = Attribute(target, "data-setting");
     if (key.empty()) return;
+    if (event.GetType() != "blur" &&
+        (key == "ballchasing_token" || key == "custom_api_key" || key == "statsapi_path" || key.rfind("theme_", 0) == 0)) {
+        HandleInput(target);
+        return;
+    }
     std::string value = ControlValue(target);
     const bool checked = EventChecked(event, target);
 
@@ -3477,9 +3577,23 @@ void RmlUiController::UpdateInputCapture() {
 }
 
 void RmlUiController::HandleMouseDown(Rml::Element* target, Rml::Event& event) {
+    if (target) {
+        std::string tag = target->GetTagName();
+        std::string targetAction = Attribute(target, "data-action");
+        if (tag == "button" || targetAction == "overlay-remove-widget" || targetAction == "overlay-remove-container") {
+            return;
+        }
+    }
+
+    auto isDragAction = [](const std::string& a) {
+        return a == "dashboard-drag" || a == "overlay-toolbox-drag" ||
+               a == "overlay-widget-drag" || a == "settings-drag" ||
+               a == "overlay-drag" || a == "overlay-resize";
+    };
+
     Rml::Element* actionElement = target;
     std::string action = Attribute(actionElement, "data-action");
-    while (action.empty() && actionElement && actionElement->GetParentNode()) {
+    while (!isDragAction(action) && actionElement && actionElement->GetParentNode()) {
         actionElement = actionElement->GetParentNode();
         action = Attribute(actionElement, "data-action");
     }
@@ -3489,12 +3603,14 @@ void RmlUiController::HandleMouseDown(Rml::Element* target, Rml::Event& event) {
         m_drag.widget = WidgetFromDom(Attribute(actionElement, "data-widget"));
         m_drag.startMouseX = event.GetParameter<float>("mouse_x", 0.0f);
         m_drag.startMouseY = event.GetParameter<float>("mouse_y", 0.0f);
+        m_systemInterface.LockCursor("move");
     } else if (action == "overlay-toolbox-drag") {
         m_drag = {};
         m_drag.kind = DragKind::OverlayToolboxWidget;
         m_drag.widget = WidgetFromDom(Attribute(actionElement, "data-widget"));
         m_drag.startMouseX = event.GetParameter<float>("mouse_x", 0.0f);
         m_drag.startMouseY = event.GetParameter<float>("mouse_y", 0.0f);
+        m_systemInterface.LockCursor("move");
     } else if (action == "overlay-widget-drag") {
         m_drag = {};
         m_drag.kind = DragKind::OverlayWidget;
@@ -3502,6 +3618,7 @@ void RmlUiController::HandleMouseDown(Rml::Element* target, Rml::Event& event) {
         m_drag.sourceContainerId = Attribute(actionElement, "data-container");
         m_drag.startMouseX = event.GetParameter<float>("mouse_x", 0.0f);
         m_drag.startMouseY = event.GetParameter<float>("mouse_y", 0.0f);
+        m_systemInterface.LockCursor("move");
     } else if (action == "settings-drag") {
         const float rmlScale = SanitizedScale(m_dpiScale) * SanitizedUiScale(m_config.ui_scale);
         const float logicalWidth = static_cast<float>(m_width) / std::max(rmlScale, 0.01f);
@@ -3523,6 +3640,7 @@ void RmlUiController::HandleMouseDown(Rml::Element* target, Rml::Event& event) {
         m_drag.startY = m_settingsY;
         m_drag.startW = settingsWidth;
         m_drag.startH = settingsHeight;
+        m_systemInterface.LockCursor("move");
     } else if (action == "overlay-drag" || action == "overlay-resize") {
         const std::string id = Attribute(actionElement, "data-container");
         auto it = std::find_if(m_config.overlay_layout.containers.begin(), m_config.overlay_layout.containers.end(), [&](const auto& c) { return c.id == id; });
@@ -3538,6 +3656,7 @@ void RmlUiController::HandleMouseDown(Rml::Element* target, Rml::Event& event) {
         const auto [resolvedWidth, resolvedHeight] = OverlayContainerSize(*it, m_dpiScale);
         m_drag.startW = resolvedWidth;
         m_drag.startH = resolvedHeight;
+        m_systemInterface.LockCursor(action == "overlay-resize" ? "resize" : "move");
     }
 }
 
@@ -3650,9 +3769,11 @@ void RmlUiController::HandleMouseMove(Rml::Event& event) {
         if (auto* element = root->QuerySelector(selector)) {
             element->SetProperty("left", std::to_string(toDp(it->x)) + "dp");
             element->SetProperty("top", std::to_string(toDp(it->y)) + "dp");
-            const auto [resolvedWidth, resolvedHeight] = OverlayContainerSize(*it, m_dpiScale);
-            element->SetProperty("width", std::to_string(toDp(resolvedWidth)) + "dp");
-            element->SetProperty("min-height", std::to_string(toDp(resolvedHeight)) + "dp");
+            if (m_drag.kind == DragKind::OverlayResize) {
+                const auto [resolvedWidth, resolvedHeight] = OverlayContainerSize(*it, m_dpiScale);
+                element->SetProperty("width", std::to_string(toDp(resolvedWidth)) + "dp");
+                element->SetProperty("min-height", std::to_string(toDp(resolvedHeight)) + "dp");
+            }
         }
         if (auto* guide = root->QuerySelector("#overlay-snap-x")) {
             guide->SetProperty("display", xSnap.snapped ? "block" : "none");
@@ -3665,6 +3786,7 @@ void RmlUiController::HandleMouseMove(Rml::Event& event) {
     }
 }
 void RmlUiController::HandleMouseUp(Rml::Event& event) {
+    m_systemInterface.UnlockCursor();
     const float mouseX = event.GetParameter<float>("mouse_x", 0.0f);
     const float mouseY = event.GetParameter<float>("mouse_y", 0.0f);
     if (auto* root = Root("overlay-root")) {
@@ -3842,6 +3964,7 @@ void RmlUiController::HandleMouseUp(Rml::Event& event) {
         RebuildOverlay();
     }
     m_drag = {};
+    m_pointerPressed = false;
 }
 
 void RmlUiController::MoveDashboardWidget(DashboardLayout::WidgetId widget, DashboardLayout::Zone zone, int insertIndex) {

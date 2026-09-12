@@ -56,6 +56,7 @@ void RmlSystemInterfaceWin32::JoinPath(Rml::String& out, const Rml::String& docu
 }
 
 void RmlSystemInterfaceWin32::SetMouseCursor(const Rml::String& cursorName) {
+    if (m_cursorLocked) return;
     HCURSOR cursor = LoadCursor(nullptr, IDC_ARROW);
     if (cursorName == "pointer")
         cursor = LoadCursor(nullptr, IDC_HAND);
@@ -83,6 +84,25 @@ bool RmlSystemInterfaceWin32::ApplyMouseCursor() {
     if (!m_mouseCursor) return false;
     SetCursor(m_mouseCursor);
     return true;
+}
+
+void RmlSystemInterfaceWin32::LockCursor(const char* cursorName) {
+    m_cursorLocked = true;
+    if (cursorName) {
+        if (std::strcmp(cursorName, "move") == 0)
+            m_mouseCursor = LoadCursor(nullptr, IDC_SIZEALL);
+        else if (std::strcmp(cursorName, "resize") == 0)
+            m_mouseCursor = LoadCursor(nullptr, IDC_SIZENWSE);
+        else
+            m_mouseCursor = LoadCursor(nullptr, IDC_ARROW);
+        ApplyMouseCursor();
+    }
+}
+
+void RmlSystemInterfaceWin32::UnlockCursor() {
+    m_cursorLocked = false;
+    m_mouseCursor = LoadCursor(nullptr, IDC_ARROW);
+    ApplyMouseCursor();
 }
 
 void RmlSystemInterfaceWin32::SetClipboardText(const Rml::String& text) {

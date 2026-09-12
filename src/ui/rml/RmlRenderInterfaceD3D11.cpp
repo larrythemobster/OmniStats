@@ -40,6 +40,7 @@ namespace {
         if (auto value = mapIndexed("Divisions", "RANK_DIVISION_"); !value.empty()) return value;
         if (auto value = mapIndexed("Playlists", "RANK_PLAYLIST_"); !value.empty()) return value;
         if (source == "Logo.png") return "LOGO_PNG";
+        if (source == "chevron.png") return "UI_CHEVRON";
         return {};
     }
 
@@ -186,6 +187,10 @@ void RmlRenderInterfaceD3D11::Shutdown() {
     m_vertexShader.Reset();
     m_device = nullptr;
     m_context = nullptr;
+    m_scissorEnabled = false;
+    m_scissor = {0, 0, 1, 1};
+    m_hasTransform = false;
+    m_transform = Rml::Matrix4f::Identity();
     if (m_gdiplusToken) {
         Gdiplus::GdiplusShutdown(m_gdiplusToken);
         m_gdiplusToken = 0;
@@ -420,7 +425,21 @@ bool RmlRenderInterfaceD3D11::LoadEmbeddedPng(const std::string& source, Rml::Te
     if (resourceName.empty()) return false;
     HMODULE module = GetModuleHandleW(nullptr);
     HRSRC resource = FindResourceA(module, resourceName.c_str(), RT_RCDATA);
-    if (!resource) return false;
+    if (!resource) {
+        // Fallback to disk for tests or unpacked runs without Windows RC resources
+        std::string subPath = source;
+        constexpr const char* prefix = "res://images/";
+        if (subPath.rfind(prefix, 0) == 0) subPath.erase(0, std::strlen(prefix));
+        const std::string relPath = (subPath == "Logo.png") ? "resources/Logo.png" : ("resources/images/" + subPath);
+        std::vector<std::string> candidates = {relPath};
+#ifdef OMNISTATS_SOURCE_DIR
+        candidates.push_back(std::string(OMNISTATS_SOURCE_DIR) + "/" + relPath);
+#endif
+        for (const auto& candidate : candidates) {
+            if (LoadDiskPng(candidate, handle, dimensions)) return true;
+        }
+        return false;
+    }
     HGLOBAL loaded = LoadResource(module, resource);
     const void* bytes = loaded ? LockResource(loaded) : nullptr;
     const DWORD size = loaded ? SizeofResource(module, resource) : 0;

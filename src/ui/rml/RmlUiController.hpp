@@ -143,10 +143,10 @@ class RmlUiController final : public Rml::EventListener {
     std::string RenderSessionStats(bool compact = false, bool includeStreak = true);
     std::string RenderStreaksStats();
     std::string RenderGamemodeBreakdown(GamemodeBreakdownScope scope);
-    std::string RenderMmrGraph();
-    std::string RenderLobbyRanks();
+    std::string RenderMmrGraph(bool showCategoryBadge = true);
     std::string RenderDemoTracker();
-    std::string RenderPreviousGames();
+    std::string RenderPreviousGames(bool includeHeading = true);
+    std::string RenderLobbyRanks();
     std::string RenderMatchSummary();
     std::string RenderSessionView();
     std::string RenderOverlayContainer(const OverlayLayout::ContainerConfig& container, bool editMode);
@@ -247,6 +247,7 @@ class RmlUiController final : public Rml::EventListener {
     bool m_confirmDeleteHistory = false;
     bool m_showUpdatePrompt = false;
     DragState m_drag;
+    bool m_pointerPressed = false;
     std::string m_pendingBallchasingToken;
     std::string m_statsApiPathError;
     std::string m_statusMessage;

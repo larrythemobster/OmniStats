@@ -10,7 +10,7 @@ TEST(StatsClientTest, Lifecycle) {
     auto state = std::make_shared<SessionState>();
     auto fetcher = std::make_shared<MMRFetcher>(state);
     auto db = std::make_shared<DatabaseManager>(state);
-    db->Initialize(":memory:");
+    ASSERT_TRUE(db->Initialize(":memory:"));
 
     StatsClient client(state, fetcher, db);
 
@@ -32,7 +32,7 @@ TEST(StatsClientTest, MatchEndNonBlockingAndDiscordPush) {
     auto state = std::make_shared<SessionState>();
     auto fetcher = std::make_shared<MMRFetcher>(state);
     auto db = std::make_shared<DatabaseManager>(state);
-    db->Initialize(":memory:");
+    ASSERT_TRUE(db->Initialize(":memory:"));
 
     auto discord = std::make_shared<MockDiscordManager>(state);
 
@@ -71,7 +71,7 @@ TEST(StatsClientTest, DisconnectClearsDiscordPresence) {
     auto state = std::make_shared<SessionState>();
     auto fetcher = std::make_shared<MMRFetcher>(state);
     auto db = std::make_shared<DatabaseManager>(state);
-    db->Initialize(":memory:");
+    ASSERT_TRUE(db->Initialize(":memory:"));
 
     auto discord = std::make_shared<MockDiscordManager>(state);
 

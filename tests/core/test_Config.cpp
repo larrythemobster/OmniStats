@@ -70,6 +70,14 @@ TEST_F(ConfigTest, PersistsSettingsPanelThemeColor) {
     EXPECT_FLOAT_EQ(actual.a, expected.a);
 }
 
+TEST_F(ConfigTest, PersistsDisabledStatsApiStartupCheck) {
+    Config::Update([](ConfigData& c) { c.check_stats_api_config_on_startup = false; });
+    Config::Save();
+    Config::Update([](ConfigData& c) { c.check_stats_api_config_on_startup = true; }, false);
+    Config::Load();
+    EXPECT_FALSE(Config::Read().check_stats_api_config_on_startup);
+}
+
 TEST_F(ConfigTest, ConcurrencyReadUpdate) {
     std::atomic<bool> start{false};
     std::atomic<int> completed{0};

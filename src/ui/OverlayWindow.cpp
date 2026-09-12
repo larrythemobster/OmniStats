@@ -79,8 +79,8 @@ void OverlayWindow::Destroy() {
 void OverlayWindow::UpdateStyle(bool secondMonitorMode, bool showMenu) {
     if (!m_hwnd) return;
 
-    LONG style = GetWindowLong(m_hwnd, GWL_STYLE);
-    LONG exStyle = GetWindowLong(m_hwnd, GWL_EXSTYLE);
+    LONG style = GetWindowLongW(m_hwnd, GWL_STYLE);
+    LONG exStyle = GetWindowLongW(m_hwnd, GWL_EXSTYLE);
 
     if (secondMonitorMode) {
         style &= ~WS_POPUP;
@@ -89,8 +89,8 @@ void OverlayWindow::UpdateStyle(bool secondMonitorMode, bool showMenu) {
         exStyle &= ~WS_EX_TOPMOST;
         exStyle &= ~WS_EX_TRANSPARENT;
         exStyle &= ~WS_EX_TOOLWINDOW;
+        exStyle &= ~WS_EX_LAYERED;
         exStyle |= WS_EX_APPWINDOW;
-
         BOOL useDarkMode = TRUE;
         DwmSetWindowAttribute(m_hwnd, 20, &useDarkMode, sizeof(useDarkMode));
         m_frameExtended = false;
@@ -113,8 +113,8 @@ void OverlayWindow::UpdateStyle(bool secondMonitorMode, bool showMenu) {
         DwmSetWindowAttribute(m_hwnd, 20, &useDarkMode, sizeof(useDarkMode));
     }
 
-    SetWindowLong(m_hwnd, GWL_STYLE, style);
-    SetWindowLong(m_hwnd, GWL_EXSTYLE, exStyle);
+    SetWindowLongW(m_hwnd, GWL_STYLE, style);
+    SetWindowLongW(m_hwnd, GWL_EXSTYLE, exStyle);
 
     if (!secondMonitorMode) {
         SetLayeredWindowAttributes(m_hwnd, RGB(0, 0, 0), 255, LWA_ALPHA);

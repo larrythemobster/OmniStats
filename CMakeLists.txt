@@ -376,8 +376,14 @@ if(BUILD_TESTING)
             ole32.lib
         )
         if(MSVC)
-            target_compile_options(OmniStatsFuzzer PRIVATE /fsanitize=fuzzer)
-            target_link_options(OmniStatsFuzzer PRIVATE /fsanitize=fuzzer)
+            # Only clang-cl implements libFuzzer on Windows. Plain cl.exe ignores
+            # the flag and links an executable without a fuzzing entry point,
+            # which then hangs instead of fuzzing.
+            if(NOT CMAKE_CXX_COMPILER_FRONTEND_VARIANT STREQUAL "MSVC" OR NOT CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
+                message(FATAL_ERROR "OMNISTATS_BUILD_FUZZER requires clang-cl on Windows: configure with -T ClangCL or -DCMAKE_CXX_COMPILER=clang-cl.")
+            endif()
+            target_compile_options(OmniStatsFuzzer PRIVATE /fsanitize=fuzzer,address)
+            target_link_options(OmniStatsFuzzer PRIVATE /fsanitize=fuzzer,address)
         endif()
     endif()
 endif()

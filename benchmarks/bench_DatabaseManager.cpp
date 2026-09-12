@@ -10,7 +10,7 @@ static void BM_SingleInserts(benchmark::State& state) {
     auto dbManager = std::make_shared<DatabaseManager>(session);
     std::string db_path = "bench_single.db";
     std::filesystem::remove(db_path);
-    dbManager->Initialize(db_path);
+    (void)dbManager->Initialize(db_path);
     sqlite3* db = dbManager->GetRawDb();
 
     for (auto _ : state) {
@@ -29,7 +29,7 @@ static void BM_BatchInserts(benchmark::State& state) {
     auto dbManager = std::make_shared<DatabaseManager>(session);
     std::string db_path = "bench_batch.db";
     std::filesystem::remove(db_path);
-    dbManager->Initialize(db_path);
+    (void)dbManager->Initialize(db_path);
     sqlite3* db = dbManager->GetRawDb();
 
     for (auto _ : state) {
@@ -50,7 +50,7 @@ static void BM_QueryMmrHistory(benchmark::State& state) {
     auto dbManager = std::make_shared<DatabaseManager>(session);
     std::string db_path = "bench_query.db";
     std::filesystem::remove(db_path);
-    dbManager->Initialize(db_path);
+    (void)dbManager->Initialize(db_path);
     sqlite3* db = dbManager->GetRawDb();
 
     // Seed the benchmark with representative match rows

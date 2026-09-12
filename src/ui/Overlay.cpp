@@ -11,6 +11,7 @@
 #include "core/InputManager.hpp"
 #include "ui/WindowUtils.hpp"
 #include "ui/rml/RmlUiController.hpp"
+#include <timeapi.h>
 
 #pragma comment(lib, "dwmapi.lib")
 #pragma comment(lib, "shell32.lib")
@@ -22,10 +23,13 @@ namespace {
         switch (msg) {
         case WM_LBUTTONDOWN:
         case WM_LBUTTONUP:
+        case WM_LBUTTONDBLCLK:
         case WM_RBUTTONDOWN:
         case WM_RBUTTONUP:
+        case WM_RBUTTONDBLCLK:
         case WM_MBUTTONDOWN:
         case WM_MBUTTONUP:
+        case WM_MBUTTONDBLCLK:
         case WM_MOUSEMOVE:
         case WM_MOUSELEAVE:
         case WM_MOUSEWHEEL:
@@ -104,16 +108,17 @@ LRESULT WINAPI WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                 GetClientRect(hWnd, &rect);
                 const int width = rect.right - rect.left;
                 const int height = rect.bottom - rect.top;
-                const int borderSize = static_cast<int>(8.0f * overlay->m_dpiScale);
-                if (pt.x <= borderSize && pt.y <= borderSize) return HTTOPLEFT;
-                if (pt.x >= width - borderSize && pt.y <= borderSize) return HTTOPRIGHT;
-                if (pt.x <= borderSize && pt.y >= height - borderSize) return HTBOTTOMLEFT;
-                if (pt.x >= width - borderSize && pt.y >= height - borderSize) return HTBOTTOMRIGHT;
-                if (pt.x <= borderSize) return HTLEFT;
-                if (pt.x >= width - borderSize) return HTRIGHT;
-                if (pt.y <= borderSize) return HTTOP;
-                if (pt.y >= height - borderSize) return HTBOTTOM;
-
+                if (!IsZoomed(hWnd)) {
+                    const int borderSize = static_cast<int>(8.0f * overlay->m_dpiScale);
+                    if (pt.x <= borderSize && pt.y <= borderSize) return HTTOPLEFT;
+                    if (pt.x >= width - borderSize && pt.y <= borderSize) return HTTOPRIGHT;
+                    if (pt.x <= borderSize && pt.y >= height - borderSize) return HTBOTTOMLEFT;
+                    if (pt.x >= width - borderSize && pt.y >= height - borderSize) return HTBOTTOMRIGHT;
+                    if (pt.x <= borderSize) return HTLEFT;
+                    if (pt.x >= width - borderSize) return HTRIGHT;
+                    if (pt.y <= borderSize) return HTTOP;
+                    if (pt.y >= height - borderSize) return HTBOTTOM;
+                }
                 const int titleBarHeight = static_cast<int>(44.0f * overlay->m_dpiScale);
                 const int controlsWidth = static_cast<int>(520.0f * overlay->m_dpiScale);
                 if (pt.y >= 0 && pt.y <= titleBarHeight) {
@@ -206,6 +211,7 @@ bool Overlay::Initialize() {
         return false;
     }
 
+    timeBeginPeriod(1);
     ShowWindow(m_hwnd, SW_SHOWDEFAULT);
     UpdateWindow(m_hwnd);
     return true;
@@ -401,7 +407,7 @@ void Overlay::RunLoop() {
             std::cout << "[D3D11] Present failed: 0x" << std::hex << presentHr << std::dec << "\n";
         }
 
-        if (!m_frameConfig.vsync && m_frameConfig.overlay_fps_cap > 0) {
+        if (!m_frameConfig.vsync && m_frameConfig.overlay_fps_cap > 0 && !needsInteract) {
             const auto now = std::chrono::steady_clock::now();
             const auto targetDuration = std::chrono::duration<double, std::milli>(1000.0 / m_frameConfig.overlay_fps_cap);
             const auto elapsed = std::chrono::duration<double, std::milli>(now - lastFrameTime);
@@ -412,6 +418,7 @@ void Overlay::RunLoop() {
 }
 
 void Overlay::Shutdown() {
+    timeEndPeriod(1);
     if (m_rmlUi) {
         m_rmlUi->Shutdown();
         m_rmlUi.reset();
@@ -470,15 +477,19 @@ void Overlay::HandleDpiChanged(UINT dpi, const RECT* suggestedRect) {
     const ConfigData config = Config::Read();
     const bool keepSecondMonitorBounds = config.second_monitor_mode && m_hwnd &&
                                          MonitorFromWindow(m_hwnd, MONITOR_DEFAULTTONULL) != nullptr;
-    if (suggestedRect && m_hwnd && !keepSecondMonitorBounds) {
+    if (suggestedRect && m_hwnd) {
         SetWindowPos(m_hwnd, nullptr,
                      suggestedRect->left, suggestedRect->top,
                      suggestedRect->right - suggestedRect->left,
                      suggestedRect->bottom - suggestedRect->top,
                      SWP_NOZORDER | SWP_NOACTIVATE);
+        if (config.second_monitor_mode) {
+            SaveSecondMonitorWindowBounds();
+        }
+    } else {
+        UpdateWindowPosition(!keepSecondMonitorBounds);
     }
     if (m_rmlUi) m_rmlUi->SetDpiScale(m_dpiScale);
-    UpdateWindowPosition(!keepSecondMonitorBounds);
 }
 
 void Overlay::ResizeSwapChain(int width, int height) {

@@ -23,10 +23,14 @@ TEST(WindowUtils, ComputeWindowStyles_Overlay) {
 }
 
 TEST(WindowUtils, ComputeWindowStyles_SecondMonitor) {
-    LONG style = WS_POPUP, ex = 0;
+    LONG style = WS_POPUP, ex = WS_EX_LAYERED | WS_EX_TOPMOST | WS_EX_TRANSPARENT | WS_EX_TOOLWINDOW;
     ComputeWindowStyles(true, true, style, ex);
     EXPECT_TRUE((style & WS_OVERLAPPEDWINDOW) != 0);
     EXPECT_TRUE((ex & WS_EX_APPWINDOW) != 0);
+    EXPECT_EQ(ex & WS_EX_LAYERED, 0);
+    EXPECT_EQ(ex & WS_EX_TOPMOST, 0);
+    EXPECT_EQ(ex & WS_EX_TRANSPARENT, 0);
+    EXPECT_EQ(ex & WS_EX_TOOLWINDOW, 0);
 }
 
 TEST(WindowUtils, ShouldRaiseSecondMonitorWindow_TriggersOnlyOnTransition) {

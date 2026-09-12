@@ -24,9 +24,9 @@ body {
 .hidden { display: none; }
 
 .card {
-    background-color: #0d0f14ed;
-    border: 1dp #2b303d;
-    border-radius: 8dp;
+    background-color: #0d0f14fa;
+    border: 1dp #22263080;
+    border-radius: 12dp;
     padding: 8dp 10dp;
     color: #eef1f5;
 }
@@ -139,32 +139,35 @@ div.value { display: block; }
     display: flex;
     flex-direction: row;
     align-items: center;
-    min-height: 38dp;
-    margin-top: 3dp;
-    padding: 5dp 7dp;
-    border: 1dp #24293688;
-    border-radius: 5dp;
-    background-color: #0b0e13a8;
+    min-height: 48dp;
+    padding: 6dp 4dp;
+    border-top: 1dp #24293644;
+    background-color: transparent;
 }
-.player-row.self { background-color: #141923cc; border-color: #343b49; }
+.player-row.self { background-color: #ffffff0a; }
 .player-name {
     flex-grow: 1;
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    font-size: 11dp;
-    line-height: 1.2;
+    flex-shrink: 0;
+    min-width: 140dp;
+    width: 0;
+    font-size: 13dp;
+    line-height: 1.25;
     padding-right: 6dp;
 }
-.player-name > .value { display: inline-block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; vertical-align: middle; }
-.player-name .label { display: block; margin-top: 3dp; font-size: 9dp; line-height: 1.15; }
+.player-name > .value { display: block; width: 100%; white-space: normal; word-break: break-all; }
+.player-name .label { display: block; margin-top: 3dp; font-size: 10dp; line-height: 1.25; }
 .player-link { cursor: pointer; }
-.player-rank { width: 84dp; flex-shrink: 0; text-align: right; font-size: 10dp; line-height: 1.1; }
-.player-rank.icon-mode { width: 62dp; color: #707987; }
-.player-rank.icon-mode .rank-matches { text-align: right; }
-.player-mmr { width: 48dp; flex-shrink: 0; text-align: right; font-family: "Consolas"; font-size: 11dp; font-weight: 700; }
-
+.player-rank { width: 92dp; flex-shrink: 0; text-align: right; font-size: 11dp; line-height: 1.2; padding-right: 8dp; }
+.player-rank.icon-mode { width: 58dp; color: #8f99a8; font-size: 10dp; }
+.player-rank > div { display: block; }
+.player-mmr {
+    width: 72dp;
+    flex-shrink: 0;
+    text-align: right;
+    font-family: "Consolas";
+}
+.player-mmr-value { display: block; font-size: 13dp; font-weight: 700; line-height: 1.2; }
+.player-mmr .rank-matches { text-align: right; font-size: 9dp; margin-top: 2dp; }
 /* Compact lobby table. Fixed playlist columns match the legacy overlay and
    keep the player identity column from collapsing when five or more ranks are
    enabled. */
@@ -172,17 +175,15 @@ div.value { display: block; }
 .lobby-rank-row .player-name {
     flex-grow: 0;
     flex-shrink: 0;
-    width: 176dp;
-    min-width: 176dp;
+    width: 190dp;
+    min-width: 190dp;
     padding-right: 10dp;
-    overflow: hidden;
     white-space: normal;
 }
 .lobby-rank-row .player-name > .value {
     display: block;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    white-space: normal;
+    word-break: break-all;
 }
 .lobby-rank-row .player-name .label {
     display: block;
@@ -197,8 +198,8 @@ div.value { display: block; }
     justify-content: center;
     flex-grow: 0;
     flex-shrink: 0;
-    width: 70dp;
-    min-width: 70dp;
+    width: 84dp;
+    min-width: 84dp;
     padding: 0 5dp;
     text-align: center;
     font-size: 9dp;
@@ -211,8 +212,17 @@ div.value { display: block; }
 .lobby-rank-header .player-name { display: flex; align-items: center; }
 .rank-icon { width: 30dp; height: 20dp; margin-right: 5dp; }
 
+.lobby-rank-heading { display: block; width: 100%; text-align: center; }
+.lobby-rank-header .player-name .lobby-rank-heading { text-align: left; }
 .overlay-card { position: absolute; pointer-events: none; min-width: 220dp; }
-.overlay-card.interactive { pointer-events: auto; }
+.overlay-card.interactive { pointer-events: auto; cursor: move; }
+.overlay-card.interactive * { cursor: move; }
+.overlay-card.interactive button,
+.overlay-card.interactive a,
+.overlay-card.interactive select,
+.overlay-card.interactive input,
+.overlay-card.interactive .player-link { cursor: pointer; }
+.overlay-card.interactive .overlay-resize { cursor: resize; }
 .overlay-edit {
     border: 1dp #ff0021;
     background-color: #0e1018f8;
@@ -228,11 +238,12 @@ div.value { display: block; }
     position: absolute;
     left: 12dp;
     top: 12dp;
-    width: 36dp;
-    height: 36dp;
-    padding: 0;
+    min-width: 86dp;
+    min-height: 32dp;
+    padding: 4dp 12dp;
     pointer-events: auto;
-    font-size: 18dp;
+    font-size: 12dp;
+    font-weight: 600;
     text-align: center;
     background-color: #263644e6;
     border-color: #34485a;
@@ -241,11 +252,17 @@ div.value { display: block; }
     position: absolute;
     left: 12dp;
     top: 54dp;
-    width: 260dp;
+    width: 280dp;
     max-height: 80%;
     overflow-y: auto;
     pointer-events: auto;
 }
+.overlay-toolbox .col > .row {
+    min-height: 32dp;
+    padding: 4dp 2dp;
+    border-top: 1dp #23283355;
+}
+.overlay-toolbox .col > .row:first-child { border-top: 0; }
 
 .running-indicator {
     position: absolute;
@@ -256,7 +273,7 @@ div.value { display: block; }
     color: #9da6b3;
     background-color: #0d0f14cc;
     border: 1dp #2b303d;
-    border-radius: 5dp;
+    border-radius: 7dp;
 }
 
 .match-summary {
@@ -297,20 +314,23 @@ div.value { display: block; }
 .roster-footer { display: flex; flex-direction: row; justify-content: space-between; gap: 7dp; margin-top: 6dp; padding-top: 5dp; border-top: 1dp #252a3555; color: #8f99a8; font-size: 8dp; }
 .rank-matches { display: block; color: #707987; font-size: 8dp; margin-top: 1dp; }
 .rank-source-icon { width: 10dp; height: 10dp; margin-right: 3dp; vertical-align: middle; }
-.dashboard-content { padding: 12dp; }
-.dashboard-zone-top { width: 100%; margin-bottom: 10dp; }
-.dashboard-columns { display: flex; flex-direction: row; gap: 10dp; align-items: flex-start; }
-.dashboard-column { flex-grow: 1; min-width: 0; }
-.dashboard-widget { margin-bottom: 10dp; pointer-events: auto; }
 .dashboard-widget.dragging { opacity: 0.65; border-color: #ff0021; }
 .dashboard-widget-title { display: flex; flex-direction: row; align-items: center; margin-bottom: 7dp; }
-.dashboard-widget-title .name { flex-grow: 1; font-weight: 700; }
-.dashboard-edit-zone { min-height: 38dp; border: 1dp #ff002166; border-radius: 6dp; padding: 7dp; color: #707987; margin-bottom: 8dp; }
-.dashboard-drop-slot { height: 10dp; margin: -3dp 5dp; border-top: 2dp transparent; }
-.dashboard-drop-slot:hover { border-top-color: #ff0021; }
-.dashboard-drop-slot.end { margin-top: 1dp; margin-bottom: 5dp; }
-.toolbox-draggable { cursor: move; border: 1dp transparent; border-radius: 4dp; padding: 2dp; }
-.toolbox-draggable:hover { border-color: #ffffff22; background-color: #ffffff08; }
+.dashboard-content { padding: 12dp; }
+.dashboard-zone-top { width: 100%; margin-bottom: 10dp; }
+.dashboard-columns { display: flex; flex-direction: row; gap: 12dp; align-items: flex-start; }
+.dashboard-column { flex-grow: 1; flex-shrink: 1; flex-basis: 0; min-width: 0; }
+.dashboard-widget {
+    margin-bottom: 12dp;
+    padding: 11dp 13dp;
+    border: 1dp #272e3a;
+    border-radius: 10dp;
+    pointer-events: auto;
+}
+.lobby-rank-table { display: block; width: 100%; }
+/* Only the fixed-column rank table may scroll sideways; the widget itself must
+   not become a scroll container or its flex children collapse to zero width. */
+.dashboard-widget .lobby-rank-table { overflow-x: auto; }
 .dashboard-hidden { padding: 8dp; border-top: 1dp #2b303d; }
 .dashboard-modal { position: absolute; left: 0; top: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; background-color: #00000070; pointer-events: auto; }
 .update-dialog { width: 470dp; max-width: 92%; background-color: #151820f5; }
@@ -337,14 +357,16 @@ button.window-control { width: 32dp; min-width: 32dp; padding: 3dp; margin-left:
 button:disabled { color: #606978; background-color: #161920; border-color: #242936; cursor: unavailable; }
 
 .modal-layer { pointer-events: none; }
-.modal-backdrop {
+.modal-backdrop { display: none; }
+.confirm-backdrop {
     position: absolute;
     left: 0; top: 0; width: 100%; height: 100%;
-    background-color: #00000070;
+    background-color: #00000088;
     display: flex;
     align-items: center;
     justify-content: center;
     pointer-events: auto;
+    z-index: 100;
 }
 .settings-window {
     position: absolute;
@@ -355,13 +377,15 @@ button:disabled { color: #606978; background-color: #161920; border-color: #2429
     height: 650dp;
     max-height: 92%;
     background-color: #0c0f14fa;
-    border: 1dp #303744;
-    border-radius: 11dp;
+    border: 1dp #2a313d;
+    border-radius: 12dp;
     overflow: hidden;
+    pointer-events: auto;
 }
 .settings-header {
     height: 58dp;
     min-height: 58dp;
+    flex-shrink: 0;
     padding: 11dp 16dp;
     background-color: #11151c;
     border-bottom: 1dp #272d38;
@@ -370,14 +394,16 @@ button:disabled { color: #606978; background-color: #161920; border-color: #2429
 .settings-header button { cursor: pointer; }
 .settings-header > .grow { display: flex; flex-direction: column; justify-content: center; }
 .settings-header .brand-title { font-size: 17dp; }
-.settings-header .label { font-size: 9dp; margin-top: 1dp; }
-.settings-body { display: flex; flex-direction: row; flex-grow: 1; min-height: 0; }
+.settings-header .label { font-size: 11dp; margin-top: 2dp; }
+.settings-body { display: flex; flex-direction: row; flex-grow: 1; height: 0; min-height: 0; }
 .settings-nav {
     width: 152dp;
     min-width: 152dp;
     padding: 11dp 8dp;
     background-color: #0e1117;
     border-right: 1dp #252b35;
+    flex-shrink: 0;
+    overflow-y: auto;
 }
 .settings-nav button {
     display: block;
@@ -390,14 +416,15 @@ button:disabled { color: #606978; background-color: #161920; border-color: #2429
     border-radius: 5dp;
     background-color: transparent;
     color: #939dab;
-    font-size: 11dp;
-    line-height: 1.15;
+    font-size: 13dp;
+    line-height: 1.25;
 }
 .settings-nav button:hover { color: #eef1f5; background-color: #171c24; border-color: #242b37; }
 .settings-nav button.active { border-color: #5d1a25; color: #ffffff; background-color: #251218; }
 .settings-page {
     flex-grow: 1;
     min-width: 0;
+    height: 100%;
     padding: 12dp 14dp 18dp 14dp;
     overflow-y: auto;
     background-color: #0a0d12;
@@ -405,6 +432,7 @@ button:disabled { color: #606978; background-color: #161920; border-color: #2429
 .settings-footer {
     height: 48dp;
     min-height: 48dp;
+    flex-shrink: 0;
     padding: 8dp 13dp;
     border-top: 1dp #272d38;
     background-color: #10141a;
@@ -416,33 +444,32 @@ button:disabled { color: #606978; background-color: #161920; border-color: #2429
 }
 .setting-section {
     display: block;
-    margin-bottom: 10dp;
-    padding: 9dp 11dp;
-    background-color: #11151b;
-    border: 1dp #232a35;
-    border-radius: 7dp;
+    margin-bottom: 14dp;
+    padding: 2dp 0 6dp 0;
+    border-bottom: 1dp #262c3555;
 }
 .setting-title {
     display: block;
     font-weight: 700;
-    font-size: 11dp;
+    font-size: 13dp;
     color: #ff1838;
-    margin-bottom: 5dp;
+    margin-bottom: 6dp;
     line-height: 1.2;
 }
 .setting-row {
     display: flex;
     flex-direction: row;
     align-items: center;
-    min-height: 37dp;
-    padding: 4dp 1dp;
-    border-bottom: 1dp #262c3555;
+    min-height: 42dp;
+    padding: 6dp 0;
+    border-top: 1dp #20253044;
 }
 .setting-info { display: flex; flex-direction: column; justify-content: center; flex-grow: 1; min-width: 0; padding-right: 16dp; }
-.setting-name { display: block; color: #edf1f6; font-size: 11dp; font-weight: 600; line-height: 1.2; }
-.setting-help { display: block; color: #747e8c; font-size: 9dp; line-height: 1.25; margin-top: 2dp; }
+.setting-name { display: block; color: #edf1f6; font-size: 13dp; font-weight: 600; line-height: 1.25; }
+.setting-help { display: block; color: #747e8c; font-size: 11dp; line-height: 1.4; margin-top: 3dp; }
 .settings-page select { min-width: 155dp; max-width: 270dp; }
 .settings-page input.text, .settings-page input.password { min-width: 190dp; max-width: 320dp; }
+.setting-row > input, .setting-row > select, .setting-row > button, .setting-row > .row { flex-shrink: 0; }
 .rank-table { margin-top: 7dp; border: 1dp #2c3240; border-radius: 5dp; overflow: hidden; }
 .rank-table-row { display: flex; flex-direction: row; min-height: 24dp; align-items: center; border-top: 1dp #252a3555; }
 .rank-table-row:first-child { border-top: 0; }
@@ -459,22 +486,39 @@ input.text, input.password, select {
 }
 input.text:focus, input.password:focus, select:focus, select:checked { border-color: #ff0021; }
 
-/* RmlUi intentionally ships form controls without a visual theme. Style the
-   generated control elements here so the native settings UI remains complete
-   without pulling in the sample/demo stylesheets. */
+.toggle-switch {
+    position: relative;
+    display: block;
+    width: 42dp;
+    min-width: 42dp;
+    height: 22dp;
+    margin-left: 10dp;
+}
 input.checkbox {
-    width: 30dp;
-    min-width: 30dp;
-    height: 17dp;
-    margin-left: 8dp;
+    width: 42dp;
+    min-width: 42dp;
+    height: 22dp;
     border: 1dp #454c5a;
-    border-radius: 8dp;
+    border-radius: 11dp;
     background-color: #252a34;
     cursor: pointer;
 }
+.toggle-thumb {
+    position: absolute;
+    left: 4dp;
+    top: 5dp;
+    width: 12dp;
+    height: 12dp;
+    border-radius: 6dp;
+    background-color: #9aa4b2;
+    pointer-events: none;
+    transition: left 0.14s cubic-in-out, background-color 0.14s linear;
+}
 input.checkbox:hover { border-color: #626c7e; background-color: #2f3541; }
 input.checkbox:checked { border-color: #ff2340; background-color: #b5001a; }
+input.checkbox:checked ~ .toggle-thumb { left: 26dp; background-color: #ffffff; }
 input.checkbox:disabled { border-color: #303642; background-color: #1b1f27; cursor: unavailable; opacity: 0.55; }
+input.checkbox:disabled ~ .toggle-thumb { background-color: #4d5564; }
 
 input.range {
     width: 180dp;
@@ -506,20 +550,27 @@ input.range sliderbar {
 }
 input.range sliderbar:hover, input.range sliderbar:active { background-color: #ffffff; }
 
-select { padding: 0; }
+select { padding: 0; position: relative; }
 select selectvalue {
+    width: 100%;
     height: 26dp;
-    padding: 4dp 26dp 4dp 7dp;
+    padding: 4dp 28dp 4dp 7dp;
     color: #eef1f5;
     background-color: #0f1218;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 select selectarrow {
-    width: 22dp;
-    height: 26dp;
-    margin-left: -22dp;
+    position: absolute;
+    right: 1dp;
+    top: 1dp;
+    width: 24dp;
+    height: 24dp;
     border-left: 1dp #343b49;
     background-color: #181d26;
     cursor: pointer;
+    decorator: image(res://images/chevron.png);
 }
 select selectarrow:hover, select:checked selectarrow { background-color: #252c38; }
 select selectbox {
@@ -557,6 +608,7 @@ scrollbarvertical sliderbar {
 }
 scrollbarvertical sliderbar:hover { background-color: #596376dd; }
 scrollbarvertical sliderbar:active { background-color: #ff0021cc; }
+.graph-header { min-height: 28dp; margin-bottom: 6dp; }
 
 scrollbarhorizontal {
     height: 9dp;
@@ -616,8 +668,8 @@ scrollbarcorner { background-color: #0b0e13aa; }
 .match-data.match-even { background-color: #11151a99; }
 .match-data.match-odd { background-color: #090c1099; }
 .match-data:hover { background-color: #1a2028cc; }
-.match-win .match-mode, .match-win .match-score, .match-win .match-mmr, .match-win .match-time { color: #43d926; }
-.match-loss .match-mode, .match-loss .match-score, .match-loss .match-mmr, .match-loss .match-time { color: #ff3030; }
+.match-win { color: #2ecc71; }
+.match-loss { color: #e74c3c; }
 .previous-games-footer {
     display: flex;
     flex-direction: row;
@@ -628,8 +680,8 @@ scrollbarcorner { background-color: #0b0e13aa; }
     padding: 7dp 2dp 1dp 2dp;
     border-top: 1dp #2a303a;
     color: #9da6b3;
-    font-size: 9dp;
-    font-family: "Consolas";
+    font-size: 11dp;
+    font-family: "Segoe UI";
 }
 
 .toast-root { pointer-events: none; }

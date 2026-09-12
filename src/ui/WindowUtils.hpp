@@ -26,6 +26,7 @@ inline void ComputeWindowStyles(bool secondMonitorMode, bool showMenu, LONG& sty
         exStyle &= ~WS_EX_TOPMOST;
         exStyle &= ~WS_EX_TRANSPARENT;
         exStyle &= ~WS_EX_TOOLWINDOW;
+        exStyle &= ~WS_EX_LAYERED;
         exStyle |= WS_EX_APPWINDOW;
     } else {
         style &= ~WS_OVERLAPPEDWINDOW;

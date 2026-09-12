@@ -517,6 +517,7 @@ namespace Config {
         j["use_roman_numerals"] = Current.use_roman_numerals;
         j["use_rank_icons"] = Current.use_rank_icons;
         j["show_extra_playlists"] = Current.show_extra_playlists;
+        j["check_stats_api_config_on_startup"] = Current.check_stats_api_config_on_startup;
         j["rocket_league_stats_api_config_path"] = Current.rocket_league_stats_api_config_path;
         j["custom_api_enabled"] = Current.custom_api_enabled;
         j["custom_api_base_url"] = Current.custom_api_base_url;
