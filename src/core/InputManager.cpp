@@ -463,8 +463,16 @@ LRESULT CALLBACK InputManager::LowLevelKeyboardProc(int nCode, WPARAM wParam,
             }
         }
 
-        if (kb->vkCode == keyMenu && wParam == WM_KEYDOWN) {
-            ToggleSettingsMenu(*st);
+        // Match RegisterHotKey(MOD_NOREPEAT) behavior when the optional legacy
+        // hook is enabled. Holding F5 must never repeatedly create/destroy the
+        // Settings DOM on consecutive key-repeat messages.
+        if (kb->vkCode == keyMenu) {
+            if (wParam == WM_KEYUP || wParam == WM_SYSKEYUP) {
+                self->m_menuKeyDown.store(false, std::memory_order_relaxed);
+            } else if ((wParam == WM_KEYDOWN || wParam == WM_SYSKEYDOWN) &&
+                       !self->m_menuKeyDown.exchange(true, std::memory_order_relaxed)) {
+                ToggleSettingsMenu(*st);
+            }
         }
 
         bool isCtrlDown = (GetAsyncKeyState(VK_CONTROL) & 0x8000) != 0;

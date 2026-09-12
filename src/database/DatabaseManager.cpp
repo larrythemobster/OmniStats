@@ -1104,6 +1104,7 @@ void DatabaseManager::RefreshDbStatsSync(const std::string& primaryId) {
         std::lock_guard<std::mutex> lock(m_state->ui.dbStatsMutex);
         m_state->ui.cachedDbStats = newStats;
         m_state->ui.dbStatsDirty.store(false);
+        m_state->ui.dbStatsVersion.fetch_add(1, std::memory_order_relaxed);
     }
 }
 

@@ -68,6 +68,7 @@ class InputManager {
     std::atomic<bool> m_showExtraPlaylists{true};
 #if OMNISTATS_ENABLE_LOW_LEVEL_HOOK
     std::atomic<bool> m_sessionKeyDown{false};
+    std::atomic<bool> m_menuKeyDown{false};
     static inline HHOOK m_hook = nullptr;
 #endif
     static inline std::atomic<InputManager*> g_instance{nullptr};

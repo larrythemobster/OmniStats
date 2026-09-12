@@ -235,8 +235,9 @@ struct UIState {
     mutable std::mutex dbStatsMutex;
     CachedDbStats cachedDbStats;
     std::atomic<bool> dbStatsDirty{true};
+    std::atomic<uint64_t> dbStatsVersion{1};
 
-    // Input debug/capture state (written by InputManager, read by SettingsPanel)
+    // Input debug/capture state (written by InputManager, read by the UI controller)
     std::atomic<int> lastKeyboardKeyPressed{-1};
     std::atomic<int> lastControllerButtonPressed{-1};
     std::atomic<int> lastRawControllerButtonPressed{-1};

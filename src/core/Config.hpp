@@ -17,7 +17,7 @@
 #include "core/DashboardLayoutConfig.hpp"
 #include "core/OverlayLayoutConfig.hpp"
 
-// Lightweight color struct matching ImVec4 layout — avoids pulling imgui.h into Config
+// Lightweight renderer-independent RGBA color stored in configuration
 struct ColorRGBA {
     float r, g, b, a;
 };

@@ -81,20 +81,20 @@ namespace Format {
         return buf;
     }
 
-    ImVec4 RankColor(const std::string& tier) {
+    ColorRGBA RankColor(const std::string& tier) {
         auto starts = [&](const std::string& prefix) -> bool {
             return tier.rfind(prefix, 0) == 0;
         };
 
-        if (starts("Supersonic")) return ImVec4(1.00f, 0.35f, 0.78f, 1.0f);     // Bright pink/magenta
-        if (starts("Grand Champion")) return ImVec4(0.80f, 0.21f, 0.13f, 1.0f); // GC red
-        if (starts("Champion")) return ImVec4(0.67f, 0.31f, 0.86f, 1.0f);       // Champ purple
-        if (starts("Diamond")) return ImVec4(0.16f, 0.51f, 0.86f, 1.0f);        // Diamond blue
-        if (starts("Platinum")) return ImVec4(0.20f, 0.71f, 0.71f, 1.0f);       // Plat cyan/teal
-        if (starts("Gold")) return ImVec4(0.95f, 0.77f, 0.06f, 1.0f);           // Gold yellow
-        if (starts("Silver")) return ImVec4(0.74f, 0.76f, 0.78f, 1.0f);         // Silver gray
-        if (starts("Bronze")) return ImVec4(0.89f, 0.51f, 0.07f, 1.0f);         // Bronze orange/brown
-        return ImVec4(0.43f, 0.45f, 0.50f, 1.0f);                               // Muted gray for unranked
+        if (starts("Supersonic")) return ColorRGBA{1.00f, 0.35f, 0.78f, 1.0f};     // Bright pink/magenta
+        if (starts("Grand Champion")) return ColorRGBA{0.80f, 0.21f, 0.13f, 1.0f}; // GC red
+        if (starts("Champion")) return ColorRGBA{0.67f, 0.31f, 0.86f, 1.0f};       // Champ purple
+        if (starts("Diamond")) return ColorRGBA{0.16f, 0.51f, 0.86f, 1.0f};        // Diamond blue
+        if (starts("Platinum")) return ColorRGBA{0.20f, 0.71f, 0.71f, 1.0f};       // Plat cyan/teal
+        if (starts("Gold")) return ColorRGBA{0.95f, 0.77f, 0.06f, 1.0f};           // Gold yellow
+        if (starts("Silver")) return ColorRGBA{0.74f, 0.76f, 0.78f, 1.0f};         // Silver gray
+        if (starts("Bronze")) return ColorRGBA{0.89f, 0.51f, 0.07f, 1.0f};         // Bronze orange/brown
+        return ColorRGBA{0.43f, 0.45f, 0.50f, 1.0f};                               // Muted gray for unranked
     }
 
     std::string RankTier(const std::string& tier, bool useRomanNumerals) {
