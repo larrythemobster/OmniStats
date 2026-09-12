@@ -93,6 +93,8 @@ void OverlayWindow::UpdateStyle(bool secondMonitorMode, bool showMenu) {
         exStyle |= WS_EX_APPWINDOW;
         BOOL useDarkMode = TRUE;
         DwmSetWindowAttribute(m_hwnd, 20, &useDarkMode, sizeof(useDarkMode));
+        int cornerPreference = 2; // DWMWCP_ROUND
+        DwmSetWindowAttribute(m_hwnd, 33, &cornerPreference, sizeof(cornerPreference));
         m_frameExtended = false;
 
         SetWindowTextW(m_hwnd, L"OmniStats");
@@ -111,8 +113,9 @@ void OverlayWindow::UpdateStyle(bool secondMonitorMode, bool showMenu) {
 
         BOOL useDarkMode = FALSE;
         DwmSetWindowAttribute(m_hwnd, 20, &useDarkMode, sizeof(useDarkMode));
+        int cornerPreference = 1; // DWMWCP_DONOTROUND
+        DwmSetWindowAttribute(m_hwnd, 33, &cornerPreference, sizeof(cornerPreference));
     }
-
     SetWindowLongW(m_hwnd, GWL_STYLE, style);
     SetWindowLongW(m_hwnd, GWL_EXSTYLE, exStyle);
 

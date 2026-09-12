@@ -1827,6 +1827,8 @@ std::string RmlUiController::RenderPlayerRoster(int team, const char* label) {
             out << Escape(mmr > 0 ? Format::RankTier(tier, m_config.use_roman_numerals) : (p->fetched ? "Unranked" : "Fetching")) << ' ';
         else if (category == "best" && rankSource != "best")
             out << Escape(MmrLabel(StringToMmrCategory(rankSource))) << ' ';
+        else if (category != "best" && !tier.empty() && tier != "Unranked")
+            out << Escape(Format::AbbreviateRank(tier)) << ' ';
         out << (mmr > 0 ? std::to_string(mmr) : (p->fetched ? "-" : "...")) << "</span>";
 
         if (mmr > 0 && matchCount > 0) out << "<span class='chip'>" << matchCount << (matchCount == 1 ? " match" : " matches") << "</span>";
@@ -2751,20 +2753,24 @@ void RmlUiController::RebuildDashboard() {
     else
         updateLabel = updateVersion.empty() ? "Update Available" : "Update Available: v" + updateVersion;
 
-    std::ostringstream out;
-    out << "<div class='dashboard-shell" << (editMode ? " dashboard-edit-active" : "") << "'><div class='dashboard-topbar'><img class='brand-logo' src='res://images/Logo.png'/>"
-        << "<div class='row grow' style='align-items:baseline'><div class='brand-title'>OmniStats <span class='version'>v" << Escape(AppVersion::Current) << "</span></div>"
-        << "<div class='match-status'>" << (m_snap.inMatch ? ("ACTIVE MATCH · " + Escape(m_snap.arenaName)) : "WAITING IN LOBBY") << "</div></div>";
-    if (updateAvailable) out << Button("update-app", Escape(updateLabel), "primary compact");
-    out << Button("dashboard-edit", editMode ? "Done Editing" : "Edit Layout", editMode ? "primary compact" : "ghost compact")
-        << Button("open-settings", "Settings", "ghost compact")
-        << Button("window-minimize", "—", "window-control compact")
-        << Button("window-maximize", "□", "window-control compact")
-        << Button("window-close", "×", "window-control danger compact") << "</div>";
     const bool dashboardHasVisibleWidgets = !zoneWidgets(DashboardLayout::Zone::Top).empty() ||
                                             !zoneWidgets(DashboardLayout::Zone::Left).empty() ||
                                             !zoneWidgets(DashboardLayout::Zone::Right).empty() ||
                                             !zoneWidgets(DashboardLayout::Zone::Bottom).empty();
+    const bool isMaximized = m_hwnd && IsZoomed(m_hwnd);
+    std::ostringstream out;
+    out << "<div class='dashboard-shell" << (editMode ? " dashboard-edit-active" : "")
+        << (isMaximized ? " maximized" : "") << "'><div class='dashboard-topbar'><img class='brand-logo' src='res://images/Logo.png'/>"
+        << "<div class='row grow' style='align-items:center'><div class='brand-title'>OmniStats <span class='version'>v" << Escape(AppVersion::Current) << "</span></div>"
+        << "<div class='match-status'>" << (m_snap.inMatch ? ("ACTIVE MATCH · " + Escape(m_snap.arenaName)) : "WAITING IN LOBBY") << "</div></div>";
+    if (updateAvailable) out << Button("update-app", Escape(updateLabel), "primary compact");
+    out << "<div class='topbar-actions'>"
+        << Button("dashboard-edit", editMode ? "Done Editing" : "Edit Layout", editMode ? "primary compact" : "ghost compact")
+        << Button("open-settings", "Settings", "ghost compact")
+        << "<button class='window-control' data-action='window-minimize'><div class='icon-minimize'></div></button>"
+        << "<button class='window-control' data-action='window-maximize'><div class='" << (isMaximized ? "icon-restore" : "icon-maximize") << "'></div></button>"
+        << "<button class='window-control danger' data-action='window-close'><span class='icon-close'>&times;</span></button>"
+        << "</div></div>";
 
     out << "<div class='dashboard-content'>";
     if (!editMode && !dashboardHasVisibleWidgets) {
