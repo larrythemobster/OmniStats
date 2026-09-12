@@ -553,7 +553,9 @@ namespace {
             size = {340.0f, 210.0f};
             break;
         case DashboardLayout::WidgetId::LobbyRanks:
-            size = {560.0f, 220.0f};
+            // Auto width comes from the per-column minimum below, so this only
+            // has to cover the identity column.
+            size = {240.0f, 220.0f};
             break;
         case DashboardLayout::WidgetId::DemoTracker:
             size = {280.0f, 84.0f};
@@ -2000,11 +2002,12 @@ std::string RmlUiController::RenderLobbyRanks() {
             if (auto it = p->playlistTiers.find(pl.key); it != p->playlistTiers.end()) tier = it->second;
             out << "<div class='lobby-rank-cell tooltip-host' style='color:" << CssColor(Format::RankColor(tier)) << "'>";
             if (mmr > 0) {
-                // One text run per cell. The match count lives in the tooltip:
-                // the compact column has no room for it.
-                out << "<div class='mono'>" << Escape(Format::AbbreviateRank(tier)) << ' ' << mmr
-                    << "</div><span class='tooltip-bubble'>" << Escape(Format::RankTier(tier, m_config.use_roman_numerals))
-                    << " · MMR " << mmr << " · " << matches << " matches</span>";
+                // Rank and MMR share one text run; season games played sit under
+                // it as a smaller second line.
+                out << "<div class='mono'>" << Escape(Format::AbbreviateRank(tier)) << ' ' << mmr << "</div>";
+                if (matches > 0) out << "<div class='lobby-rank-matches'>" << matches << (matches == 1 ? " game" : " games") << "</div>";
+                out << "<span class='tooltip-bubble'>" << Escape(Format::RankTier(tier, m_config.use_roman_numerals))
+                    << " · MMR " << mmr << " · " << matches << " games this season</span>";
             } else {
                 out << "<div>" << (p->fetched ? "-" : "...") << "</div>";
                 if (!p->fetched) out << "<span class='tooltip-bubble'>Fetching rank...</span>";
@@ -2365,7 +2368,8 @@ std::string RmlUiController::RenderOverlayContainer(const OverlayLayout::Contain
         }
         // Keep a protected identity column plus one column per enabled playlist,
         // matching the compact `.lobby-rank-*` metrics in the stylesheet.
-        const float lobbyContentMinDp = 200.0f + 84.0f * static_cast<float>(std::max(rankColumns, 1));
+        // 176dp identity column + its 8dp gutter + the card's horizontal padding.
+        const float lobbyContentMinDp = 216.0f + 84.0f * static_cast<float>(std::max(rankColumns, 1));
         minW = std::max(minW, lobbyContentMinDp * rmlScale);
         w = std::max(w, minW);
     }
@@ -3586,6 +3590,20 @@ void RmlUiController::HandleChange(Rml::Element* target, Rml::Event& event) {
                         styleChanged = true;
                     }
                 }
+            }
+        }
+
+        // The rank table is a fixed-column layout, so enabling or disabling a
+        // playlist changes how much room it needs. Drop the persisted size and
+        // let the container re-fit to the new column count.
+        if (key.rfind("show_lobby_rank_", 0) == 0 || key == "show_extra_playlists") {
+            for (auto& container : c.overlay_layout.containers) {
+                const bool hasLobbyRanks =
+                    std::find(container.widgets.begin(), container.widgets.end(),
+                              DashboardLayout::WidgetId::LobbyRanks) != container.widgets.end();
+                if (!hasLobbyRanks) continue;
+                container.w = 0.0f;
+                container.h = 0.0f;
             }
         }
     });
