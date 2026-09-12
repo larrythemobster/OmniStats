@@ -9,7 +9,9 @@ bool D3D11Device::Create(HWND hwnd) {
     sd.BufferDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
     sd.BufferDesc.RefreshRate.Numerator = 60;
     sd.BufferDesc.RefreshRate.Denominator = 1;
-    sd.Flags = DXGI_SWAP_CHAIN_FLAG_ALLOW_MODE_SWITCH;
+    // This swap chain is permanently windowed. Opting into display-mode changes
+    // needlessly sends this transparent overlay through driver fullscreen paths.
+    sd.Flags = 0;
     sd.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
     sd.OutputWindow = hwnd;
     sd.SampleDesc.Count = 1;
