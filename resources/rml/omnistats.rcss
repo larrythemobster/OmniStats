@@ -4,8 +4,9 @@ body {
     width: 100%;
     height: 100%;
     overflow: hidden;
-    font-family: "Segoe UI";
-    font-size: 14dp;
+    font-family: "Inter";
+    font-size: 15dp;
+    font-weight: 400;
     color: #eef1f5;
     background-color: transparent;
 }
@@ -32,10 +33,10 @@ body {
 }
 
 .card.compact { padding: 6dp 8dp; }
-.card-title { display: block; font-weight: 700; font-size: 12dp; color: #eef1f5; margin-bottom: 5dp; }
-.card-subtitle { display: block; color: #8f99a8; font-size: 10dp; line-height: 1.2; }
-.overlay-widget-title { display: block; color: #8f99a8; font-size: 9dp; font-weight: 700; line-height: 1.2; margin-top: 7dp; margin-bottom: 4dp; }
-.stat-section-title { display: block; color: #778190; font-size: 9dp; font-weight: 700; line-height: 1.2; margin-bottom: 4dp; }
+.card-title { display: block; font-family: "Russo One"; font-size: 13dp; letter-spacing: 0.5dp; color: #eef1f5; margin-bottom: 5dp; }
+.card-subtitle { display: block; color: #8f99a8; font-size: 11dp; font-weight: 500; line-height: 1.2; }
+.overlay-widget-title { display: block; color: #8f99a8; font-size: 10dp; font-weight: 700; letter-spacing: 0.3dp; line-height: 1.2; margin-top: 7dp; margin-bottom: 4dp; }
+.stat-section-title { display: block; color: #778190; font-size: 10dp; font-weight: 700; letter-spacing: 0.3dp; line-height: 1.2; margin-bottom: 4dp; }
 
 .row { display: flex; flex-direction: row; align-items: center; }
 .row.wrap { flex-wrap: wrap; }
@@ -48,11 +49,11 @@ body {
 .center { align-items: center; justify-content: center; }
 .right { text-align: right; }
 
-.label { color: #9da6b3; font-size: 11dp; line-height: 1.25; }
-.value { color: #eef1f5; font-weight: 600; line-height: 1.25; }
+.label { color: #9da6b3; font-size: 12dp; font-weight: 500; line-height: 1.25; }
+.value { color: #eef1f5; font-weight: 700; line-height: 1.25; }
 div.label { display: block; }
 div.value { display: block; }
-.mono { font-family: "Consolas"; }
+.mono { font-family: "JetBrains Mono"; }
 .muted { color: #9da6b3; }
 .dim { color: #707987; }
 .accent { color: #ff0021; }
@@ -66,7 +67,9 @@ div.value { display: block; }
     padding: 1dp 5dp;
     border: 1dp #2b303d;
     border-radius: 8dp;
-    font-size: 9dp;
+    font-size: 10dp;
+    font-weight: 700;
+    letter-spacing: 0.2dp;
     color: #9da6b3;
     background-color: #11141bcc;
 }
@@ -93,8 +96,8 @@ div.value { display: block; }
 }
 .stat-grid.cols-2 .stat-cell { width: 48%; flex-grow: 1; }
 .stat-grid.cols-3 .stat-cell { width: 31%; flex-grow: 1; }
-.stat-cell .label { display: block; width: 100%; margin-bottom: 2dp; text-align: center; font-size: 9dp; line-height: 1.15; }
-.stat-cell .value { display: block; width: 100%; text-align: center; font-size: 11dp; line-height: 1.15; }
+.stat-cell .label { display: block; width: 100%; margin-bottom: 2dp; text-align: center; font-size: 10dp; line-height: 1.15; }
+.stat-cell .value { display: block; width: 100%; text-align: center; font-size: 12dp; line-height: 1.15; }
 .compact-stats .stat-cell { min-height: 34dp; padding: 3dp 5dp; }
 
 .metric-list { display: block; width: 100%; }
@@ -102,12 +105,12 @@ div.value { display: block; }
     display: flex;
     flex-direction: row;
     align-items: center;
-    min-height: 24dp;
+    min-height: 26dp;
     padding: 3dp 1dp;
     border-bottom: 1dp #252b3455;
 }
-.metric-label { flex-grow: 1; min-width: 0; color: #909aa8; font-size: 10dp; line-height: 1.15; }
-.metric-value { flex-shrink: 0; min-width: 74dp; text-align: right; color: #eef1f5; font-size: 10dp; font-weight: 600; line-height: 1.15; }
+.metric-label { flex-grow: 1; min-width: 0; color: #909aa8; font-size: 11dp; font-weight: 500; line-height: 1.15; }
+.metric-value { flex-shrink: 0; min-width: 80dp; text-align: right; color: #eef1f5; font-size: 11dp; font-weight: 700; line-height: 1.15; }
 .metric-pair { display: flex; flex-direction: row; gap: 5dp; }
 .mini-metric {
     display: flex;
@@ -123,11 +126,11 @@ div.value { display: block; }
     background-color: #10131a80;
     text-align: center;
 }
-.mini-metric .label { font-size: 9dp; margin-bottom: 2dp; }
-.mini-metric .value { font-size: 10dp; }
-.gamemode-breakdown .row { min-height: 22dp; font-size: 10dp; }
-.gamemode-breakdown .value { font-size: 10dp; }
-.gamemode-breakdown .label { font-size: 9dp; }
+.mini-metric .label { font-size: 10dp; margin-bottom: 2dp; }
+.mini-metric .value { font-size: 11dp; }
+.gamemode-breakdown .row { min-height: 24dp; font-size: 11dp; }
+.gamemode-breakdown .value { font-size: 11dp; }
+.gamemode-breakdown .label { font-size: 10dp; }
 
 .team-block { margin-top: 6dp; }
 .team-header { display: flex; flex-direction: row; align-items: center; margin-bottom: 4dp; }
@@ -150,33 +153,33 @@ div.value { display: block; }
     flex-shrink: 0;
     min-width: 140dp;
     width: 0;
-    font-size: 13dp;
+    font-size: 14dp;
     line-height: 1.25;
     padding-right: 6dp;
 }
 .player-name > .value { display: block; width: 100%; white-space: normal; word-break: break-all; }
-.player-name .label { display: block; margin-top: 3dp; font-size: 10dp; line-height: 1.25; }
+.player-name .label { display: block; margin-top: 3dp; font-size: 11dp; line-height: 1.25; }
 .player-link { cursor: pointer; }
-.player-rank { width: 92dp; flex-shrink: 0; text-align: right; font-size: 11dp; line-height: 1.2; padding-right: 8dp; }
-.player-rank.icon-mode { width: 58dp; color: #8f99a8; font-size: 10dp; }
+.player-rank { width: 96dp; flex-shrink: 0; text-align: right; font-size: 12dp; font-weight: 600; line-height: 1.2; padding-right: 8dp; }
+.player-rank.icon-mode { width: 62dp; color: #8f99a8; font-size: 11dp; }
 .player-rank > div { display: block; }
 .player-mmr {
-    width: 72dp;
+    width: 96dp;
     flex-shrink: 0;
     text-align: right;
-    font-family: "Consolas";
+    font-family: "JetBrains Mono";
 }
-.player-mmr-value { display: block; font-size: 13dp; font-weight: 700; line-height: 1.2; }
-.player-mmr .rank-matches { text-align: right; font-size: 9dp; margin-top: 2dp; }
+.player-mmr-value { display: block; font-size: 14dp; font-weight: 700; line-height: 1.2; }
+.player-mmr .rank-matches { text-align: right; font-size: 10dp; margin-top: 2dp; }
 /* Compact lobby table. Fixed playlist columns match the legacy overlay and
    keep the player identity column from collapsing when five or more ranks are
    enabled. */
-.lobby-rank-row { align-items: center; min-height: 42dp; margin-top: 0; padding-top: 5dp; padding-bottom: 5dp; border-left: 0; border-right: 0; border-bottom: 0; border-radius: 0; background-color: transparent; }
+.lobby-rank-row { align-items: center; min-height: 44dp; margin-top: 0; padding-top: 5dp; padding-bottom: 5dp; border-left: 0; border-right: 0; border-bottom: 0; border-radius: 0; background-color: transparent; }
 .lobby-rank-row .player-name {
     flex-grow: 0;
     flex-shrink: 0;
-    width: 190dp;
-    min-width: 190dp;
+    width: 198dp;
+    min-width: 198dp;
     padding-right: 10dp;
     white-space: normal;
 }
@@ -198,17 +201,18 @@ div.value { display: block; }
     justify-content: center;
     flex-grow: 0;
     flex-shrink: 0;
-    width: 84dp;
-    min-width: 84dp;
+    width: 92dp;
+    min-width: 92dp;
     padding: 0 5dp;
     text-align: center;
-    font-size: 9dp;
+    font-size: 11dp;
+    font-weight: 600;
     line-height: 1.2;
     white-space: nowrap;
 }
 .lobby-rank-cell > div { display: block; width: 100%; text-align: center; white-space: nowrap; }
 .lobby-rank-cell > div:first-child { margin-bottom: 3dp; }
-.lobby-rank-header { min-height: 28dp; font-size: 9dp; font-weight: 700; color: #8993a2; }
+.lobby-rank-header { min-height: 30dp; font-size: 10dp; font-weight: 700; letter-spacing: 0.3dp; color: #8993a2; }
 .lobby-rank-header .player-name { display: flex; align-items: center; }
 .rank-icon { width: 30dp; height: 20dp; margin-right: 5dp; }
 
@@ -242,7 +246,7 @@ div.value { display: block; }
     min-height: 32dp;
     padding: 4dp 12dp;
     pointer-events: auto;
-    font-size: 12dp;
+    font-size: 13dp;
     font-weight: 600;
     text-align: center;
     background-color: #263644e6;
@@ -269,7 +273,7 @@ div.value { display: block; }
     left: 14dp;
     bottom: 12dp;
     padding: 4dp 7dp;
-    font-size: 10dp;
+    font-size: 11dp;
     color: #9da6b3;
     background-color: #0d0f14cc;
     border: 1dp #2b303d;
@@ -284,7 +288,7 @@ div.value { display: block; }
     margin-left: -210dp;
     pointer-events: auto;
 }
-.summary-score { font-size: 32dp; font-weight: 800; text-align: center; margin: 8dp 0; }
+.summary-score { font-family: "Russo One"; font-size: 34dp; text-align: center; margin: 8dp 0; }
 
 .dashboard-shell {
     position: absolute;
@@ -306,16 +310,18 @@ div.value { display: block; }
     align-items: center;
 }
 .brand-logo { width: 30dp; height: 30dp; margin-right: 9dp; }
-.brand-title { display: block; font-size: 18dp; font-weight: 800; line-height: 1.2; }
-.brand-title .version { font-size: 10dp; font-weight: 600; color: #9da6b3; }
-.brand-mini { display: block; font-size: 13dp; font-weight: 800; letter-spacing: 1dp; }
+.brand-title { display: block; font-family: "Russo One"; font-size: 19dp; letter-spacing: 0.5dp; line-height: 1.2; }
+.brand-title .version { font-family: "Inter"; font-size: 11dp; font-weight: 600; letter-spacing: 0; color: #9da6b3; }
+.brand-mini { display: block; font-family: "Russo One"; font-size: 14dp; letter-spacing: 1dp; }
 .playlist-icon { width: 22dp; height: 22dp; }
 .roster-header { display: block; padding-bottom: 6dp; border-bottom: 1dp #252a3555; }
-.roster-footer { display: flex; flex-direction: row; justify-content: space-between; gap: 7dp; margin-top: 6dp; padding-top: 5dp; border-top: 1dp #252a3555; color: #8f99a8; font-size: 8dp; }
-.rank-matches { display: block; color: #707987; font-size: 8dp; margin-top: 1dp; }
+.roster-footer { display: flex; flex-direction: row; justify-content: space-between; gap: 7dp; margin-top: 6dp; padding-top: 5dp; border-top: 1dp #252a3555; color: #8f99a8; font-size: 10dp; }
+/* Word labels stay on Inter: JetBrains Mono lowercase is illegible this small. */
+.rank-matches { display: block; font-family: "Inter"; color: #707987; font-size: 10dp; margin-top: 1dp; }
 .rank-source-icon { width: 10dp; height: 10dp; margin-right: 3dp; vertical-align: middle; }
 .dashboard-widget.dragging { opacity: 0.65; border-color: #ff0021; }
-.dashboard-widget-title { display: flex; flex-direction: row; align-items: center; margin-bottom: 7dp; }
+.dashboard-widget-title { display: flex; flex-direction: row; align-items: center; margin-bottom: 9dp; }
+.dashboard-widget-title .name { font-family: "Russo One"; font-size: 15dp; letter-spacing: 0.5dp; }
 .dashboard-content { padding: 12dp; }
 .dashboard-zone-top { width: 100%; margin-bottom: 10dp; }
 .dashboard-columns { display: flex; flex-direction: row; gap: 12dp; align-items: flex-start; }
@@ -350,10 +356,10 @@ button:active, .button:active { background-color: #181c24; }
 button.primary, .button.primary { background-color: #c9001b; border-color: #ef1734; }
 button.danger, .button.danger { background-color: #35171a; border-color: #743238; color: #ff8e95; }
 button.ghost, .button.ghost { background-color: transparent; }
-button.compact { min-height: 23dp; padding: 2dp 7dp; font-size: 10dp; }
+button.compact { min-height: 24dp; padding: 2dp 7dp; font-size: 11dp; }
 button.window-control { width: 32dp; min-width: 32dp; padding: 3dp; margin-left: 3dp; font-size: 15dp; }
 .widget-controls { margin-bottom: 7dp; }
-.compact-select { min-width: 118dp; height: 25dp; font-size: 11dp; }
+.compact-select { min-width: 122dp; height: 26dp; font-size: 12dp; }
 button:disabled { color: #606978; background-color: #161920; border-color: #242936; cursor: unavailable; }
 
 .modal-layer { pointer-events: none; }
@@ -394,7 +400,7 @@ button:disabled { color: #606978; background-color: #161920; border-color: #2429
 .settings-header button { cursor: pointer; }
 .settings-header > .grow { display: flex; flex-direction: column; justify-content: center; }
 .settings-header .brand-title { font-size: 17dp; }
-.settings-header .label { font-size: 11dp; margin-top: 2dp; }
+.settings-header .label { font-size: 12dp; margin-top: 2dp; }
 .settings-body { display: flex; flex-direction: row; flex-grow: 1; height: 0; min-height: 0; }
 .settings-nav {
     width: 152dp;
@@ -416,7 +422,8 @@ button:disabled { color: #606978; background-color: #161920; border-color: #2429
     border-radius: 5dp;
     background-color: transparent;
     color: #939dab;
-    font-size: 13dp;
+    font-size: 14dp;
+    font-weight: 600;
     line-height: 1.25;
 }
 .settings-nav button:hover { color: #eef1f5; background-color: #171c24; border-color: #242b37; }
@@ -451,7 +458,8 @@ button:disabled { color: #606978; background-color: #161920; border-color: #2429
 .setting-title {
     display: block;
     font-weight: 700;
-    font-size: 13dp;
+    font-size: 14dp;
+    letter-spacing: 0.3dp;
     color: #ff1838;
     margin-bottom: 6dp;
     line-height: 1.2;
@@ -465,16 +473,16 @@ button:disabled { color: #606978; background-color: #161920; border-color: #2429
     border-top: 1dp #20253044;
 }
 .setting-info { display: flex; flex-direction: column; justify-content: center; flex-grow: 1; min-width: 0; padding-right: 16dp; }
-.setting-name { display: block; color: #edf1f6; font-size: 13dp; font-weight: 600; line-height: 1.25; }
-.setting-help { display: block; color: #747e8c; font-size: 11dp; line-height: 1.4; margin-top: 3dp; }
+.setting-name { display: block; color: #edf1f6; font-size: 14dp; font-weight: 600; line-height: 1.25; }
+.setting-help { display: block; color: #747e8c; font-size: 12dp; line-height: 1.4; margin-top: 3dp; }
 .settings-page select { min-width: 155dp; max-width: 270dp; }
 .settings-page input.text, .settings-page input.password { min-width: 190dp; max-width: 320dp; }
 .setting-row > input, .setting-row > select, .setting-row > button, .setting-row > .row { flex-shrink: 0; }
 .rank-table { margin-top: 7dp; border: 1dp #2c3240; border-radius: 5dp; overflow: hidden; }
-.rank-table-row { display: flex; flex-direction: row; min-height: 24dp; align-items: center; border-top: 1dp #252a3555; }
+.rank-table-row { display: flex; flex-direction: row; min-height: 26dp; align-items: center; border-top: 1dp #252a3555; }
 .rank-table-row:first-child { border-top: 0; }
-.rank-table-row.header { background-color: #10131a; color: #9da6b3; font-size: 9dp; font-weight: 700; }
-.rank-table-row > div { flex-grow: 1; width: 25%; padding: 3dp 6dp; font-size: 10dp; }
+.rank-table-row.header { background-color: #10131a; color: #9da6b3; font-size: 10dp; font-weight: 700; }
+.rank-table-row > div { flex-grow: 1; width: 25%; padding: 3dp 6dp; font-size: 11dp; }
 
 input.text, input.password, select {
     height: 28dp;
@@ -631,14 +639,14 @@ scrollbarcorner { background-color: #0b0e13aa; }
 .color-dot-button { min-width: 20dp; padding: 0; margin: 0; }
 .color-editor-preview { width: 100%; height: 28dp; border: 1dp #ffffff33; border-radius: 5dp; margin: 4dp 0 8dp 0; }
 .color-channel { display: flex; flex-direction: row; align-items: center; min-height: 27dp; gap: 8dp; }
-.color-channel-label { width: 14dp; font-family: "Consolas"; font-size: 10dp; color: #9da6b3; }
+.color-channel-label { width: 14dp; font-family: "JetBrains Mono"; font-size: 11dp; color: #9da6b3; }
 .color-range { flex-grow: 1; width: auto; }
 .color-channel-value { width: 30dp; text-align: right; color: #9da6b3; }
 
 .graph-wrap { position: relative; height: 220dp; background-color: #0d1016; border: 1dp #242a35; border-radius: 6dp; overflow: hidden; }
 .graph-empty { min-height: 150dp; display: flex; flex-direction: column; justify-content: center; gap: 4dp; padding: 0 8dp; }
 .graph-gridline { position: absolute; height: 1dp; background-color: #69728055; }
-.graph-label { position: absolute; color: #697280; font-family: "Consolas"; font-size: 9dp; }
+.graph-label { position: absolute; color: #697280; font-family: "JetBrains Mono"; font-size: 10dp; }
 .graph-last { text-align: right; }
 .graph-polyline { display: block; position: absolute; left: 0; top: 0; width: 100%; height: 100%; color: #5480d8; pointer-events: none; }
 .graph-line { position: absolute; height: 2dp; background-color: #5480d8; transform-origin: left center; opacity: 0.88; }
@@ -653,23 +661,27 @@ scrollbarcorner { background-color: #0b0e13aa; }
 .graph-point-halo.win { background-color: #43d926; }
 .graph-point-halo.loss { background-color: #ff3030; }
 .graph-point-halo.neutral { background-color: #9da6b3; }
-.graph-current { position: absolute; font-family: "Consolas"; font-size: 12dp; font-weight: 700; white-space: nowrap; }
+.graph-current { position: absolute; font-family: "JetBrains Mono"; font-size: 13dp; font-weight: 700; white-space: nowrap; }
 
 .previous-games-header { min-height: 27dp; margin-bottom: 3dp; }
 .previous-games-header .card-title { margin-bottom: 0; }
-.match-row { display: flex; flex-direction: row; align-items: center; min-height: 24dp; padding: 1dp 2dp; font-size: 10dp; border-top: 1dp #252a3555; }
-.match-header { min-height: 22dp; color: #707987; font-size: 9dp; font-weight: 700; }
-.match-header .match-mode, .match-header .match-score, .match-header .match-mmr, .match-header .match-time { color: #707987; font-family: "Segoe UI"; }
-.match-mode { width: 108dp; flex-shrink: 0; color: #9da6b3; padding-left: 4dp; }
-.match-score { width: 58dp; flex-shrink: 0; text-align: center; font-family: "Consolas"; }
-.match-mmr { width: 68dp; flex-shrink: 0; text-align: center; font-family: "Consolas"; }
-.match-time { flex-grow: 1; min-width: 52dp; text-align: right; color: #707987; font-size: 10dp; }
-.match-data { min-height: 27dp; border-top: 0; }
+.match-row { display: flex; flex-direction: row; align-items: center; min-height: 26dp; padding: 1dp 2dp; font-size: 12dp; font-weight: 600; border-top: 1dp #252a3555; }
+.match-header { min-height: 24dp; color: #707987; font-size: 11dp; font-weight: 700; letter-spacing: 0.3dp; }
+.match-header .match-mode, .match-header .match-score, .match-header .match-mmr, .match-header .match-time { color: #707987; font-family: "Inter"; }
+.match-mode { width: 96dp; flex-shrink: 0; color: #9da6b3; padding-left: 4dp; }
+.match-score { width: 54dp; flex-shrink: 0; text-align: center; font-family: "JetBrains Mono"; }
+.match-mmr { width: 66dp; flex-shrink: 0; text-align: center; font-family: "JetBrains Mono"; }
+.match-time { flex-grow: 1; min-width: 50dp; text-align: right; color: #707987; font-size: 11dp; }
+.match-data { min-height: 29dp; border-top: 0; }
 .match-data.match-even { background-color: #11151a99; }
 .match-data.match-odd { background-color: #090c1099; }
 .match-data:hover { background-color: #1a2028cc; }
 .match-win { color: #2ecc71; }
 .match-loss { color: #e74c3c; }
+/* The result color owns the entire row, including the playlist and time columns
+   that otherwise carry their own muted colors. */
+.match-win .match-mode, .match-win .match-time { color: #2ecc71; }
+.match-loss .match-mode, .match-loss .match-time { color: #e74c3c; }
 .previous-games-footer {
     display: flex;
     flex-direction: row;
@@ -680,8 +692,8 @@ scrollbarcorner { background-color: #0b0e13aa; }
     padding: 7dp 2dp 1dp 2dp;
     border-top: 1dp #2a303a;
     color: #9da6b3;
-    font-size: 11dp;
-    font-family: "Segoe UI";
+    font-size: 12dp;
+    font-family: "Inter";
 }
 
 .toast-root { pointer-events: none; }
@@ -695,6 +707,11 @@ scrollbarcorner { background-color: #0b0e13aa; }
     .dashboard-columns { flex-direction: column; }
     .dashboard-column { width: 100%; }
 }
+
+/* Platform identity. Colors are applied by the theme pass from
+   kPlatformPalette so they survive `.badge`/`.label` theming. */
+.platform { font-weight: 700; }
+.badge.platform { border-color: #ffffff33; }
 
 /* Native rank badge parity: tier crest + four-step Rocket League division stack. */
 .rank-badge { display: flex; flex-direction: row; align-items: center; flex-shrink: 0; margin-right: 8dp; min-width: 45dp; }
@@ -718,16 +735,16 @@ scrollbarcorner { background-color: #0b0e13aa; }
     border: 1dp #3a4252;
     border-radius: 4dp;
     color: #eef1f5;
-    font-size: 10dp;
-    font-family: "Segoe UI";
+    font-size: 11dp;
+    font-family: "Inter";
     white-space: nowrap;
     pointer-events: none;
 }
 .tooltip-host:hover .tooltip-bubble { display: block; }
 
 .controller-debug { margin-top: 10dp; padding-top: 8dp; border-top: 1dp #2b303d; }
-.debug-grid { display: flex; flex-direction: column; margin-top: 5dp; font-size: 10dp; }
+.debug-grid { display: flex; flex-direction: column; margin-top: 5dp; font-size: 11dp; }
 .debug-row { display: flex; flex-direction: row; margin-top: 3dp; }
 .debug-label { width: 135dp; color: #9da6b3; }
-.debug-value { flex-grow: 1; color: #eef1f5; font-family: "Consolas"; }
+.debug-value { flex-grow: 1; color: #eef1f5; font-family: "JetBrains Mono"; }
 .privacy-dialog { width: 520dp; max-width: 92%; }

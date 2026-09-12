@@ -128,6 +128,7 @@ class RmlUiController final : public Rml::EventListener {
     };
 
     void SnapshotState();
+    bool LoadBundledFonts();
     void RefreshAsyncData();
     void UpdateInputCapture();
     void UpdateThemeProperties();
@@ -209,6 +210,9 @@ class RmlUiController final : public Rml::EventListener {
     Rml::Context* m_context = nullptr;
     Rml::ElementDocument* m_document = nullptr;
     bool m_rmlInitialized = false;
+    // Faces loaded from disk must outlive Rml::Shutdown; RCDATA-backed faces
+    // point into the module image and need no storage.
+    std::vector<std::vector<unsigned char>> m_fontBlobs;
     bool m_rmlInterfacesInstalled = false;
     std::unique_ptr<Rml::ElementInstancer> m_graphLineInstancer;
 

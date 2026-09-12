@@ -18,6 +18,7 @@
 #include <ctime>
 #include <cmath>
 #include <filesystem>
+#include <fstream>
 #include <iomanip>
 #include <iostream>
 #include <limits>
@@ -60,19 +61,140 @@ namespace {
         return value;
     }
 
-    std::string PlatformBadgeLabel(std::string platform) {
-        const std::string lower = ToLower(platform);
-        if (lower == "steam") return "STEAM";
-        if (lower == "epic") return "EPIC";
-        if (lower == "unknown") return "BOT";
-        if (lower.rfind("ps", 0) == 0) return "PSN";
-        if (lower.rfind("xbox", 0) == 0) return "XBOX";
-        if (lower == "switch") return "SWITCH";
+    enum class PlatformKind { Unknown,
+                              Epic,
+                              Steam,
+                              PlayStation,
+                              Xbox,
+                              Nintendo,
+                              Bot };
 
-        std::transform(platform.begin(), platform.end(), platform.begin(), [](unsigned char c) {
+    // Platform identity arrives as the `primaryId` prefix Rocket League reports,
+    // which varies in casing and spelling ("Epic", "PS4", "XboxOne", "Unknown").
+    PlatformKind PlatformKindFor(const std::string& platform) {
+        const std::string lower = ToLower(platform);
+        if (lower.empty()) return PlatformKind::Unknown;
+        if (lower == "epic" || lower == "epicgames") return PlatformKind::Epic;
+        if (lower == "steam") return PlatformKind::Steam;
+        if (lower.rfind("ps", 0) == 0 || lower == "playstation") return PlatformKind::PlayStation;
+        if (lower.rfind("xb", 0) == 0) return PlatformKind::Xbox;
+        if (lower == "switch" || lower == "nintendo") return PlatformKind::Nintendo;
+        if (lower == "unknown" || lower == "bot") return PlatformKind::Bot;
+        return PlatformKind::Unknown;
+    }
+
+    std::string PlatformBadgeLabel(PlatformKind kind, const std::string& platform) {
+        switch (kind) {
+        case PlatformKind::Epic:
+            return "EPIC";
+        case PlatformKind::Steam:
+            return "STEAM";
+        case PlatformKind::PlayStation:
+            return "PSN";
+        case PlatformKind::Xbox:
+            return "XBOX";
+        case PlatformKind::Nintendo:
+            return "SWITCH";
+        case PlatformKind::Bot:
+            return "BOT";
+        case PlatformKind::Unknown:
+            break;
+        }
+
+        std::string upper = platform;
+        std::transform(upper.begin(), upper.end(), upper.begin(), [](unsigned char c) {
             return static_cast<char>(std::toupper(c));
         });
+        return upper;
+    }
+
+    std::string PlatformDisplayName(PlatformKind kind, const std::string& platform) {
+        switch (kind) {
+        case PlatformKind::Epic:
+            return "Epic";
+        case PlatformKind::Steam:
+            return "Steam";
+        case PlatformKind::PlayStation:
+            return "PlayStation";
+        case PlatformKind::Xbox:
+            return "Xbox";
+        case PlatformKind::Nintendo:
+            return "Nintendo";
+        case PlatformKind::Bot:
+            return "Bot";
+        case PlatformKind::Unknown:
+            break;
+        }
         return platform;
+    }
+
+    // Class names only; the palette lives in kPlatformPalette so the theme pass
+    // can reapply platform colors after it overwrites `.badge`/`.label` colors.
+    const char* PlatformClass(PlatformKind kind) {
+        switch (kind) {
+        case PlatformKind::Epic:
+            return "platform platform-epic";
+        case PlatformKind::Steam:
+            return "platform platform-steam";
+        case PlatformKind::PlayStation:
+            return "platform platform-psn";
+        case PlatformKind::Xbox:
+            return "platform platform-xbox";
+        case PlatformKind::Nintendo:
+            return "platform platform-switch";
+        case PlatformKind::Bot:
+            return "platform platform-bot";
+        case PlatformKind::Unknown:
+            break;
+        }
+        return "platform platform-unknown";
+    }
+
+    struct PlatformSwatch {
+        const char* className;
+        const char* color;
+    };
+
+    constexpr PlatformSwatch kPlatformPalette[] = {
+        {"platform-epic", "#f2f3f7"},
+        {"platform-steam", "#6dc2f0"},
+        {"platform-psn", "#5b8cff"},
+        {"platform-xbox", "#59d268"},
+        {"platform-switch", "#ff5a5a"},
+        {"platform-bot", "#98a2b3"},
+        {"platform-unknown", "#98a2b3"},
+    };
+
+    Rml::Span<const Rml::byte> EmbeddedResource(const char* name) {
+        HMODULE module = GetModuleHandleW(nullptr);
+        HRSRC resource = FindResourceA(module, name, RT_RCDATA);
+        if (!resource) return {};
+        HGLOBAL loaded = LoadResource(module, resource);
+        if (!loaded) return {};
+        const DWORD size = SizeofResource(module, resource);
+        const auto* bytes = static_cast<const Rml::byte*>(LockResource(loaded));
+        if (!bytes || size == 0) return {};
+        return {bytes, static_cast<size_t>(size)};
+    }
+
+    std::vector<Rml::byte> ReadFontFile(const char* fileName) {
+        const std::string relative = std::string("resources/fonts/") + fileName;
+        std::vector<std::string> candidates = {relative};
+#ifdef OMNISTATS_SOURCE_DIR
+        candidates.push_back(std::string(OMNISTATS_SOURCE_DIR) + "/" + relative);
+#endif
+        for (const auto& candidate : candidates) {
+            std::error_code ec;
+            const auto size = std::filesystem::file_size(candidate, ec);
+            if (ec || size == 0) continue;
+            std::ifstream file(candidate, std::ios::binary);
+            if (!file) continue;
+            std::vector<Rml::byte> bytes(static_cast<size_t>(size));
+            file.read(reinterpret_cast<char*>(bytes.data()), static_cast<std::streamsize>(size));
+            if (file.gcount() != static_cast<std::streamsize>(size)) continue;
+            return bytes;
+        }
+        return {};
     }
 
     std::string TrackerUrlForPlayer(const PlayerData& player) {
@@ -499,6 +621,63 @@ RmlUiController::~RmlUiController() {
     Shutdown();
 }
 
+// OmniStats ships its own typefaces so the client matches the web brand and does
+// not inherit whatever Segoe UI revision a machine happens to have. Faces are
+// registered with an explicit family and weight: static Inter/JetBrains Mono files
+// name themselves "Inter SemiBold" and friends, which would otherwise register as
+// separate families.
+bool RmlUiController::LoadBundledFonts() {
+    struct BundledFont {
+        const char* resource;
+        const char* file;
+        const char* family;
+        int weight;
+        bool required;
+    };
+    static constexpr BundledFont kFonts[] = {
+        {"FONT_UI_REGULAR", "Inter-Regular.ttf", "Inter", 400, true},
+        {"FONT_UI_SEMIBOLD", "Inter-SemiBold.ttf", "Inter", 600, false},
+        {"FONT_UI_BOLD", "Inter-Bold.ttf", "Inter", 700, false},
+        {"FONT_MONO_REGULAR", "JetBrainsMono-Regular.ttf", "JetBrains Mono", 400, false},
+        {"FONT_MONO_BOLD", "JetBrainsMono-Bold.ttf", "JetBrains Mono", 700, false},
+        {"FONT_DISPLAY_REGULAR", "RussoOne-Regular.ttf", "Russo One", 400, false},
+    };
+
+    m_fontBlobs.clear();
+    for (const auto& font : kFonts) {
+        // Packaged builds carry the faces as RCDATA; test and unpacked builds have
+        // no application resources, so fall back to the source tree like
+        // RmlFileInterface does for RML/RCSS.
+        Rml::Span<const Rml::byte> data = EmbeddedResource(font.resource);
+        if (data.empty()) {
+            auto blob = ReadFontFile(font.file);
+            if (!blob.empty()) {
+                m_fontBlobs.push_back(std::move(blob));
+                const auto& stored = m_fontBlobs.back();
+                data = {stored.data(), stored.size()};
+            }
+        }
+        const bool loaded = !data.empty() &&
+                            Rml::LoadFontFace(data, font.family, Rml::Style::FontStyle::Normal,
+                                              static_cast<Rml::Style::FontWeight>(font.weight));
+        if (loaded) continue;
+        if (font.required) {
+            std::cerr << "[RmlUi] Failed to load font " << font.file
+                      << "; refusing to start with an unreadable UI.\n";
+            return false;
+        }
+        std::cerr << "[RmlUi] Warning: failed to load font " << font.file << ".\n";
+    }
+
+    // Player names are arbitrary user data. Inter covers Latin/Greek/Cyrillic, so
+    // register system faces as fallbacks for everything else instead of drawing
+    // missing-glyph boxes.
+    for (const char* fallback : {"C:/Windows/Fonts/segoeui.ttf", "C:/Windows/Fonts/msgothic.ttc"})
+        Rml::LoadFontFace(fallback, true);
+
+    return true;
+}
+
 bool RmlUiController::Initialize(HWND hwnd, ID3D11Device* device, ID3D11DeviceContext* context, int width, int height, float dpiScale) {
     Shutdown();
     m_hwnd = hwnd;
@@ -527,18 +706,10 @@ bool RmlUiController::Initialize(HWND hwnd, ID3D11Device* device, ID3D11DeviceCo
         return false;
     }
 
-    const bool loadedSegoe = Rml::LoadFontFace("C:/Windows/Fonts/segoeui.ttf");
-    const bool loadedSegoeBold = Rml::LoadFontFace("C:/Windows/Fonts/segoeuib.ttf");
-    const bool loadedConsolas = Rml::LoadFontFace("C:/Windows/Fonts/consola.ttf");
-    const bool loadedConsolasBold = Rml::LoadFontFace("C:/Windows/Fonts/consolab.ttf");
-    if (!loadedSegoe) {
-        std::cerr << "[RmlUi] Failed to load C:/Windows/Fonts/segoeui.ttf; refusing to start with an unreadable UI.\n";
+    if (!LoadBundledFonts()) {
         Shutdown();
         return false;
     }
-    if (!loadedSegoeBold) std::cerr << "[RmlUi] Warning: failed to load Segoe UI Bold.\n";
-    if (!loadedConsolas) std::cerr << "[RmlUi] Warning: failed to load Consolas.\n";
-    if (!loadedConsolasBold) std::cerr << "[RmlUi] Warning: failed to load Consolas Bold.\n";
 
     m_document = m_context->LoadDocument("res://main.rml");
     if (!m_document) {
@@ -925,6 +1096,21 @@ void RmlUiController::UpdateThemeProperties() {
     setSelector(".badge.loss", "color", loss);
     setClass("match-win", "color", win);
     setClass("match-loss", "color", loss);
+    // `.match-mode` and `.match-time` carry their own muted/dim colors, so the
+    // win/loss result color has to be pushed onto them explicitly for the whole
+    // history line to read as one result.
+    setSelector(".match-win .match-mode, .match-win .match-time", "color", win);
+    setSelector(".match-loss .match-mode, .match-loss .match-time", "color", loss);
+
+    // Platform identity colors are brand colors, not theme colors. They are
+    // applied last because the passes above overwrite `.badge` and `.label`.
+    for (const auto& swatch : kPlatformPalette) {
+        const std::string selector = std::string(".") + swatch.className;
+        const std::string color = swatch.color;
+        setSelector(selector.c_str(), "color", color);
+        setSelector((".badge" + selector).c_str(), "border-color", color + "66");
+        setSelector((".badge" + selector).c_str(), "background-color", color + "1f");
+    }
 
     setClass("graph-line", "background-color", graph);
     setClass("graph-polyline", "color", graph);
@@ -1498,7 +1684,11 @@ std::string RmlUiController::RenderPlayerRoster(int team, const char* label) {
         if (!trackerUrl.empty()) out << " data-action='open-player-tracker' data-url='" << Escape(trackerUrl) << "'";
         out << ">" << Escape(p->name) << "</span>";
         if (self) out << " <span class='badge accent'>YOU</span>";
-        if (!platform.empty()) out << " <span class='badge'>" << Escape(PlatformBadgeLabel(platform)) << "</span>";
+        if (!platform.empty()) {
+            const PlatformKind platformKind = PlatformKindFor(platform);
+            out << " <span class='badge " << PlatformClass(platformKind) << "'>"
+                << Escape(PlatformBadgeLabel(platformKind, platform)) << "</span>";
+        }
         if (m_config.show_account_wins_overlay && p->totalWins >= 0) out << " <span class='badge'>" << p->totalWins << " wins</span>";
         out << "<div class='label'>";
         const int withGames = p->lifetimeWinsWith + p->lifetimeLossesWith;
@@ -1794,15 +1984,12 @@ std::string RmlUiController::RenderLobbyRanks() {
     for (const auto* p : players) {
         std::string platform;
         if (const auto pos = p->primaryId.find('|'); pos != std::string::npos) platform = p->primaryId.substr(0, pos);
-        if (platform.rfind("PS", 0) == 0)
-            platform = "PlayStation";
-        else if (platform.rfind("Xbox", 0) == 0)
-            platform = "Xbox";
-        else if (platform == "Switch" || platform == "Nintendo")
-            platform = "Nintendo";
+        const PlatformKind platformKind = PlatformKindFor(platform);
 
         out << "<div class='player-row lobby-rank-row" << (p->primaryId == m_snap.myPrimaryId ? " self" : "") << "'><div class='player-name'><span class='value'>" << Escape(p->name) << "</span>";
-        if (!platform.empty()) out << "<div class='label'>" << Escape(platform) << "</div>";
+        if (!platform.empty())
+            out << "<div class='label " << PlatformClass(platformKind) << "'>"
+                << Escape(PlatformDisplayName(platformKind, platform)) << "</div>";
         out << "</div>";
         for (const auto& pl : playlists) {
             if (!pl.show) continue;

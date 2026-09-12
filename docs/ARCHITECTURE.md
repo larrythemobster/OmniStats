@@ -25,8 +25,9 @@ The UI remains native C++ and keeps the existing DirectX 11 renderer/window infr
 - `src/ui/rml/RmlRenderInterfaceD3D11.*`: compact native RmlUi 6 render interface using the existing D3D11 device/context. It supports compiled geometry, per-draw textures, premultiplied-alpha blending, scissoring, and transforms without the legacy compatibility adapter.
 - `src/ui/rml/RmlSystemInterfaceWin32.*`: timers, cursors, clipboard, path handling, and IME positioning.
 - `src/ui/rml/RmlInputWin32.*`: Win32 mouse, wheel, keyboard, and Unicode text input translation.
-- `src/ui/rml/RmlFileInterface.*`: embedded RML/RCSS resources and disk-backed font/resource access.
+- `src/ui/rml/RmlFileInterface.*`: embedded RML/RCSS resources with a disk fallback for unpacked runs.
 - `resources/rml/`: the reusable RML/RCSS design system and persistent document shell.
+- `resources/fonts/`: the bundled Inter (UI), JetBrains Mono (numeric), and Russo One (display) faces. They are embedded as RCDATA and registered by `RmlUiController::LoadBundledFonts` with an explicit family and weight; Segoe UI and MS Gothic are registered as fallback faces for glyphs the bundled faces lack.
 - `src/core/DashboardLayoutConfig.*` and `src/core/OverlayLayoutConfig.*`: renderer-independent persisted layout formats. Existing user layouts remain the source of truth.
 
 Core telemetry, storage, networking, updater, replay, and integration code does not depend on RmlUi. The UI consumes snapshots and calls the existing APIs rather than duplicating application logic.
