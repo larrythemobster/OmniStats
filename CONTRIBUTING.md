@@ -100,7 +100,7 @@ OmniStats/
 │   ├── core/              # Configuration, session state, input, reducers, and side effects
 │   ├── database/          # SQLite persistence and database worker ownership
 │   ├── network/           # Stats API, Tracker, telemetry, Discord, uploads, and updates
-│   ├── ui/                # Win32, Direct3D 11, ImGui, ImPlot, tray, and overlay rendering
+│   ├── ui/                # Win32, Direct3D 11, RmlUi, tray, and overlay rendering
 │   ├── updater/           # External updater executable
 │   └── main.cpp           # Main application entry point
 ├── tests/
