@@ -476,9 +476,86 @@ bool RmlRenderInterfaceD3D11::LoadDiskPng(const std::string& source, Rml::Textur
     return CreateTextureFromRgba(rgba.data(), width, height, handle);
 }
 
+// `gen://sv?h=<degrees>` renders a saturation/value square for one hue and
+// `gen://hue` the full hue ramp. Both are small; RmlUi caches them per source
+// string, and the picker quantizes the hue so the cache stays bounded.
+bool RmlRenderInterfaceD3D11::GenerateGradient(const std::string& source, Rml::TextureHandle& handle, Rml::Vector2i& dimensions) {
+    const auto hsvToRgb = [](float hueDegrees, float saturation, float value, unsigned char* out) {
+        const float h = std::fmod(std::fmod(hueDegrees, 360.0f) + 360.0f, 360.0f) / 60.0f;
+        const float c = value * saturation;
+        const float x = c * (1.0f - std::fabs(std::fmod(h, 2.0f) - 1.0f));
+        const float m = value - c;
+        float rgb[3] = {m, m, m};
+        switch (static_cast<int>(h)) {
+        case 0:
+            rgb[0] += c;
+            rgb[1] += x;
+            break;
+        case 1:
+            rgb[0] += x;
+            rgb[1] += c;
+            break;
+        case 2:
+            rgb[1] += c;
+            rgb[2] += x;
+            break;
+        case 3:
+            rgb[1] += x;
+            rgb[2] += c;
+            break;
+        case 4:
+            rgb[0] += x;
+            rgb[2] += c;
+            break;
+        default:
+            rgb[0] += c;
+            rgb[2] += x;
+            break;
+        }
+        for (int i = 0; i < 3; ++i)
+            out[i] = static_cast<unsigned char>(std::lround(std::clamp(rgb[i], 0.0f, 1.0f) * 255.0f));
+        out[3] = 255;
+    };
+
+    if (source.rfind("gen://hue", 0) == 0) {
+        constexpr int width = 256;
+        constexpr int height = 8;
+        std::vector<unsigned char> rgba(static_cast<size_t>(width) * height * 4);
+        for (int x = 0; x < width; ++x) {
+            unsigned char pixel[4];
+            hsvToRgb(360.0f * static_cast<float>(x) / static_cast<float>(width - 1), 1.0f, 1.0f, pixel);
+            for (int y = 0; y < height; ++y)
+                std::memcpy(rgba.data() + (static_cast<size_t>(y) * width + x) * 4, pixel, 4);
+        }
+        dimensions = {width, height};
+        return CreateTextureFromRgba(rgba.data(), width, height, handle);
+    }
+
+    if (source.rfind("gen://sv", 0) == 0) {
+        float hue = 0.0f;
+        if (const size_t pos = source.find("h="); pos != std::string::npos)
+            hue = std::strtof(source.c_str() + pos + 2, nullptr);
+        constexpr int size = 64;
+        std::vector<unsigned char> rgba(static_cast<size_t>(size) * size * 4);
+        for (int y = 0; y < size; ++y) {
+            const float value = 1.0f - static_cast<float>(y) / static_cast<float>(size - 1);
+            for (int x = 0; x < size; ++x) {
+                const float saturation = static_cast<float>(x) / static_cast<float>(size - 1);
+                hsvToRgb(hue, saturation, value, rgba.data() + (static_cast<size_t>(y) * size + x) * 4);
+            }
+        }
+        dimensions = {size, size};
+        return CreateTextureFromRgba(rgba.data(), size, size, handle);
+    }
+
+    return false;
+}
+
 Rml::TextureHandle RmlRenderInterfaceD3D11::LoadTexture(Rml::Vector2i& dimensions, const Rml::String& source) {
     Rml::TextureHandle textureHandle = 0;
-    const bool loaded = source.rfind("res://", 0) == 0
+    const bool loaded = source.rfind("gen://", 0) == 0
+                            ? GenerateGradient(source, textureHandle, dimensions)
+                        : source.rfind("res://", 0) == 0
                             ? LoadEmbeddedPng(source, textureHandle, dimensions)
                             : LoadDiskPng(source, textureHandle, dimensions);
     return loaded ? textureHandle : Rml::TextureHandle(0);

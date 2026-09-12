@@ -530,6 +530,73 @@ namespace {
         return true;
     }
 
+    struct Hsv {
+        float h = 0.0f; // degrees, [0, 360)
+        float s = 0.0f;
+        float v = 0.0f;
+    };
+
+    Hsv RgbToHsv(const ColorRGBA& color) {
+        const float r = std::clamp(color.r, 0.0f, 1.0f);
+        const float g = std::clamp(color.g, 0.0f, 1.0f);
+        const float b = std::clamp(color.b, 0.0f, 1.0f);
+        const float max = std::max({r, g, b});
+        const float min = std::min({r, g, b});
+        const float span = max - min;
+
+        Hsv hsv;
+        hsv.v = max;
+        hsv.s = max > 0.0f ? span / max : 0.0f;
+        if (span <= 0.0f) return hsv;
+
+        if (max == r)
+            hsv.h = 60.0f * std::fmod((g - b) / span, 6.0f);
+        else if (max == g)
+            hsv.h = 60.0f * ((b - r) / span + 2.0f);
+        else
+            hsv.h = 60.0f * ((r - g) / span + 4.0f);
+        if (hsv.h < 0.0f) hsv.h += 360.0f;
+        return hsv;
+    }
+
+    ColorRGBA HsvToRgb(const Hsv& hsv, float alpha) {
+        const float h = std::fmod(std::fmod(hsv.h, 360.0f) + 360.0f, 360.0f) / 60.0f;
+        const float s = std::clamp(hsv.s, 0.0f, 1.0f);
+        const float v = std::clamp(hsv.v, 0.0f, 1.0f);
+        const float c = v * s;
+        const float x = c * (1.0f - std::fabs(std::fmod(h, 2.0f) - 1.0f));
+        const float m = v - c;
+
+        float r = m, g = m, b = m;
+        switch (static_cast<int>(h)) {
+        case 0:
+            r += c;
+            g += x;
+            break;
+        case 1:
+            r += x;
+            g += c;
+            break;
+        case 2:
+            g += c;
+            b += x;
+            break;
+        case 3:
+            g += x;
+            b += c;
+            break;
+        case 4:
+            r += x;
+            b += c;
+            break;
+        default:
+            r += c;
+            b += x;
+            break;
+        }
+        return ColorRGBA{r, g, b, std::clamp(alpha, 0.0f, 1.0f)};
+    }
+
     std::pair<float, float> OverlayWidgetDefaultSize(DashboardLayout::WidgetId widget, float dpiScale) {
         const float dpi = SanitizedScale(dpiScale);
         std::pair<float, float> size;
@@ -848,6 +915,13 @@ void RmlUiController::Update(const ConfigData& config) {
             hasInFlight = true;
         }
     }
+    // The same applies to the floating cards: their position lives in m_config
+    // while the pointer is down, and the per-frame assignment below would
+    // otherwise snap them back to the persisted value every frame.
+    const float inFlightSessionX = m_config.session_view_x;
+    const float inFlightSessionY = m_config.session_view_y;
+    const float inFlightSummaryX = m_config.match_summary_x;
+    const float inFlightSummaryY = m_config.match_summary_y;
 
     m_config = config;
 
@@ -861,6 +935,12 @@ void RmlUiController::Update(const ConfigData& config) {
                 break;
             }
         }
+    }
+    if (activeDragKind == DragKind::FloatingCard) {
+        m_config.session_view_x = inFlightSessionX;
+        m_config.session_view_y = inFlightSessionY;
+        m_config.match_summary_x = inFlightSummaryX;
+        m_config.match_summary_y = inFlightSummaryY;
     }
     SnapshotState();
     RefreshAsyncData();
@@ -1150,7 +1230,7 @@ void RmlUiController::RebuildVisibleUi(bool force) {
     for (const auto& id : m_config.known_primary_ids)
         fp << id << ',';
     fp << '|'
-       << m_config.show_session_card_in_game << '|' << m_config.show_session_record << '|'
+       << m_config.show_session_record << '|'
        << m_config.show_session_goals << '|' << m_config.show_session_saves << '|'
        << m_config.show_session_demos << '|' << m_config.show_session_assists << '|'
        << m_config.show_session_goal_participation << '|' << m_config.show_session_mmr_change << '|'
@@ -2219,6 +2299,27 @@ std::string RmlUiController::RenderWidget(DashboardLayout::WidgetId id, bool das
     return {};
 }
 
+// The session view and post-match summary live outside overlay_layout, so they
+// carry their own persisted position. An unset position keeps the legacy
+// centered placement, and they are only draggable while the overlay accepts
+// mouse input (Settings open); in game the overlay stays click-through.
+std::string RmlUiController::FloatingCardClass() const {
+    return WantsInteraction() ? " floating-card floating-card-movable" : " floating-card";
+}
+
+std::string RmlUiController::FloatingCardStyle(float x, float y, float widthDp) const {
+    std::ostringstream style;
+    style << " style='width:" << widthDp << "dp;";
+    if (x >= 0.0f && y >= 0.0f) {
+        const float rmlScale = SanitizedScale(m_dpiScale) * SanitizedUiScale(m_config.ui_scale);
+        style << "left:" << x / std::max(rmlScale, 0.01f) << "dp;top:" << y / std::max(rmlScale, 0.01f) << "dp;margin-left:0;";
+    } else {
+        style << "margin-left:" << -widthDp * 0.5f << "dp;";
+    }
+    style << "'";
+    return style.str();
+}
+
 std::string RmlUiController::RenderMatchSummary() {
     const int myTeam = m_snap.matchSummaryMyTeam;
     const int score0 = m_snap.matchSummaryScore[0];
@@ -2276,7 +2377,9 @@ std::string RmlUiController::RenderMatchSummary() {
     };
 
     std::ostringstream out;
-    out << "<div class='card match-summary'><div class='row'><div class='grow value " << resultClass << "' style='font-size:20dp'>" << result << "</div>"
+    out << "<div class='card match-summary" << FloatingCardClass() << "' data-action='floating-card-drag' data-card='match-summary'"
+        << FloatingCardStyle(m_config.match_summary_x, m_config.match_summary_y, 420.0f)
+        << "><div class='row'><div class='grow value " << resultClass << "' style='font-size:20dp'>" << result << "</div>"
         << "<div class='value mono' style='font-size:20dp'>" << myScore << '-' << theirScore << "</div></div>";
     if (m_snap.lastMatchWasVoid && !m_snap.lastMatchVoidReason.empty()) out << "<div class='label'>Not counted: " << Escape(Format::FriendlyVoidReason(m_snap.lastMatchVoidReason)) << "</div>";
     out << renderRows("PLAY", play) << renderRows("FUN", fun) << "</div>";
@@ -2286,9 +2389,14 @@ std::string RmlUiController::RenderMatchSummary() {
 std::string RmlUiController::RenderSessionView() {
     const auto category = m_state ? m_state->ui.graphMmrCategory.load() : MmrCategory::TwoVTwo;
     const bool graph = m_state && m_state->ui.showGraphView.load();
+    const bool lifetime = graph && m_snap.showLifetimeGraph;
     std::ostringstream out;
-    out << "<div class='card match-summary' style='width:450dp;margin-left:-225dp'><div class='row'><div class='card-title grow'>"
-        << (graph ? "MMR · " : "SESSION · ") << Escape(MmrLabel(category)) << "</div><span class='badge'>F7 session · F6 playlist</span></div>";
+    out << "<div class='card match-summary" << FloatingCardClass() << "' data-action='floating-card-drag' data-card='session-view'"
+        << FloatingCardStyle(m_config.session_view_x, m_config.session_view_y, 450.0f)
+        << "><div class='row'><div class='card-title grow'>"
+        << (lifetime ? "LIFETIME MMR · " : graph ? "MMR · "
+                                                 : "SESSION · ")
+        << Escape(MmrLabel(category)) << "</div><span class='badge'>F7 view · F6 playlist</span></div>";
     // Legacy F8 Session View uses the same configurable compact session
     // table as the dashboard/overlay card, with the session streak enabled.
     // The card title already names the playlist, so the graph must not repeat it.
@@ -2319,7 +2427,9 @@ std::string RmlUiController::RenderOverlayContainer(const OverlayLayout::Contain
         case DashboardLayout::WidgetId::LiveMatchStats:
             return showOverlay && expanded;
         case DashboardLayout::WidgetId::SessionStats:
-            return showOverlay || (m_config.show_session_card_in_game && m_snap.inMatch);
+            // Session stats follow the overlay key like every other roster card;
+            // they are not a permanent HUD element.
+            return showOverlay;
         case DashboardLayout::WidgetId::StreaksStats:
             return showOverlay && m_config.show_streaks_stats;
         case DashboardLayout::WidgetId::GamemodeBreakdown:
@@ -2647,7 +2757,6 @@ std::string RmlUiController::RenderSettingsCards() {
         << "<div class='row gap-sm' style='margin-top:8dp'>" << Button("reset-overlay", "Reset Overlay Layout", "ghost") << "</div>" << SectionEnd();
 
     out << SectionStart("Session Card")
-        << ToggleControl("show_session_card_in_game", "Show session card in game", "", m_config.show_session_card_in_game)
         << ToggleControl("show_session_record", "Record", "", m_config.show_session_record)
         << ToggleControl("show_session_goals", "Goals", "", m_config.show_session_goals)
         << ToggleControl("show_session_saves", "Saves", "", m_config.show_session_saves)
@@ -2816,7 +2925,7 @@ std::string RmlUiController::RenderSettingsAppearance() {
     auto colorRow = [&](const char* key, const char* label, const ColorRGBA& color) {
         std::ostringstream html;
         html << "<div class='setting-row'><div class='setting-info'><div class='setting-name'>" << label
-             << "</div><div class='setting-help'>Click the swatch for RGBA sliders, or edit the hex value.</div></div>"
+             << "</div><div class='setting-help'>Click the swatch to pick a color, or edit the hex value.</div></div>"
              << "<button class='color-dot color-dot-button' style='background-color:" << CssColor(color)
              << "' data-action='edit-color' data-color-key='" << key << "'></button>"
              << "<input type='text' class='text mono' style='width:100dp;margin-left:6dp' data-setting='" << key
@@ -2856,7 +2965,25 @@ std::string RmlUiController::RenderSettingsAppearance() {
         << SectionEnd();
 
     if (const ColorRGBA* editing = ThemeColorForKey(m_config, m_editColorKey)) {
+        const Hsv hsv = RgbToHsv(*editing);
+        // A gray color carries no hue, so the picker keeps the last hue the user
+        // chose instead of snapping the field back to red.
+        const float hue = hsv.s > 0.0f ? hsv.h : m_editColorHue;
+        const auto percent = [](float value) {
+            std::ostringstream text;
+            text << std::fixed << std::setprecision(2) << std::clamp(value, 0.0f, 1.0f) * 100.0f;
+            return text.str();
+        };
+
         out << SectionStart(std::string("Color editor · ") + ThemeColorLabel(m_editColorKey))
+            << "<div class='color-picker'>"
+            << "<div class='color-field' data-action='color-field' style='decorator: image(gen://sv?h="
+            << static_cast<int>(std::lround(hue / 2.0f)) * 2 << ");'>"
+            << "<div class='color-field-marker' style='left:" << percent(hsv.s) << "%;top:" << percent(1.0f - hsv.v) << "%'></div>"
+            << "</div>"
+            << "<div class='color-hue' data-action='color-hue'>"
+            << "<div class='color-hue-marker' style='left:" << percent(hue / 360.0f) << "%'></div>"
+            << "</div></div>"
             << "<div class='color-editor-preview' style='background-color:" << CssColor(*editing) << "'></div>"
             << rangeRow("R", 'r', channelByte(editing->r))
             << rangeRow("G", 'g', channelByte(editing->g))
@@ -3455,9 +3582,7 @@ void RmlUiController::HandleChange(Rml::Element* target, Rml::Event& event) {
         } else if (key == "identity") {
             c.last_primary_id = value;
             if (!value.empty() && std::find(c.known_primary_ids.begin(), c.known_primary_ids.end(), value) == c.known_primary_ids.end()) c.known_primary_ids.push_back(value);
-        } else if (key == "show_session_card_in_game")
-            c.show_session_card_in_game = checked;
-        else if (key == "show_session_record")
+        } else if (key == "show_session_record")
             c.show_session_record = checked;
         else if (key == "show_session_goals")
             c.show_session_goals = checked;
@@ -3792,7 +3917,8 @@ void RmlUiController::HandleMouseDown(Rml::Element* target, Rml::Event& event) {
     auto isDragAction = [](const std::string& a) {
         return a == "dashboard-drag" || a == "overlay-toolbox-drag" ||
                a == "overlay-widget-drag" || a == "settings-drag" ||
-               a == "overlay-drag" || a == "overlay-resize";
+               a == "overlay-drag" || a == "overlay-resize" ||
+               a == "floating-card-drag" || a == "color-field" || a == "color-hue";
     };
 
     Rml::Element* actionElement = target;
@@ -3875,7 +4001,67 @@ void RmlUiController::HandleMouseDown(Rml::Element* target, Rml::Event& event) {
             }
         }
         m_systemInterface.LockCursor(action == "overlay-resize" ? "resize" : "move");
+    } else if (action == "floating-card-drag") {
+        const std::string card = Attribute(actionElement, "data-card");
+        if (card.empty()) return;
+        m_drag = {};
+        m_drag.kind = DragKind::FloatingCard;
+        m_drag.containerId = card;
+        m_drag.startMouseX = event.GetParameter<float>("mouse_x", 0.0f);
+        m_drag.startMouseY = event.GetParameter<float>("mouse_y", 0.0f);
+        // Centered cards have no stored position yet, so seed the drag from where
+        // the card is actually drawn.
+        m_drag.startX = actionElement->GetAbsoluteLeft();
+        m_drag.startY = actionElement->GetAbsoluteTop();
+        m_drag.startW = actionElement->GetOffsetWidth();
+        m_drag.startH = actionElement->GetOffsetHeight();
+        m_systemInterface.LockCursor("move");
+    } else if (action == "color-field" || action == "color-hue") {
+        m_drag = {};
+        m_drag.kind = action == "color-field" ? DragKind::ColorField : DragKind::ColorHue;
+        // The picker rect is captured once: rebuilding the settings DOM on every
+        // move would otherwise invalidate the element mid-drag.
+        m_drag.startX = actionElement->GetAbsoluteLeft();
+        m_drag.startY = actionElement->GetAbsoluteTop();
+        m_drag.startW = std::max(actionElement->GetClientWidth(), 1.0f);
+        m_drag.startH = std::max(actionElement->GetClientHeight(), 1.0f);
+        m_systemInterface.LockCursor("cross");
+        ApplyColorPick(event.GetParameter<float>("mouse_x", 0.0f), event.GetParameter<float>("mouse_y", 0.0f));
     }
+}
+
+// Maps a pointer position inside the saturation/value field or hue strip onto the
+// color being edited. The picker rect was captured on mousedown, so this stays
+// correct while the settings DOM is rebuilt between moves.
+void RmlUiController::ApplyColorPick(float mouseX, float mouseY) {
+    ColorRGBA* current = ThemeColorForKey(m_config, m_editColorKey);
+    if (!current) return;
+
+    const float u = std::clamp((mouseX - m_drag.startX) / m_drag.startW, 0.0f, 1.0f);
+    const float v = std::clamp((mouseY - m_drag.startY) / m_drag.startH, 0.0f, 1.0f);
+    const Hsv existing = RgbToHsv(*current);
+    Hsv picked = existing;
+    picked.h = existing.s > 0.0f ? existing.h : m_editColorHue;
+    if (m_drag.kind == DragKind::ColorHue) {
+        picked.h = u * 360.0f;
+        // A fully black or white swatch has nothing for a hue to act on; give the
+        // dragged hue something visible instead of leaving the field blank.
+        if (picked.v <= 0.0f) picked.v = 1.0f;
+        if (picked.s <= 0.0f) picked.s = 1.0f;
+    } else {
+        picked.s = u;
+        picked.v = 1.0f - v;
+    }
+    m_editColorHue = picked.h;
+
+    const ColorRGBA updated = HsvToRgb(picked, current->a);
+    const std::string key = m_editColorKey;
+    Config::Update([key, updated](ConfigData& c) {
+        if (ColorRGBA* target = ThemeColorForKey(c, key)) *target = updated;
+    });
+    m_config = Config::Read();
+    UpdateThemeProperties();
+    RebuildSettings();
 }
 
 void RmlUiController::HandleMouseMove(Rml::Event& event) {
@@ -3892,6 +4078,32 @@ void RmlUiController::HandleMouseMove(Rml::Event& event) {
                 const float rmlScale = SanitizedScale(m_dpiScale) * SanitizedUiScale(m_config.ui_scale);
                 window->SetProperty("left", std::to_string(m_settingsX / std::max(rmlScale, 0.01f)) + "dp");
                 window->SetProperty("top", std::to_string(m_settingsY / std::max(rmlScale, 0.01f)) + "dp");
+            }
+        }
+        return;
+    }
+    if (m_drag.kind == DragKind::ColorField || m_drag.kind == DragKind::ColorHue) {
+        ApplyColorPick(event.GetParameter<float>("mouse_x", 0.0f), event.GetParameter<float>("mouse_y", 0.0f));
+        return;
+    }
+    if (m_drag.kind == DragKind::FloatingCard) {
+        const float rmlScale = SanitizedScale(m_dpiScale) * SanitizedUiScale(m_config.ui_scale);
+        const float dx = event.GetParameter<float>("mouse_x", 0.0f) - m_drag.startMouseX;
+        const float dy = event.GetParameter<float>("mouse_y", 0.0f) - m_drag.startMouseY;
+        const float x = std::clamp(m_drag.startX + dx, 0.0f, std::max(0.0f, static_cast<float>(m_width) - m_drag.startW));
+        const float y = std::clamp(m_drag.startY + dy, 0.0f, std::max(0.0f, static_cast<float>(m_height) - m_drag.startH));
+        if (m_drag.containerId == "session-view") {
+            m_config.session_view_x = x;
+            m_config.session_view_y = y;
+        } else {
+            m_config.match_summary_x = x;
+            m_config.match_summary_y = y;
+        }
+        if (auto* root = Root("overlay-root")) {
+            if (auto* card = root->QuerySelector(("[data-card='" + m_drag.containerId + "']").c_str())) {
+                card->SetProperty("left", std::to_string(x / std::max(rmlScale, 0.01f)) + "dp");
+                card->SetProperty("top", std::to_string(y / std::max(rmlScale, 0.01f)) + "dp");
+                card->SetProperty("margin-left", "0");
             }
         }
         return;
@@ -4024,6 +4236,21 @@ void RmlUiController::HandleMouseUp(Rml::Event& event) {
     if (m_drag.kind == DragKind::SettingsMove) {
         // Position is intentionally session-local; reopening Settings keeps the
         // user's last placement without changing the existing config format.
+    } else if (m_drag.kind == DragKind::ColorField || m_drag.kind == DragKind::ColorHue) {
+        // ApplyColorPick already committed every sample.
+    } else if (m_drag.kind == DragKind::FloatingCard) {
+        const float sessionX = m_config.session_view_x;
+        const float sessionY = m_config.session_view_y;
+        const float summaryX = m_config.match_summary_x;
+        const float summaryY = m_config.match_summary_y;
+        Config::Update([=](ConfigData& c) {
+            c.session_view_x = sessionX;
+            c.session_view_y = sessionY;
+            c.match_summary_x = summaryX;
+            c.match_summary_y = summaryY;
+        });
+        m_config = Config::Read();
+        RebuildOverlay();
     } else if (m_drag.kind == DragKind::DashboardWidget) {
         Rml::Element* element = event.GetTargetElement();
         std::string fallbackZone;

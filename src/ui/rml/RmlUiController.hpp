@@ -111,7 +111,10 @@ class RmlUiController final : public Rml::EventListener {
                           OverlayResize,
                           OverlayWidget,
                           OverlayToolboxWidget,
-                          SettingsMove };
+                          SettingsMove,
+                          FloatingCard,
+                          ColorField,
+                          ColorHue };
 
     struct DragState {
         DragKind kind = DragKind::None;
@@ -150,6 +153,8 @@ class RmlUiController final : public Rml::EventListener {
     std::string RenderLobbyRanks();
     std::string RenderMatchSummary();
     std::string RenderSessionView();
+    std::string FloatingCardClass() const;
+    std::string FloatingCardStyle(float x, float y, float widthDp) const;
     std::string RenderOverlayContainer(const OverlayLayout::ContainerConfig& container, bool editMode);
     std::string RenderOverlayToolbox(bool editMode);
 
@@ -166,6 +171,7 @@ class RmlUiController final : public Rml::EventListener {
     void HandleChange(Rml::Element* target, Rml::Event& event);
     void HandleInput(Rml::Element* target);
     void HandleMouseDown(Rml::Element* target, Rml::Event& event);
+    void ApplyColorPick(float mouseX, float mouseY);
     void HandleMouseMove(Rml::Event& event);
     void HandleMouseUp(Rml::Event& event);
     void BeginBindCapture(BindCaptureTarget target);
@@ -247,6 +253,9 @@ class RmlUiController final : public Rml::EventListener {
     BindCaptureTarget m_bindCaptureTarget = BindCaptureTarget::None;
     bool m_showBallchasingToken = false;
     std::string m_editColorKey;
+    // Hue is tracked separately from the edited RGBA: dragging saturation or
+    // value through gray would otherwise lose the hue the user picked.
+    float m_editColorHue = 0.0f;
     bool m_confirmReplayUploads = false;
     bool m_confirmDeleteHistory = false;
     bool m_showUpdatePrompt = false;

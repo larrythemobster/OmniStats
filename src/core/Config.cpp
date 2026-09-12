@@ -326,7 +326,6 @@ namespace Config {
             if (j.contains("key_save_replay")) Current.key_save_replay = j["key_save_replay"];
 
             // Load session visibility flags
-            if (j.contains("show_session_card_in_game")) Current.show_session_card_in_game = j["show_session_card_in_game"];
             if (j.contains("show_session_record")) Current.show_session_record = j["show_session_record"];
             if (j.contains("show_session_goals")) Current.show_session_goals = j["show_session_goals"];
             if (j.contains("show_session_saves")) Current.show_session_saves = j["show_session_saves"];
@@ -376,6 +375,10 @@ namespace Config {
             if (j.contains("second_monitor_w")) Current.second_monitor_w = j["second_monitor_w"];
             if (j.contains("second_monitor_h")) Current.second_monitor_h = j["second_monitor_h"];
             if (j.contains("ui_scale")) Current.ui_scale = j["ui_scale"];
+            if (j.contains("session_view_x")) Current.session_view_x = j["session_view_x"];
+            if (j.contains("session_view_y")) Current.session_view_y = j["session_view_y"];
+            if (j.contains("match_summary_x")) Current.match_summary_x = j["match_summary_x"];
+            if (j.contains("match_summary_y")) Current.match_summary_y = j["match_summary_y"];
             if (j.contains("overlay_fps_cap")) Current.overlay_fps_cap = j["overlay_fps_cap"];
             if (j.contains("vsync")) Current.vsync = j["vsync"];
 
@@ -530,7 +533,6 @@ namespace Config {
         j["key_save_replay"] = Current.key_save_replay;
 
         // Save session visibility flags
-        j["show_session_card_in_game"] = Current.show_session_card_in_game;
         j["show_session_record"] = Current.show_session_record;
         j["show_session_goals"] = Current.show_session_goals;
         j["show_session_saves"] = Current.show_session_saves;
@@ -572,6 +574,10 @@ namespace Config {
         j["second_monitor_w"] = Current.second_monitor_w;
         j["second_monitor_h"] = Current.second_monitor_h;
         j["ui_scale"] = Current.ui_scale;
+        j["session_view_x"] = Current.session_view_x;
+        j["session_view_y"] = Current.session_view_y;
+        j["match_summary_x"] = Current.match_summary_x;
+        j["match_summary_y"] = Current.match_summary_y;
         j["overlay_fps_cap"] = Current.overlay_fps_cap;
         j["vsync"] = Current.vsync;
         nlohmann::json jl;

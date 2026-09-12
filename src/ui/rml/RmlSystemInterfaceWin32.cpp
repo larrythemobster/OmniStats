@@ -93,6 +93,8 @@ void RmlSystemInterfaceWin32::LockCursor(const char* cursorName) {
             m_mouseCursor = LoadCursor(nullptr, IDC_SIZEALL);
         else if (std::strcmp(cursorName, "resize") == 0)
             m_mouseCursor = LoadCursor(nullptr, IDC_SIZENWSE);
+        else if (std::strcmp(cursorName, "cross") == 0)
+            m_mouseCursor = LoadCursor(nullptr, IDC_CROSS);
         else
             m_mouseCursor = LoadCursor(nullptr, IDC_ARROW);
         ApplyMouseCursor();

@@ -47,6 +47,10 @@ class RmlRenderInterfaceD3D11 final : public Rml::RenderInterface {
     bool CreateTextureFromRgba(const unsigned char* rgba, int width, int height, Rml::TextureHandle& handle);
     bool LoadEmbeddedPng(const std::string& source, Rml::TextureHandle& handle, Rml::Vector2i& dimensions);
     bool LoadDiskPng(const std::string& source, Rml::TextureHandle& handle, Rml::Vector2i& dimensions);
+    // Color-picker gradients. RmlUi paints CSS gradients through render-interface
+    // shaders, which this interface does not implement, so the picker asks for
+    // `gen://` textures instead.
+    bool GenerateGradient(const std::string& source, Rml::TextureHandle& handle, Rml::Vector2i& dimensions);
     void DrawGeometry(ID3D11Buffer* vertexBuffer, ID3D11Buffer* indexBuffer, int indexCount,
                       Rml::TextureHandle texture, const Rml::Vector2f& translation);
     void UpdateConstants(Rml::TextureHandle texture, const Rml::Vector2f& translation);

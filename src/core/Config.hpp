@@ -108,7 +108,6 @@ struct ConfigData {
     ColorRGBA themeGraphBaseline = {0.913241446018219f, 0.9516128897666931f, 0.0f, 1.00f};
 
     // Session Card Visibility Toggles
-    bool show_session_card_in_game = true;
     bool show_session_record = true;
     bool show_session_goals = true;
     bool show_session_saves = true;
@@ -155,6 +154,13 @@ struct ConfigData {
     int second_monitor_h = 768;
 
     float ui_scale = 1.0f;
+
+    // Overlay cards that are not part of overlay_layout: the F8 session view and
+    // the post-match summary. -1 keeps the legacy centered placement.
+    float session_view_x = -1.0f;
+    float session_view_y = -1.0f;
+    float match_summary_x = -1.0f;
+    float match_summary_y = -1.0f;
 
     int overlay_fps_cap = 60;
     bool vsync = false;
