@@ -1,6 +1,5 @@
 #include "OverlayWindow.hpp"
 #include "core/Config.hpp"
-#include "core/Storage.hpp"
 #include <dwmapi.h>
 #include <iostream>
 
@@ -62,8 +61,6 @@ bool OverlayWindow::Create(HICON appIconBig, HICON appIconSmall, WNDPROC wndProc
 
     m_dpiScale = systemScale;
     if (m_dpiScale < 0.5f) m_dpiScale = 1.0f;
-
-    m_imguiIniPath = Storage::GetDataDirectory() + "imgui.ini";
 
     return true;
 }

@@ -1,6 +1,5 @@
 #pragma once
 #include <windows.h>
-#include <string>
 
 class OverlayWindow {
   public:
@@ -28,9 +27,6 @@ class OverlayWindow {
     float DpiScale() const {
         return m_dpiScale;
     }
-    const std::string& ImGuiIniPath() const {
-        return m_imguiIniPath;
-    }
 
   private:
     HWND m_hwnd = nullptr;
@@ -38,5 +34,4 @@ class OverlayWindow {
     bool m_classRegistered = false;
     float m_dpiScale = 1.0f;
     bool m_frameExtended = false;
-    std::string m_imguiIniPath;
 };
