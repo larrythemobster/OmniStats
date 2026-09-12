@@ -136,6 +136,7 @@ class RmlUiController final : public Rml::EventListener {
     void UpdateInputCapture();
     void UpdateThemeProperties();
     void RebuildVisibleUi(bool force = false);
+    bool PointerOverInteractiveOverlay() const;
     void RebuildOverlay();
     void RebuildDashboard();
     void RebuildSettings();

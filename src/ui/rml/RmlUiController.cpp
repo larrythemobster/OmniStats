@@ -983,6 +983,31 @@ void RmlUiController::SetRootRml(const char* id, const std::string& rml) {
     }
 }
 
+bool RmlUiController::PointerOverInteractiveOverlay() const {
+    if (!m_hasPointerPosition) return false;
+
+    const auto containsPointer = [&](const char* selector) {
+        if (auto* app = Root("app")) {
+            Rml::ElementList elements;
+            app->QuerySelectorAll(elements, selector);
+            for (Rml::Element* element : elements) {
+                const float left = element->GetAbsoluteLeft();
+                const float top = element->GetAbsoluteTop();
+                if (m_lastPointerX >= left && m_lastPointerX <= left + element->GetOffsetWidth() &&
+                    m_lastPointerY >= top && m_lastPointerY <= top + element->GetOffsetHeight()) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    };
+
+    // These live RML trees are rebuilt on telemetry updates. Replacing a hovered
+    // card destroys RmlUi's hover target, which is the cursor flash the static
+    // Settings tree does not have.
+    return containsPointer(".overlay-card.interactive") || containsPointer(".floating-card-movable");
+}
+
 void RmlUiController::SnapshotState() {
     if (!m_state) return;
     {
@@ -1426,6 +1451,12 @@ void RmlUiController::RebuildVisibleUi(bool force) {
                             m_lastShowLifetimeGraph != showLifetimeGraph || m_lastRosterMmrCategory != rosterCategory ||
                             m_lastGraphMmrCategory != graphCategory || m_lastConfigFingerprint != fingerprint;
 
+    // Settings remains stable because its DOM only rebuilds when its own input
+    // changes. Apply the same rule to a live overlay while the cursor is on one
+    // of its interactive cards. We leave the render fingerprint untouched, so
+    // telemetry catches up immediately when the cursor leaves.
+    const bool deferOverlayRefresh = dirtyState && !force && showMenu && !m_config.second_monitor_mode &&
+                                     PointerOverInteractiveOverlay();
     if (!dirtyState && !settingsDirty) {
         if (m_statusUntilMs && SteadyNowMs() >= m_statusUntilMs) {
             m_statusUntilMs = 0;
@@ -1434,7 +1465,7 @@ void RmlUiController::RebuildVisibleUi(bool force) {
         return;
     }
 
-    if (dirtyState) {
+    if (dirtyState && !deferOverlayRefresh) {
         if (m_config.second_monitor_mode) {
             SetRootRml("overlay-root", "");
             RebuildDashboard();
