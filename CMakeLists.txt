@@ -24,7 +24,7 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 # Define Windows target version (Windows 10) to resolve Asio/Winsock compiler warnings
-add_compile_definitions(_WIN32_WINNT=0x0A00)
+add_compile_definitions(NOMINMAX _WIN32_WINNT=0x0A00)
 
 # Force MSVC to use the static C/C++ runtime library (/MT instead of /MD)
 set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
@@ -35,8 +35,7 @@ endif()
 
 # Find the packages defined in vcpkg.json
 find_package(nlohmann_json CONFIG REQUIRED)
-find_package(imgui CONFIG REQUIRED)
-find_package(implot CONFIG REQUIRED)
+find_package(RmlUi CONFIG REQUIRED)
 find_package(CURL CONFIG REQUIRED)
 find_package(SDL2 CONFIG REQUIRED)
 find_package(unofficial-sqlite3 CONFIG REQUIRED)
@@ -145,8 +144,7 @@ target_compile_definitions(${PROJECT_NAME} PRIVATE
 # Application dependencies
 target_link_libraries(${PROJECT_NAME} PRIVATE
     nlohmann_json::nlohmann_json
-    imgui::imgui
-    implot::implot
+    RmlUi::RmlUi
     CURL::libcurl
     SDL2::SDL2-static
     unofficial::sqlite3::sqlite3
@@ -165,6 +163,7 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
     Wldap32.lib
     Normaliz.lib
     gdiplus.lib
+    ole32.lib
     dbghelp.lib
     bcrypt.lib
 )
@@ -248,8 +247,7 @@ if(BUILD_TESTING)
         GTest::gtest_main
         GTest::gmock
         nlohmann_json::nlohmann_json
-        imgui::imgui
-        implot::implot
+        RmlUi::RmlUi
         CURL::libcurl
         SDL2::SDL2-static
         unofficial::sqlite3::sqlite3
@@ -305,8 +303,7 @@ if(BUILD_TESTING)
         target_link_libraries(OmniStatsBenchmarks PRIVATE
             benchmark::benchmark
             nlohmann_json::nlohmann_json
-            imgui::imgui
-            implot::implot
+            RmlUi::RmlUi
             CURL::libcurl
             SDL2::SDL2-static
             unofficial::sqlite3::sqlite3
@@ -321,11 +318,12 @@ if(BUILD_TESTING)
             Imm32.lib
             Setupapi.lib
             crypt32.lib
-                    Ws2_32.lib
+            Ws2_32.lib
             Wldap32.lib
             Normaliz.lib
             gdiplus.lib
             bcrypt.lib
+            ole32.lib
         )
         if(MSVC)
             target_compile_options(OmniStatsBenchmarks PRIVATE
@@ -355,8 +353,7 @@ if(BUILD_TESTING)
         )
         target_link_libraries(OmniStatsFuzzer PRIVATE
             nlohmann_json::nlohmann_json
-            imgui::imgui
-            implot::implot
+            RmlUi::RmlUi
             CURL::libcurl
             SDL2::SDL2-static
             unofficial::sqlite3::sqlite3
@@ -371,11 +368,12 @@ if(BUILD_TESTING)
             Imm32.lib
             Setupapi.lib
             crypt32.lib
-                    Ws2_32.lib
+            Ws2_32.lib
             Wldap32.lib
             Normaliz.lib
             gdiplus.lib
             bcrypt.lib
+            ole32.lib
         )
         if(MSVC)
             target_compile_options(OmniStatsFuzzer PRIVATE /fsanitize=fuzzer)

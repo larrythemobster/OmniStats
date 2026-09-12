@@ -67,7 +67,6 @@ third_party/
 PythonSource/
 
 # Runtime/user data
-imgui.ini
 *.log
 *.dmp
 *.mdmp

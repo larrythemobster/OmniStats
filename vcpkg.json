@@ -5,14 +5,7 @@
     "asio",
     "curl",
     "nlohmann-json",
-    {
-      "name": "imgui",
-      "features": [
-        "dx11-binding",
-        "win32-binding"
-      ]
-    },
-    "implot",
+    "rmlui",
     "sdl2",
     "sqlite3",
     "discord-rpc",
