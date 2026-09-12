@@ -998,6 +998,77 @@ TEST_F(RmlUiControllerStateTest, OverlayControlsStayClickableWhileTelemetryUpdat
 // Switching window modes changes the client size. Settings must be re-centered
 // for the new size instead of staying positioned for the old one, which clipped
 // every control off the right edge of the dashboard window.
+// Outside edit mode a container auto-fits its visible widgets. Dragging must be
+// clamped to that rendered height, not the taller saved/default geometry, or
+// short cards cannot be moved into the lower part of the screen.
+TEST_F(RmlUiControllerStateTest, ShortOverlayCardCanBeDraggedToTheBottomOfTheScreen) {
+    Microsoft::WRL::ComPtr<ID3D11Device> device;
+    Microsoft::WRL::ComPtr<ID3D11DeviceContext> context;
+    D3D_FEATURE_LEVEL featureLevel;
+    if (FAILED(D3D11CreateDevice(nullptr, D3D_DRIVER_TYPE_WARP, nullptr, 0, nullptr, 0, D3D11_SDK_VERSION,
+                                 &device, &featureLevel, &context))) {
+        GTEST_SKIP() << "WARP device creation not available in this environment.";
+    }
+    HWND hwnd = CreateWindowExA(0, "STATIC", "test", WS_POPUP, 0, 0, 1920, 1080, nullptr, nullptr,
+                                GetModuleHandle(nullptr), nullptr);
+    ASSERT_NE(hwnd, nullptr);
+
+    Config::Update([](ConfigData& c) {
+        c.show_lobby_ranks_overlay = true;
+        c.overlay_layout.containers.clear();
+        OverlayLayout::ContainerConfig lobby;
+        lobby.id = "lobby_ranks";
+        lobby.x = 20.0f;
+        lobby.y = 60.0f;
+        lobby.w = 0.0f;
+        lobby.h = 0.0f;
+        lobby.widgets = {DashboardLayout::WidgetId::LobbyRanks};
+        c.overlay_layout.containers.push_back(lobby);
+    },
+                   true);
+
+    auto state = std::make_shared<SessionState>();
+    state->ui.showMenu.store(true);
+    {
+        std::unique_lock lock(state->game.mutex);
+        PlayerData player;
+        player.primaryId = "Epic|drag";
+        player.name = "Dragged Player";
+        player.fetched = true;
+        state->game.roster[player.primaryId] = player;
+        state->game.version.fetch_add(1);
+    }
+
+    RmlUiController controller(state, nullptr);
+    ASSERT_TRUE(controller.Initialize(hwnd, device.Get(), context.Get(), 1920, 1080, 1.0f));
+    controller.Update(Config::Read());
+    controller.Render();
+
+    auto* card = OverlayRoot(controller)->QuerySelector("[data-container='lobby_ranks']");
+    ASSERT_NE(card, nullptr);
+    const float renderedHeight = card->GetOffsetHeight();
+    ASSERT_GT(renderedHeight, 1.0f);
+    // The saved geometry resolves much taller than the auto-fitted card.
+    ASSERT_LT(renderedHeight, 300.0f);
+
+    // Press near the card's top-left so the press cannot land on the Settings window.
+    const Rml::Vector2f grip = card->GetAbsoluteOffset() + Rml::Vector2f(20.0f, 10.0f);
+    controller.ProcessWindowMessage(hwnd, WM_MOUSEMOVE, 0, MAKELPARAM(static_cast<int>(grip.x), static_cast<int>(grip.y)));
+    controller.Render();
+    controller.ProcessWindowMessage(hwnd, WM_LBUTTONDOWN, MK_LBUTTON, MAKELPARAM(static_cast<int>(grip.x), static_cast<int>(grip.y)));
+    controller.ProcessWindowMessage(hwnd, WM_MOUSEMOVE, MK_LBUTTON, MAKELPARAM(static_cast<int>(grip.x), 1000));
+    controller.ProcessWindowMessage(hwnd, WM_LBUTTONUP, 0, MAKELPARAM(static_cast<int>(grip.x), 1000));
+    controller.Render();
+
+    const auto [movedX, movedY] = GetContainerPos(controller, "lobby_ranks");
+    // Without the fix the drag stops at 1080 - 360 (the resolved default height).
+    EXPECT_GT(movedY, 850.0f) << "drag was clamped against phantom container height";
+    EXPECT_LE(movedY + renderedHeight, 1080.0f);
+    EXPECT_GE(movedX, 0.0f);
+
+    DestroyWindow(hwnd);
+}
+
 TEST_F(RmlUiControllerStateTest, SettingsWindowStaysInsideClientAreaAfterResize) {
     Microsoft::WRL::ComPtr<ID3D11Device> device;
     Microsoft::WRL::ComPtr<ID3D11DeviceContext> context;

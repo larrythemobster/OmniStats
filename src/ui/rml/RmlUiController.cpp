@@ -3656,6 +3656,20 @@ void RmlUiController::HandleMouseDown(Rml::Element* target, Rml::Event& event) {
         const auto [resolvedWidth, resolvedHeight] = OverlayContainerSize(*it, m_dpiScale);
         m_drag.startW = resolvedWidth;
         m_drag.startH = resolvedHeight;
+        if (m_drag.kind == DragKind::OverlayMove) {
+            // Outside edit mode a container auto-fits its visible widgets, so the
+            // resolved (saved/default) height is much taller than what is drawn.
+            // Clamping the drag against that phantom height made short cards
+            // unreachable in the lower part of the screen.
+            if (auto* root = Root("overlay-root")) {
+                if (auto* element = root->QuerySelector(("[data-container='" + id + "']").c_str())) {
+                    const float renderedWidth = element->GetOffsetWidth();
+                    const float renderedHeight = element->GetOffsetHeight();
+                    if (renderedWidth > 1.0f) m_drag.startW = renderedWidth;
+                    if (renderedHeight > 1.0f) m_drag.startH = renderedHeight;
+                }
+            }
+        }
         m_systemInterface.LockCursor(action == "overlay-resize" ? "resize" : "move");
     }
 }
@@ -3723,9 +3737,18 @@ void RmlUiController::HandleMouseMove(Rml::Event& event) {
         float y = std::max(0.0f, m_drag.startY + dy);
         std::vector<SnapCandidate> xCandidates{{moveMargin, moveMargin}, {screenWidth - moveMargin - m_drag.startW, screenWidth - moveMargin}};
         std::vector<SnapCandidate> yCandidates{{moveMargin, moveMargin}, {screenHeight - moveMargin - m_drag.startH, screenHeight - moveMargin}};
+        // Snap against what each neighbour actually occupies on screen, for the
+        // same reason the dragged container is clamped to its rendered size.
+        auto* overlayRoot = Root("overlay-root");
         for (const auto& other : m_config.overlay_layout.containers) {
             if (other.id == it->id) continue;
-            const auto [ow, oh] = OverlayContainerSize(other, m_dpiScale);
+            auto [ow, oh] = OverlayContainerSize(other, m_dpiScale);
+            if (overlayRoot) {
+                if (auto* element = overlayRoot->QuerySelector(("[data-container='" + other.id + "']").c_str())) {
+                    if (element->GetOffsetWidth() > 1.0f) ow = element->GetOffsetWidth();
+                    if (element->GetOffsetHeight() > 1.0f) oh = element->GetOffsetHeight();
+                }
+            }
             xCandidates.insert(xCandidates.end(), {{other.x, other.x}, {other.x + ow, other.x + ow}, {other.x - m_drag.startW, other.x}, {other.x + ow - m_drag.startW, other.x + ow}});
             yCandidates.insert(yCandidates.end(), {{other.y, other.y}, {other.y + oh, other.y + oh}, {other.y - m_drag.startH, other.y}, {other.y + oh - m_drag.startH, other.y + oh}});
         }
