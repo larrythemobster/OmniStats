@@ -1069,7 +1069,7 @@ void RmlUiController::UpdateThemeProperties() {
     setClass("debug-label", "color", muted);
     setClass("match-mode", "color", muted);
     setClass("dim", "color", dim);
-    setClass("rank-matches", "color", dim);
+    setClass("lobby-rank-matches", "color", dim);
     setClass("dashboard-edit-zone", "color", dim);
     setClass("setting-help", "color", dim);
     setClass("match-time", "color", dim);
@@ -1676,63 +1676,61 @@ std::string RmlUiController::RenderPlayerRoster(int team, const char* label) {
         }
         std::string platform;
         if (const auto pos = p->primaryId.find('|'); pos != std::string::npos) platform = p->primaryId.substr(0, pos);
-        out << "<div class='player-row" << (self ? " self" : "") << "'>";
-        if (m_config.use_rank_icons) {
-            const std::string rankTooltip = p->fetched || mmr > 0 ? Format::RankTier(tier, m_config.use_roman_numerals) : "Fetching rank...";
-            out << RenderRankBadge(tier, p->fetched || mmr > 0, rankTooltip);
-        }
-        const std::string trackerUrl = TrackerUrlForPlayer(*p);
-        out << "<div class='player-name'><span class='value" << (trackerUrl.empty() ? "" : " player-link") << "'";
-        if (!trackerUrl.empty()) out << " data-action='open-player-tracker' data-url='" << Escape(trackerUrl) << "'";
-        out << ">" << Escape(p->name) << "</span>";
-        if (self) out << " <span class='badge accent'>YOU</span>";
-        if (!platform.empty()) {
-            const PlatformKind platformKind = PlatformKindFor(platform);
-            out << " <span class='badge " << PlatformClass(platformKind) << "'>"
-                << Escape(PlatformBadgeLabel(platformKind, platform)) << "</span>";
-        }
-        if (m_config.show_account_wins_overlay && p->totalWins >= 0) out << " <span class='badge'>" << p->totalWins << " wins</span>";
-        out << "<div class='label'>";
-        const int withGames = p->lifetimeWinsWith + p->lifetimeLossesWith;
-        const int againstGames = p->lifetimeWinsAgainst + p->lifetimeLossesAgainst;
-        const bool hasEncounterRecord = p->hasLifetimeData && (withGames > 0 || againstGames > 0);
-        if (hasEncounterRecord) {
-            if (withGames) out << "with " << p->lifetimeWinsWith << '-' << p->lifetimeLossesWith;
-            if (withGames && againstGames) out << " · ";
-            if (againstGames) out << "vs " << p->lifetimeWinsAgainst << '-' << p->lifetimeLossesAgainst;
-        } else if (!self) {
-            // The legacy roster always marked players with no prior encounter
-            // record as NEW, including while lifetime lookup data was absent.
-            out << "NEW";
-        }
-        if (p->goals || p->saves || p->shots || p->assists || p->demos) {
-            out << " · G" << p->goals << " S" << p->saves << " A" << p->assists << " Sh" << p->shots << " D" << p->demos;
-        }
-        out << "</div></div>";
         const auto color = Format::RankColor(tier);
         const auto matchesIt = p->playlistMatches.find(category == "best" ? "best" : rankSource);
         const int matchCount = matchesIt != p->playlistMatches.end() ? matchesIt->second : 0;
-        if (!m_config.use_rank_icons || (category == "best" && rankSource != "best")) {
-            out << "<div class='player-rank" << (m_config.use_rank_icons ? " icon-mode" : "")
-                << "' style='color:" << CssColor(color) << "'>";
-            if (mmr > 0) {
-                if (!m_config.use_rank_icons) {
-                    out << "<div>" << Escape(Format::RankTier(tier, m_config.use_roman_numerals)) << "</div>";
-                } else {
-                    // The crest already carries the rank, so only name which
-                    // playlist produced the player's best rank.
-                    out << "<div class='rank-source'>" << Escape(MmrLabel(StringToMmrCategory(rankSource))) << "</div>";
-                }
-            } else if (!m_config.use_rank_icons) {
-                out << "<div>" << (p->fetched ? "Unranked" : "Fetching") << "</div>";
-            }
-            out << "</div>";
+
+        out << "<div class='player-row" << (self ? " self" : "") << "'>";
+        if (m_config.use_rank_icons) {
+            const std::string rankTooltip = p->fetched || mmr > 0 ? Format::RankTier(tier, m_config.use_roman_numerals) : "Fetching rank...";
+            out << "<div class='player-crest'>" << RenderRankBadge(tier, p->fetched || mmr > 0, rankTooltip) << "</div>";
         }
-        out << "<div class='player-mmr'><div class='player-mmr-value'>"
-            << (mmr > 0 ? std::to_string(mmr) : (p->fetched ? "-" : "..."))
-            << "</div>";
-        if (mmr > 0 && matchCount > 0)
-            out << "<div class='rank-matches'>" << matchCount << " matches</div>";
+
+        const std::string trackerUrl = TrackerUrlForPlayer(*p);
+        out << "<div class='player-identity'><div class='player-headline'><span class='value player-name-text"
+            << (trackerUrl.empty() ? "" : " player-link") << "'";
+        if (!trackerUrl.empty()) out << " data-action='open-player-tracker' data-url='" << Escape(trackerUrl) << "'";
+        out << ">" << Escape(p->name) << "</span>";
+        if (!platform.empty()) {
+            const PlatformKind platformKind = PlatformKindFor(platform);
+            out << "<span class='badge " << PlatformClass(platformKind) << "'>"
+                << Escape(PlatformBadgeLabel(platformKind, platform)) << "</span>";
+        }
+        out << "</div><div class='player-chips'>";
+
+        // MMR chip. Without rank crests it also has to name the tier, and when
+        // the roster shows the player's best rank it names the playlist that
+        // produced it.
+        out << "<span class='chip chip-mmr' style='color:" << CssColor(color) << "'>";
+        if (!m_config.use_rank_icons)
+            out << Escape(mmr > 0 ? Format::RankTier(tier, m_config.use_roman_numerals) : (p->fetched ? "Unranked" : "Fetching")) << ' ';
+        else if (category == "best" && rankSource != "best")
+            out << Escape(MmrLabel(StringToMmrCategory(rankSource))) << ' ';
+        out << (mmr > 0 ? std::to_string(mmr) : (p->fetched ? "-" : "...")) << "</span>";
+
+        if (mmr > 0 && matchCount > 0) out << "<span class='chip'>" << matchCount << (matchCount == 1 ? " match" : " matches") << "</span>";
+        if (m_config.show_account_wins_overlay && p->totalWins >= 0) out << "<span class='chip'>" << p->totalWins << " wins</span>";
+        if (p->goals || p->saves || p->shots || p->assists || p->demos) {
+            out << "<span class='chip'>G" << p->goals << " S" << p->saves << " A" << p->assists
+                << " Sh" << p->shots << " D" << p->demos << "</span>";
+        }
+        out << "</div></div>";
+
+        // Trailing status column, one state per player: yourself, a player with
+        // shared history, or someone new. A with/vs record against yourself is
+        // meaningless, so YOU stands alone.
+        const int withGames = p->lifetimeWinsWith + p->lifetimeLossesWith;
+        const int againstGames = p->lifetimeWinsAgainst + p->lifetimeLossesAgainst;
+        const bool hasEncounterRecord = p->hasLifetimeData && (withGames > 0 || againstGames > 0);
+        out << "<div class='player-flags'>";
+        if (self) {
+            out << "<span class='badge accent'>YOU</span>";
+        } else if (hasEncounterRecord) {
+            if (withGames) out << "<div class='label'>with " << p->lifetimeWinsWith << '-' << p->lifetimeLossesWith << "</div>";
+            if (againstGames) out << "<div class='label'>vs " << p->lifetimeWinsAgainst << '-' << p->lifetimeLossesAgainst << "</div>";
+        } else {
+            out << "<span class='badge'>NEW</span>";
+        }
         out << "</div></div>";
     }
     out << "</div>";

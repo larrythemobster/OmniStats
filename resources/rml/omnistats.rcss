@@ -138,16 +138,57 @@ div.value { display: block; }
 .team-line.blue { background-color: #4a96ff; }
 .team-line.orange { background-color: #ff963e; }
 
+/* Roster player card: rank crest, identity with stat chips, status column. */
 .player-row {
     display: flex;
     flex-direction: row;
     align-items: center;
-    min-height: 48dp;
-    padding: 6dp 4dp;
-    border-top: 1dp #24293644;
-    background-color: transparent;
+    min-height: 52dp;
+    margin-bottom: 5dp;
+    padding: 6dp 8dp;
+    border: 1dp #242936aa;
+    border-radius: 10dp;
+    background-color: #10141bb0;
 }
-.player-row.self { background-color: #ffffff0a; }
+.player-row.self { border-color: #3a2731; background-color: #191019c0; }
+.player-crest { flex-shrink: 0; display: flex; align-items: center; margin-right: 8dp; }
+.player-crest .rank-badge { margin-right: 0; }
+.player-identity { display: flex; flex-direction: column; flex-grow: 1; min-width: 0; width: 0; }
+.player-headline { display: flex; flex-direction: row; align-items: center; gap: 6dp; min-width: 0; }
+.player-name-text {
+    min-width: 0;
+    font-size: 14dp;
+    line-height: 1.25;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.player-link { cursor: pointer; }
+.player-chips { display: flex; flex-direction: row; flex-wrap: wrap; gap: 4dp; margin-top: 4dp; }
+.chip {
+    display: inline-block;
+    padding: 1dp 6dp;
+    border: 1dp #2b303d;
+    border-radius: 6dp;
+    background-color: #171c25cc;
+    color: #c3cad6;
+    font-size: 10dp;
+    font-weight: 600;
+    line-height: 1.35;
+    white-space: nowrap;
+}
+.chip.chip-mmr { font-family: "JetBrains Mono"; font-weight: 700; }
+.player-flags {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    justify-content: center;
+    flex-shrink: 0;
+    min-width: 52dp;
+    margin-left: 8dp;
+    gap: 2dp;
+}
+.player-flags .label { display: block; font-size: 10dp; line-height: 1.2; text-align: right; }
 .player-name {
     flex-grow: 1;
     flex-shrink: 0;
@@ -157,24 +198,12 @@ div.value { display: block; }
     line-height: 1.25;
     padding-right: 6dp;
 }
-.player-name > .value { display: block; width: 100%; white-space: normal; word-break: break-all; }
-.player-name .label { display: block; margin-top: 3dp; font-size: 11dp; line-height: 1.25; }
-.player-link { cursor: pointer; }
-.player-rank { width: 96dp; flex-shrink: 0; text-align: right; font-size: 12dp; font-weight: 600; line-height: 1.2; padding-right: 8dp; }
-.player-rank.icon-mode { width: 62dp; color: #8f99a8; font-size: 11dp; }
-.player-rank > div { display: block; }
-.player-mmr {
-    width: 96dp;
-    flex-shrink: 0;
-    text-align: right;
-    font-family: "JetBrains Mono";
-}
-.player-mmr-value { display: block; font-size: 14dp; font-weight: 700; line-height: 1.2; }
-.player-mmr .rank-matches { text-align: right; font-size: 10dp; margin-top: 2dp; }
 /* Compact lobby table. Fixed playlist columns match the legacy overlay and
    keep the player identity column from collapsing when five or more ranks are
    enabled. */
-.lobby-rank-row { align-items: center; min-height: 30dp; margin-top: 0; padding-top: 2dp; padding-bottom: 2dp; border-left: 0; border-right: 0; border-bottom: 0; border-radius: 0; background-color: transparent; }
+/* The lobby table reuses .player-row for metrics only: it stays a flat table
+   row, not a card. */
+.lobby-rank-row { align-items: center; min-height: 30dp; margin: 0; padding: 2dp; border: 0; border-top: 1dp #24293644; border-radius: 0; background-color: transparent; }
 .lobby-rank-row .player-name {
     flex-grow: 0;
     flex-shrink: 0;
@@ -328,9 +357,6 @@ div.value { display: block; }
 .playlist-icon { width: 22dp; height: 22dp; }
 .roster-header { display: block; padding-bottom: 6dp; border-bottom: 1dp #252a3555; }
 .roster-footer { display: flex; flex-direction: row; justify-content: space-between; gap: 7dp; margin-top: 6dp; padding-top: 5dp; border-top: 1dp #252a3555; color: #8f99a8; font-size: 10dp; }
-/* Word labels stay on Inter: JetBrains Mono lowercase is illegible this small. */
-.rank-matches { display: block; font-family: "Inter"; color: #707987; font-size: 10dp; margin-top: 1dp; }
-.rank-source-icon { width: 10dp; height: 10dp; margin-right: 3dp; vertical-align: middle; }
 .dashboard-widget.dragging { opacity: 0.65; border-color: #ff0021; }
 .dashboard-widget-title { display: flex; flex-direction: row; align-items: center; margin-bottom: 9dp; }
 .dashboard-widget-title .name { font-family: "Russo One"; font-size: 15dp; letter-spacing: 0.5dp; }
