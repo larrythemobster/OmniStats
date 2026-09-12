@@ -169,10 +169,9 @@ TEST_F(DatabaseManagerTest, ExtraPlaylistSelectionDoesNotOverrideStandardArena) 
     snap.validResult = true;
     snap.score[0] = 3;
     snap.score[1] = 1;
-    snap.maxPlayersSeen = 4;
+    snap.legacyPlayerCount = 4;
     snap.myPrimaryId = pid;
     snap.rosterMmrCategory = MmrCategory::Hoops;
-    snap.graphMmrCategory = MmrCategory::Hoops;
     snap.roster[pid] = PlayerData{.primaryId = pid, .name = "Player1", .team = 0, .mmr = 1000};
     snap.roster["Steam|teammate"] = PlayerData{.primaryId = "Steam|teammate", .name = "Player2", .team = 0, .mmr = 1000};
     snap.roster["Steam|opponent1"] = PlayerData{.primaryId = "Steam|opponent1", .name = "Player3", .team = 1, .mmr = 1000};
@@ -198,10 +197,9 @@ TEST_F(DatabaseManagerTest, GraphSelectionDoesNotOverrideMatchMode) {
     snap.validResult = true;
     snap.score[0] = 2;
     snap.score[1] = 1;
-    snap.maxPlayersSeen = 6;
+    snap.legacyPlayerCount = 6;
     snap.myPrimaryId = pid;
     snap.rosterMmrCategory = MmrCategory::Best;
-    snap.graphMmrCategory = MmrCategory::Rumble;
     for (int index = 0; index < 6; ++index) {
         const std::string playerId =
             index == 0
@@ -235,10 +233,9 @@ TEST_F(DatabaseManagerTest, ExtraArenaOverridesStandardPlayerCount) {
     snap.validResult = true;
     snap.score[0] = 3;
     snap.score[1] = 1;
-    snap.maxPlayersSeen = 4;
+    snap.legacyPlayerCount = 4;
     snap.myPrimaryId = pid;
     snap.rosterMmrCategory = MmrCategory::TwoVTwo;
-    snap.graphMmrCategory = MmrCategory::TwoVTwo;
     snap.roster[pid] = PlayerData{.primaryId = pid, .name = "Player1", .team = 0, .mmr = 1000};
     snap.roster["Steam|teammate"] = PlayerData{.primaryId = "Steam|teammate", .name = "Player2", .team = 0, .mmr = 1000};
     snap.roster["Steam|opponent1"] = PlayerData{.primaryId = "Steam|opponent1", .name = "Player3", .team = 1, .mmr = 1000};
@@ -265,10 +262,9 @@ TEST_F(DatabaseManagerTest, UpdatesSavedLocalPlayerMmrByMatchGuid) {
     snap.validResult = true;
     snap.score[0] = 3;
     snap.score[1] = 1;
-    snap.maxPlayersSeen = 2;
+    snap.legacyPlayerCount = 2;
     snap.myPrimaryId = pid;
     snap.rosterMmrCategory = MmrCategory::OneVOne;
-    snap.graphMmrCategory = MmrCategory::OneVOne;
     snap.roster[pid] = PlayerData{.primaryId = pid, .name = "Player1", .team = 0, .mmr = 1200};
     snap.roster["Steam|opponent"] = PlayerData{.primaryId = "Steam|opponent", .name = "Player2", .team = 1, .mmr = 1180};
     dbManager->SaveMatch(snap);
@@ -291,10 +287,9 @@ TEST_F(DatabaseManagerTest, ConfirmedMmrRefreshReplacesPendingHistoryPlaceholder
     snap.validResult = true;
     snap.score[0] = 4;
     snap.score[1] = 2;
-    snap.maxPlayersSeen = 2;
+    snap.legacyPlayerCount = 2;
     snap.myPrimaryId = pid;
     snap.rosterMmrCategory = MmrCategory::OneVOne;
-    snap.graphMmrCategory = MmrCategory::OneVOne;
     snap.roster[pid] = PlayerData{
         .primaryId = pid,
         .name = "Player",
@@ -365,10 +360,9 @@ TEST_F(DatabaseManagerTest, AsyncSavePublishesOrderedStreakCacheAndLeavesItClean
         snap.validResult = true;
         snap.score[0] = win ? 2 : 1;
         snap.score[1] = win ? 1 : 2;
-        snap.maxPlayersSeen = 2;
+        snap.legacyPlayerCount = 2;
         snap.myPrimaryId = pid;
         snap.rosterMmrCategory = MmrCategory::OneVOne;
-        snap.graphMmrCategory = MmrCategory::OneVOne;
         snap.roster[pid] =
             PlayerData{.primaryId = pid, .name = "Player", .team = 0, .mmr = 1200};
         snap.roster["Steam|opponent"] =
@@ -416,10 +410,9 @@ TEST_F(DatabaseManagerTest, EarlyLossPersistsOnceBeforeFollowingWin) {
         snap.validResult = true;
         snap.score[0] = win ? 2 : 1;
         snap.score[1] = win ? 1 : 2;
-        snap.maxPlayersSeen = 2;
+        snap.legacyPlayerCount = 2;
         snap.myPrimaryId = pid;
         snap.rosterMmrCategory = MmrCategory::OneVOne;
-        snap.graphMmrCategory = MmrCategory::OneVOne;
         snap.endedAtUnixMs = endedAtUnixMs;
         snap.roster[pid] =
             PlayerData{

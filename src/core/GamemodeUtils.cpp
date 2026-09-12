@@ -50,31 +50,24 @@ namespace GamemodeUtils {
         return "Unknown";
     }
 
-    std::string InferFromSnapshot(int maxPlayersSeen, int rosterSize, MmrCategory rosterCat, MmrCategory graphCat,
+    std::string InferFromSnapshot(int legacyMaxPlayersSeen, int rosterSize, MmrCategory rosterCat,
                                   const std::string& arenaName) {
-        if (rosterCat == MmrCategory::Casual || graphCat == MmrCategory::Casual) {
-            return "casual";
-        }
-        if (rosterCat == MmrCategory::Tourny || graphCat == MmrCategory::Tourny) {
-            return "t";
-        }
-
+        // Arena signatures for dedicated extra-mode maps are a stronger
+        // fallback than whichever MMR tab happens to be selected in the UI.
         const std::string arenaMode = InferFromArenaName(arenaName);
         if (arenaMode != "Unknown") return arenaMode;
 
-        if (rosterCat == MmrCategory::Rumble || graphCat == MmrCategory::Rumble) {
-            return "rumble";
-        }
-        if (rosterCat == MmrCategory::Heatseeker || graphCat == MmrCategory::Heatseeker) {
-            return "heatseeker";
-        }
+        if (rosterCat == MmrCategory::Casual) return "casual";
+        if (rosterCat == MmrCategory::Tourny) return "t";
+        if (rosterCat == MmrCategory::Rumble) return "rumble";
+        if (rosterCat == MmrCategory::Heatseeker) return "heatseeker";
 
-        const int playerCount = maxPlayersSeen > 0 ? maxPlayersSeen : rosterSize;
+        const int playerCount = legacyMaxPlayersSeen > 0 ? legacyMaxPlayersSeen : rosterSize;
         return InferFromPlayerCount(playerCount);
     }
 
     bool IsTrackedCompetitiveMode(const std::string& mode) {
-        return mode == "1v1" || mode == "2v2" || mode == "3v3" || mode == "casual" || mode == "t" ||
+        return mode == "1v1" || mode == "2v2" || mode == "3v3" || mode == "t" ||
                mode == "hoops" || mode == "rumble" || mode == "dropshot" || mode == "snowday" || mode == "heatseeker";
     }
 

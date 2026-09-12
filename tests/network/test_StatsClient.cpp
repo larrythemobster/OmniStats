@@ -78,12 +78,32 @@ TEST(StatsClientTest, DisconnectClearsDiscordPresence) {
     StatsClient client(state, fetcher, db);
     client.SetDiscordManager(discord);
 
+    // Seed active-match state that must not leak across a socket reconnect.
+    state->game.inMatch = true;
+    state->game.matchGuid = "stale-disconnect-guid";
+    state->game.playlistId = 11;
+    state->game.legacyMaxPlayersSeen = 4;
+    state->game.legacyMaxTeamPlayersSeen = {2, 2};
+    state->game.roundEverStarted = true;
+    state->game.currentMatch.goals = 3;
+    state->game.roster["Steam|1"] = PlayerData{
+        .primaryId = "Steam|1", .name = "Me", .team = 0};
+
     client.Start();
 
     for (int i = 0; i < 100 && discord->pushCount.load() == 0; ++i)
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
 
     EXPECT_EQ(discord->pushCount.load(), 1);
+    EXPECT_FALSE(state->game.inMatch);
+    EXPECT_TRUE(state->game.matchGuid.empty());
+    EXPECT_EQ(state->game.playlistId, -1);
+    EXPECT_EQ(state->game.legacyMaxPlayersSeen, 0);
+    EXPECT_EQ(state->game.legacyMaxTeamPlayersSeen[0], 0);
+    EXPECT_EQ(state->game.legacyMaxTeamPlayersSeen[1], 0);
+    EXPECT_FALSE(state->game.roundEverStarted);
+    EXPECT_EQ(state->game.currentMatch.goals, 0);
+    EXPECT_TRUE(state->game.roster.empty());
 
     client.Stop();
     Config::Update([backup](ConfigData& c) { c = backup; }, false);

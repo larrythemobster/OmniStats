@@ -611,7 +611,7 @@ TEST_F(
             session->game.matchGuid,
             "partial-created-pipeline-b");
         EXPECT_TRUE(session->game.roundEverStarted);
-        EXPECT_TRUE(session->game.lobbyWasEverFull);
+        EXPECT_TRUE(session->game.legacyLobbyWasEverFull);
         EXPECT_EQ(session->game.score[0], 3);
         EXPECT_EQ(session->game.score[1], 2);
     }

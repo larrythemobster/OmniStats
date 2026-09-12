@@ -1043,7 +1043,10 @@ void Overlay::RenderSessionStatsTable(const char* tableId, bool isDashboard, boo
                 ImGui::TableNextColumn();
                 ImGui::Text("Boost Picked Up");
                 ImGui::TableNextColumn();
-                ImGui::Text("%d", m_snap.sessionTotals.boostPickedUp);
+                ImGui::Text("%d", CalculateSessionBoostPickedUp(
+                                      m_snap.sessionTotals,
+                                      m_snap.currentMatch,
+                                      m_snap.matchFinalized));
             }
             if (m_frameConfig.show_session_mmr_change) {
                 ImGui::TableNextRow();
@@ -1264,6 +1267,8 @@ void Overlay::RenderPreviousGamesOverlay() {
                         ImGui::TableNextColumn();
                         if (match.pendingTrackerConfirmation)
                             ImGui::TextColored(Format::C(m_frameConfig.themeMuted), "***");
+                        else if (match.mmrEstimated && match.mmr > 0)
+                            ImGui::TextColored(Format::C(m_frameConfig.themeMuted), "~%d", match.mmr);
                         else if (match.mmr > 0)
                             ImGui::TextColored(rowColor, "%d", match.mmr);
                         else
@@ -1842,7 +1847,6 @@ void Overlay::RenderUI() {
             m_snap.score[1] = m_state->game.score[1];
             m_snap.inMatch = m_state->game.inMatch;
             m_snap.inReplay = m_state->game.inReplay;
-            m_snap.maxPlayersSeen = m_state->game.maxPlayersSeen;
             m_snap.matchFinalized = m_state->game.matchFinalized;
             m_snap.myPrimaryId = m_state->game.myPrimaryId;
             m_snap.myTeam = m_state->game.myTeam;
@@ -2413,6 +2417,8 @@ void Overlay::RenderWidgetContent(DashboardLayout::WidgetId id, const char* suff
                         ImGui::TableNextColumn();
                         if (match.pendingTrackerConfirmation)
                             ImGui::TextColored(Format::C(m_frameConfig.themeMuted), "***");
+                        else if (match.mmrEstimated && match.mmr > 0)
+                            ImGui::TextColored(Format::C(m_frameConfig.themeMuted), "~%d", match.mmr);
                         else if (match.mmr > 0)
                             ImGui::TextColored(rowColor, "%d", match.mmr);
                         else

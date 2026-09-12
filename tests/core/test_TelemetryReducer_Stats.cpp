@@ -46,9 +46,9 @@ TEST(TelemetryReducerStats, AddsDemoedSelfToSessionTotalsOnMatchEnd) {
         state->game.inMatch = true;
         state->game.roundEverStarted = true;
         state->game.localPlayerWasActive = true;
-        state->game.maxPlayersSeen = 2;
-        state->game.maxTeamPlayersSeen[0] = 1;
-        state->game.maxTeamPlayersSeen[1] = 1;
+        state->game.legacyMaxPlayersSeen = 2;
+        state->game.legacyMaxTeamPlayersSeen[0] = 1;
+        state->game.legacyMaxTeamPlayersSeen[1] = 1;
         state->game.roster["Steam|1"] = PlayerData{
             .primaryId = "Steam|1",
             .name = "P1",
@@ -91,9 +91,9 @@ TEST(TelemetryReducerStats, SessionDemolitionsDoNotDoubleCountFinalizedMatch) {
         state->game.inMatch = true;
         state->game.roundEverStarted = true;
         state->game.localPlayerWasActive = true;
-        state->game.maxPlayersSeen = 2;
-        state->game.maxTeamPlayersSeen[0] = 1;
-        state->game.maxTeamPlayersSeen[1] = 1;
+        state->game.legacyMaxPlayersSeen = 2;
+        state->game.legacyMaxTeamPlayersSeen[0] = 1;
+        state->game.legacyMaxTeamPlayersSeen[1] = 1;
         state->game.sessionTotals.demos = 5;
         state->game.sessionTotals.demoed = 4;
         state->game.currentMatch.demosSelf = 3;
@@ -132,4 +132,83 @@ TEST(TelemetryReducerStats, SessionDemolitionsDoNotDoubleCountFinalizedMatch) {
     EXPECT_EQ(state->game.sessionTotals.demoed, 6);
     EXPECT_EQ(finalCounts.demos, 8);
     EXPECT_EQ(finalCounts.demoed, 6);
+}
+
+TEST(TelemetryReducerStats, SessionBoostUsesOnlyLocalPlayerAndFinalizesOnce) {
+    Storage::InitializeEnvironment();
+    auto state = std::make_shared<SessionState>();
+    TelemetryReducer reducer(state);
+
+    {
+        std::unique_lock<std::shared_mutex> lock(state->game.mutex);
+        state->game.myPrimaryId = "Steam|1";
+        state->game.myTeam = 0;
+        state->game.matchGuid = "boost-finalize-guid";
+        state->game.inMatch = true;
+        state->game.roundEverStarted = true;
+        state->game.localPlayerWasActive = true;
+        state->game.legacyMaxPlayersSeen = 2;
+        state->game.legacyMaxTeamPlayersSeen = {1, 1};
+        state->game.legacyLobbyWasEverFull = true;
+        state->game.sessionTotals.boostPickedUp = 10;
+        state->game.currentMatch.boostPickedUp = 125;
+        state->game.currentMatch.boostPickedUpSelf = 25;
+        state->game.roster["Steam|1"] = PlayerData{
+            .primaryId = "Steam|1", .name = "P1", .team = 0};
+        state->game.roster["Steam|2"] = PlayerData{
+            .primaryId = "Steam|2", .name = "P2", .team = 1};
+
+        EXPECT_EQ(
+            CalculateSessionBoostPickedUp(
+                state->game.sessionTotals,
+                state->game.currentMatch,
+                false),
+            35);
+    }
+    state->ui.rosterMmrCategory.store(MmrCategory::OneVOne);
+
+    SideEffects effects = reducer.Reduce(
+        std::string(Constants::EVT_MATCH_ENDED),
+        nlohmann::json{{"MatchGuid", "boost-finalize-guid"},
+                       {"WinnerTeamNum", 0}});
+
+    ASSERT_TRUE(effects.saveMatch);
+    std::shared_lock<std::shared_mutex> lock(state->game.mutex);
+    EXPECT_EQ(state->game.sessionTotals.boostPickedUp, 35);
+    EXPECT_EQ(
+        CalculateSessionBoostPickedUp(
+            state->game.sessionTotals,
+            state->game.currentMatch,
+            state->game.matchFinalized),
+        35);
+}
+
+TEST(TelemetryReducerStats, VoidedMatchDoesNotLeakLiveBoostIntoSessionTotal) {
+    Storage::InitializeEnvironment();
+    auto state = std::make_shared<SessionState>();
+    TelemetryReducer reducer(state);
+
+    {
+        std::unique_lock<std::shared_mutex> lock(state->game.mutex);
+        state->game.myPrimaryId = "Steam|1";
+        state->game.myTeam = 0;
+        state->game.matchGuid = "boost-void-guid";
+        state->game.inMatch = true;
+        state->game.roundEverStarted = true;
+        state->game.localPlayerWasActive = false; // forces a void result
+        state->game.sessionTotals.boostPickedUp = 10;
+        state->game.currentMatch.boostPickedUp = 125;
+        state->game.currentMatch.boostPickedUpSelf = 25;
+        state->game.roster["Steam|1"] = PlayerData{
+            .primaryId = "Steam|1", .name = "P1", .team = 0};
+    }
+
+    SideEffects effects = reducer.Reduce(
+        std::string(Constants::EVT_MATCH_ENDED),
+        nlohmann::json{{"MatchGuid", "boost-void-guid"},
+                       {"WinnerTeamNum", 0}});
+
+    EXPECT_FALSE(effects.saveMatch);
+    std::shared_lock<std::shared_mutex> lock(state->game.mutex);
+    EXPECT_EQ(state->game.sessionTotals.boostPickedUp, 10);
 }

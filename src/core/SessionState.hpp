@@ -127,6 +127,14 @@ inline DemolitionCounts CalculateSessionDemolitionCounts(
         sessionTotals.demoed + liveDemoed};
 }
 
+inline int CalculateSessionBoostPickedUp(
+    const SessionTotals& sessionTotals,
+    const MatchStats& currentMatch,
+    bool matchFinalized) {
+    return sessionTotals.boostPickedUp +
+           (matchFinalized ? 0 : currentMatch.boostPickedUpSelf);
+}
+
 inline int CalculateTrackedSessionMmrChange(const std::map<std::string, int>& changes) {
     int total = 0;
     for (const auto& [playlist, change] : changes) {
@@ -160,6 +168,7 @@ struct SessionMatchSummary {
     int ourScore = 0;
     int theirScore = 0;
     int mmr = 0;
+    bool mmrEstimated = false;
     bool win = false;
     bool pendingTrackerConfirmation = false;
     int64_t endedAtUnix = 0;
@@ -269,7 +278,9 @@ struct GameState {
     int playlistId = -1;
     uint64_t activeMatchGeneration = 0;
     std::array<int, 2> score{};
-    int maxPlayersSeen = 0;
+    // Legacy-only observations for telemetry that never supplies Game.PlaylistId.
+    // Authoritative playlist matches do not populate or consult these fields.
+    int legacyMaxPlayersSeen = 0;
 
     bool roundEverStarted = false;
     bool localPlayerWasActive = false;
@@ -279,10 +290,14 @@ struct GameState {
     bool explicitLocalForfeit = false;
     bool excludedEarlyExitContext = false;
     std::string earlyExitExclusionReason;
-    bool lobbyWasEverFull = false;
-
-    std::array<int, 2> currentTeamPlayersSeen{0, 0};
-    std::array<int, 2> maxTeamPlayersSeen{0, 0};
+    // Legacy telemetry fallback context. These are consulted only when
+    // Game.PlaylistId is absent; an authoritative ID always wins.
+    bool fallbackCasualContext = false;
+    bool fallbackNonRecordableContext = false;
+    std::string fallbackNonRecordableReason;
+    bool legacyLobbyWasEverFull = false;
+    std::array<int, 2> legacyCurrentTeamPlayersSeen{0, 0};
+    std::array<int, 2> legacyMaxTeamPlayersSeen{0, 0};
 
     bool lastMatchWasVoid = false;
     std::string lastMatchVoidReason;
@@ -338,4 +353,5 @@ class SessionState : public std::enable_shared_from_this<SessionState> {
     HistoryState history;
 
     void resetMatch(const std::string& newArena, const std::string& newArenaAsset = "");
+    void clearActiveMatchOnDisconnect();
 };

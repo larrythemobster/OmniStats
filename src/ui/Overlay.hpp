@@ -31,7 +31,6 @@ struct RenderSnapshot {
     bool inMatch = false;
     bool inReplay = false;
     bool matchFinalized = false;
-    int maxPlayersSeen = 0;
     std::string myPrimaryId;
     int myTeam = -1;
     MatchStats currentMatch;

@@ -1,6 +1,7 @@
 #include "DatabaseManager.hpp"
 #include "core/Config.hpp"
 #include "core/GamemodeUtils.hpp"
+#include "core/PlaylistMetadata.hpp"
 #include "core/Storage.hpp"
 #include <iostream>
 #include <chrono>
@@ -19,6 +20,30 @@ namespace fs = std::filesystem;
 static std::string SqlColumnText(sqlite3_stmt* stmt, int column) {
     const unsigned char* value = sqlite3_column_text(stmt, column);
     return value ? reinterpret_cast<const char*>(value) : "";
+}
+
+static bool SqliteTableHasColumn(sqlite3* db,
+                                 const char* tableName,
+                                 const char* columnName) {
+    if (!db || !tableName || !columnName) return false;
+    const std::string sql =
+        "PRAGMA table_info(" + std::string(tableName) + ");";
+    sqlite3_stmt* stmt = nullptr;
+    if (sqlite3_prepare_v2(db, sql.c_str(), -1, &stmt, nullptr) !=
+        SQLITE_OK) {
+        return false;
+    }
+
+    bool found = false;
+    while (sqlite3_step(stmt) == SQLITE_ROW) {
+        const std::string name = SqlColumnText(stmt, 1);
+        if (name == columnName) {
+            found = true;
+            break;
+        }
+    }
+    sqlite3_finalize(stmt);
+    return found;
 }
 
 static std::string CsvEscape(const std::string& value) {
@@ -158,6 +183,7 @@ bool DatabaseManager::CreateTables() {
             their_score INTEGER,
             win BOOLEAN,
             match_guid TEXT,
+            playlist_id INTEGER,
             gamemode TEXT,
             player_count INTEGER
         );
@@ -171,6 +197,7 @@ bool DatabaseManager::CreateTables() {
             name TEXT,
             team INTEGER,
             mmr INTEGER,
+            mmr_estimated BOOLEAN DEFAULT 0,
             is_opponent BOOLEAN DEFAULT 0,
             FOREIGN KEY(match_id) REFERENCES Matches(id)
         );
@@ -205,11 +232,44 @@ bool DatabaseManager::CreateTables() {
         return false;
     }
 
+    // Backward-compatible migration. Existing rows keep playlist_id NULL and
+    // continue through the legacy gamemode/player_count fallback. New rows
+    // retain the authoritative Game.PlaylistId end-to-end.
+    if (!SqliteTableHasColumn(m_db, "Matches", "playlist_id")) {
+        rc = sqlite3_exec(
+            m_db,
+            "ALTER TABLE Matches ADD COLUMN playlist_id INTEGER;",
+            nullptr, nullptr, &errMsg);
+        if (rc != SQLITE_OK) {
+            std::cerr << "Error migrating Matches.playlist_id: "
+                      << (errMsg ? errMsg : "unknown") << "\n";
+            if (errMsg) sqlite3_free(errMsg);
+            return false;
+        }
+    }
+
+    // Older databases have no way to distinguish an exact Tracker value
+    // from a provisional post-match estimate. Existing rows remain exact for
+    // compatibility; all new/updated rows carry the distinction explicitly.
+    if (!SqliteTableHasColumn(m_db, "MatchPlayers", "mmr_estimated")) {
+        rc = sqlite3_exec(
+            m_db,
+            "ALTER TABLE MatchPlayers ADD COLUMN mmr_estimated BOOLEAN DEFAULT 0;",
+            nullptr, nullptr, &errMsg);
+        if (rc != SQLITE_OK) {
+            std::cerr << "Error migrating MatchPlayers.mmr_estimated: "
+                      << (errMsg ? errMsg : "unknown") << "\n";
+            if (errMsg) sqlite3_free(errMsg);
+            return false;
+        }
+    }
+
     const char* createIndexes = R"(
         CREATE INDEX IF NOT EXISTS idx_matchplayers_primary_id ON MatchPlayers(primary_id);
         CREATE INDEX IF NOT EXISTS idx_matchplayers_match_id ON MatchPlayers(match_id);
         CREATE INDEX IF NOT EXISTS idx_matches_timestamp ON Matches(timestamp);
         CREATE INDEX IF NOT EXISTS idx_matches_gamemode ON Matches(gamemode);
+        CREATE INDEX IF NOT EXISTS idx_matches_playlist_id ON Matches(playlist_id);
     )";
     sqlite3_exec(m_db, createIndexes, nullptr, nullptr, nullptr);
 
@@ -266,16 +326,38 @@ void DatabaseManager::SaveMatch(const MatchSaveSnapshot& snapshot) {
     int ourScore = snapshot.myTeam == 1 ? snapshot.score[1] : snapshot.score[0];
     int theirScore = snapshot.myTeam == 1 ? snapshot.score[0] : snapshot.score[1];
 
-    int playerCount = snapshot.maxPlayersSeen > 0 ? snapshot.maxPlayersSeen : static_cast<int>(snapshot.roster.size());
-    const std::string arenaKey = !snapshot.arenaAsset.empty() ? snapshot.arenaAsset : snapshot.arenaName;
-    std::string gamemode = snapshot.gamemode;
-    if (gamemode.empty()) {
-        gamemode = GamemodeUtils::InferFromSnapshot(
-            playerCount,
-            static_cast<int>(snapshot.roster.size()),
-            snapshot.rosterMmrCategory,
-            MmrCategory::Best,
-            arenaKey);
+    const bool hasPlaylistId =
+        PlaylistMetadata::HasAuthoritativeId(snapshot.playlistId);
+    const int playerCount = hasPlaylistId
+                                ? 0
+                                : (snapshot.legacyPlayerCount > 0
+                                       ? snapshot.legacyPlayerCount
+                                       : static_cast<int>(snapshot.roster.size()));
+    const std::string arenaKey = !snapshot.arenaAsset.empty()
+                                     ? snapshot.arenaAsset
+                                     : snapshot.arenaName;
+
+    std::string gamemode;
+    std::string mmrKey;
+    if (hasPlaylistId) {
+        if (PlaylistMetadata::IsKnown(snapshot.playlistId)) {
+            gamemode = PlaylistMetadata::StorageMode(snapshot.playlistId);
+            mmrKey = PlaylistMetadata::MmrKey(snapshot.playlistId);
+        } else {
+            // Preserve the fact that the ID was unknown rather than inventing
+            // a ranked mode from UI state, arena, or roster size.
+            gamemode = "unknown";
+        }
+    } else {
+        gamemode = snapshot.gamemode;
+        if (gamemode.empty()) {
+            gamemode = GamemodeUtils::InferFromSnapshot(
+                playerCount,
+                static_cast<int>(snapshot.roster.size()),
+                snapshot.rosterMmrCategory,
+                arenaKey);
+        }
+        mmrKey = gamemode;
     }
 
     char* errMsg = nullptr;
@@ -286,8 +368,8 @@ void DatabaseManager::SaveMatch(const MatchSaveSnapshot& snapshot) {
     }
 
     std::string sqlMatches =
-        "INSERT INTO Matches (arena, our_score, their_score, win, match_guid, gamemode, player_count, timestamp) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, COALESCE(strftime('%Y-%m-%d %H:%M:%f', NULLIF(?, 0) / 1000.0, 'unixepoch'), CURRENT_TIMESTAMP));";
+        "INSERT INTO Matches (arena, our_score, their_score, win, match_guid, playlist_id, gamemode, player_count, timestamp) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, COALESCE(strftime('%Y-%m-%d %H:%M:%f', NULLIF(?, 0) / 1000.0, 'unixepoch'), CURRENT_TIMESTAMP));";
     sqlite3_stmt* stmtMatches;
 
     if (sqlite3_prepare_v2(m_db, sqlMatches.c_str(), -1, &stmtMatches, nullptr) != SQLITE_OK) {
@@ -301,10 +383,15 @@ void DatabaseManager::SaveMatch(const MatchSaveSnapshot& snapshot) {
     sqlite3_bind_int(stmtMatches, 3, theirScore);
     sqlite3_bind_int(stmtMatches, 4, win ? 1 : 0);
     sqlite3_bind_text(stmtMatches, 5, snapshot.matchGuid.c_str(), -1, SQLITE_TRANSIENT);
-    sqlite3_bind_text(stmtMatches, 6, gamemode.c_str(), -1, SQLITE_TRANSIENT);
-    sqlite3_bind_int(stmtMatches, 7, playerCount);
+    if (hasPlaylistId) {
+        sqlite3_bind_int(stmtMatches, 6, snapshot.playlistId);
+    } else {
+        sqlite3_bind_null(stmtMatches, 6);
+    }
+    sqlite3_bind_text(stmtMatches, 7, gamemode.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_int(stmtMatches, 8, playerCount);
     sqlite3_bind_int64(
-        stmtMatches, 8, snapshot.endedAtUnixMs);
+        stmtMatches, 9, snapshot.endedAtUnixMs);
 
     bool ok = true;
     if (sqlite3_step(stmtMatches) != SQLITE_DONE) {
@@ -322,7 +409,7 @@ void DatabaseManager::SaveMatch(const MatchSaveSnapshot& snapshot) {
     sqlite3_int64 matchId = sqlite3_last_insert_rowid(m_db);
 
     // Save players
-    std::string sqlPlayers = "INSERT INTO MatchPlayers (match_id, primary_id, name, team, mmr, is_opponent) VALUES (?, ?, ?, ?, ?, ?);";
+    std::string sqlPlayers = "INSERT INTO MatchPlayers (match_id, primary_id, name, team, mmr, mmr_estimated, is_opponent) VALUES (?, ?, ?, ?, ?, ?, ?);";
     sqlite3_stmt* stmtPlayers;
 
     if (sqlite3_prepare_v2(m_db, sqlPlayers.c_str(), -1, &stmtPlayers, nullptr) != SQLITE_OK) {
@@ -339,11 +426,15 @@ void DatabaseManager::SaveMatch(const MatchSaveSnapshot& snapshot) {
         sqlite3_bind_text(stmtPlayers, 3, p.name.c_str(), -1, SQLITE_TRANSIENT);
         sqlite3_bind_int(stmtPlayers, 4, p.team);
         int mmrVal = p.mmr;
-        if (p.playlists.count(gamemode)) {
-            mmrVal = p.playlists.at(gamemode);
+        if (!mmrKey.empty() && p.playlists.count(mmrKey)) {
+            mmrVal = p.playlists.at(mmrKey);
         }
         sqlite3_bind_int(stmtPlayers, 5, mmrVal);
-        sqlite3_bind_int(stmtPlayers, 6, isOpponent ? 1 : 0);
+        const bool mmrEstimated =
+            snapshot.localMmrNeedsReconciliation &&
+            p.primaryId == snapshot.myPrimaryId;
+        sqlite3_bind_int(stmtPlayers, 6, mmrEstimated ? 1 : 0);
+        sqlite3_bind_int(stmtPlayers, 7, isOpponent ? 1 : 0);
 
         if (sqlite3_step(stmtPlayers) != SQLITE_DONE) {
             std::cerr << "Failed to insert player record\n";
@@ -370,7 +461,7 @@ void DatabaseManager::SaveMatch(const MatchSaveSnapshot& snapshot) {
     std::cout << "Match saved to database. ID: " << matchId << " Gamemode: " << gamemode << "\n";
 }
 
-bool DatabaseManager::UpdateMatchPlayerMmr(const std::string& matchGuid, const std::string& primaryId, int mmr) {
+bool DatabaseManager::UpdateMatchPlayerMmr(const std::string& matchGuid, const std::string& primaryId, int mmr, bool estimated) {
     if (matchGuid.empty() || primaryId.empty() || mmr <= 0) return false;
 
     std::lock_guard<std::mutex> lock(m_dbMutex);
@@ -378,7 +469,7 @@ bool DatabaseManager::UpdateMatchPlayerMmr(const std::string& matchGuid, const s
 
     const char* sql = R"(
         UPDATE MatchPlayers
-        SET mmr = ?
+        SET mmr = ?, mmr_estimated = ?
         WHERE primary_id = ?
           AND match_id = (
               SELECT id
@@ -396,22 +487,24 @@ bool DatabaseManager::UpdateMatchPlayerMmr(const std::string& matchGuid, const s
     }
 
     sqlite3_bind_int(stmt, 1, mmr);
-    sqlite3_bind_text(stmt, 2, primaryId.c_str(), -1, SQLITE_TRANSIENT);
-    sqlite3_bind_text(stmt, 3, matchGuid.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_int(stmt, 2, estimated ? 1 : 0);
+    sqlite3_bind_text(stmt, 3, primaryId.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 4, matchGuid.c_str(), -1, SQLITE_TRANSIENT);
 
     const bool ok = sqlite3_step(stmt) == SQLITE_DONE && sqlite3_changes(m_db) > 0;
     sqlite3_finalize(stmt);
     return ok;
 }
 
-void DatabaseManager::AsyncUpdateMatchPlayerMmr(std::string matchGuid, std::string primaryId, int mmr) {
+void DatabaseManager::AsyncUpdateMatchPlayerMmr(std::string matchGuid, std::string primaryId, int mmr, bool estimated) {
     if (matchGuid.empty() || primaryId.empty() || mmr <= 0) return;
 
     (void)EnqueueDbJob([this,
                         matchGuid = std::move(matchGuid),
                         primaryId = std::move(primaryId),
-                        mmr]() {
-        if (!UpdateMatchPlayerMmr(matchGuid, primaryId, mmr)) {
+                        mmr,
+                        estimated]() {
+        if (!UpdateMatchPlayerMmr(matchGuid, primaryId, mmr, estimated)) {
             std::cout << "[Database] Post-match MMR update found no saved row for match GUID.\n";
             return;
         }
@@ -445,22 +538,26 @@ void DatabaseManager::GetLifetimeMmrHistory(const std::string& primaryId, const 
 
     const char* sql;
     bool filtered = (playlist == "1v1" || playlist == "2v2" || playlist == "3v3" || playlist == "casual" || playlist == "t" ||
-                     playlist == "hoops" || playlist == "rumble" || playlist == "dropshot" || playlist == "snowday");
+                     playlist == "hoops" || playlist == "rumble" || playlist == "dropshot" || playlist == "snowday" ||
+                     playlist == "heatseeker");
 
     if (filtered) {
         sql = R"(
-            SELECT strftime('%s', Matches.timestamp) as epoch, MatchPlayers.mmr 
-            FROM MatchPlayers 
-            JOIN Matches ON MatchPlayers.match_id = Matches.id 
-            WHERE MatchPlayers.primary_id = ? AND MatchPlayers.mmr > 0 AND Matches.gamemode = ?
+            SELECT strftime('%s', Matches.timestamp) as epoch, MatchPlayers.mmr
+            FROM MatchPlayers
+            JOIN Matches ON MatchPlayers.match_id = Matches.id
+            WHERE MatchPlayers.primary_id = ? AND MatchPlayers.mmr > 0
+              AND COALESCE(MatchPlayers.mmr_estimated, 0) = 0
+              AND Matches.gamemode = ?
             ORDER BY Matches.timestamp ASC;
         )";
     } else {
         sql = R"(
-            SELECT strftime('%s', Matches.timestamp) as epoch, MatchPlayers.mmr 
-            FROM MatchPlayers 
-            JOIN Matches ON MatchPlayers.match_id = Matches.id 
+            SELECT strftime('%s', Matches.timestamp) as epoch, MatchPlayers.mmr
+            FROM MatchPlayers
+            JOIN Matches ON MatchPlayers.match_id = Matches.id
             WHERE MatchPlayers.primary_id = ? AND MatchPlayers.mmr > 0
+              AND COALESCE(MatchPlayers.mmr_estimated, 0) = 0
             ORDER BY Matches.timestamp ASC;
         )";
     }
@@ -495,7 +592,8 @@ void DatabaseManager::GetRecentMatchHistory(const std::string& primaryId, std::v
 
     const char* sql = R"(
         SELECT Matches.our_score, Matches.their_score, Matches.win, Matches.gamemode, Matches.player_count,
-               strftime('%s', Matches.timestamp), COALESCE(MatchPlayers.mmr, 0), Matches.match_guid
+               strftime('%s', Matches.timestamp), COALESCE(MatchPlayers.mmr, 0), Matches.match_guid, Matches.playlist_id,
+               COALESCE(MatchPlayers.mmr_estimated, 0)
         FROM Matches
         LEFT JOIN MatchPlayers ON MatchPlayers.match_id = Matches.id AND MatchPlayers.primary_id = ?
         ORDER BY Matches.timestamp DESC, Matches.id DESC
@@ -515,12 +613,32 @@ void DatabaseManager::GetRecentMatchHistory(const std::string& primaryId, std::v
         const int playerCount = sqlite3_column_int(stmt, 4);
 
         SessionMatchSummary summary;
-        summary.ranked = gamemode != "casual";
-        summary.mode = FormatMatchHistoryMode(gamemode, playerCount);
+        if (sqlite3_column_type(stmt, 8) != SQLITE_NULL) {
+            const int playlistId = sqlite3_column_int(stmt, 8);
+            if (const auto* info = PlaylistMetadata::Find(playlistId)) {
+                summary.ranked =
+                    info->playlistClass == PlaylistMetadata::PlaylistClass::Ranked ||
+                    info->playlistClass == PlaylistMetadata::PlaylistClass::Tournament;
+                summary.mode =
+                    info->playlistClass == PlaylistMetadata::PlaylistClass::Casual
+                        ? "Casual"
+                        : info->displayName;
+            } else {
+                summary.ranked = false;
+                summary.mode =
+                    "Unknown Playlist (" + std::to_string(playlistId) + ")";
+            }
+        } else {
+            // Legacy row: playlist truth was not persisted, so retain the old
+            // inference path for compatibility.
+            summary.ranked = gamemode != "casual";
+            summary.mode = FormatMatchHistoryMode(gamemode, playerCount);
+        }
         summary.matchGuid = SqlColumnText(stmt, 7);
         summary.ourScore = sqlite3_column_int(stmt, 0);
         summary.theirScore = sqlite3_column_int(stmt, 1);
         summary.mmr = sqlite3_column_int(stmt, 6);
+        summary.mmrEstimated = sqlite3_column_int(stmt, 9) != 0;
         summary.win = sqlite3_column_int(stmt, 2) != 0;
         summary.endedAtUnix = sqlite3_column_int64(stmt, 5);
         outMatches.push_back(std::move(summary));
@@ -538,13 +656,13 @@ void DatabaseManager::GetPlayerEncounterRecord(const std::string& primaryId, int
     if (!m_db) return;
 
     const char* sql = R"(
-        SELECT 
+        SELECT
             SUM(CASE WHEN Matches.win = 1 AND MatchPlayers.is_opponent = 0 THEN 1 ELSE 0 END),
             SUM(CASE WHEN Matches.win = 0 AND MatchPlayers.is_opponent = 0 THEN 1 ELSE 0 END),
             SUM(CASE WHEN Matches.win = 1 AND MatchPlayers.is_opponent = 1 THEN 1 ELSE 0 END),
             SUM(CASE WHEN Matches.win = 0 AND MatchPlayers.is_opponent = 1 THEN 1 ELSE 0 END)
-        FROM MatchPlayers 
-        JOIN Matches ON MatchPlayers.match_id = Matches.id 
+        FROM MatchPlayers
+        JOIN Matches ON MatchPlayers.match_id = Matches.id
         WHERE MatchPlayers.primary_id = ?;
     )";
 
@@ -588,10 +706,10 @@ bool DatabaseManager::ExportLocalData(std::string& exportPath, std::string& erro
         return false;
     }
 
-    matchesCsv << "id,timestamp,arena,our_score,their_score,win,match_guid,gamemode,player_count\n";
-    playersCsv << "match_id,primary_id,name,team,mmr,is_opponent\n";
+    matchesCsv << "id,timestamp,arena,our_score,their_score,win,match_guid,playlist_id,gamemode,player_count\n";
+    playersCsv << "match_id,primary_id,name,team,mmr,mmr_estimated,is_opponent\n";
 
-    const char* matchesSql = "SELECT id, timestamp, arena, our_score, their_score, win, match_guid, gamemode, player_count FROM Matches ORDER BY timestamp ASC;";
+    const char* matchesSql = "SELECT id, timestamp, arena, our_score, their_score, win, match_guid, playlist_id, gamemode, player_count FROM Matches ORDER BY timestamp ASC;";
     sqlite3_stmt* matchStmt = nullptr;
     if (sqlite3_prepare_v2(m_db, matchesSql, -1, &matchStmt, nullptr) != SQLITE_OK) {
         error = "Failed to read matches.";
@@ -608,8 +726,12 @@ bool DatabaseManager::ExportLocalData(std::string& exportPath, std::string& erro
         match["their_score"] = sqlite3_column_int(matchStmt, 4);
         match["win"] = sqlite3_column_int(matchStmt, 5) != 0;
         match["match_guid"] = SqlColumnText(matchStmt, 6);
-        match["gamemode"] = SqlColumnText(matchStmt, 7);
-        match["player_count"] = sqlite3_column_int(matchStmt, 8);
+        if (sqlite3_column_type(matchStmt, 7) == SQLITE_NULL)
+            match["playlist_id"] = nullptr;
+        else
+            match["playlist_id"] = sqlite3_column_int(matchStmt, 7);
+        match["gamemode"] = SqlColumnText(matchStmt, 8);
+        match["player_count"] = sqlite3_column_int(matchStmt, 9);
         match["players"] = nlohmann::json::array();
 
         matchesCsv << matchId << ","
@@ -619,10 +741,14 @@ bool DatabaseManager::ExportLocalData(std::string& exportPath, std::string& erro
                    << match["their_score"].get<int>() << ","
                    << (match["win"].get<bool>() ? 1 : 0) << ","
                    << CsvEscape(match["match_guid"].get<std::string>()) << ","
+                   << (match["playlist_id"].is_null()
+                           ? ""
+                           : std::to_string(match["playlist_id"].get<int>()))
+                   << ","
                    << CsvEscape(match["gamemode"].get<std::string>()) << ","
                    << match["player_count"].get<int>() << "\n";
 
-        const char* playersSql = "SELECT primary_id, name, team, mmr, is_opponent FROM MatchPlayers WHERE match_id = ? ORDER BY id ASC;";
+        const char* playersSql = "SELECT primary_id, name, team, mmr, mmr_estimated, is_opponent FROM MatchPlayers WHERE match_id = ? ORDER BY id ASC;";
         sqlite3_stmt* playerStmt = nullptr;
         if (sqlite3_prepare_v2(m_db, playersSql, -1, &playerStmt, nullptr) == SQLITE_OK) {
             sqlite3_bind_int(playerStmt, 1, matchId);
@@ -632,7 +758,8 @@ bool DatabaseManager::ExportLocalData(std::string& exportPath, std::string& erro
                 player["name"] = SqlColumnText(playerStmt, 1);
                 player["team"] = sqlite3_column_int(playerStmt, 2);
                 player["mmr"] = sqlite3_column_int(playerStmt, 3);
-                player["is_opponent"] = sqlite3_column_int(playerStmt, 4) != 0;
+                player["mmr_estimated"] = sqlite3_column_int(playerStmt, 4) != 0;
+                player["is_opponent"] = sqlite3_column_int(playerStmt, 5) != 0;
                 match["players"].push_back(player);
 
                 playersCsv << matchId << ","
@@ -640,6 +767,7 @@ bool DatabaseManager::ExportLocalData(std::string& exportPath, std::string& erro
                            << CsvEscape(player["name"].get<std::string>()) << ","
                            << player["team"].get<int>() << ","
                            << player["mmr"].get<int>() << ","
+                           << (player["mmr_estimated"].get<bool>() ? 1 : 0) << ","
                            << (player["is_opponent"].get<bool>() ? 1 : 0) << "\n";
             }
         }
@@ -692,7 +820,7 @@ void DatabaseManager::GetOpponentRecord(const std::string& primaryId, const std:
     if (!m_db) return;
 
     const char* sql = R"(
-        SELECT 
+        SELECT
             SUM(CASE WHEN Matches.win = 1 THEN 1 ELSE 0 END),
             SUM(CASE WHEN Matches.win = 0 THEN 1 ELSE 0 END)
         FROM Matches
@@ -728,12 +856,12 @@ void DatabaseManager::GetGamemodeStats(const std::string& primaryId, const std::
     if (!m_db) return;
 
     const char* sql = R"(
-        SELECT 
+        SELECT
             SUM(CASE WHEN Matches.win = 1 THEN 1 ELSE 0 END),
             SUM(CASE WHEN Matches.win = 0 THEN 1 ELSE 0 END),
             COUNT(*)
-        FROM MatchPlayers 
-        JOIN Matches ON MatchPlayers.match_id = Matches.id 
+        FROM MatchPlayers
+        JOIN Matches ON MatchPlayers.match_id = Matches.id
         WHERE MatchPlayers.primary_id = ? AND Matches.gamemode = ?;
     )";
 
@@ -831,10 +959,6 @@ void DatabaseManager::GetStreakStats(const std::string& primaryId, int& outCurWi
             currentLosses = 0;
         }
     }
-}
-
-std::string DatabaseManager::InferGamemode(int playerCount) {
-    return GamemodeUtils::InferFromPlayerCount(playerCount);
 }
 
 bool DatabaseManager::SetSetting(const std::string& key, const std::string& value) {
@@ -973,7 +1097,7 @@ void DatabaseManager::RefreshDbStatsSync(const std::string& primaryId) {
     if (primaryId.empty()) return;
     CachedDbStats newStats;
     GetStreakStats(primaryId, newStats.currentWins, newStats.currentLosses, newStats.longestWins, newStats.longestLosses);
-    for (const auto& gm : {"1v1", "2v2", "3v3", "hoops", "rumble", "dropshot", "snowday", "casual", "t"}) {
+    for (const auto& gm : {"1v1", "2v2", "3v3", "hoops", "rumble", "dropshot", "snowday", "heatseeker", "casual", "t"}) {
         GetGamemodeStats(primaryId, gm, newStats.gamemodes[gm].wins, newStats.gamemodes[gm].losses, newStats.gamemodes[gm].total);
     }
     if (m_state) {

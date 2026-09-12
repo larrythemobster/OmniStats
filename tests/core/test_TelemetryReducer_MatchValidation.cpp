@@ -782,12 +782,6 @@ TEST(
             nlohmann::json{{"bPrivateMatch", true}}),
         false);
     expectUnchanged(
-        "casual-context",
-        TeamUpdate(
-            2,
-            nlohmann::json{{"bCasualMatch", true}}),
-        false);
-    expectUnchanged(
         "unknown-context",
         nlohmann::json{
             {"Game", nlohmann::json::object()},
@@ -817,7 +811,6 @@ TEST(TelemetryReducerMatchValidation, RumbleManualSelectionInfersRumbleOnStandar
     std::string gamemode = GamemodeUtils::InferFromSnapshot(
         6, 6,
         state->ui.rosterMmrCategory.load(),
-        state->ui.graphMmrCategory.load(),
         "stadium_p");
 
     EXPECT_EQ(gamemode, "rumble");
@@ -835,7 +828,6 @@ TEST(TelemetryReducerMatchValidation, HeatseekerManualSelectionInfersHeatseekerO
     std::string gamemode = GamemodeUtils::InferFromSnapshot(
         6, 6,
         state->ui.rosterMmrCategory.load(),
-        state->ui.graphMmrCategory.load(),
         "stadium_p");
 
     EXPECT_EQ(gamemode, "heatseeker");
@@ -977,7 +969,7 @@ TEST(TelemetryReducerMatchValidation, LobbyFillsThenPlayerLeavesCounts) {
     reducer.Reduce(std::string(Constants::EVT_ROUND_STARTED), nlohmann::json{});
 
     // Verify lobby was detected as full
-    EXPECT_TRUE(state->game.lobbyWasEverFull);
+    EXPECT_TRUE(state->game.legacyLobbyWasEverFull);
 
     // Player leaves mid-game (so update state contains fewer players)
     nlohmann::json updateStateDataLeft = updateStateDataFull;
@@ -1797,7 +1789,7 @@ TEST(TelemetryReducerMatchValidation, MissingGuidMatchCreatedPreservesActiveIden
         state->game.matchGuid, "partial-created-guid");
     EXPECT_TRUE(state->game.inMatch);
     EXPECT_TRUE(state->game.roundEverStarted);
-    EXPECT_TRUE(state->game.lobbyWasEverFull);
+    EXPECT_TRUE(state->game.legacyLobbyWasEverFull);
     EXPECT_TRUE(state->game.localPlayerWasActive);
     EXPECT_EQ(state->game.myPrimaryId, "Steam|1");
     EXPECT_EQ(state->game.myTeam, 0);
@@ -1860,7 +1852,7 @@ TEST(TelemetryReducerMatchValidation, LateMatchGuidEnrichmentPreservesActiveLife
     EXPECT_EQ(
         state->game.matchGuid, "late-enriched-guid");
     EXPECT_TRUE(state->game.roundEverStarted);
-    EXPECT_TRUE(state->game.lobbyWasEverFull);
+    EXPECT_TRUE(state->game.legacyLobbyWasEverFull);
     EXPECT_TRUE(state->game.localPlayerWasActive);
     EXPECT_EQ(state->game.myTeam, 0);
     EXPECT_EQ(state->game.score[0], 2);
@@ -2491,9 +2483,9 @@ TEST(TelemetryReducerMatchValidation, GoalReplayDestructionStillRejectsLobbyNeve
         reducer, state, "replay-never-full-guid", 1, 0);
     state->ui.rosterMmrCategory.store(MmrCategory::TwoVTwo);
     state->ui.graphMmrCategory.store(MmrCategory::TwoVTwo);
-    state->game.lobbyWasEverFull = false;
-    state->game.maxTeamPlayersSeen = {1, 2};
-    state->game.maxPlayersSeen = 3;
+    state->game.legacyLobbyWasEverFull = false;
+    state->game.legacyMaxTeamPlayersSeen = {1, 2};
+    state->game.legacyMaxPlayersSeen = 3;
     EnterGoalReplay(reducer);
 
     SideEffects destroyed = reducer.Reduce(

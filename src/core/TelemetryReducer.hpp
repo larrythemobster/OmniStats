@@ -47,19 +47,21 @@ class TelemetryReducer {
         std::string myPrimaryId;
         int myTeam = -1;
         std::array<int, 2> score{};
-        int maxPlayersSeen = 0;
-        std::array<int, 2> maxTeamPlayersSeen{};
+        int legacyMaxPlayersSeen = 0;
+        std::array<int, 2> legacyMaxTeamPlayersSeen{};
         bool roundEverStarted = false;
         bool localPlayerWasActive = false;
         bool localPlayerWasSpectator = false;
-        bool lobbyWasEverFull = false;
+        bool legacyLobbyWasEverFull = false;
         bool localPlayerDisappeared = false;
         bool explicitLocalForfeit = false;
+        bool fallbackCasualContext = false;
+        bool fallbackNonRecordableContext = false;
+        std::string fallbackNonRecordableReason;
         bool nonLiveReplay = false;
         MatchStats stats;
         std::unordered_map<std::string, PlayerData> roster;
         MmrCategory rosterMmrCategory = MmrCategory::Best;
-        MmrCategory graphMmrCategory = MmrCategory::Best;
         std::string mode;
         LocalPreMatchMmrSnapshot preMatchMmr;
         bool hasPreMatchMmr = false;
@@ -92,7 +94,7 @@ class TelemetryReducer {
     };
 
     MatchEndDecision ClassifyMatchEndLocked(const CapturedMatch& match, int winnerTeam) const;
-    static int ExpectedTeamSizeForMode(const std::string& mode);
+    static int LegacyExpectedTeamSizeForMode(const std::string& mode);
 
     std::shared_ptr<SessionState> m_state;
     ConfigData m_cachedConf;

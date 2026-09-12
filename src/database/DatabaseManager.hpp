@@ -23,8 +23,8 @@ class DatabaseManager {
     [[nodiscard]] bool Initialize(const std::string& dbPath);
     void SaveMatch(const MatchSaveSnapshot& snapshot);
     void AsyncSaveMatch(MatchSaveSnapshot snapshot);
-    bool UpdateMatchPlayerMmr(const std::string& matchGuid, const std::string& primaryId, int mmr);
-    void AsyncUpdateMatchPlayerMmr(std::string matchGuid, std::string primaryId, int mmr);
+    bool UpdateMatchPlayerMmr(const std::string& matchGuid, const std::string& primaryId, int mmr, bool estimated = false);
+    void AsyncUpdateMatchPlayerMmr(std::string matchGuid, std::string primaryId, int mmr, bool estimated = false);
 
     void GetLifetimeMmrHistory(const std::string& primaryId, const std::string& playlist, std::vector<float>& outX, std::vector<float>& outY);
     void AsyncGetLifetimeMmrHistory(const std::string& primaryId, const std::string& playlist);
@@ -65,7 +65,6 @@ class DatabaseManager {
 
     [[nodiscard]] bool EnqueueDbJob(std::function<void()> job, DbJobPriority priority = DbJobPriority::Normal, std::string coalesceKey = "");
     bool CreateTables();
-    std::string InferGamemode(int playerCount);
 
     std::shared_ptr<SessionState> m_state;
     sqlite3* m_db = nullptr;

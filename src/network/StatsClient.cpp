@@ -112,12 +112,11 @@ void StatsClient::RunLoop() {
                     m_state->game.sessionTotals = SessionTotals();
                     m_state->game.sessionGamemodes.clear();
                 }
-                m_state->game.inMatch = false;
-                m_state->game.inReplay = false;
-                m_state->game.arenaName = "";
-                m_state->game.arenaAsset = "";
-                m_state->game.myTeam = -1;
-                m_state->game.roster.clear();
+                // A reconnect starts with no trustworthy active-match telemetry.
+                // Clear all per-match classification/observation state so a frame
+                // that temporarily omits Arena or PlaylistId cannot inherit the
+                // previous match's playlist, counts, roster, or stats.
+                m_state->clearActiveMatchOnDisconnect();
                 m_state->game.version++;
             }
 

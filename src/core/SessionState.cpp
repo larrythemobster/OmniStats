@@ -58,7 +58,7 @@ void SessionState::resetMatch(const std::string& newArena, const std::string& ne
     game.playlistId = -1;
     game.score[0] = 0;
     game.score[1] = 0;
-    game.maxPlayersSeen = 0;
+    game.legacyMaxPlayersSeen = 0;
     game.roundEverStarted = false;
 
     game.localPlayerWasActive = false;
@@ -68,9 +68,12 @@ void SessionState::resetMatch(const std::string& newArena, const std::string& ne
     game.explicitLocalForfeit = false;
     game.excludedEarlyExitContext = false;
     game.earlyExitExclusionReason.clear();
-    game.lobbyWasEverFull = false;
-    game.currentTeamPlayersSeen = {0, 0};
-    game.maxTeamPlayersSeen = {0, 0};
+    game.fallbackCasualContext = false;
+    game.fallbackNonRecordableContext = false;
+    game.fallbackNonRecordableReason.clear();
+    game.legacyLobbyWasEverFull = false;
+    game.legacyCurrentTeamPlayersSeen = {0, 0};
+    game.legacyMaxTeamPlayersSeen = {0, 0};
     game.lastMatchWasVoid = false;
     game.lastMatchVoidReason.clear();
     game.matchSummaryScore = {0, 0};
@@ -84,4 +87,35 @@ void SessionState::resetMatch(const std::string& newArena, const std::string& ne
     game.matchFinalized = false;
     ui.showOverlay = false;
     ui.showMatchSummary = false;
+}
+
+void SessionState::clearActiveMatchOnDisconnect() {
+    game.inMatch = false;
+    game.inReplay = false;
+    game.myTeam = -1;
+    game.arenaName.clear();
+    game.arenaAsset.clear();
+    game.matchGuid.clear();
+    game.playlistId = -1;
+    game.score = {0, 0};
+    game.legacyMaxPlayersSeen = 0;
+    game.roundEverStarted = false;
+    game.localPlayerWasActive = false;
+    game.localPlayerWasSpectator = false;
+    game.localPlayerPresenceObserved = false;
+    game.localPlayerPresentInLatestUpdate = false;
+    game.explicitLocalForfeit = false;
+    game.excludedEarlyExitContext = false;
+    game.earlyExitExclusionReason.clear();
+    game.fallbackCasualContext = false;
+    game.fallbackNonRecordableContext = false;
+    game.fallbackNonRecordableReason.clear();
+    game.legacyLobbyWasEverFull = false;
+    game.legacyCurrentTeamPlayersSeen = {0, 0};
+    game.legacyMaxTeamPlayersSeen = {0, 0};
+    game.currentMatch = MatchStats{};
+    game.roster.clear();
+    game.matchRoster.clear();
+    game.preMatchMmrByGuid.clear();
+    game.matchFinalized = false;
 }
