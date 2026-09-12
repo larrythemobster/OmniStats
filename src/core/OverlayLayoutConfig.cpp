@@ -9,66 +9,56 @@ namespace OverlayLayout {
         config.version = 2;
         config.toolboxOpen = false;
 
-        // 1. Session Card (Top-Left)
-        {
-            ContainerConfig c;
-            c.id = "session_card";
-            c.x = 24.0f;
-            c.y = 24.0f;
-            c.w = 0.0f;
-            c.h = 0.0f;
-            c.widgets = {DashboardLayout::WidgetId::SessionStats};
-            config.containers.push_back(c);
-        }
-
-        // 2. Demo Tracker (Middle-Left)
+        // 1. Demo Tracker, Session Stats, Streaks Stats (docked)
         {
             ContainerConfig c;
             c.id = "demo_tracker";
-            c.x = 24.0f;
-            c.y = 150.0f;
-            c.w = 0.0f;
-            c.h = 0.0f;
-            c.widgets = {DashboardLayout::WidgetId::DemoTracker};
+            c.x = 1252.0f;
+            c.y = 0.0f;
+            c.w = 228.0f;
+            c.h = 494.0f;
+            c.widgets = {
+                DashboardLayout::WidgetId::DemoTracker,
+                DashboardLayout::WidgetId::SessionStats,
+                DashboardLayout::WidgetId::StreaksStats};
             config.containers.push_back(c);
         }
 
-        // 3. Lobby Ranks (Top-Middle)
+        // 2. Lobby Ranks
         {
             ContainerConfig c;
             c.id = "lobby_ranks";
-            c.x = 450.0f;
-            c.y = 24.0f;
+            c.x = 648.0f;
+            c.y = 870.75f;
             c.w = 0.0f;
             c.h = 0.0f;
             c.widgets = {DashboardLayout::WidgetId::LobbyRanks};
             config.containers.push_back(c);
         }
 
-        // 4. Previous Games (Top-Middle-ish, below Lobby Ranks)
+        // 3. Previous Games
         {
             ContainerConfig c;
             c.id = "previous_games";
-            c.x = 400.0f;
-            c.y = 120.0f;
-            c.w = 0.0f;
-            c.h = 0.0f;
+            c.x = 936.0f;
+            c.y = 0.0f;
+            c.w = 316.0f;
+            c.h = 415.0f;
             c.widgets = {DashboardLayout::WidgetId::PreviousGames};
             config.containers.push_back(c);
         }
 
-        // 5. Main H2H Stack (Top-Right)
+        // 4. Main H2H Stack (Live Roster, Live Match Stats, Gamemode Breakdown) (docked)
         {
             ContainerConfig c;
             c.id = "main_stack";
-            c.x = 1500.0f; // Soft default, will position on right of screen
-            c.y = 24.0f;
+            c.x = 1480.0f;
+            c.y = 0.0f;
             c.w = 410.0f;
             c.h = 0.0f;
             c.widgets = {
                 DashboardLayout::WidgetId::LiveRoster,
                 DashboardLayout::WidgetId::LiveMatchStats,
-                DashboardLayout::WidgetId::StreaksStats,
                 DashboardLayout::WidgetId::GamemodeBreakdown};
             config.containers.push_back(c);
         }

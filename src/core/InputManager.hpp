@@ -17,6 +17,8 @@ class InputManager {
         HotKeyExpand = 3,
         HotKeySession = 4,
         HotKeyDashboardEdit = 5,
+        HotKeyPanLeft = 6,
+        HotKeyPanRight = 7,
     };
 
     static void HandleHotKeyAction(
@@ -50,6 +52,8 @@ class InputManager {
     std::atomic<int> m_keyExpand{VK_F7};
     std::atomic<int> m_keySession{VK_F8};
     std::atomic<int> m_keyMenu{VK_F5};
+    std::atomic<int> m_keyGraphPanLeft{VK_LEFT};
+    std::atomic<int> m_keyGraphPanRight{VK_RIGHT};
     std::atomic<int> m_gamepadOverlay{4};
     std::atomic<bool> m_gamepadOverlayRaw{false};
     std::atomic<int> m_gamepadOverlayRawButton{4};
@@ -65,6 +69,12 @@ class InputManager {
     std::atomic<int> m_gamepadMenu{-1};
     std::atomic<bool> m_gamepadMenuRaw{false};
     std::atomic<int> m_gamepadMenuRawButton{-1};
+    std::atomic<int> m_gamepadGraphPanLeft{-1};
+    std::atomic<bool> m_gamepadGraphPanLeftRaw{false};
+    std::atomic<int> m_gamepadGraphPanLeftRawButton{-1};
+    std::atomic<int> m_gamepadGraphPanRight{-1};
+    std::atomic<bool> m_gamepadGraphPanRightRaw{false};
+    std::atomic<int> m_gamepadGraphPanRightRawButton{-1};
     std::atomic<bool> m_showExtraPlaylists{true};
 #if OMNISTATS_ENABLE_LOW_LEVEL_HOOK
     std::atomic<bool> m_sessionKeyDown{false};

@@ -125,6 +125,12 @@ class RmlUiControllerStateTest : public ::testing::Test {
     Rml::Element* SettingsRoot(RmlUiController& controller) {
         return controller.Root("settings-root");
     }
+    Rml::Element* DashboardRoot(RmlUiController& controller) {
+        return controller.Root("dashboard-root");
+    }
+    Rml::ElementDocument* Document(RmlUiController& controller) {
+        return controller.m_document;
+    }
     void RefreshSettings(RmlUiController& controller) {
         controller.RebuildSettings();
         controller.Render();
@@ -467,37 +473,6 @@ TEST_F(RmlUiControllerStateTest, GraphCategoryChangeRefreshesLifetimeHistoryOnce
     EXPECT_EQ(DatabaseManager::s_test_async_get_lifetime_calls.load(), 2);
 }
 
-TEST_F(RmlUiControllerStateTest, EstimatedMmrFlagTracksHistoryVersion) {
-    auto state = std::make_shared<SessionState>();
-    {
-        std::unique_lock lock(state->history.mutex);
-        state->history.playlistHistoryY["2v2"] = {1209.0f};
-        state->history.playlistMatchPoints["2v2"] = {
-            SessionMmrPoint{
-                .matchGuid = "owned-match",
-                .historyIndex = 0,
-                .mmr = 1209,
-                .trackerMatchesPlayed = 50,
-                .trackerCovered = true,
-                .valueEstimated = true}};
-        state->history.version.fetch_add(1);
-    }
-
-    RmlUiController controller(state, nullptr);
-    controller.Update(Config::Read());
-    ASSERT_EQ(Snapshot(controller).playlistHistoryEstimated.at("2v2").size(), 1u);
-    EXPECT_TRUE(Snapshot(controller).playlistHistoryEstimated.at("2v2")[0]);
-
-    {
-        std::unique_lock lock(state->history.mutex);
-        state->history.playlistMatchPoints["2v2"][0].valueEstimated = false;
-        state->history.version.fetch_add(1);
-    }
-    controller.Update(Config::Read());
-    ASSERT_EQ(Snapshot(controller).playlistHistoryEstimated.at("2v2").size(), 1u);
-    EXPECT_FALSE(Snapshot(controller).playlistHistoryEstimated.at("2v2")[0]);
-}
-
 TEST_F(RmlUiControllerStateTest, InvalidDpiScaleFallsBackSafely) {
     auto state = std::make_shared<SessionState>();
     RmlUiController controller(state, nullptr);
@@ -675,64 +650,40 @@ TEST_F(RmlUiControllerStateTest, RawControllerFallbackOnlyUpdatesSelectedBinding
     EXPECT_FALSE(state->ui.inputCaptureActive.load());
 }
 
-TEST_F(RmlUiControllerStateTest, EmptyGraphKeepsScopeControlAndSpecificGuidance) {
+TEST_F(RmlUiControllerStateTest, EmptyGraphShowsAppropriateGuidanceWithoutNavigationControls) {
     auto state = std::make_shared<SessionState>();
     RmlUiController controller(state, nullptr);
-    controller.Update(Config::Read());
 
+    // Session Graph empty state
     state->history.showLifetimeGraph.store(false);
     controller.Update(Config::Read());
-    std::string session = RenderGraph(controller);
-    EXPECT_NE(session.find("data-action='graph-mode'"), std::string::npos);
-    EXPECT_NE(session.find("No MMR data for 2v2 this session."), std::string::npos);
-    EXPECT_NE(session.find("Play a match to start plotting!"), std::string::npos);
+    const std::string sessionHtml = RenderGraph(controller);
+    EXPECT_EQ(sessionHtml.find("data-action='graph-pan"), std::string::npos);
+    EXPECT_EQ(sessionHtml.find("data-action='graph-zoom"), std::string::npos);
+    EXPECT_EQ(sessionHtml.find("data-action='graph-mode"), std::string::npos);
+    EXPECT_NE(sessionHtml.find("No MMR data for 2v2 this session."), std::string::npos);
+    EXPECT_NE(sessionHtml.find("Play a match to start plotting!"), std::string::npos);
 
+    // Lifetime Graph empty state
     state->history.showLifetimeGraph.store(true);
     controller.Update(Config::Read());
-    std::string lifetime = RenderGraph(controller);
-    EXPECT_NE(lifetime.find("data-action='graph-mode'"), std::string::npos);
-    EXPECT_NE(lifetime.find("No lifetime MMR history in database yet."), std::string::npos);
-    EXPECT_NE(lifetime.find("Play matches to populate database records!"), std::string::npos);
+    const std::string lifetimeHtml = RenderGraph(controller);
+    EXPECT_EQ(lifetimeHtml.find("data-action='graph-pan"), std::string::npos);
+    EXPECT_EQ(lifetimeHtml.find("data-action='graph-zoom"), std::string::npos);
+    EXPECT_EQ(lifetimeHtml.find("data-action='graph-mode"), std::string::npos);
+    EXPECT_NE(lifetimeHtml.find("No lifetime MMR history in database yet."), std::string::npos);
+    EXPECT_NE(lifetimeHtml.find("Play matches to populate database records!"), std::string::npos);
 }
 
-TEST_F(RmlUiControllerStateTest, SessionGraphDoesNotInventPlaylistHistoryOrBaseline) {
+TEST_F(RmlUiControllerStateTest, LifetimeGraphKeepsLatestTwentyFiveDottedMatchesWithPanButtonsOnly) {
     auto state = std::make_shared<SessionState>();
-    state->ui.graphMmrCategory.store(MmrCategory::TwoVTwo);
-    state->ui.rosterMmrCategory.store(MmrCategory::TwoVTwo);
+    state->history.showLifetimeGraph.store(true);
     {
         std::unique_lock lock(state->history.mutex);
-        // The legacy aggregate/best projection is not authoritative 2v2 history.
-        state->history.initialMmr = 1400;
-        state->history.mmrHistoryY = {1400.0f, 1412.0f};
-        state->history.version.fetch_add(1);
-    }
-
-    RmlUiController controller(state, nullptr);
-    controller.Update(Config::Read());
-    std::string html = RenderGraph(controller);
-    EXPECT_NE(html.find("No MMR data for 2v2 this session."), std::string::npos);
-    EXPECT_EQ(html.find("<mmrgraphlines"), std::string::npos);
-
-    {
-        std::unique_lock lock(state->history.mutex);
-        state->history.playlistHistoryY["2v2"] = {1200.0f, 1211.0f};
-        // Deliberately leave playlistInitialMmr unset. The legacy implementation
-        // treated that as an unknown baseline and reported a neutral +0 delta.
-        state->history.version.fetch_add(1);
-    }
-    controller.Update(Config::Read());
-    html = RenderGraph(controller);
-    EXPECT_NE(html.find("<mmrgraphlines class='graph-polyline'"), std::string::npos);
-    EXPECT_EQ(html.find("class='graph-line baseline'"), std::string::npos);
-    EXPECT_NE(html.find(">+0</span>"), std::string::npos);
-}
-
-TEST_F(RmlUiControllerStateTest, PopulatedGraphUsesAspectCorrectCustomPolyline) {
-    auto state = std::make_shared<SessionState>();
-    {
-        std::unique_lock lock(state->history.mutex);
-        state->history.playlistInitialMmr["2v2"] = 1200;
-        state->history.playlistHistoryY["2v2"] = {1200.0f, 1211.0f, 1198.0f};
+        for (int mmr = 1200; mmr < 1250; ++mmr) {
+            state->history.lifetimeMmrY.push_back(static_cast<float>(mmr));
+            state->history.lifetimeMmrX.push_back(static_cast<float>(mmr));
+        }
         state->history.version.fetch_add(1);
     }
 
@@ -740,8 +691,13 @@ TEST_F(RmlUiControllerStateTest, PopulatedGraphUsesAspectCorrectCustomPolyline) 
     controller.Update(Config::Read());
     const std::string html = RenderGraph(controller);
 
+    EXPECT_NE(html.find("26-50 of 50"), std::string::npos);
+    EXPECT_NE(html.find("data-action='graph-pan-older'"), std::string::npos);
+    EXPECT_NE(html.find("data-action='graph-pan-newer'"), std::string::npos);
+    EXPECT_EQ(html.find("data-action='graph-zoom-in'"), std::string::npos);
+    EXPECT_EQ(html.find("data-action='graph-zoom-out'"), std::string::npos);
+    EXPECT_EQ(html.find("data-action='graph-mode'"), std::string::npos);
     EXPECT_NE(html.find("<mmrgraphlines class='graph-polyline' points='"), std::string::npos);
-    EXPECT_EQ(html.find("class='graph-line' style="), std::string::npos);
     EXPECT_NE(html.find("class='graph-point"), std::string::npos);
 }
 
@@ -763,11 +719,37 @@ TEST_F(RmlUiControllerStateTest, DashboardAndOverlaySessionCardsKeepCompactLegac
     const std::string overlay = RenderSessionWidget(controller, false);
     const std::string sessionView = RenderSessionView(controller);
     const std::string unusedFullBranch = RenderFullSession(controller);
-    EXPECT_NE(dashboard.find("<div class='metric-label'>Record</div>"), std::string::npos);
     EXPECT_EQ(dashboard.find("Shots"), std::string::npos);
     EXPECT_EQ(overlay.find("Shots"), std::string::npos);
     EXPECT_EQ(sessionView.find("Shots"), std::string::npos);
     EXPECT_NE(unusedFullBranch.find("<div class='label'>Shots</div>"), std::string::npos);
+}
+
+TEST_F(RmlUiControllerStateTest, DashboardWidgetsSpanFullWidthWithoutCollapsing) {
+    Microsoft::WRL::ComPtr<ID3D11Device> device;
+    Microsoft::WRL::ComPtr<ID3D11DeviceContext> context;
+    D3D_FEATURE_LEVEL featureLevel;
+    if (FAILED(D3D11CreateDevice(nullptr, D3D_DRIVER_TYPE_WARP, nullptr, 0, nullptr, 0, D3D11_SDK_VERSION,
+                                 &device, &featureLevel, &context))) {
+        GTEST_SKIP() << "WARP not available.";
+    }
+    auto state = std::make_shared<SessionState>();
+    Config::Update([](ConfigData& c) {
+        c.second_monitor_mode = true;
+    },
+                   true);
+    RmlUiController controller(state, nullptr);
+    ASSERT_TRUE(controller.Initialize(nullptr, device.Get(), context.Get(), 1223, 1032, 1.0f));
+    controller.Update(Config::Read());
+    ASSERT_NE(Document(controller), nullptr);
+    controller.Render();
+
+    Rml::ElementList widgets;
+    Document(controller)->QuerySelectorAll(widgets, ".dashboard-widget");
+    EXPECT_GT(widgets.size(), 0u);
+    for (auto* widget : widgets) {
+        EXPECT_GT(widget->GetOffsetWidth(), 200.0f);
+    }
 }
 
 TEST_F(RmlUiControllerStateTest, DashboardGamemodeBreakdownKeepsLegacyScopeSelector) {

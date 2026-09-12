@@ -9,15 +9,15 @@ namespace DashboardLayout {
             .version = kLayoutVersion,
             .leftColumnWeight = 0.48f,
             .widgets = {
+                {WidgetId::PreviousGames, Zone::Top, 0, 0.0f, false},
                 {WidgetId::LiveRoster, Zone::Left, 0, 0.0f, false},
                 {WidgetId::LiveMatchStats, Zone::Left, 1, 0.0f, false},
                 {WidgetId::LobbyRanks, Zone::Left, 2, 0.0f, false},
-                {WidgetId::MmrGraph, Zone::Top, 0, 220.0f, false},
-                {WidgetId::PreviousGames, Zone::Top, 1, 0.0f, false},
                 {WidgetId::SessionStats, Zone::Right, 0, 0.0f, false},
-                {WidgetId::DemoTracker, Zone::Right, 1, 0.0f, false},
-                {WidgetId::StreaksStats, Zone::Right, 2, 0.0f, false},
-                {WidgetId::GamemodeBreakdown, Zone::Right, 3, 0.0f, false},
+                {WidgetId::StreaksStats, Zone::Right, 1, 0.0f, false},
+                {WidgetId::MmrGraph, Zone::Right, 2, 220.0f, false},
+                {WidgetId::DemoTracker, Zone::Right, 3, 0.0f, false},
+                {WidgetId::GamemodeBreakdown, Zone::Hidden, 0, 0.0f, false},
             }};
     }
 

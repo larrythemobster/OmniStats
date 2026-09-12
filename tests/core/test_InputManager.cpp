@@ -76,13 +76,48 @@ TEST_F(InputManagerActionTest, OneSessionHotkeyActionTogglesExactlyOnce) {
     EXPECT_TRUE(m_state->ui.showSessionView.load());
 }
 
-TEST_F(InputManagerActionTest, HiddenSessionPanelCanToggleGraphSubview) {
+TEST_F(InputManagerActionTest, F7CyclesSessionGraphLifetimeGraphAndStats) {
     m_state->ui.showOverlay.store(false);
     m_state->ui.showSessionView.store(true);
 
+    // Step 1: Session Graph
     Dispatch(InputManager::HotKeyExpand);
-
     EXPECT_TRUE(m_state->ui.showGraphView.load());
+    EXPECT_FALSE(m_state->history.showLifetimeGraph.load());
+
+    // Step 2: Lifetime Graph
+    Dispatch(InputManager::HotKeyExpand);
+    EXPECT_TRUE(m_state->ui.showGraphView.load());
+    EXPECT_TRUE(m_state->history.showLifetimeGraph.load());
+
+    // Step 3: Back to Session Stats
+    Dispatch(InputManager::HotKeyExpand);
+    EXPECT_FALSE(m_state->ui.showGraphView.load());
+    EXPECT_FALSE(m_state->history.showLifetimeGraph.load());
+}
+
+TEST_F(InputManagerActionTest, PanHotkeysScrollGraphWindow) {
+    m_state->ui.showSessionView.store(true);
+    m_state->ui.showGraphView.store(true);
+    m_state->history.showLifetimeGraph.store(true);
+    {
+        std::unique_lock lock(m_state->history.mutex);
+        for (int i = 0; i < 40; ++i) {
+            m_state->history.lifetimeMmrY.push_back(1000.0f + static_cast<float>(i));
+        }
+    }
+    EXPECT_EQ(m_state->ui.graphOffset.load(), 0);
+
+    // Pan older (left)
+    Dispatch(InputManager::HotKeyPanLeft);
+    EXPECT_EQ(m_state->ui.graphOffset.load(), 5);
+
+    Dispatch(InputManager::HotKeyPanLeft);
+    EXPECT_EQ(m_state->ui.graphOffset.load(), 10);
+
+    // Pan newer (right)
+    Dispatch(InputManager::HotKeyPanRight);
+    EXPECT_EQ(m_state->ui.graphOffset.load(), 5);
 }
 
 TEST_F(InputManagerActionTest, WindowHotkeyMessagesAreNotAnInputPath) {

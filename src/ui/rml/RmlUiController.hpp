@@ -47,8 +47,6 @@ struct RmlRenderSnapshot {
     int matchSummaryWinnerTeam = -1;
 
     float initialMmr = -1.0f;
-    std::vector<float> mmrHistoryX;
-    std::vector<float> mmrHistoryY;
     std::map<std::string, int> playlistInitialMmr;
     std::map<std::string, std::vector<float>> playlistHistoryY;
     std::map<std::string, std::vector<bool>> playlistHistoryEstimated;
@@ -98,11 +96,15 @@ class RmlUiController final : public Rml::EventListener {
         KeySession,
         KeyMenu,
         KeySaveReplay,
+        KeyGraphPanLeft,
+        KeyGraphPanRight,
         GamepadOverlay,
         GamepadCycle,
         GamepadExpand,
         GamepadSession,
-        GamepadMenu
+        GamepadMenu,
+        GamepadGraphPanLeft,
+        GamepadGraphPanRight
     };
 
     enum class DragKind { None,
@@ -175,7 +177,6 @@ class RmlUiController final : public Rml::EventListener {
     void ApplyColorPick(float mouseX, float mouseY);
     void HandleMouseMove(Rml::Event& event);
     void HandleMouseUp(Rml::Event& event);
-    void AdjustGraphZoom(int direction);
     void PanGraph(int direction);
     void BeginBindCapture(BindCaptureTarget target);
     void FinishBindCapture();
@@ -241,6 +242,7 @@ class RmlUiController final : public Rml::EventListener {
     bool m_lastShowGraphView = false;
     bool m_lastH2hExpanded = false;
     bool m_lastShowLifetimeGraph = false;
+    int m_lastGraphOffset = 0;
     MmrCategory m_lastRosterMmrCategory = MmrCategory::Best;
     MmrCategory m_lastGraphMmrCategory = MmrCategory::Best;
     std::string m_lastConfigFingerprint;

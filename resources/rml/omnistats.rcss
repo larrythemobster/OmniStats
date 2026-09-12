@@ -203,14 +203,14 @@ div.value { display: block; }
    enabled. */
 /* The lobby table reuses .player-row for metrics only: it stays a flat table
    row, not a card. */
-.lobby-rank-row { align-items: center; min-height: 30dp; margin: 0; padding: 2dp; border: 0; border-top: 1dp #24293644; border-radius: 0; background-color: transparent; }
+.lobby-rank-row { align-items: center; min-height: 28dp; margin: 0; padding: 2dp; border: 0; border-top: 1dp #24293644; border-radius: 0; background-color: transparent; }
 .lobby-rank-row .player-name {
     flex-grow: 0;
     flex-shrink: 0;
-    width: 176dp;
-    min-width: 176dp;
-    padding-right: 8dp;
-    font-size: 12dp;
+    width: 135dp;
+    min-width: 125dp;
+    padding-right: 6dp;
+    font-size: 11dp;
     white-space: nowrap;
 }
 .lobby-rank-row .player-name { overflow: hidden; }
@@ -233,12 +233,12 @@ div.value { display: block; }
     justify-content: center;
     flex-grow: 0;
     flex-shrink: 0;
-    width: 84dp;
-    min-width: 84dp;
+    width: 65dp;
+    min-width: 58dp;
     overflow: hidden;
-    padding: 0 4dp;
+    padding: 0 2dp;
     text-align: center;
-    font-size: 10dp;
+    font-size: 9.5dp;
     font-weight: 600;
     line-height: 1.15;
     white-space: nowrap;
@@ -347,35 +347,103 @@ div.value { display: block; }
     overflow: auto;
 }
 .dashboard-topbar {
-    height: 54dp;
-    padding: 9dp 14dp;
+    height: 34dp;
+    padding: 3dp 10dp;
     background-color: #10131a;
     border-bottom: 1dp #2b303d;
     display: flex;
     flex-direction: row;
     align-items: center;
 }
-.brand-logo { width: 30dp; height: 30dp; margin-right: 9dp; }
-.brand-title { display: block; font-family: "Russo One"; font-size: 19dp; letter-spacing: 0.5dp; line-height: 1.2; }
-.brand-title .version { font-family: "Inter"; font-size: 11dp; font-weight: 600; letter-spacing: 0; color: #9da6b3; }
-.brand-mini { display: block; font-family: "Russo One"; font-size: 14dp; letter-spacing: 1dp; }
-.playlist-icon { width: 22dp; height: 22dp; }
-.roster-header { display: block; padding-bottom: 6dp; border-bottom: 1dp #252a3555; }
-.roster-footer { display: flex; flex-direction: row; justify-content: space-between; gap: 7dp; margin-top: 6dp; padding-top: 5dp; border-top: 1dp #252a3555; color: #8f99a8; font-size: 10dp; }
-.dashboard-widget.dragging { opacity: 0.65; border-color: #ff0021; }
-.dashboard-widget-title { display: flex; flex-direction: row; align-items: center; margin-bottom: 9dp; }
-.dashboard-widget-title .name { font-family: "Russo One"; font-size: 15dp; letter-spacing: 0.5dp; }
-.dashboard-content { padding: 12dp; }
-.dashboard-zone-top { width: 100%; margin-bottom: 10dp; }
-.dashboard-columns { display: flex; flex-direction: row; gap: 12dp; align-items: flex-start; }
-.dashboard-column { flex-grow: 1; flex-shrink: 1; flex-basis: 0; min-width: 0; }
+.brand-logo { width: 22dp; height: 22dp; margin-right: 7dp; }
+.brand-title { display: flex; flex-direction: row; align-items: baseline; font-family: "Russo One"; font-size: 14dp; letter-spacing: 0.4dp; line-height: 1; }
+.brand-title .version { font-family: "Inter"; font-size: 9dp; font-weight: 600; letter-spacing: 0; color: #9da6b3; margin-left: 5dp; }
+.dashboard-topbar .match-status { font-size: 11dp; font-weight: 500; color: #8f99a8; margin-left: 14dp; }
+.playlist-icon { width: 20dp; height: 20dp; }
+.roster-header { display: block; padding-bottom: 4dp; border-bottom: 1dp #252a3555; }
+.roster-footer { display: flex; flex-direction: row; justify-content: space-between; gap: 7dp; margin-top: 4dp; padding-top: 4dp; border-top: 1dp #252a3555; color: #8f99a8; font-size: 10dp; }
+.dashboard-widget-title { display: flex; flex-direction: row; align-items: center; margin-bottom: 5dp; }
+.dashboard-widget-title .name { font-family: "Russo One"; font-size: 13dp; letter-spacing: 0.4dp; }
+.dashboard-content { display: block; width: 100%; padding: 6dp 8dp; box-sizing: border-box; }
+.dashboard-zone-top { display: block; width: 100%; margin-bottom: 6dp; box-sizing: border-box; }
+.dashboard-columns { display: flex; flex-direction: row; width: 100%; gap: 8dp; align-items: flex-start; box-sizing: border-box; }
+.dashboard-column { display: flex; flex-direction: column; flex-grow: 1; flex-shrink: 1; flex-basis: 0; min-width: 0; box-sizing: border-box; }
+.dashboard-zone-left, .dashboard-zone-right, .dashboard-zone-bottom { display: block; width: 100%; box-sizing: border-box; }
 .dashboard-widget {
-    margin-bottom: 12dp;
-    padding: 11dp 13dp;
-    border: 1dp #272e3a;
-    border-radius: 10dp;
+    display: block;
+    width: 100%;
+    box-sizing: border-box;
+    margin-bottom: 6dp;
+    border: 0;
+    background-color: transparent;
     pointer-events: auto;
 }
+.dashboard-edit-active .dashboard-widget {
+    border: 1dp solid #272e3a;
+    border-radius: 6dp;
+    padding: 4dp 6dp;
+}
+.dashboard-widget.dragging {
+    opacity: 0.65;
+    border: 1dp solid #ff0021;
+}
+.dashboard-widget.drag-target {
+    border: 1dp solid #ff0021;
+}
+.dashboard-drop-slot {
+    display: none;
+    height: 16dp;
+    margin: 3dp 0;
+    border: 1dp dashed #3b4657;
+    border-radius: 4dp;
+    background-color: #14182240;
+    text-align: center;
+    align-items: center;
+    justify-content: center;
+}
+.dashboard-edit-active .dashboard-drop-slot {
+    display: flex;
+}
+.dashboard-drop-slot .drop-hint {
+    font-size: 9dp;
+    color: #5c6878;
+    pointer-events: none;
+}
+.dashboard-drop-slot.drag-target {
+    border: 2dp solid #ff0021;
+    background-color: #ff002125;
+}
+.dashboard-drop-slot.drag-target .drop-hint {
+    color: #ff8088;
+    font-weight: 700;
+}
+.dashboard-widget.dragging {
+    opacity: 0.45;
+    border: 2dp dashed #ff0021;
+}
+.dashboard-widget.drag-target {
+    border: 2dp solid #ff0021;
+}
+.dashboard-widget .player-row {
+    min-height: 38dp;
+    margin-bottom: 3dp;
+    padding: 3dp 6dp;
+    border-radius: 6dp;
+}
+.dashboard-widget .player-name-text { font-size: 12dp; }
+.dashboard-widget .player-flags .label { font-size: 9dp; }
+.dashboard-widget .chip { font-size: 9dp; padding: 1dp 5dp; }
+.dashboard-widget .stat-cell { min-height: 28dp; padding: 2dp 4dp; }
+.dashboard-widget .compact-stats .stat-cell { min-height: 25dp; padding: 2dp 4dp; }
+.dashboard-widget .metric-row { min-height: 21dp; padding: 1dp 1dp; }
+.dashboard-widget .metric-label { font-size: 10dp; }
+.dashboard-widget .metric-value { font-size: 10dp; }
+.dashboard-widget .graph-wrap { height: 160dp; }
+.dashboard-widget .match-row { min-height: 22dp; padding: 1dp 2dp; font-size: 11dp; }
+.dashboard-widget .match-header { min-height: 20dp; font-size: 10dp; }
+.dashboard-widget .previous-games-footer { min-height: 22dp; margin-top: 4dp; padding: 3dp 2dp 0 2dp; font-size: 11dp; }
+.previous-games-list { display: block; width: 100%; }
+.dashboard-widget .previous-games-list { display: block; width: 100%; }
 .lobby-rank-table { display: block; width: 100%; }
 /* Only the fixed-column rank table may scroll sideways; the widget itself must
    not become a scroll container or its flex children collapse to zero width. */
@@ -757,10 +825,10 @@ scrollbarcorner { background-color: #0b0e13aa; }
 .match-row { display: flex; flex-direction: row; align-items: center; min-height: 26dp; padding: 1dp 2dp; font-size: 12dp; font-weight: 600; border-top: 1dp #252a3555; }
 .match-header { min-height: 24dp; color: #707987; font-size: 11dp; font-weight: 700; letter-spacing: 0.3dp; }
 .match-header .match-mode, .match-header .match-score, .match-header .match-mmr, .match-header .match-time { color: #707987; font-family: "Inter"; }
-.match-mode { width: 96dp; flex-shrink: 0; color: #9da6b3; padding-left: 4dp; }
-.match-score { width: 54dp; flex-shrink: 0; text-align: center; font-family: "JetBrains Mono"; }
-.match-mmr { width: 66dp; flex-shrink: 0; text-align: center; font-family: "JetBrains Mono"; }
-.match-time { flex-grow: 1; min-width: 50dp; text-align: right; color: #707987; font-size: 11dp; }
+.match-mode { width: 28%; flex: 0 0 28%; color: #9da6b3; padding-left: 6dp; text-align: left; }
+.match-score { width: 24%; flex: 0 0 24%; text-align: center; font-family: "JetBrains Mono"; }
+.match-mmr { width: 24%; flex: 0 0 24%; text-align: center; font-family: "JetBrains Mono"; }
+.match-time { width: 24%; flex: 0 0 24%; text-align: right; padding-right: 6dp; color: #707987; font-size: 11dp; }
 .match-data { min-height: 29dp; border-top: 0; }
 .match-data.match-even { background-color: #11151a99; }
 .match-data.match-odd { background-color: #090c1099; }

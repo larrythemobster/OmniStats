@@ -4,6 +4,7 @@
 #include <SDL2/SDL.h>
 #include <iostream>
 #include <chrono>
+#include <algorithm>
 #include <cstring>
 
 namespace {
@@ -118,32 +119,45 @@ namespace {
             });
     }
 
-    // Inside the session view the expand key cycles session stats -> session MMR
-    // graph -> lifetime graph at full range -> lifetime zoomed to the last 50 and
-    // 25 matches. The overlay is click-through in game, so neither the graph
-    // card's Lifetime button nor its zoom controls are reachable without this.
+    void PanGraph(SessionState& state, int direction) {
+        if (direction == 0) return;
+        const auto category = state.ui.graphMmrCategory.load();
+        const std::string playlist = MmrCategoryToString(category);
+        int total = 0;
+        if (state.history.showLifetimeGraph.load()) {
+            std::shared_lock lock(state.history.mutex);
+            total = static_cast<int>(state.history.lifetimeMmrY.size());
+        } else {
+            std::shared_lock lock(state.history.mutex);
+            if (auto it = state.history.playlistHistoryY.find(playlist); it != state.history.playlistHistoryY.end()) {
+                total = static_cast<int>(it->second.size());
+            }
+        }
+        constexpr int kVisibleMatches = 25;
+        if (total <= kVisibleMatches) return;
+        const int maxOffset = total - kVisibleMatches;
+        constexpr int step = 5;
+        const int currentOffset = state.ui.graphOffset.load();
+        const int newOffset = std::clamp(currentOffset - direction * step, 0, maxOffset);
+        state.ui.graphOffset.store(newOffset);
+    }
+
+    // Inside the session view the expand key cycles:
+    // 1. Session text stats
+    // 2. Session MMR graph
+    // 3. Lifetime MMR graph (plotted with 25 matches and dots)
     void ExpandActiveView(SessionState& state) {
         if (state.ui.showSessionView.load()) {
-            const auto showLifetimeGraph = [&](int window) {
-                state.history.showLifetimeGraph = true;
-                state.ui.graphWindow.store(window);
-                state.ui.graphOffset.store(0);
-            };
             if (!state.ui.showGraphView.load()) {
-                state.ui.showGraphView = true;
-                state.history.showLifetimeGraph = false;
-                state.ui.graphWindow.store(0);
+                state.ui.showGraphView.store(true);
+                state.history.showLifetimeGraph.store(false);
                 state.ui.graphOffset.store(0);
             } else if (!state.history.showLifetimeGraph.load()) {
-                showLifetimeGraph(0);
-            } else if (state.ui.graphWindow.load() == 0) {
-                showLifetimeGraph(50);
-            } else if (state.ui.graphWindow.load() > 25) {
-                showLifetimeGraph(25);
+                state.history.showLifetimeGraph.store(true);
+                state.ui.graphOffset.store(0);
             } else {
-                state.ui.showGraphView = false;
-                state.history.showLifetimeGraph = false;
-                state.ui.graphWindow.store(0);
+                state.ui.showGraphView.store(false);
+                state.history.showLifetimeGraph.store(false);
                 state.ui.graphOffset.store(0);
             }
         } else if (state.ui.showOverlay.load()) {
@@ -152,16 +166,14 @@ namespace {
     }
 
     void ToggleSessionView(SessionState& state) {
-        bool showSessionView = !state.ui.showSessionView.load();
-        state.ui.showSessionView = showSessionView;
+        const bool showSessionView = !state.ui.showSessionView.load();
+        state.ui.showSessionView.store(showSessionView);
         if (!showSessionView) {
-            state.ui.showGraphView = false;
-            state.history.showLifetimeGraph = false;
-            state.ui.graphWindow.store(0);
+            state.ui.showGraphView.store(false);
+            state.history.showLifetimeGraph.store(false);
             state.ui.graphOffset.store(0);
         }
     }
-
 } // namespace
 
 void InputManager::HandleHotKeyAction(
@@ -185,6 +197,12 @@ void InputManager::HandleHotKeyAction(
         if (state.ui.showMenu.load()) {
             ToggleDashboardEditMode(state);
         }
+        break;
+    case HotKeyPanLeft:
+        PanGraph(state, -1);
+        break;
+    case HotKeyPanRight:
+        PanGraph(state, 1);
         break;
     }
 }
@@ -255,6 +273,14 @@ void InputManager::RefreshConfigCache() {
     m_gamepadMenu.store(conf.gamepad_menu, std::memory_order_relaxed);
     m_gamepadMenuRaw.store(conf.gamepad_menu_raw, std::memory_order_relaxed);
     m_gamepadMenuRawButton.store(conf.gamepad_menu_raw_button, std::memory_order_relaxed);
+    m_keyGraphPanLeft.store(conf.key_graph_pan_left, std::memory_order_relaxed);
+    m_keyGraphPanRight.store(conf.key_graph_pan_right, std::memory_order_relaxed);
+    m_gamepadGraphPanLeft.store(conf.gamepad_graph_pan_left, std::memory_order_relaxed);
+    m_gamepadGraphPanLeftRaw.store(conf.gamepad_graph_pan_left_raw, std::memory_order_relaxed);
+    m_gamepadGraphPanLeftRawButton.store(conf.gamepad_graph_pan_left_raw_button, std::memory_order_relaxed);
+    m_gamepadGraphPanRight.store(conf.gamepad_graph_pan_right, std::memory_order_relaxed);
+    m_gamepadGraphPanRightRaw.store(conf.gamepad_graph_pan_right_raw, std::memory_order_relaxed);
+    m_gamepadGraphPanRightRawButton.store(conf.gamepad_graph_pan_right_raw_button, std::memory_order_relaxed);
     m_showExtraPlaylists.store(conf.show_extra_playlists, std::memory_order_relaxed);
 }
 
@@ -315,18 +341,23 @@ void InputManager::KeyboardThreadLoop() {
     int registeredCycleKey = -1;
     int registeredExpandKey = -1;
     int registeredSessionKey = -1;
+    int registeredPanLeftKey = -1;
+    int registeredPanRightKey = -1;
     bool registeredDashboardEdit = false;
-
     auto unregisterRegisteredHotkeys = [&]() {
         UnregisterHotKey(NULL, HotKeyMenu);
         UnregisterHotKey(NULL, HotKeyCycle);
         UnregisterHotKey(NULL, HotKeyExpand);
         UnregisterHotKey(NULL, HotKeySession);
         UnregisterHotKey(NULL, HotKeyDashboardEdit);
+        UnregisterHotKey(NULL, HotKeyPanLeft);
+        UnregisterHotKey(NULL, HotKeyPanRight);
         registeredMenuKey = -1;
         registeredCycleKey = -1;
         registeredExpandKey = -1;
         registeredSessionKey = -1;
+        registeredPanLeftKey = -1;
+        registeredPanRightKey = -1;
         registeredDashboardEdit = false;
     };
 
@@ -397,8 +428,20 @@ void InputManager::KeyboardThreadLoop() {
             registerHotKeyIfNeeded(HotKeyExpand, m_keyExpand.load(std::memory_order_relaxed), registeredExpandKey);
             registerHotKeyIfNeeded(HotKeySession, m_keySession.load(std::memory_order_relaxed), registeredSessionKey);
             registerDashboardEditIfNeeded();
+            if (m_state && m_state->ui.showGraphView.load(std::memory_order_relaxed)) {
+                registerHotKeyIfNeeded(HotKeyPanLeft, m_keyGraphPanLeft.load(std::memory_order_relaxed), registeredPanLeftKey);
+                registerHotKeyIfNeeded(HotKeyPanRight, m_keyGraphPanRight.load(std::memory_order_relaxed), registeredPanRightKey);
+            } else {
+                if (registeredPanLeftKey != -1) {
+                    UnregisterHotKey(NULL, HotKeyPanLeft);
+                    registeredPanLeftKey = -1;
+                }
+                if (registeredPanRightKey != -1) {
+                    UnregisterHotKey(NULL, HotKeyPanRight);
+                    registeredPanRightKey = -1;
+                }
+            }
         }
-
         while (PeekMessage(&msg, nullptr, 0, 0, PM_REMOVE)) {
             if (msg.message == WM_QUIT) {
                 m_isRunning = false;
@@ -480,7 +523,16 @@ LRESULT CALLBACK InputManager::LowLevelKeyboardProc(int nCode, WPARAM wParam,
         if (kb->vkCode == keyExpand && wParam == WM_KEYDOWN) {
             ExpandActiveView(*st);
         }
-
+        if (st->ui.showGraphView.load()) {
+            const int keyPanLeft = self->m_keyGraphPanLeft.load(std::memory_order_relaxed);
+            const int keyPanRight = self->m_keyGraphPanRight.load(std::memory_order_relaxed);
+            if (kb->vkCode == keyPanLeft && wParam == WM_KEYDOWN) {
+                PanGraph(*st, -1);
+            }
+            if (kb->vkCode == keyPanRight && wParam == WM_KEYDOWN) {
+                PanGraph(*st, 1);
+            }
+        }
         // The low-level hook still receives repeated keydowns, so track the F8 edge.
         if (kb->vkCode == keySession) {
             if (wParam == WM_KEYUP || wParam == WM_SYSKEYUP) {
@@ -671,6 +723,19 @@ void InputManager::GamepadThreadLoop() {
                                       self->m_gamepadMenuRawButton.load(std::memory_order_relaxed))) {
                             ToggleSettingsMenu(*st);
                         }
+
+                        if (st->ui.showGraphView.load()) {
+                            if (isPressed(self->m_gamepadGraphPanLeft.load(std::memory_order_relaxed),
+                                          self->m_gamepadGraphPanLeftRaw.load(std::memory_order_relaxed),
+                                          self->m_gamepadGraphPanLeftRawButton.load(std::memory_order_relaxed))) {
+                                PanGraph(*st, -1);
+                            }
+                            if (isPressed(self->m_gamepadGraphPanRight.load(std::memory_order_relaxed),
+                                          self->m_gamepadGraphPanRightRaw.load(std::memory_order_relaxed),
+                                          self->m_gamepadGraphPanRightRawButton.load(std::memory_order_relaxed))) {
+                                PanGraph(*st, 1);
+                            }
+                        }
                     }
 
                     for (int i = 0; i < MAX_TRACKED_BUTTONS; ++i)
@@ -736,6 +801,19 @@ void InputManager::GamepadThreadLoop() {
                                       self->m_gamepadMenuRaw.load(std::memory_order_relaxed),
                                       self->m_gamepadMenuRawButton.load(std::memory_order_relaxed))) {
                             ToggleSettingsMenu(*st);
+                        }
+
+                        if (st->ui.showGraphView.load()) {
+                            if (isPressed(self->m_gamepadGraphPanLeft.load(std::memory_order_relaxed),
+                                          self->m_gamepadGraphPanLeftRaw.load(std::memory_order_relaxed),
+                                          self->m_gamepadGraphPanLeftRawButton.load(std::memory_order_relaxed))) {
+                                PanGraph(*st, -1);
+                            }
+                            if (isPressed(self->m_gamepadGraphPanRight.load(std::memory_order_relaxed),
+                                          self->m_gamepadGraphPanRightRaw.load(std::memory_order_relaxed),
+                                          self->m_gamepadGraphPanRightRawButton.load(std::memory_order_relaxed))) {
+                                PanGraph(*st, 1);
+                            }
                         }
                     }
 

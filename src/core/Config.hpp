@@ -32,7 +32,8 @@ struct ConfigData {
     int key_expand = VK_F7;
     int key_session = VK_F8;
     int key_menu = VK_F5;
-
+    int key_graph_pan_left = VK_LEFT;
+    int key_graph_pan_right = VK_RIGHT;
     int gamepad_overlay = 4; // SDL_CONTROLLER_BUTTON_BACK
     bool gamepad_overlay_raw = false;
     int gamepad_overlay_raw_button = 4;
@@ -48,6 +49,12 @@ struct ConfigData {
     int gamepad_menu = -1;
     bool gamepad_menu_raw = false;
     int gamepad_menu_raw_button = -1;
+    int gamepad_graph_pan_left = -1;
+    bool gamepad_graph_pan_left_raw = false;
+    int gamepad_graph_pan_left_raw_button = -1;
+    int gamepad_graph_pan_right = -1;
+    bool gamepad_graph_pan_right_raw = false;
+    int gamepad_graph_pan_right_raw_button = -1;
     std::string mmr_category = "best";
     std::string graph_mmr_category = "2v2";
     bool graph_follow_current_playlist = true;
@@ -157,8 +164,8 @@ struct ConfigData {
 
     // Overlay cards that are not part of overlay_layout: the F8 session view and
     // the post-match summary. -1 keeps the legacy centered placement.
-    float session_view_x = -1.0f;
-    float session_view_y = -1.0f;
+    float session_view_x = 439.0f;
+    float session_view_y = 2.2f;
     float match_summary_x = -1.0f;
     float match_summary_y = -1.0f;
 

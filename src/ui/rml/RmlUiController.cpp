@@ -881,9 +881,9 @@ bool RmlUiController::WantsInteraction() const {
     // becomes interactive while Settings/layout editing is open; otherwise
     // mouse input must continue through to Rocket League. Second-monitor mode
     // is a normal interactive window. RmlUi hover state must not override this.
-    return m_state->ui.showMenu.load() || m_config.second_monitor_mode || m_drag.kind != DragKind::None;
+    return m_state->ui.showMenu.load() || m_state->ui.dashboardLayoutEditMode.load() ||
+           m_config.second_monitor_mode || m_drag.kind != DragKind::None;
 }
-
 void RmlUiController::Update(const ConfigData& config) {
     const auto sameColor = [](const ColorRGBA& a, const ColorRGBA& b) {
         return a.r == b.r && a.g == b.g && a.b == b.b && a.a == b.a;
@@ -1043,8 +1043,6 @@ void RmlUiController::SnapshotState() {
         if (version != m_lastHistoryVersion) {
             m_lastHistoryVersion = version;
             m_snap.initialMmr = static_cast<float>(m_state->history.initialMmr);
-            m_snap.mmrHistoryX = m_state->history.mmrHistoryX;
-            m_snap.mmrHistoryY = m_state->history.mmrHistoryY;
             m_snap.playlistInitialMmr = m_state->history.playlistInitialMmr;
             m_snap.playlistHistoryY = m_state->history.playlistHistoryY;
             m_snap.playlistHistoryEstimated.clear();
@@ -1148,7 +1146,6 @@ void RmlUiController::UpdateThemeProperties() {
     // Dashboard widgets sit one layer above the shell so each card reads as a
     // surface instead of one long text list.
     setClass("dashboard-shell", "background-color", scaledColor(m_config.themeBg, 0.55f, 1.0f));
-    setClass("dashboard-widget", "background-color", scaledColor(m_config.themeBg, 1.45f, 1.0f));
     setClass("card", "color", text);
     setClass("card-title", "color", text);
     setClass("value", "color", text);
@@ -1169,8 +1166,7 @@ void RmlUiController::UpdateThemeProperties() {
     setClass("update-dialog", "background-color", panel);
 
     setClass("card-subtitle", "color", muted);
-    setClass("overlay-widget-title", "color", muted);
-    setClass("stat-section-title", "color", accent);
+    setClass("stat-section-title", "color", muted);
     setClass("label", "color", muted);
     setClass("metric-label", "color", muted);
     setClass("muted", "color", muted);
@@ -1289,11 +1285,14 @@ void RmlUiController::RebuildVisibleUi(bool force) {
        << m_config.check_stats_api_config_on_startup << '|' << m_config.debug_logging << '|'
        << m_config.key_overlay << '|' << m_config.key_cycle << '|' << m_config.key_expand << '|'
        << m_config.key_session << '|' << m_config.key_menu << '|' << m_config.key_save_replay << '|'
+       << m_config.key_graph_pan_left << '|' << m_config.key_graph_pan_right << '|'
        << m_config.gamepad_overlay << '|' << m_config.gamepad_overlay_raw << '|' << m_config.gamepad_overlay_raw_button << '|'
        << m_config.gamepad_cycle << '|' << m_config.gamepad_cycle_raw << '|' << m_config.gamepad_cycle_raw_button << '|'
        << m_config.gamepad_expand << '|' << m_config.gamepad_expand_raw << '|' << m_config.gamepad_expand_raw_button << '|'
        << m_config.gamepad_session << '|' << m_config.gamepad_session_raw << '|' << m_config.gamepad_session_raw_button << '|'
-       << m_config.gamepad_menu << '|' << m_config.gamepad_menu_raw << '|' << m_config.gamepad_menu_raw_button << '|';
+       << m_config.gamepad_menu << '|' << m_config.gamepad_menu_raw << '|' << m_config.gamepad_menu_raw_button << '|'
+       << m_config.gamepad_graph_pan_left << '|' << m_config.gamepad_graph_pan_left_raw << '|' << m_config.gamepad_graph_pan_left_raw_button << '|'
+       << m_config.gamepad_graph_pan_right << '|' << m_config.gamepad_graph_pan_right_raw << '|' << m_config.gamepad_graph_pan_right_raw_button << '|';
 
     // Settings should not be rebuilt just because live telemetry/history or
     // persisted overlay geometry changed. Keep a settings-specific base before
@@ -1315,8 +1314,7 @@ void RmlUiController::RebuildVisibleUi(bool force) {
     uint64_t dbStatsVersion = 0;
     if (m_state) {
         dbStatsVersion = m_state->ui.dbStatsVersion.load(std::memory_order_relaxed);
-        fp << '|' << m_state->ui.graphWindow.load(std::memory_order_relaxed)
-           << '|' << m_state->ui.graphOffset.load(std::memory_order_relaxed);
+        fp << '|' << m_state->ui.graphOffset.load(std::memory_order_relaxed);
         fp << '|' << m_state->ui.updateChecked.load(std::memory_order_relaxed)
            << '|' << m_state->ui.updateAvailable.load(std::memory_order_relaxed)
            << '|' << m_state->ui.updateDownloading.load(std::memory_order_relaxed)
@@ -1441,6 +1439,7 @@ void RmlUiController::RebuildVisibleUi(bool force) {
     const bool showGraphView = m_state && m_state->ui.showGraphView.load();
     const bool h2hExpanded = m_state && m_state->ui.h2hExpanded.load();
     const bool showLifetimeGraph = m_state && m_state->history.showLifetimeGraph.load();
+    const int graphOffset = m_state ? m_state->ui.graphOffset.load() : 0;
     const MmrCategory rosterCategory = m_state ? m_state->ui.rosterMmrCategory.load() : MmrCategory::Best;
     const MmrCategory graphCategory = m_state ? m_state->ui.graphMmrCategory.load() : MmrCategory::Best;
     const bool dirtyState = force || m_lastRenderedGameVersion != m_lastGameVersion || m_lastRenderedHistoryVersion != m_lastHistoryVersion ||
@@ -1448,8 +1447,9 @@ void RmlUiController::RebuildVisibleUi(bool force) {
                             m_lastShowMenu != showMenu || m_lastShowOverlay != showOverlay || m_lastShowSessionView != showSession ||
                             m_lastShowMatchSummary != showSummary || m_lastSecondMonitor != m_config.second_monitor_mode ||
                             m_lastDashboardEditMode != dashboardEdit || m_lastShowGraphView != showGraphView || m_lastH2hExpanded != h2hExpanded ||
-                            m_lastShowLifetimeGraph != showLifetimeGraph || m_lastRosterMmrCategory != rosterCategory ||
-                            m_lastGraphMmrCategory != graphCategory || m_lastConfigFingerprint != fingerprint;
+                            m_lastShowLifetimeGraph != showLifetimeGraph || m_lastGraphOffset != graphOffset ||
+                            m_lastRosterMmrCategory != rosterCategory || m_lastGraphMmrCategory != graphCategory ||
+                            m_lastConfigFingerprint != fingerprint;
 
     // Settings remains stable because its DOM only rebuilds when its own input
     // changes. Apply the same rule to a live overlay while the cursor is on one
@@ -1486,6 +1486,7 @@ void RmlUiController::RebuildVisibleUi(bool force) {
         m_lastShowGraphView = showGraphView;
         m_lastH2hExpanded = h2hExpanded;
         m_lastShowLifetimeGraph = showLifetimeGraph;
+        m_lastGraphOffset = graphOffset;
         m_lastRosterMmrCategory = rosterCategory;
         m_lastGraphMmrCategory = graphCategory;
         m_lastConfigFingerprint = fingerprint;
@@ -2056,7 +2057,8 @@ std::string RmlUiController::RenderPreviousGames(bool includeHeading) {
     } else {
         out << "<div class='match-row match-header'>"
             << "<div class='match-mode'>PLAYLIST</div><div class='match-score'>SCORE</div>"
-            << "<div class='match-mmr'>MMR</div><div class='match-time'>TIME</div></div>";
+            << "<div class='match-mmr'>MMR</div><div class='match-time'>TIME</div></div>"
+            << "<div class='previous-games-list'>";
         const int limit = std::min<int>(configuredLimit, static_cast<int>(m_snap.recentSavedMatches.size()));
         for (int i = 0; i < limit; ++i) {
             const auto& match = m_snap.recentSavedMatches[static_cast<size_t>(i)];
@@ -2068,6 +2070,7 @@ std::string RmlUiController::RenderPreviousGames(bool includeHeading) {
                 << "<div class='match-mmr'>" << (match.pendingTrackerConfirmation ? "***" : (match.mmrEstimated && match.mmr > 0 ? "~" + std::to_string(match.mmr) : (match.mmr > 0 ? std::to_string(match.mmr) : "--"))) << "</div>"
                 << "<div class='match-time'>" << FormatClock(match.endedAtUnix) << "</div></div>";
         }
+        out << "</div>";
     }
     out << "<div class='previous-games-footer'><div>Current session: <span class='win'>W:" << m_snap.sessionTotals.wins
         << "</span> <span class='loss'>L:" << m_snap.sessionTotals.losses << "</span></div>"
@@ -2157,47 +2160,39 @@ std::string RmlUiController::RenderMmrGraph(bool showCategoryBadge) {
         if (auto it = m_snap.playlistInitialMmr.find(playlist); it != m_snap.playlistInitialMmr.end()) baseline = static_cast<float>(it->second);
     }
 
-    // Viewport over the series. A lifetime history of several hundred matches
-    // collapses into an unreadable smear at 430dp wide, so the graph plots a
-    // window of the most recent samples that the expand key, the header
-    // buttons, and the mouse wheel can resize and scroll.
+    constexpr int kVisibleMatches = 25;
     const int total = static_cast<int>(series.size());
-    int window = m_state ? m_state->ui.graphWindow.load() : 0;
-    int offset = m_state ? m_state->ui.graphOffset.load() : 0;
-    if (window <= 0 || window >= total) {
-        window = total;
-        offset = 0;
-    }
-    offset = std::clamp(offset, 0, std::max(0, total - window));
-    const int firstIndex = std::max(0, total - window - offset);
-    const bool zoomed = window < total;
+    const int maxOffset = std::max(0, total - kVisibleMatches);
+    const int offset = m_state ? std::clamp(m_state->ui.graphOffset.load(), 0, maxOffset) : 0;
+    const int firstIndex = std::max(0, total - kVisibleMatches - offset);
+    const int windowCount = std::min(kVisibleMatches, total - firstIndex);
 
-    std::vector<float> values(series.begin() + firstIndex, series.begin() + firstIndex + std::max(window, 0));
+    std::vector<float> values;
     std::vector<bool> estimated;
-    if (!seriesEstimated.empty()) {
-        const int estimatedEnd = std::min(firstIndex + window, static_cast<int>(seriesEstimated.size()));
-        if (firstIndex < estimatedEnd)
-            estimated.assign(seriesEstimated.begin() + firstIndex, seriesEstimated.begin() + estimatedEnd);
+    if (windowCount > 0) {
+        values.assign(series.begin() + firstIndex, series.begin() + firstIndex + windowCount);
+        if (!seriesEstimated.empty()) {
+            const int endIdx = std::min(firstIndex + windowCount, static_cast<int>(seriesEstimated.size()));
+            if (firstIndex < endIdx) estimated.assign(seriesEstimated.begin() + firstIndex, seriesEstimated.begin() + endIdx);
+        }
     }
-    // A zoomed window starts mid-history, so its own first sample is the only
-    // meaningful reference for the dashed baseline and the delta label.
-    if (zoomed && !values.empty()) baseline = values.front();
+    if (m_snap.showLifetimeGraph && !values.empty()) {
+        baseline = values.front();
+    }
 
     std::ostringstream header;
     header << "<div class='row graph-header'>";
-    if (showCategoryBadge) header << "<span class='badge'>" << Escape(MmrLabel(category)) << "</span>";
+    if (showCategoryBadge) {
+        header << "<span class='badge'>" << Escape(MmrLabel(category)) << "</span>";
+    }
     header << "<div class='grow'></div>";
-    if (total > 1) {
-        header << "<div class='graph-zoom'>";
-        if (zoomed) {
-            header << Button("graph-pan-older", "&#8592;", "ghost zoom-step")
-                   << Button("graph-pan-newer", "&#8594;", "ghost zoom-step");
-        }
-        header << Button("graph-zoom-out", "&#8722;", "ghost zoom-step")
-               << Button("graph-zoom-in", "+", "ghost zoom-step")
+    if (total > kVisibleMatches) {
+        header << "<div class='graph-zoom'>"
+               << Button("graph-pan-older", "&#8592;", "ghost zoom-step")
+               << Button("graph-pan-newer", "&#8594;", "ghost zoom-step")
                << "</div>";
     }
-    header << Button("graph-mode", m_snap.showLifetimeGraph ? "Lifetime" : "Session", "ghost") << "</div>";
+    header << "</div>";
 
     if (values.empty()) {
         std::ostringstream empty;
@@ -2213,13 +2208,11 @@ std::string RmlUiController::RenderMmrGraph(bool showCategoryBadge) {
     }
     const bool hasBaseline = baseline > 0.0f;
 
-    // Preserve the old graph's range behavior: derive the visible range from the
-    // actual samples, then add 20% vertical headroom (or +/-15 for a flat graph).
     float minV = values.front();
     float maxV = values.front();
-    for (float v : values) {
-        minV = std::min(minV, v);
-        maxV = std::max(maxV, v);
+    for (float value : values) {
+        minV = std::min(minV, value);
+        maxV = std::max(maxV, value);
     }
     if (maxV == minV) {
         maxV += 15.0f;
@@ -2230,17 +2223,15 @@ std::string RmlUiController::RenderMmrGraph(bool showCategoryBadge) {
         minV -= padding;
     }
 
-    // Leave room on the right for the current-MMR label, matching the previous widget.
     constexpr float xMin = 4.0f;
     constexpr float xMax = 80.0f;
     constexpr float yMin = 10.0f;
     constexpr float yMax = 88.0f;
-    auto yPct = [&](float v) { return yMax - ((v - minV) / (maxV - minV)) * (yMax - yMin); };
-    auto xPct = [&](size_t i) { return values.size() <= 1 ? (xMin + xMax) * 0.5f : xMin + static_cast<float>(i) / static_cast<float>(values.size() - 1) * (xMax - xMin); };
+    auto yPct = [&](float value) { return yMax - ((value - minV) / (maxV - minV)) * (yMax - yMin); };
+    auto xPct = [&](size_t index) { return values.size() <= 1 ? (xMin + xMax) * 0.5f : xMin + static_cast<float>(index) / static_cast<float>(values.size() - 1) * (xMax - xMin); };
 
     std::ostringstream out;
-    out << header.str() << "<div class='graph-wrap' data-action='graph-zoom-area'>";
-
+    out << header.str() << "<div class='graph-wrap'>";
     const float midV = (minV + maxV) * 0.5f;
     out << "<div class='graph-gridline graph-boundary' style='left:" << xMin << "%;top:" << yMin << "%;width:" << (xMax - xMin) << "%'></div>"
         << "<div class='graph-gridline graph-boundary' style='left:" << xMin << "%;top:" << yMax << "%;width:" << (xMax - xMin) << "%'></div>"
@@ -2249,27 +2240,22 @@ std::string RmlUiController::RenderMmrGraph(bool showCategoryBadge) {
         << "<div class='graph-label' style='left:" << xMin << "%;top:" << (yPct(midV) + 1.0f) << "%'>" << static_cast<int>(midV) << "</div>"
         << "<div class='graph-label graph-min' style='left:" << xMin << "%;top:89%'>" << static_cast<int>(minV) << "</div>";
 
-    // Range readout: which slice of the history is on screen, so zooming and
-    // panning are legible without a visible scrollbar.
     out << "<div class='graph-label graph-last' style='right:20%;top:1%'>";
-    if (zoomed)
-        out << (firstIndex + 1) << '-' << (firstIndex + window) << " of " << total;
-    else
+    if (total > kVisibleMatches) {
+        out << (firstIndex + 1) << '-' << (firstIndex + windowCount) << " of " << total;
+    } else {
         out << "last " << total;
+    }
     out << "</div>";
 
-    // Time span of the window. Lifetime samples carry match timestamps; session
-    // history does not, so those fall back to sample positions.
     if (!seriesTimes.empty() && firstIndex < static_cast<int>(seriesTimes.size())) {
-        const int lastIndex = std::min(firstIndex + window - 1, static_cast<int>(seriesTimes.size()) - 1);
+        const int lastIndex = std::min(firstIndex + windowCount - 1, static_cast<int>(seriesTimes.size()) - 1);
         out << "<div class='graph-label' style='left:" << (xMin + 7.0f) << "%;top:89%'>"
             << Escape(FormatClock(static_cast<int64_t>(seriesTimes[static_cast<size_t>(firstIndex)]))) << "</div>"
             << "<div class='graph-label graph-last' style='right:20%;top:89%'>"
             << Escape(FormatClock(static_cast<int64_t>(seriesTimes[static_cast<size_t>(lastIndex)]))) << "</div>";
     }
 
-    // RmlUi's compatibility renderer does not need a custom primitive for a dashed
-    // baseline; short positioned DOM segments preserve the old visual exactly enough.
     if (hasBaseline && baseline >= minV && baseline <= maxV) {
         const float baseY = yPct(baseline);
         constexpr int dashCount = 13;
@@ -2281,11 +2267,6 @@ std::string RmlUiController::RenderMmrGraph(bool showCategoryBadge) {
         }
     }
 
-    // Render the diagonal polyline through a custom RmlUi element. Percentage-
-    // sized rotated DOM bars distort whenever the graph's width/height ratio
-    // changes because their angle is computed in normalized rather than pixel
-    // coordinates. The custom element resolves these normalized points against
-    // its final pixel box before generating native RmlUi geometry.
     out << "<mmrgraphlines class='graph-polyline' points='";
     for (size_t i = 0; i < values.size(); ++i) {
         if (i) out << ';';
@@ -2293,15 +2274,7 @@ std::string RmlUiController::RenderMmrGraph(bool showCategoryBadge) {
     }
     out << "'></mmrgraphlines>";
 
-    // Past ~45 samples the dots touch and the win/loss coloring turns into a
-    // solid band, which is what made long histories unreadable. Drop to the
-    // polyline alone and keep only the current sample marked.
-    constexpr size_t kMaxPlottedPoints = 45;
-    const bool showPoints = values.size() <= kMaxPlottedPoints;
     for (size_t i = 0; i < values.size(); ++i) {
-        const bool isCurrent = i + 1 == values.size();
-        if (!showPoints && !isCurrent) continue;
-        const bool isEstimated = i < estimated.size() && estimated[i];
         std::string cls;
         if (i == 0) {
             if (baseline > 0 && values[i] > baseline)
@@ -2316,7 +2289,9 @@ std::string RmlUiController::RenderMmrGraph(bool showCategoryBadge) {
             cls = " loss";
         else
             cls = " neutral";
+        const bool isEstimated = i < estimated.size() && estimated[i];
         if (isEstimated) cls += " estimated";
+        const bool isCurrent = i + 1 == values.size();
         if (isCurrent) {
             out << "<div class='graph-point-halo" << cls << "' style='left:" << xPct(i) << "%;top:" << yPct(values[i]) << "%'></div>";
             cls += " current";
@@ -2488,7 +2463,6 @@ std::string RmlUiController::RenderMatchSummary() {
         << FloatingCardStyle(m_config.match_summary_x, m_config.match_summary_y, 420.0f)
         << "><div class='row'><div class='grow value " << resultClass << "' style='font-size:20dp'>" << result << "</div>"
         << "<div class='value mono' style='font-size:20dp'>" << myScore << '-' << theirScore << "</div></div>";
-    if (m_snap.lastMatchWasVoid && !m_snap.lastMatchVoidReason.empty()) out << "<div class='label'>Not counted: " << Escape(Format::FriendlyVoidReason(m_snap.lastMatchVoidReason)) << "</div>";
     out << renderRows("PLAY", play) << renderRows("FUN", fun) << "</div>";
     return out.str();
 }
@@ -2501,12 +2475,9 @@ std::string RmlUiController::RenderSessionView() {
     out << "<div class='card match-summary" << FloatingCardClass() << "' data-action='floating-card-drag' data-card='session-view'"
         << FloatingCardStyle(m_config.session_view_x, m_config.session_view_y, 450.0f)
         << "><div class='row'><div class='card-title grow'>"
-        << (lifetime ? "LIFETIME MMR · " : graph ? "MMR · "
+        << (lifetime ? "LIFETIME MMR · " : graph ? "SESSION MMR · "
                                                  : "SESSION · ")
         << Escape(MmrLabel(category)) << "</div><span class='badge'>F7 view · F6 playlist</span></div>";
-    // Legacy F8 Session View uses the same configurable compact session
-    // table as the dashboard/overlay card, with the session streak enabled.
-    // The card title already names the playlist, so the graph must not repeat it.
     out << (graph ? RenderMmrGraph(false) : RenderSessionStats(true, true));
     out << "</div>";
     return out.str();
@@ -2732,17 +2703,17 @@ void RmlUiController::RebuildDashboard() {
         const auto placements = zoneWidgets(zone);
         z << "<div class='" << klass << "' data-zone='" << ZoneName(zone) << "'>";
         if (editMode) {
-            z << "<div class='dashboard-edit-zone' data-zone='" << ZoneName(zone)
-              << "' data-drop-index='0'>Drop widgets here · " << ZoneName(zone) << "</div>";
+            z << "<div class='dashboard-drop-slot' data-zone='" << ZoneName(zone)
+              << "' data-drop-index='0'><span class='drop-hint'>── Drop at top ──</span></div>";
         }
         for (size_t index = 0; index < placements.size(); ++index) {
             const auto& placement = placements[index];
             const std::string id = WidgetDomId(placement.id);
             if (editMode && index > 0) {
                 z << "<div class='dashboard-drop-slot' data-zone='" << ZoneName(zone)
-                  << "' data-drop-index='" << index << "'></div>";
+                  << "' data-drop-index='" << index << "'><span class='drop-hint'>── Drop Here ──</span></div>";
             }
-            z << "<div class='card dashboard-widget' data-widget='" << id << "' data-zone='" << ZoneName(zone)
+            z << "<div class='dashboard-widget' data-widget='" << id << "' data-zone='" << ZoneName(zone)
               << "' data-order='" << index << "'>"
               << "<div class='dashboard-widget-title' data-action='dashboard-drag' data-widget='" << id << "'><span class='name'>" << Escape(DashboardLayout::GetWidgetDisplayName(placement.id)) << "</span>";
             if (editMode) z << "<span class='badge accent'>DRAG</span>";
@@ -2750,9 +2721,9 @@ void RmlUiController::RebuildDashboard() {
             if (!placement.collapsed) z << RenderWidget(placement.id, true);
             z << "</div>";
         }
-        if (editMode) {
+        if (editMode && !placements.empty()) {
             z << "<div class='dashboard-drop-slot end' data-zone='" << ZoneName(zone)
-              << "' data-drop-index='" << placements.size() << "'></div>";
+              << "' data-drop-index='" << placements.size() << "'><span class='drop-hint'>── Drop at bottom ──</span></div>";
         }
         z << "</div>";
         return z.str();
@@ -2781,14 +2752,15 @@ void RmlUiController::RebuildDashboard() {
         updateLabel = updateVersion.empty() ? "Update Available" : "Update Available: v" + updateVersion;
 
     std::ostringstream out;
-    out << "<div class='dashboard-shell'><div class='dashboard-topbar'><img class='brand-logo' src='res://images/Logo.png'/><div class='grow'><div class='brand-title'>OmniStats <span class='version'>v" << Escape(AppVersion::Current) << "</span></div><div class='label'>"
-        << (m_snap.inMatch ? ("ACTIVE MATCH · " + Escape(m_snap.arenaName)) : "WAITING IN LOBBY") << "</div></div>";
-    if (updateAvailable) out << Button("update-app", Escape(updateLabel), "primary");
-    out << Button("dashboard-edit", editMode ? "Done Editing" : "Edit Layout", editMode ? "primary" : "ghost")
-        << Button("open-settings", "Settings", "ghost")
-        << Button("window-minimize", "—", "window-control")
-        << Button("window-maximize", "□", "window-control")
-        << Button("window-close", "×", "window-control danger") << "</div>";
+    out << "<div class='dashboard-shell" << (editMode ? " dashboard-edit-active" : "") << "'><div class='dashboard-topbar'><img class='brand-logo' src='res://images/Logo.png'/>"
+        << "<div class='row grow' style='align-items:baseline'><div class='brand-title'>OmniStats <span class='version'>v" << Escape(AppVersion::Current) << "</span></div>"
+        << "<div class='match-status'>" << (m_snap.inMatch ? ("ACTIVE MATCH · " + Escape(m_snap.arenaName)) : "WAITING IN LOBBY") << "</div></div>";
+    if (updateAvailable) out << Button("update-app", Escape(updateLabel), "primary compact");
+    out << Button("dashboard-edit", editMode ? "Done Editing" : "Edit Layout", editMode ? "primary compact" : "ghost compact")
+        << Button("open-settings", "Settings", "ghost compact")
+        << Button("window-minimize", "—", "window-control compact")
+        << Button("window-maximize", "□", "window-control compact")
+        << Button("window-close", "×", "window-control danger compact") << "</div>";
     const bool dashboardHasVisibleWidgets = !zoneWidgets(DashboardLayout::Zone::Top).empty() ||
                                             !zoneWidgets(DashboardLayout::Zone::Left).empty() ||
                                             !zoneWidgets(DashboardLayout::Zone::Right).empty() ||
@@ -2993,6 +2965,8 @@ std::string RmlUiController::RenderSettingsShortcuts() {
         << keyRow("Cycle playlist", BindCaptureTarget::KeyCycle, m_config.key_cycle)
         << keyRow("Expand live stats", BindCaptureTarget::KeyExpand, m_config.key_expand)
         << keyRow("Session view", BindCaptureTarget::KeySession, m_config.key_session)
+        << keyRow("Graph pan older", BindCaptureTarget::KeyGraphPanLeft, m_config.key_graph_pan_left)
+        << keyRow("Graph pan newer", BindCaptureTarget::KeyGraphPanRight, m_config.key_graph_pan_right)
         << keyRow("Settings", BindCaptureTarget::KeyMenu, m_config.key_menu, false)
         << keyRow("Save replay", BindCaptureTarget::KeySaveReplay, m_config.key_save_replay)
         << SectionEnd();
@@ -3001,6 +2975,8 @@ std::string RmlUiController::RenderSettingsShortcuts() {
         << padRow("Cycle playlist", BindCaptureTarget::GamepadCycle, m_config.gamepad_cycle, m_config.gamepad_cycle_raw, m_config.gamepad_cycle_raw_button)
         << padRow("Expand live stats", BindCaptureTarget::GamepadExpand, m_config.gamepad_expand, m_config.gamepad_expand_raw, m_config.gamepad_expand_raw_button)
         << padRow("Session view", BindCaptureTarget::GamepadSession, m_config.gamepad_session, m_config.gamepad_session_raw, m_config.gamepad_session_raw_button)
+        << padRow("Graph pan older", BindCaptureTarget::GamepadGraphPanLeft, m_config.gamepad_graph_pan_left, m_config.gamepad_graph_pan_left_raw, m_config.gamepad_graph_pan_left_raw_button)
+        << padRow("Graph pan newer", BindCaptureTarget::GamepadGraphPanRight, m_config.gamepad_graph_pan_right, m_config.gamepad_graph_pan_right_raw, m_config.gamepad_graph_pan_right_raw_button)
         << padRow("Settings", BindCaptureTarget::GamepadMenu, m_config.gamepad_menu, m_config.gamepad_menu_raw, m_config.gamepad_menu_raw_button);
     out << "<div class='controller-debug'><div class='setting-help'>Controller diagnostics</div>";
     if (m_state && m_state->ui.controllerConnected.load()) {
@@ -3466,25 +3442,13 @@ void RmlUiController::HandleClick(Rml::Element* target) {
         RebuildOverlay();
         RebuildSettings();
         ShowToast("Overlay layout reset.");
-    } else if (action == "graph-mode") {
-        if (m_state) {
-            m_state->history.showLifetimeGraph.store(!m_state->history.showLifetimeGraph.load());
-            m_state->ui.graphWindow.store(0);
-            m_state->ui.graphOffset.store(0);
-        }
-        SnapshotState();
-        RebuildVisibleUi(true);
-    } else if (action == "graph-zoom-in") {
-        AdjustGraphZoom(-1);
-    } else if (action == "graph-zoom-out") {
-        AdjustGraphZoom(1);
     } else if (action == "graph-pan-older") {
         PanGraph(-1);
     } else if (action == "graph-pan-newer") {
         PanGraph(1);
     } else if (action == "capture-bind") {
         const int value = std::atoi(Attribute(target, "data-bind").c_str());
-        if (value >= static_cast<int>(BindCaptureTarget::KeyOverlay) && value <= static_cast<int>(BindCaptureTarget::GamepadMenu) &&
+        if (value >= static_cast<int>(BindCaptureTarget::KeyOverlay) && value <= static_cast<int>(BindCaptureTarget::GamepadGraphPanRight) &&
             m_bindCaptureTarget != static_cast<BindCaptureTarget>(value)) {
             BeginBindCapture(static_cast<BindCaptureTarget>(value));
         }
@@ -3494,7 +3458,7 @@ void RmlUiController::HandleClick(Rml::Element* target) {
         RebuildSettings();
     } else if (action == "clear-bind") {
         const int value = std::atoi(Attribute(target, "data-bind").c_str());
-        if (value >= static_cast<int>(BindCaptureTarget::KeyOverlay) && value <= static_cast<int>(BindCaptureTarget::GamepadMenu)) ClearBind(static_cast<BindCaptureTarget>(value));
+        if (value >= static_cast<int>(BindCaptureTarget::KeyOverlay) && value <= static_cast<int>(BindCaptureTarget::GamepadGraphPanRight)) ClearBind(static_cast<BindCaptureTarget>(value));
         m_config = Config::Read();
         RebuildSettings();
     } else if (action == "toggle-token") {
@@ -3556,58 +3520,27 @@ void RmlUiController::HandleClick(Rml::Element* target) {
     }
 }
 
-void RmlUiController::AdjustGraphZoom(int direction) {
-    if (!m_state || direction == 0) return;
-    const auto category = m_state->ui.graphMmrCategory.load();
-    const std::string playlist = MmrCategoryToString(category);
-    const int total = m_snap.showLifetimeGraph
-                          ? static_cast<int>(m_snap.lifetimeMmrY.size())
-                          : (m_snap.playlistHistoryY.contains(playlist)
-                                 ? static_cast<int>(m_snap.playlistHistoryY.at(playlist).size())
-                                 : 0);
-    if (total <= 1) return;
-
-    int window = m_state->ui.graphWindow.load();
-    if (window <= 0 || window > total) window = total;
-    constexpr int zoomLevels[] = {25, 50, 100};
-    if (direction < 0) {
-        for (int level : zoomLevels) {
-            if (level < window) {
-                window = std::min(level, total);
-                break;
-            }
-        }
-    } else {
-        for (int i = static_cast<int>(std::size(zoomLevels)) - 1; i >= 0; --i) {
-            if (zoomLevels[i] > window) {
-                window = std::min(zoomLevels[i], total);
-                break;
-            }
-        }
-        if (window == m_state->ui.graphWindow.load()) window = 0;
-    }
-    m_state->ui.graphWindow.store(window >= total ? 0 : window);
-    m_state->ui.graphOffset.store(0);
-    RebuildVisibleUi(false);
-}
-
 void RmlUiController::PanGraph(int direction) {
     if (!m_state || direction == 0) return;
     const auto category = m_state->ui.graphMmrCategory.load();
     const std::string playlist = MmrCategoryToString(category);
-    const int total = m_snap.showLifetimeGraph
-                          ? static_cast<int>(m_snap.lifetimeMmrY.size())
-                          : (m_snap.playlistHistoryY.contains(playlist)
-                                 ? static_cast<int>(m_snap.playlistHistoryY.at(playlist).size())
-                                 : 0);
-    const int window = m_state->ui.graphWindow.load();
-    if (window <= 0 || window >= total) return;
-    const int step = std::max(1, window / 2);
-    const int offset = m_state->ui.graphOffset.load();
-    m_state->ui.graphOffset.store(std::clamp(offset - direction * step, 0, total - window));
+    int total = 0;
+    if (m_snap.showLifetimeGraph) {
+        total = static_cast<int>(m_snap.lifetimeMmrY.size());
+    } else {
+        if (auto it = m_snap.playlistHistoryY.find(playlist); it != m_snap.playlistHistoryY.end()) {
+            total = static_cast<int>(it->second.size());
+        }
+    }
+    constexpr int kVisibleMatches = 25;
+    if (total <= kVisibleMatches) return;
+    constexpr int step = 5;
+    const int maxOffset = total - kVisibleMatches;
+    const int currentOffset = m_state->ui.graphOffset.load();
+    const int newOffset = std::clamp(currentOffset - direction * step, 0, maxOffset);
+    m_state->ui.graphOffset.store(newOffset);
     RebuildVisibleUi(false);
 }
-
 void RmlUiController::HandleInput(Rml::Element* target) {
     const std::string key = Attribute(target, "data-setting");
     if (key.empty()) return;
@@ -3970,6 +3903,12 @@ void RmlUiController::ClearBind(BindCaptureTarget target) {
         case BindCaptureTarget::KeySaveReplay:
             c.key_save_replay = -1;
             break;
+        case BindCaptureTarget::KeyGraphPanLeft:
+            c.key_graph_pan_left = -1;
+            break;
+        case BindCaptureTarget::KeyGraphPanRight:
+            c.key_graph_pan_right = -1;
+            break;
         case BindCaptureTarget::GamepadOverlay:
             c.gamepad_overlay = -1;
             c.gamepad_overlay_raw = false;
@@ -3994,6 +3933,16 @@ void RmlUiController::ClearBind(BindCaptureTarget target) {
             c.gamepad_menu = -1;
             c.gamepad_menu_raw = false;
             c.gamepad_menu_raw_button = -1;
+            break;
+        case BindCaptureTarget::GamepadGraphPanLeft:
+            c.gamepad_graph_pan_left = -1;
+            c.gamepad_graph_pan_left_raw = false;
+            c.gamepad_graph_pan_left_raw_button = -1;
+            break;
+        case BindCaptureTarget::GamepadGraphPanRight:
+            c.gamepad_graph_pan_right = -1;
+            c.gamepad_graph_pan_right_raw = false;
+            c.gamepad_graph_pan_right_raw_button = -1;
             break;
         default:
             break;
@@ -4036,6 +3985,12 @@ void RmlUiController::UpdateInputCapture() {
                 case BindCaptureTarget::GamepadMenu:
                     set(c.gamepad_menu, c.gamepad_menu_raw, c.gamepad_menu_raw_button);
                     break;
+                case BindCaptureTarget::GamepadGraphPanLeft:
+                    set(c.gamepad_graph_pan_left, c.gamepad_graph_pan_left_raw, c.gamepad_graph_pan_left_raw_button);
+                    break;
+                case BindCaptureTarget::GamepadGraphPanRight:
+                    set(c.gamepad_graph_pan_right, c.gamepad_graph_pan_right_raw, c.gamepad_graph_pan_right_raw_button);
+                    break;
                 default:
                     break;
                 }
@@ -4065,6 +4020,12 @@ void RmlUiController::UpdateInputCapture() {
                 break;
             case BindCaptureTarget::KeySaveReplay:
                 c.key_save_replay = vk;
+                break;
+            case BindCaptureTarget::KeyGraphPanLeft:
+                c.key_graph_pan_left = vk;
+                break;
+            case BindCaptureTarget::KeyGraphPanRight:
+                c.key_graph_pan_right = vk;
                 break;
             default:
                 break;
@@ -4282,6 +4243,38 @@ void RmlUiController::HandleMouseMove(Rml::Event& event) {
         }
         return;
     }
+    if (m_drag.kind == DragKind::DashboardWidget) {
+        const float mouseX = event.GetParameter<float>("mouse_x", 0.0f);
+        const float mouseY = event.GetParameter<float>("mouse_y", 0.0f);
+        if (auto* root = Root("dashboard-root")) {
+            const std::string draggedDomId = WidgetDomId(m_drag.widget);
+            if (auto* draggedEl = root->QuerySelector(("[data-widget='" + draggedDomId + "']").c_str())) {
+                draggedEl->SetClass("dragging", true);
+            }
+            Rml::Element* hovered = m_context ? m_context->GetElementAtPoint(Rml::Vector2f(mouseX, mouseY)) : nullptr;
+            Rml::Element* targetSlot = nullptr;
+            while (hovered && hovered != root) {
+                if (hovered->HasAttribute("data-drop-index")) {
+                    targetSlot = hovered;
+                    break;
+                }
+                if (hovered->HasAttribute("data-widget") && hovered->HasAttribute("data-order")) {
+                    targetSlot = hovered;
+                    break;
+                }
+                hovered = hovered->GetParentNode();
+            }
+            Rml::ElementList previousTargets;
+            root->QuerySelectorAll(previousTargets, ".drag-target");
+            for (auto* el : previousTargets) {
+                if (el != targetSlot) el->SetClass("drag-target", false);
+            }
+            if (targetSlot) {
+                targetSlot->SetClass("drag-target", true);
+            }
+        }
+        return;
+    }
     if (m_drag.kind != DragKind::OverlayMove && m_drag.kind != DragKind::OverlayResize) return;
     const float dpi = SanitizedScale(m_dpiScale);
     const float rmlScale = dpi * SanitizedUiScale(m_config.ui_scale);
@@ -4426,20 +4419,44 @@ void RmlUiController::HandleMouseUp(Rml::Event& event) {
         m_config = Config::Read();
         RebuildOverlay();
     } else if (m_drag.kind == DragKind::DashboardWidget) {
-        Rml::Element* element = event.GetTargetElement();
-        std::string fallbackZone;
-        while (element) {
-            const std::string zone = Attribute(element, "data-zone");
-            if (!zone.empty() && fallbackZone.empty()) fallbackZone = zone;
-            const std::string dropIndex = Attribute(element, "data-drop-index");
+        Rml::Element* element = m_context ? m_context->GetElementAtPoint(Rml::Vector2f(mouseX, mouseY)) : nullptr;
+        if (!element) element = event.GetTargetElement();
+        DashboardLayout::Zone targetZone = DashboardLayout::Zone::Left;
+        int targetIndex = -1;
+        bool found = false;
+
+        Rml::Element* cur = element;
+        while (cur) {
+            const std::string dropIndex = Attribute(cur, "data-drop-index");
+            const std::string zone = Attribute(cur, "data-zone");
             if (!zone.empty() && !dropIndex.empty()) {
-                MoveDashboardWidget(m_drag.widget, ZoneFromDom(zone), std::max(0, std::atoi(dropIndex.c_str())));
-                fallbackZone.clear();
+                targetZone = ZoneFromDom(zone);
+                targetIndex = std::max(0, std::atoi(dropIndex.c_str()));
+                found = true;
                 break;
             }
-            element = element->GetParentNode();
+            const std::string widgetAttr = Attribute(cur, "data-widget");
+            const std::string orderAttr = Attribute(cur, "data-order");
+            if (!zone.empty() && !widgetAttr.empty() && !orderAttr.empty()) {
+                targetZone = ZoneFromDom(zone);
+                const int order = std::atoi(orderAttr.c_str());
+                const float top = cur->GetAbsoluteTop();
+                const float height = cur->GetOffsetHeight();
+                targetIndex = (mouseY > top + height * 0.5f) ? (order + 1) : order;
+                found = true;
+                break;
+            }
+            if (!zone.empty() && !found) {
+                targetZone = ZoneFromDom(zone);
+                found = true;
+            }
+            cur = cur->GetParentNode();
         }
-        if (!fallbackZone.empty()) MoveDashboardWidget(m_drag.widget, ZoneFromDom(fallbackZone));
+
+        if (found) {
+            MoveDashboardWidget(m_drag.widget, targetZone, targetIndex);
+            Config::RequestSave();
+        }
         RebuildDashboard();
     } else if (m_drag.kind == DragKind::OverlayToolboxWidget) {
         std::string targetId;

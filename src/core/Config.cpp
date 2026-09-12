@@ -201,7 +201,8 @@ namespace Config {
             if (j.contains("key_expand")) Current.key_expand = j["key_expand"];
             if (j.contains("key_session")) Current.key_session = j["key_session"];
             if (j.contains("key_menu")) Current.key_menu = j["key_menu"];
-
+            if (j.contains("key_graph_pan_left")) Current.key_graph_pan_left = j["key_graph_pan_left"];
+            if (j.contains("key_graph_pan_right")) Current.key_graph_pan_right = j["key_graph_pan_right"];
             // Load gamepad overlay with migration for the old bad default
             if (j.contains("gamepad_overlay")) {
                 Current.gamepad_overlay = j["gamepad_overlay"];
@@ -232,6 +233,12 @@ namespace Config {
             if (j.contains("gamepad_menu")) Current.gamepad_menu = j["gamepad_menu"];
             if (j.contains("gamepad_menu_raw")) Current.gamepad_menu_raw = j["gamepad_menu_raw"];
             if (j.contains("gamepad_menu_raw_button")) Current.gamepad_menu_raw_button = j["gamepad_menu_raw_button"];
+            if (j.contains("gamepad_graph_pan_left")) Current.gamepad_graph_pan_left = j["gamepad_graph_pan_left"];
+            if (j.contains("gamepad_graph_pan_left_raw")) Current.gamepad_graph_pan_left_raw = j["gamepad_graph_pan_left_raw"];
+            if (j.contains("gamepad_graph_pan_left_raw_button")) Current.gamepad_graph_pan_left_raw_button = j["gamepad_graph_pan_left_raw_button"];
+            if (j.contains("gamepad_graph_pan_right")) Current.gamepad_graph_pan_right = j["gamepad_graph_pan_right"];
+            if (j.contains("gamepad_graph_pan_right_raw")) Current.gamepad_graph_pan_right_raw = j["gamepad_graph_pan_right_raw"];
+            if (j.contains("gamepad_graph_pan_right_raw_button")) Current.gamepad_graph_pan_right_raw_button = j["gamepad_graph_pan_right_raw_button"];
             if (j.contains("mmr_category") && j["mmr_category"].is_string()) {
                 Current.mmr_category = j["mmr_category"];
             }
@@ -478,6 +485,8 @@ namespace Config {
         j["key_expand"] = Current.key_expand;
         j["key_session"] = Current.key_session;
         j["key_menu"] = Current.key_menu;
+        j["key_graph_pan_left"] = Current.key_graph_pan_left;
+        j["key_graph_pan_right"] = Current.key_graph_pan_right;
         j["gamepad_overlay"] = Current.gamepad_overlay;
         j["gamepad_overlay_raw"] = Current.gamepad_overlay_raw;
         j["gamepad_overlay_raw_button"] = Current.gamepad_overlay_raw_button;
@@ -493,6 +502,12 @@ namespace Config {
         j["gamepad_menu"] = Current.gamepad_menu;
         j["gamepad_menu_raw"] = Current.gamepad_menu_raw;
         j["gamepad_menu_raw_button"] = Current.gamepad_menu_raw_button;
+        j["gamepad_graph_pan_left"] = Current.gamepad_graph_pan_left;
+        j["gamepad_graph_pan_left_raw"] = Current.gamepad_graph_pan_left_raw;
+        j["gamepad_graph_pan_left_raw_button"] = Current.gamepad_graph_pan_left_raw_button;
+        j["gamepad_graph_pan_right"] = Current.gamepad_graph_pan_right;
+        j["gamepad_graph_pan_right_raw"] = Current.gamepad_graph_pan_right_raw;
+        j["gamepad_graph_pan_right_raw_button"] = Current.gamepad_graph_pan_right_raw_button;
         j["controller_default_back_migrated"] = true;
         j["mmr_category"] = Current.mmr_category;
         j["graph_mmr_category"] = Current.graph_mmr_category;

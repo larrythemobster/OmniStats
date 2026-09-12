@@ -119,8 +119,8 @@ LRESULT WINAPI WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                     if (pt.y <= borderSize) return HTTOP;
                     if (pt.y >= height - borderSize) return HTBOTTOM;
                 }
-                const int titleBarHeight = static_cast<int>(44.0f * overlay->m_dpiScale);
-                const int controlsWidth = static_cast<int>(520.0f * overlay->m_dpiScale);
+                const int titleBarHeight = static_cast<int>(34.0f * overlay->m_dpiScale);
+                const int controlsWidth = static_cast<int>(270.0f * overlay->m_dpiScale);
                 if (pt.y >= 0 && pt.y <= titleBarHeight) {
                     if (pt.x >= width - controlsWidth) return HTCLIENT;
                     return HTCAPTION;
