@@ -168,8 +168,7 @@ TEST(PublicBuildSeparationTest, MainAppSourcesDoNotDependOnUpdaterImplementation
     const std::vector<std::filesystem::path> mainAppFiles = {
         sourceDir / "src" / "main.cpp",
         sourceDir / "src" / "ui" / "Overlay.cpp",
-        sourceDir / "src" / "ui" / "panels" / "DashboardPanel.cpp",
-        sourceDir / "src" / "ui" / "panels" / "SettingsPanel.cpp",
+        sourceDir / "src" / "ui" / "rml" / "RmlUiController.cpp",
         sourceDir / "src" / "network" / "TelemetryManager.cpp",
     };
 
@@ -189,4 +188,28 @@ TEST(PublicBuildSeparationTest, InputManagerKeepsLegacyHookCompileGated) {
     std::string content((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
     EXPECT_NE(content.find("RegisterHotKey"), std::string::npos);
     EXPECT_NE(content.find("OMNISTATS_ENABLE_LOW_LEVEL_HOOK"), std::string::npos);
+}
+
+TEST(RmlUiMigrationTest, UsesNativeRmlUi6RenderInterface) {
+    const std::filesystem::path sourceDir(OMNISTATS_SOURCE_DIR);
+
+    std::ifstream rendererHeader(sourceDir / "src" / "ui" / "rml" / "RmlRenderInterfaceD3D11.hpp");
+    ASSERT_TRUE(rendererHeader.is_open());
+    const std::string rendererContent((std::istreambuf_iterator<char>(rendererHeader)), std::istreambuf_iterator<char>());
+    EXPECT_NE(rendererContent.find("public Rml::RenderInterface"), std::string::npos);
+    EXPECT_EQ(rendererContent.find("RenderInterfaceCompatibility"), std::string::npos);
+
+    std::ifstream rendererSource(sourceDir / "src" / "ui" / "rml" / "RmlRenderInterfaceD3D11.cpp");
+    ASSERT_TRUE(rendererSource.is_open());
+    const std::string rendererSourceContent((std::istreambuf_iterator<char>(rendererSource)), std::istreambuf_iterator<char>());
+    EXPECT_NE(rendererSourceContent.find("PSSetConstantBuffers(0, 1, &cb)"), std::string::npos)
+        << "The pixel shader needs UiConstants so textured glyph draws do not collapse to solid quads.";
+    EXPECT_NE(rendererSourceContent.find("SrcBlend = D3D11_BLEND_ONE"), std::string::npos)
+        << "Native RmlUi 6 geometry/textures use premultiplied alpha.";
+
+    std::ifstream controller(sourceDir / "src" / "ui" / "rml" / "RmlUiController.cpp");
+    ASSERT_TRUE(controller.is_open());
+    const std::string controllerContent((std::istreambuf_iterator<char>(controller)), std::istreambuf_iterator<char>());
+    EXPECT_NE(controllerContent.find("Rml::SetRenderInterface(&m_renderInterface)"), std::string::npos);
+    EXPECT_EQ(controllerContent.find("GetAdaptedInterface"), std::string::npos);
 }
