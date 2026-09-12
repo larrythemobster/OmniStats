@@ -433,3 +433,74 @@ TEST(TelemetryReducerPlaylistAuthority, RankedPlaylistDoesNotUseObservedPlayerCo
     ASSERT_TRUE(effects.postMatchMmrRefresh.has_value());
     EXPECT_EQ(effects.postMatchMmrRefresh->playlist, "2v2");
 }
+
+TEST(TelemetryReducerPlaylistAuthority, TrainingDirectlyToOnlineGameStartsNewLifecycleAndEnqueuesAllPlayers) {
+    Storage::InitializeEnvironment();
+    auto state = std::make_shared<SessionState>();
+    TelemetryReducer reducer(state);
+
+    // 1. Enter Training
+    nlohmann::json trainingUpdate = Update(9, 1, 0, "Park_P");
+    trainingUpdate["Game"]["bTraining"] = true;
+    reducer.Reduce(std::string(Constants::EVT_UPDATE_STATE), trainingUpdate);
+    reducer.Reduce(std::string(Constants::EVT_ROUND_STARTED), nlohmann::json{});
+
+    state->game.myPrimaryId = "Steam|1";
+    state->game.roster["Steam|1"].playlists["2v2"] = 1200;
+    state->game.roster["Steam|1"].playlistMatches["2v2"] = 50;
+
+    const uint64_t trainingGeneration = state->game.activeMatchGeneration;
+    EXPECT_EQ(state->game.playlistId, 9);
+    EXPECT_TRUE(state->game.inMatch);
+    EXPECT_TRUE(state->game.roundEverStarted);
+
+    // 2. Queue pops! MatchCreated arrives for online ranked match
+    reducer.Reduce(
+        std::string(Constants::EVT_MATCH_CREATED),
+        nlohmann::json{{"MatchGuid", "online-ranked-guid-123"}});
+
+    EXPECT_GT(state->game.activeMatchGeneration, trainingGeneration);
+    EXPECT_EQ(state->game.matchGuid, "online-ranked-guid-123");
+    EXPECT_TRUE(state->game.roster.empty());
+    EXPECT_FALSE(state->game.roundEverStarted);
+    ASSERT_EQ(state->game.preMatchMmrByGuid.count("online-ranked-guid-123"), 1u);
+    EXPECT_EQ(
+        state->game.preMatchMmrByGuid.at("online-ranked-guid-123").playlistMmrs.at("2v2"),
+        1200);
+
+    // 3. UpdateState for the online match arrives (even on same arena Park_P)
+    SideEffects onlineEffects =
+        reducer.Reduce(std::string(Constants::EVT_UPDATE_STATE), Update(11, 2, 2, "Park_P"));
+
+    EXPECT_EQ(state->game.playlistId, 11);
+    EXPECT_EQ(state->game.roster.size(), 4u);
+    EXPECT_EQ(onlineEffects.fetchMmrQueue.size(), 4u);
+}
+
+TEST(TelemetryReducerPlaylistAuthority, TrainingToRankedSameArenaUpdateBeforeMatchCreatedResetsMatch) {
+    Storage::InitializeEnvironment();
+    auto state = std::make_shared<SessionState>();
+    TelemetryReducer reducer(state);
+
+    // 1. Enter Training
+    nlohmann::json trainingUpdate = Update(73, 1, 0, "Park_P");
+    trainingUpdate["Game"]["bTraining"] = true;
+    reducer.Reduce(std::string(Constants::EVT_UPDATE_STATE), trainingUpdate);
+    reducer.Reduce(std::string(Constants::EVT_ROUND_STARTED), nlohmann::json{});
+
+    state->game.myPrimaryId = "Steam|1";
+    state->game.roster["Steam|1"].playlists["2v2"] = 1200;
+    state->game.roster["Steam|1"].playlistMatches["2v2"] = 50;
+
+    const uint64_t trainingGeneration = state->game.activeMatchGeneration;
+    EXPECT_EQ(state->game.playlistId, 73);
+
+    // 2. Telemetry update for the ranked match arrives BEFORE MatchCreated (same arena Park_P)
+    SideEffects onlineEffects =
+        reducer.Reduce(std::string(Constants::EVT_UPDATE_STATE), Update(11, 1, 1, "Park_P"));
+
+    EXPECT_GT(state->game.activeMatchGeneration, trainingGeneration);
+    EXPECT_EQ(state->game.playlistId, 11);
+    EXPECT_EQ(state->game.roster.size(), 2u);
+    EXPECT_EQ(onlineEffects.fetchMmrQueue.size(), 2u);
+}

@@ -225,13 +225,19 @@ SideEffects TelemetryReducer::Reduce(const std::string& eventName, const nlohman
             !m_state->game.matchGuid.empty();
         const uint64_t currentGeneration =
             m_state->game.activeMatchGeneration;
+        const bool currentIsNonRecordable =
+            wasInMatch &&
+            (m_state->game.fallbackNonRecordableContext ||
+             PlaylistMetadata::IsNonRecordable(m_state->game.playlistId));
         const bool startsNewLifecycle =
             !wasInMatch ||
+            (hasIncomingGuid && currentIsNonRecordable) ||
             (hasIncomingGuid && hadCurrentGuid &&
              incomingGuid != m_state->game.matchGuid);
         const bool attachesGuid =
             wasInMatch && hasIncomingGuid &&
-            !hadCurrentGuid;
+            !hadCurrentGuid &&
+            !currentIsNonRecordable;
 
         const char* action = "preserve-current";
         const char* reason =
@@ -242,7 +248,7 @@ SideEffects TelemetryReducer::Reduce(const std::string& eventName, const nlohman
         if (startsNewLifecycle) {
             action = "start-new";
             reason = wasInMatch
-                         ? "different-explicit-guid"
+                         ? (currentIsNonRecordable ? "non-recordable-transition" : "different-explicit-guid")
                          : "no-active-match";
 
             LocalPreMatchMmrSnapshot initialMmrSnapshot;
@@ -515,9 +521,13 @@ void TelemetryReducer::HandleUpdateState(const nlohmann::json& data, SideEffects
             if (!currentArena.empty() &&
                 (currentArena != m_state->game.arenaName ||
                  currentArenaAsset != m_state->game.arenaAsset)) {
+                const bool previousIsNonRecordable =
+                    m_state->game.fallbackNonRecordableContext ||
+                    PlaylistMetadata::IsNonRecordable(m_state->game.playlistId);
                 const bool establishedActiveMatch =
                     m_state->game.inMatch &&
-                    m_state->game.roundEverStarted;
+                    m_state->game.roundEverStarted &&
+                    !previousIsNonRecordable;
 
                 if (establishedActiveMatch) {
                     // Arena metadata can arrive independently. Never destroy a
@@ -533,7 +543,7 @@ void TelemetryReducer::HandleUpdateState(const nlohmann::json& data, SideEffects
                     const int previousPlaylistId =
                         m_state->game.playlistId;
                     const bool startsNewLifecycle =
-                        !m_state->game.inMatch;
+                        !m_state->game.inMatch || previousIsNonRecordable;
                     LocalPreMatchMmrSnapshot preservedMmrSnapshot;
                     bool hasPreservedMmrSnapshot = false;
                     const auto snapshotIt =
@@ -601,13 +611,57 @@ void TelemetryReducer::HandleUpdateState(const nlohmann::json& data, SideEffects
                 !PlaylistMetadata::IsNonRecordable(
                     currentPlaylistId) &&
                 newPlaylistId != currentPlaylistId;
-
             if (latchCurrentMatchPlaylist) {
                 std::cout
                     << "[Playlist] Ignoring mid-match PlaylistId transition "
                     << currentPlaylistId << " -> " << newPlaylistId
                     << "; keeping the playlist latched to this match.\n";
             } else {
+                const bool previousIsNonRecordable =
+                    m_state->game.fallbackNonRecordableContext ||
+                    PlaylistMetadata::IsNonRecordable(currentPlaylistId);
+                const bool nonRecordableToDifferentPlaylist =
+                    m_state->game.inMatch &&
+                    previousIsNonRecordable &&
+                    newPlaylistId != currentPlaylistId;
+
+                if (nonRecordableToDifferentPlaylist) {
+                    LocalPreMatchMmrSnapshot initialMmrSnapshot;
+                    bool hasInitialMmrSnapshot = false;
+                    if (!m_state->game.myPrimaryId.empty()) {
+                        const auto playerIt =
+                            m_state->game.roster.find(
+                                m_state->game.myPrimaryId);
+                        if (playerIt !=
+                                m_state->game.roster.end() &&
+                            !playerIt->second.playlists.empty()) {
+                            initialMmrSnapshot.playlistMmrs =
+                                playerIt->second.playlists;
+                            initialMmrSnapshot.playlistMatches =
+                                playerIt->second.playlistMatches;
+                            hasInitialMmrSnapshot = true;
+                        }
+                    }
+
+                    const std::string matchGuid = m_state->game.matchGuid;
+                    const std::string currentArena = m_state->game.arenaName;
+                    const std::string currentArenaAsset = m_state->game.arenaAsset;
+                    m_state->resetMatch(currentArena, currentArenaAsset);
+                    m_state->game.activeMatchGeneration =
+                        ++m_nextMatchGeneration;
+                    m_state->game.matchGuid = matchGuid;
+                    m_missingGuidAssociationBlockedByReconnect = false;
+                    if (hasInitialMmrSnapshot) {
+                        m_state->game.preMatchMmrByGuid.emplace(
+                            matchGuid,
+                            std::move(initialMmrSnapshot));
+                    }
+                    m_roundActive = false;
+                    m_autoSwitchedPlaylistCategory = MmrCategory::Best;
+                    m_followedGraphPlaylistCategory = MmrCategory::Best;
+                    m_lastPlayerBoost.clear();
+                    m_lastPlayerSeen.clear();
+                }
                 if (newPlaylistId != currentPlaylistId) {
                     const std::string mode =
                         PlaylistMetadata::CanonicalMode(
