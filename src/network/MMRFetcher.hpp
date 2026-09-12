@@ -108,6 +108,7 @@ class MMRFetcher {
 
     static std::string GetTournamentTierForMmr(int mmr);
     static std::string PlaylistNameForTrackerId(int playlistId);
+    static std::string RankTierName(int tier, int division);
     static MMRProfileTotals ExtractProfileTotals(const nlohmann::json& jsonResp);
     static bool IsPostMatchMmrStale(int previousMmr, int fetchedMmr, int previousMatches = -1, int fetchedMatches = -1);
     static int ResolvePostMatchBaseline(int requestedPreviousMmr, bool previousMmrIsPlaylistSpecific, const std::vector<float>& recentHistory);
@@ -139,6 +140,7 @@ class MMRFetcher {
 
     void WorkerLoop();
     bool FetchProfile(MMRRequest req);
+    bool FetchProfileFromCustomApi(const MMRRequest& req);
     bool ScheduleRetry(MMRRequest req, std::chrono::milliseconds delay, const char* reason);
     std::string GetTRNPlatform(const std::string& primaryId);
     void FinishRequest(const MMRRequest& req);
@@ -178,5 +180,6 @@ class MMRFetcher {
     std::chrono::steady_clock::time_point m_rateLimitedUntil{};
     size_t m_forbiddenStrikeCount = 0;
     std::jthread m_workerThread;
+    std::atomic<bool> m_useCustomApiFallback{false};
     std::atomic<bool> m_isRunning{false};
 };

@@ -28,6 +28,7 @@ struct PlayerData {
     bool fetchFailed = false;
     bool enqueued = false;
 
+    std::string rankVerificationSource = "";
     std::map<std::string, int> playlists;             // MMR for each playlist: "1v1", "2v2", "3v3", extra modes, "best"
     std::map<std::string, std::string> playlistTiers; // Rank text for each playlist
     std::map<std::string, int> playlistMatches;       // Matches played for each playlist from Tracker.gg

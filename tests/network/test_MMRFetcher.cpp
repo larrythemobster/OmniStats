@@ -17,12 +17,18 @@ static void* g_header_data = nullptr;
 static std::string g_mock_response = "";
 static std::string g_mock_headers = "";
 static long g_mock_response_code = 200;
+static std::string g_mock_url = "";
+static long g_mock_custom_api_response_code = 0;
+static std::string g_mock_custom_api_response = "";
 static std::atomic<int> g_mock_perform_count{0};
 
 static int mock_easy_setopt(void* curl, int option, ...) {
     va_list args;
     va_start(args, option);
-    if (option == CI_CURLOPT_WRITEFUNCTION) {
+    if (option == CI_CURLOPT_URL) {
+        const char* u = va_arg(args, const char*);
+        if (u) g_mock_url = u;
+    } else if (option == CI_CURLOPT_WRITEFUNCTION) {
         g_write_callback = va_arg(args, WriteCallbackType);
     } else if (option == CI_CURLOPT_WRITEDATA) {
         g_write_data = va_arg(args, void*);
@@ -37,11 +43,17 @@ static int mock_easy_setopt(void* curl, int option, ...) {
 
 static int mock_easy_perform(void* curl) {
     g_mock_perform_count.fetch_add(1);
+    long code = g_mock_response_code;
+    const std::string* body = &g_mock_response;
+    if (g_mock_custom_api_response_code > 0 && (g_mock_url.find("/v1/ranks") != std::string::npos || g_mock_url.find("/v1/pro/ranks") != std::string::npos)) {
+        code = g_mock_custom_api_response_code;
+        body = &g_mock_custom_api_response;
+    }
     if (g_header_callback && g_header_data && !g_mock_headers.empty()) {
         g_header_callback((char*)g_mock_headers.data(), 1, g_mock_headers.size(), g_header_data);
     }
-    if (g_write_callback && g_write_data && g_mock_response_code == 200) {
-        g_write_callback((void*)g_mock_response.data(), 1, g_mock_response.size(), g_write_data);
+    if (g_write_callback && g_write_data && code == 200) {
+        g_write_callback((void*)body->data(), 1, body->size(), g_write_data);
     }
     return 0; // CURLE_OK
 }
@@ -51,7 +63,11 @@ static int mock_easy_getinfo(void* curl, int info, ...) {
     va_start(args, info);
     if (info == CI_CURLINFO_RESPONSE_CODE) {
         long* code = va_arg(args, long*);
-        *code = g_mock_response_code;
+        if (g_mock_custom_api_response_code > 0 && (g_mock_url.find("/v1/ranks") != std::string::npos || g_mock_url.find("/v1/pro/ranks") != std::string::npos)) {
+            *code = g_mock_custom_api_response_code;
+        } else {
+            *code = g_mock_response_code;
+        }
     }
     va_end(args);
     return 0;
@@ -126,6 +142,9 @@ class MMRFetcherTest : public ::testing::Test {
         curl.free_ptr = original_free;
         curl.easy_impersonate = original_easy_impersonate;
         curl.SetReadyForTests(original_ready);
+        g_mock_url.clear();
+        g_mock_custom_api_response_code = 0;
+        g_mock_custom_api_response.clear();
         Config::Update([this](ConfigData& config) { config = originalConfig; }, false);
     }
 
@@ -1029,4 +1048,38 @@ TEST(MMRFetcherPostMatchTest, KeepsPostMatchRequestBehindRosterRequest) {
     EXPECT_EQ(fetcher.PendingRequestCountForTests(), 2u);
 
     Config::Update([&](ConfigData& config) { config = original; }, false);
+}
+
+TEST_F(MMRFetcherTest, FallsBackToCustomApiWhenTrackerReturns403) {
+    sessionState->game.myPrimaryId = "Epic|test_epic_id";
+    g_mock_response_code = 403;
+    g_mock_custom_api_response_code = 200;
+    Config::Update([](ConfigData& config) { config.custom_api_key = "oms_test_account_key"; }, false);
+    g_mock_custom_api_response = R"({
+        "players": [{
+            "platform": "Epic",
+            "account_id": "test_epic_id",
+            "skills": [
+                {
+                    "playlist": 11,
+                    "mmr": 1250.0,
+                    "tier": 14,
+                    "division": 2,
+                    "matches_played": 45
+                }
+            ]
+        }]
+    })";
+
+    fetcher->FetchRosterProfileForTests("Epic|test_epic_id", "TestPlayer");
+
+    std::shared_lock<std::shared_mutex> lock(sessionState->game.mutex);
+    ASSERT_TRUE(sessionState->game.roster.count("Epic|test_epic_id") > 0);
+    const auto& player = sessionState->game.roster["Epic|test_epic_id"];
+    EXPECT_TRUE(player.fetched);
+    EXPECT_FALSE(player.fetchFailed);
+    EXPECT_EQ(player.rankVerificationSource, "ServerA");
+    EXPECT_EQ(player.playlists.at("2v2"), 1250);
+    EXPECT_EQ(player.playlistTiers.at("2v2"), "Diamond II Div III");
+    EXPECT_EQ(player.mmr, 1250);
 }

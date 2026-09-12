@@ -358,6 +358,42 @@ std::string MMRFetcher::PlaylistNameForTrackerId(int playlistId) {
     // so the two paths cannot silently drift apart.
     return PlaylistMetadata::TrackerKey(playlistId);
 }
+std::string MMRFetcher::RankTierName(int tier, int division) {
+    static constexpr std::array<const char*, 23> kTiers = {
+        "Unranked",
+        "Bronze I",
+        "Bronze II",
+        "Bronze III",
+        "Silver I",
+        "Silver II",
+        "Silver III",
+        "Gold I",
+        "Gold II",
+        "Gold III",
+        "Platinum I",
+        "Platinum II",
+        "Platinum III",
+        "Diamond I",
+        "Diamond II",
+        "Diamond III",
+        "Champion I",
+        "Champion II",
+        "Champion III",
+        "Grand Champion I",
+        "Grand Champion II",
+        "Grand Champion III",
+        "Supersonic Legend",
+    };
+    if (tier < 0 || static_cast<size_t>(tier) >= kTiers.size()) return "Unranked";
+    std::string result = kTiers[static_cast<size_t>(tier)];
+    if (tier > 0 && tier < 22 && division >= 0 && division < 4) {
+        static constexpr std::array<const char*, 4> kDivisions = {
+            "I", "II", "III", "IV"};
+        result += " Div ";
+        result += kDivisions[static_cast<size_t>(division)];
+    }
+    return result;
+}
 
 MMRProfileTotals MMRFetcher::ExtractProfileTotals(const nlohmann::json& jsonResp) {
     MMRProfileTotals totals;
@@ -1530,7 +1566,7 @@ void MMRFetcher::WorkerLoop() {
             if (!m_isRunning && m_queue.empty()) break;
 
             const auto now = std::chrono::steady_clock::now();
-            if (m_rateLimitedUntil > now) {
+            if (m_rateLimitedUntil > now && !m_useCustomApiFallback.load()) {
                 const auto wakeAt = m_rateLimitedUntil;
                 m_cv.wait_until(lock, wakeAt);
                 continue;
@@ -1593,6 +1629,209 @@ void MMRFetcher::FinishRequest(const MMRRequest& req) {
         EnsureProvisionalPoint(req, req.previousMmr);
     }
 }
+bool MMRFetcher::FetchProfileFromCustomApi(const MMRRequest& req) {
+    auto& ci = CurlImpersonate::Instance();
+    if (!ci.IsReady()) {
+        return false;
+    }
+
+    const auto config = Config::Read();
+    if (!config.custom_api_enabled || config.custom_api_key.empty()) {
+        return false;
+    }
+    std::string baseUrl = config.custom_api_base_url;
+    if (baseUrl.empty()) {
+        baseUrl = "https://api.omnistats.org";
+    }
+    while (!baseUrl.empty() && baseUrl.back() == '/') {
+        baseUrl.pop_back();
+    }
+
+    const size_t delim = req.primaryId.find('|');
+    if (delim == std::string::npos) return false;
+
+    std::string rawPlat = req.primaryId.substr(0, delim);
+    rawPlat.erase(0, rawPlat.find_first_not_of(" \t\r\n"));
+    rawPlat.erase(rawPlat.find_last_not_of(" \t\r\n") + 1);
+    std::string platLower = rawPlat;
+    std::transform(platLower.begin(), platLower.end(), platLower.begin(), ::tolower);
+
+    std::string platform;
+    if (platLower == "epic" || platLower == "epicgames")
+        platform = "Epic";
+    else if (platLower == "steam")
+        platform = "Steam";
+    else if (platLower == "ps4" || platLower == "psn" || platLower == "playstation")
+        platform = "PS4";
+    else if (platLower == "xbox" || platLower == "xboxone" || platLower == "xbl")
+        platform = "Xbox";
+    else if (platLower == "switch" || platLower == "nintendo")
+        platform = "Switch";
+    else
+        return false;
+
+    std::string accountId = req.primaryId.substr(delim + 1);
+    const size_t secondDelim = accountId.find('|');
+    if (secondDelim != std::string::npos) {
+        accountId = accountId.substr(0, secondDelim);
+    }
+    accountId.erase(0, accountId.find_first_not_of(" \t\r\n"));
+    accountId.erase(accountId.find_last_not_of(" \t\r\n") + 1);
+    if (accountId.empty()) return false;
+
+    nlohmann::json reqBody = {
+        {"players", nlohmann::json::array({{{"platform", platform}, {"account_id", accountId}}})}};
+    if (req.reason == MMRRequestReason::PostMatch && !req.playlist.empty()) {
+        int pid = -1;
+        if (req.playlist == "1v1")
+            pid = 10;
+        else if (req.playlist == "2v2")
+            pid = 11;
+        else if (req.playlist == "3v3")
+            pid = 13;
+        else if (req.playlist == "hoops")
+            pid = 27;
+        else if (req.playlist == "rumble")
+            pid = 28;
+        else if (req.playlist == "dropshot")
+            pid = 29;
+        else if (req.playlist == "snowday")
+            pid = 30;
+        else if (req.playlist == "t")
+            pid = 34;
+        else if (req.playlist == "heatseeker")
+            pid = 43;
+        if (pid > 0) reqBody["playlist"] = pid;
+    }
+
+    const std::string reqBodyStr = reqBody.dump();
+    const std::string url = baseUrl + "/v1/ranks";
+
+    void* ci_curl = ci.easy_init();
+    if (!ci_curl) return false;
+
+    void* headers = nullptr;
+    headers = ci.slist_append(headers, "Content-Type: application/json");
+    headers = ci.slist_append(headers, "Accept: application/json");
+    headers = ci.slist_append(headers, ("X-API-Key: " + config.custom_api_key).c_str());
+
+    std::string readBuffer;
+    FetchHeaderState headerState;
+
+    ci.easy_setopt(ci_curl, CI_CURLOPT_URL, url.c_str());
+    ci.easy_setopt(ci_curl, CI_CURLOPT_POST, 1L);
+    ci.easy_setopt(ci_curl, CI_CURLOPT_POSTFIELDS, reqBodyStr.c_str());
+    ci.easy_setopt(ci_curl, CI_CURLOPT_POSTFIELDSIZE, static_cast<long>(reqBodyStr.size()));
+    ci.easy_setopt(ci_curl, CI_CURLOPT_HTTPHEADER, headers);
+    ci.easy_setopt(ci_curl, CI_CURLOPT_WRITEFUNCTION, WriteCallback);
+    ci.easy_setopt(ci_curl, CI_CURLOPT_WRITEDATA, &readBuffer);
+    ci.easy_setopt(ci_curl, CI_CURLOPT_HEADERFUNCTION, HeaderCallback);
+    ci.easy_setopt(ci_curl, CI_CURLOPT_HEADERDATA, &headerState);
+    ci.easy_setopt(ci_curl, CI_CURLOPT_TIMEOUT, 10L);
+    ci.easy_setopt(ci_curl, CI_CURLOPT_SSL_OPTIONS, static_cast<long>(CI_CURLSSLOPT_NATIVE_CA));
+    ci.easy_setopt(ci_curl, CI_CURLOPT_FOLLOWLOCATION, 1L);
+    ci.easy_setopt(ci_curl, CI_CURLOPT_NOPROGRESS, 1L);
+
+    const int res = ci.easy_perform(ci_curl);
+    long httpCode = 0;
+    ci.easy_getinfo(ci_curl, CI_CURLINFO_RESPONSE_CODE, &httpCode);
+
+    ci.slist_free_all(headers);
+    ci.easy_cleanup(ci_curl);
+
+    if (res != 0 || httpCode != 200) {
+        return false;
+    }
+
+    nlohmann::json jsonResp;
+    try {
+        jsonResp = nlohmann::json::parse(readBuffer);
+    } catch (...) {
+        return false;
+    }
+
+    if (!jsonResp.contains("players") || !jsonResp["players"].is_array() || jsonResp["players"].empty()) {
+        return false;
+    }
+
+    const auto& playerObj = jsonResp["players"][0];
+    if (!playerObj.contains("skills") || !playerObj["skills"].is_array()) {
+        return false;
+    }
+
+    int bestMmr = 0;
+    std::string bestTier = "Unranked";
+    int fetchedPostMatchMmr = -1;
+    int fetchedPostMatchCount = -1;
+    std::map<std::string, int> parsedPlaylists;
+    std::map<std::string, std::string> parsedTiers;
+    std::map<std::string, int> parsedMatches;
+
+    for (const auto& skill : playerObj["skills"]) {
+        if (!skill.contains("playlist") || !skill["playlist"].is_number_integer()) continue;
+        int pid = skill["playlist"].get<int>();
+        std::string plName = PlaylistNameForTrackerId(pid);
+        if (plName.empty()) continue;
+
+        double mmrDouble = skill.value("mmr", 0.0);
+        int mmrInt = static_cast<int>(std::lround(mmrDouble));
+        int tier = skill.value("tier", 0);
+        int div = skill.value("division", 0);
+        int matches = skill.value("matches_played", -1);
+
+        std::string tierName = RankTierName(tier, div);
+
+        parsedPlaylists[plName] = mmrInt;
+        if (!tierName.empty()) {
+            parsedTiers[plName] = tierName;
+        }
+        if (matches >= 0) {
+            parsedMatches[plName] = matches;
+        }
+
+        if (req.reason == MMRRequestReason::PostMatch && plName == req.playlist) {
+            fetchedPostMatchMmr = mmrInt;
+            fetchedPostMatchCount = matches;
+        }
+
+        if (plName != "casual" && mmrInt > bestMmr) {
+            bestMmr = mmrInt;
+            bestTier = tierName;
+        }
+    }
+
+    {
+        std::unique_lock<std::shared_mutex> lock(m_state->game.mutex);
+        auto& pData = m_state->game.roster[req.primaryId];
+        pData.primaryId = req.primaryId;
+        pData.name = req.name;
+
+        for (const auto& [pl, mmr] : parsedPlaylists) {
+            pData.playlists[pl] = mmr;
+        }
+        for (const auto& [pl, t] : parsedTiers) {
+            pData.playlistTiers[pl] = t;
+        }
+        for (const auto& [pl, m] : parsedMatches) {
+            pData.playlistMatches[pl] = m;
+        }
+
+        if (bestMmr > 0) {
+            pData.mmr = bestMmr;
+            pData.rankTier = bestTier;
+        }
+        pData.fetched = true;
+        pData.fetchFailed = false;
+        pData.rankVerificationSource = "ServerA";
+        m_state->game.version++;
+    }
+
+    if (req.reason == MMRRequestReason::PostMatch && fetchedPostMatchMmr > 0) {
+        ReconcileTrackerResponse(req, fetchedPostMatchMmr, fetchedPostMatchCount);
+    }
+
+    return true;
+}
 
 bool MMRFetcher::FetchProfile(MMRRequest req) {
     if (req.reason == MMRRequestReason::PostMatch) {
@@ -1600,6 +1839,11 @@ bool MMRFetcher::FetchProfile(MMRRequest req) {
         const auto recordIt = m_postMatchRecordsByGuid.find(req.matchGuid);
         if (recordIt != m_postMatchRecordsByGuid.end() &&
             recordIt->second.reconciliationState == PostMatchReconciliationState::Confirmed) {
+            return false;
+        }
+    }
+    if (m_useCustomApiFallback.load()) {
+        if (FetchProfileFromCustomApi(req)) {
             return false;
         }
     }
@@ -1678,6 +1922,14 @@ bool MMRFetcher::FetchProfile(MMRRequest req) {
                   << " (HTTP " << httpCode << ") - Curl error: " << res << "\n";
 
         if (httpCode == 403) {
+            std::cout << "[MMRFetcher] Tracker.gg returned HTTP 403. Attempting fallback to custom API...\n";
+            if (FetchProfileFromCustomApi(req)) {
+                std::cout << "[MMRFetcher] Successfully fetched ranks from custom API for "
+                          << PrivacyLog::Sensitive(req.name, "player name") << "!\n";
+                m_useCustomApiFallback.store(true);
+                return false;
+            }
+            std::cout << "[MMRFetcher] Custom API fallback was unavailable or failed.\n";
             if (!m_isRunning) return false;
 
             size_t strike = 0;

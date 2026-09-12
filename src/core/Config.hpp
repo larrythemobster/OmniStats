@@ -77,6 +77,11 @@ struct ConfigData {
     bool use_rank_icons = false;
     bool show_extra_playlists = true;
 
+    // Custom API rank lookup settings
+    bool custom_api_enabled = true;
+    std::string custom_api_base_url = "https://api.omnistats.org";
+    std::string custom_api_key = "";
+
     std::string rocket_league_stats_api_config_path = "";
     bool check_stats_api_config_on_startup = true;
 

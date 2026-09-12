@@ -77,8 +77,10 @@ class OmniStatsPipelineTest : public ::testing::Test {
         original_setopt = curl.easy_setopt;
         original_cleanup = curl.easy_cleanup;
         original_slist_free_all = curl.slist_free_all;
-        original_slist_append = curl.slist_append;
-        original_easy_init = curl.easy_init;
+        original_easy_escape = curl.easy_escape;
+        original_free = curl.free_ptr;
+        original_easy_impersonate = curl.easy_impersonate;
+        original_ready = curl.IsReady();
 
         curl.easy_perform = int_mock_easy_perform;
         curl.easy_getinfo = int_mock_easy_getinfo;
@@ -87,14 +89,32 @@ class OmniStatsPipelineTest : public ::testing::Test {
         curl.slist_free_all = int_mock_slist_free_all;
         curl.slist_append = int_mock_slist_append;
         curl.easy_init = int_mock_easy_init;
+        curl.easy_escape = [](void*, const char* val, int len) -> char* {
+            static std::string escaped;
+            escaped.assign(val, static_cast<size_t>(len));
+            return escaped.data();
+        };
+        curl.free_ptr = [](void*) {};
+        curl.easy_impersonate = [](void*, const char*, int) { return 0; };
+        curl.SetReadyForTests(true);
 
         g_int_mock_response = R"({
-            "current_mmr": 1250,
-            "playlist": "2v2"
+            "data": {
+                "segments": [
+                    {
+                        "type": "playlist",
+                        "attributes": {"playlistId": 11},
+                        "stats": {
+                            "rating": {"value": 1200},
+                            "tier": {"metadata": {"name": "Grand Champion I"}},
+                            "division": {"metadata": {"name": "Division II"}}
+                        }
+                    }
+                ]
+            }
         })";
         g_int_mock_response_code = 200;
     }
-
     void TearDown() override {
         auto& curl = CurlImpersonate::Instance();
         curl.easy_perform = original_perform;
@@ -104,6 +124,10 @@ class OmniStatsPipelineTest : public ::testing::Test {
         curl.slist_free_all = original_slist_free_all;
         curl.slist_append = original_slist_append;
         curl.easy_init = original_easy_init;
+        curl.easy_escape = original_easy_escape;
+        curl.free_ptr = original_free;
+        curl.easy_impersonate = original_easy_impersonate;
+        curl.SetReadyForTests(original_ready);
         Config::Update(
             [this](ConfigData& config) {
                 config = originalConfig;
@@ -136,7 +160,6 @@ class OmniStatsPipelineTest : public ::testing::Test {
             session->ui.graphMmrCategory.store(
                 MmrCategory::OneVOne);
         }
-
         client->HandleLine(
             nlohmann::json{
                 {"Event", "MatchCreated"},
@@ -198,6 +221,10 @@ class OmniStatsPipelineTest : public ::testing::Test {
     pfn_curl_slist_free_all original_slist_free_all;
     pfn_curl_slist_append original_slist_append;
     pfn_curl_easy_init original_easy_init;
+    pfn_curl_easy_escape original_easy_escape = nullptr;
+    pfn_curl_free original_free = nullptr;
+    pfn_curl_easy_impersonate original_easy_impersonate = nullptr;
+    bool original_ready = false;
 };
 
 TEST_F(OmniStatsPipelineTest, FullLifecycleMatchFlow) {

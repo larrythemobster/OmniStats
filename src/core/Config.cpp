@@ -290,6 +290,25 @@ namespace Config {
                 Current.graph_mmr_category = "2v2";
                 needsSave = true;
             }
+            if (j.contains("custom_api_enabled") && j["custom_api_enabled"].is_boolean()) {
+                Current.custom_api_enabled = j["custom_api_enabled"];
+            } else if (j.contains("pro_account_enabled") && j["pro_account_enabled"].is_boolean()) {
+                Current.custom_api_enabled = j["pro_account_enabled"];
+            } else {
+                Current.custom_api_enabled = true;
+            }
+            if (j.contains("custom_api_base_url") && j["custom_api_base_url"].is_string() && !j["custom_api_base_url"].get<std::string>().empty()) {
+                Current.custom_api_base_url = j["custom_api_base_url"].get<std::string>();
+            } else if (j.contains("pro_api_base_url") && j["pro_api_base_url"].is_string() && !j["pro_api_base_url"].get<std::string>().empty()) {
+                Current.custom_api_base_url = j["pro_api_base_url"].get<std::string>();
+            } else {
+                Current.custom_api_base_url = "https://api.omnistats.org";
+            }
+            if (j.contains("custom_api_key") && j["custom_api_key"].is_string()) {
+                Current.custom_api_key = DecryptToken(j["custom_api_key"].get<std::string>());
+            } else if (j.contains("pro_api_key") && j["pro_api_key"].is_string()) {
+                Current.custom_api_key = DecryptToken(j["pro_api_key"].get<std::string>());
+            }
             if (j.contains("rocket_league_stats_api_config_path")) Current.rocket_league_stats_api_config_path = j["rocket_league_stats_api_config_path"];
             if (j.contains("check_stats_api_config_on_startup")) Current.check_stats_api_config_on_startup = j["check_stats_api_config_on_startup"];
             if (j.contains("ballchasing_token") && j["ballchasing_token"].is_string()) {
@@ -499,7 +518,9 @@ namespace Config {
         j["use_rank_icons"] = Current.use_rank_icons;
         j["show_extra_playlists"] = Current.show_extra_playlists;
         j["rocket_league_stats_api_config_path"] = Current.rocket_league_stats_api_config_path;
-        j["check_stats_api_config_on_startup"] = Current.check_stats_api_config_on_startup;
+        j["custom_api_enabled"] = Current.custom_api_enabled;
+        j["custom_api_base_url"] = Current.custom_api_base_url;
+        j["custom_api_key"] = EncryptToken(Current.custom_api_key);
         j["ballchasing_token"] = EncryptToken(Current.ballchasing_token);
         j["auto_upload_replays"] = Current.auto_upload_replays;
         j["ballchasing_upload_notice_accepted"] = Current.ballchasing_upload_notice_accepted;

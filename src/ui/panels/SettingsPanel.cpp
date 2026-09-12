@@ -408,7 +408,7 @@ void SettingsPanel::RenderContent(const std::string& idSuffix, bool& styleChange
         {Page::Ranks, "Ranks & graph", "Choose playlists for player ranks and your personal MMR graph."},
         {Page::Shortcuts, "Shortcuts", "Choose keyboard and controller shortcuts."},
         {Page::Appearance, "Appearance", "Adjust interface size, colors, and units."},
-        {Page::Integrations, "Replays & services", "Save replays, upload to Ballchasing, and connect external services."},
+        {Page::Integrations, "Services & API", "Save replays, configure custom API key, and connect external services."},
         {Page::Data, "Data & privacy", "Manage local history, exports, and diagnostic sharing."},
         {Page::Troubleshooting, "Troubleshooting", "Check the game connection and inspect diagnostic logs."},
     };
@@ -1168,9 +1168,35 @@ void SettingsPanel::RenderContent(const std::string& idSuffix, bool& styleChange
         }
 
         if (m_page == Page::Integrations) {
-            const int section = selectSection("Replay uploads\0Replay saving\0External services\0");
+            const int section = selectSection("Custom API\0Replay uploads\0Replay saving\0External services\0");
             if (section == 0) {
                 ImGui::Spacing();
+                ImGui::TextColored(Format::C(ctx.config.themeAccent), "Custom Rank API");
+                ImGui::Separator();
+                ImGui::Spacing();
+                ImGui::TextWrapped("Authenticate custom API rank lookups with the API key from your OmniStats account.");
+
+                bool customApiEnabled = ctx.config.custom_api_enabled;
+                std::string customApiEnabledLabel = "Enable custom API fallback##" + idSuffix;
+                if (ImGui::Checkbox(customApiEnabledLabel.c_str(), &customApiEnabled)) {
+                    Config::Update([customApiEnabled](ConfigData& c) { c.custom_api_enabled = customApiEnabled; });
+                }
+
+                char apiKeyBuf[256] = {0};
+                strcpy_s(apiKeyBuf, sizeof(apiKeyBuf), ctx.config.custom_api_key.c_str());
+                std::string apiKeyInputLabel = "API Key##" + idSuffix;
+                if (ImGui::InputText(apiKeyInputLabel.c_str(), apiKeyBuf, sizeof(apiKeyBuf), ImGuiInputTextFlags_Password)) {
+                    std::string newKey(apiKeyBuf);
+                    Config::Update([newKey](ConfigData& c) { c.custom_api_key = newKey; });
+                }
+                if (ctx.config.custom_api_key.empty()) {
+                    ImGui::TextColored(Format::C(ctx.config.themeMuted), "No key set. Sign in on the website and copy your API key from account settings.");
+                } else {
+                    ImGui::TextColored(Format::C(ctx.config.themeWin), "API key saved and active.");
+                }
+            }
+
+            if (section == 1) {
                 ImGui::TextColored(Format::C(ctx.config.themeAccent), "Ballchasing Uploader");
                 ImGui::Separator();
                 ImGui::Spacing();
