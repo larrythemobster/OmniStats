@@ -515,6 +515,66 @@ button.window-control.danger:hover {
     align-items: center;
     margin-left: auto;
 }
+.win-icon-min {
+    display: inline-block;
+    width: 9dp;
+    height: 1dp;
+    background-color: #c8d0dc;
+    vertical-align: middle;
+    margin-bottom: 2dp;
+}
+.win-icon-max {
+    display: inline-block;
+    width: 8dp;
+    height: 8dp;
+    border: 1dp #c8d0dc;
+    border-radius: 1dp;
+    vertical-align: middle;
+}
+.win-icon-restore {
+    display: inline-block;
+    position: relative;
+    width: 10dp;
+    height: 10dp;
+    vertical-align: middle;
+}
+.win-icon-restore .restore-back {
+    position: absolute;
+    right: 0;
+    top: 0;
+    width: 7dp;
+    height: 7dp;
+    border-top: 1dp #c8d0dc;
+    border-right: 1dp #c8d0dc;
+    border-radius: 1dp;
+}
+.win-icon-restore .restore-front {
+    position: absolute;
+    left: 0;
+    bottom: 0;
+    width: 7dp;
+    height: 7dp;
+    border: 1dp #c8d0dc;
+    border-radius: 1dp;
+    background-color: #10131a;
+}
+.win-icon-close {
+    display: inline-block;
+    font-family: "Arial", "Inter", sans-serif;
+    font-size: 15dp;
+    line-height: 14dp;
+    color: #c8d0dc;
+    vertical-align: middle;
+}
+button.window-control:hover .win-icon-min,
+button.window-control:hover .win-icon-max,
+button.window-control:hover .win-icon-restore .restore-back,
+button.window-control:hover .win-icon-restore .restore-front {
+    border-color: #ffffff;
+}
+button.window-control.danger:hover .win-icon-close {
+    color: #ffffff;
+}
 .widget-controls { margin-bottom: 7dp; }
 .compact-select { min-width: 122dp; height: 26dp; font-size: 12dp; }
 button:disabled { color: #606978; background-color: #161920; border-color: #242936; cursor: unavailable; }

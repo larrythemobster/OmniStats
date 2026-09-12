@@ -32,6 +32,7 @@
 #include "core/StatsApiConfig.hpp"
 #include "database/DatabaseManager.hpp"
 #include "network/ExternalUpdaterLauncher.hpp"
+#include "network/MMRFetcher.hpp"
 #include "ui/Formatting.hpp"
 #include "ui/KeyNames.hpp"
 #include "ui/rml/RmlInputWin32.hpp"
@@ -1795,6 +1796,9 @@ std::string RmlUiController::RenderPlayerRoster(int team, const char* label) {
                 }
             }
         }
+        if ((tier.empty() || tier == "Unranked") && mmr > 0) {
+            tier = MMRFetcher::GetTournamentTierForMmr(mmr);
+        }
         std::string platform;
         if (const auto pos = p->primaryId.find('|'); pos != std::string::npos) platform = p->primaryId.substr(0, pos);
         const auto color = Format::RankColor(tier);
@@ -2123,10 +2127,11 @@ std::string RmlUiController::RenderLobbyRanks() {
             const int matches = [&]() { auto it = p->playlistMatches.find(pl.key); return it == p->playlistMatches.end() ? 0 : it->second; }();
             std::string tier = "Unranked";
             if (auto it = p->playlistTiers.find(pl.key); it != p->playlistTiers.end()) tier = it->second;
+            if ((tier.empty() || tier == "Unranked") && mmr > 0) {
+                tier = MMRFetcher::GetTournamentTierForMmr(mmr);
+            }
             out << "<div class='lobby-rank-cell tooltip-host' style='color:" << CssColor(Format::RankColor(tier)) << "'>";
             if (mmr > 0) {
-                // Rank and MMR share one text run; season games played sit under
-                // it as a smaller second line.
                 out << "<div class='mono'>" << Escape(Format::AbbreviateRank(tier)) << ' ' << mmr << "</div>";
                 if (matches > 0) out << "<div class='lobby-rank-matches'>" << matches << (matches == 1 ? " game" : " games") << "</div>";
                 out << "<span class='tooltip-bubble'>" << Escape(Format::RankTier(tier, m_config.use_roman_numerals))
@@ -2767,9 +2772,12 @@ void RmlUiController::RebuildDashboard() {
     out << "<div class='topbar-actions'>"
         << Button("dashboard-edit", editMode ? "Done Editing" : "Edit Layout", editMode ? "primary compact" : "ghost compact")
         << Button("open-settings", "Settings", "ghost compact")
-        << Button("window-minimize", "-", "window-control compact")
-        << Button("window-maximize", isMaximized ? "=" : "+", "window-control compact")
-        << Button("window-close", "x", "window-control danger compact")
+        << "<button class='window-control' data-action='window-minimize'><span class='win-icon-min'></span></button>"
+        << "<button class='window-control' data-action='window-maximize'>"
+        << (isMaximized ? "<span class='win-icon-restore'><span class='restore-back'></span><span class='restore-front'></span></span>"
+                        : "<span class='win-icon-max'></span>")
+        << "</button>"
+        << "<button class='window-control danger' data-action='window-close'><span class='win-icon-close'>&#215;</span></button>"
         << "</div></div>";
 
     out << "<div class='dashboard-content'>";
