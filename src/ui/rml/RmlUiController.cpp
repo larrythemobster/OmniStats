@@ -485,6 +485,8 @@ namespace {
     ColorRGBA* ThemeColorForKey(ConfigData& config, std::string_view key) {
         if (key == "theme_bg") return &config.themeBg;
         if (key == "theme_panel") return &config.themeSettingsPanel;
+        if (key == "theme_topbar") return &config.themeTopbar;
+        if (key == "theme_graph_panel") return &config.themeGraphPanel;
         if (key == "theme_text") return &config.themeText;
         if (key == "theme_accent") return &config.themeAccent;
         if (key == "theme_win") return &config.themeWin;
@@ -499,6 +501,8 @@ namespace {
     const ColorRGBA* ThemeColorForKey(const ConfigData& config, std::string_view key) {
         if (key == "theme_bg") return &config.themeBg;
         if (key == "theme_panel") return &config.themeSettingsPanel;
+        if (key == "theme_topbar") return &config.themeTopbar;
+        if (key == "theme_graph_panel") return &config.themeGraphPanel;
         if (key == "theme_text") return &config.themeText;
         if (key == "theme_accent") return &config.themeAccent;
         if (key == "theme_win") return &config.themeWin;
@@ -513,6 +517,8 @@ namespace {
     const char* ThemeColorLabel(std::string_view key) {
         if (key == "theme_bg") return "Overlay background";
         if (key == "theme_panel") return "Settings panels";
+        if (key == "theme_topbar") return "Top bar";
+        if (key == "theme_graph_panel") return "Graph panel";
         if (key == "theme_text") return "Text";
         if (key == "theme_accent") return "Accent";
         if (key == "theme_win") return "Win";
@@ -1041,6 +1047,8 @@ void RmlUiController::Update(const ConfigData& config, bool configChanged, uint6
         scaleChanged = SanitizedUiScale(config.ui_scale) != m_appliedUiScale;
         themeChanged = !sameColor(config.themeBg, m_config.themeBg) ||
                        !sameColor(config.themeSettingsPanel, m_config.themeSettingsPanel) ||
+                       !sameColor(config.themeTopbar, m_config.themeTopbar) ||
+                       !sameColor(config.themeGraphPanel, m_config.themeGraphPanel) ||
                        !sameColor(config.themeText, m_config.themeText) ||
                        !sameColor(config.themeAccent, m_config.themeAccent) ||
                        !sameColor(config.themeWin, m_config.themeWin) ||
@@ -1288,6 +1296,8 @@ void RmlUiController::UpdateThemeProperties() {
     const std::string muted = CssColor(m_config.themeMuted);
     const std::string graph = CssColor(m_config.themeGraphLine);
     const std::string baseline = CssColor(m_config.themeGraphBaseline);
+    const std::string topbar = CssColor(m_config.themeTopbar);
+    const std::string graphPanel = CssColor(m_config.themeGraphPanel);
     const auto scaledColor = [](ColorRGBA color, float rgbScale, float alpha = -1.0f) {
         color.r = std::clamp(color.r * rgbScale, 0.0f, 1.0f);
         color.g = std::clamp(color.g * rgbScale, 0.0f, 1.0f);
@@ -1342,6 +1352,12 @@ void RmlUiController::UpdateThemeProperties() {
     rule(".settings-page", "background-color", panel);
     rule(".settings-footer", "background-color", scaledColor(m_config.themeSettingsPanel, 1.05f, 1.0f));
     rule(".update-dialog", "background-color", panel);
+
+    // Top bar and graph panel are their own layers, deliberately not derived
+    // from the shell background so each stays configurable on its own.
+    rule(".dashboard-topbar", "background-color", topbar);
+    rule(".win-icon-restore .restore-front", "background-color", topbar);
+    rule(".graph-wrap", "background-color", graphPanel);
 
     for (const char* selector : {".card-subtitle", ".stat-section-title", ".label", ".metric-label", ".muted", ".badge",
                                  ".running-indicator", ".roster-footer", ".rank-table-row", ".debug-label", ".match-mode",
@@ -3609,6 +3625,8 @@ std::string RmlUiController::RenderSettingsAppearance() {
     out << SectionStart("Colors")
         << colorRow("theme_bg", "Overlay background", m_config.themeBg)
         << colorRow("theme_panel", "Settings panels", m_config.themeSettingsPanel)
+        << colorRow("theme_topbar", "Top bar", m_config.themeTopbar)
+        << colorRow("theme_graph_panel", "Graph panel", m_config.themeGraphPanel)
         << colorRow("theme_text", "Text", m_config.themeText)
         << colorRow("theme_accent", "Accent", m_config.themeAccent)
         << colorRow("theme_win", "Win", m_config.themeWin)
@@ -4781,9 +4799,10 @@ void RmlUiController::ApplyColorPick(float mouseX, float mouseY) {
 void RmlUiController::RefreshThemeEditorControls(std::string_view preserveHexKey) {
     if (!m_document || m_settingsPage != SettingsPage::Appearance) return;
 
-    constexpr std::array<const char*, 10> kThemeKeys = {
-        "theme_bg", "theme_panel", "theme_text", "theme_accent", "theme_win",
-        "theme_loss", "theme_dim", "theme_muted", "theme_graph", "theme_baseline"};
+    constexpr std::array<const char*, 12> kThemeKeys = {
+        "theme_bg", "theme_panel", "theme_topbar", "theme_graph_panel", "theme_text",
+        "theme_accent", "theme_win", "theme_loss", "theme_dim", "theme_muted",
+        "theme_graph", "theme_baseline"};
 
     for (const char* key : kThemeKeys) {
         const ColorRGBA* color = ThemeColorForKey(m_config, key);

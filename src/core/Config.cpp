@@ -401,6 +401,8 @@ namespace Config {
                 auto& t = j["theme"];
                 if (t.contains("bg")) Current.themeBg = JsonToColor(t["bg"], Current.themeBg);
                 if (t.contains("settings_panel")) Current.themeSettingsPanel = JsonToColor(t["settings_panel"], Current.themeSettingsPanel);
+                if (t.contains("topbar")) Current.themeTopbar = JsonToColor(t["topbar"], Current.themeTopbar);
+                if (t.contains("graph_panel")) Current.themeGraphPanel = JsonToColor(t["graph_panel"], Current.themeGraphPanel);
                 if (t.contains("text")) Current.themeText = JsonToColor(t["text"], Current.themeText);
                 if (t.contains("accent")) Current.themeAccent = JsonToColor(t["accent"], Current.themeAccent);
                 if (t.contains("win")) Current.themeWin = JsonToColor(t["win"], Current.themeWin);
@@ -644,6 +646,8 @@ namespace Config {
         // Theme colors
         j["theme"]["bg"] = ColorToJson(Current.themeBg);
         j["theme"]["settings_panel"] = ColorToJson(Current.themeSettingsPanel);
+        j["theme"]["topbar"] = ColorToJson(Current.themeTopbar);
+        j["theme"]["graph_panel"] = ColorToJson(Current.themeGraphPanel);
         j["theme"]["text"] = ColorToJson(Current.themeText);
         j["theme"]["accent"] = ColorToJson(Current.themeAccent);
         j["theme"]["win"] = ColorToJson(Current.themeWin);

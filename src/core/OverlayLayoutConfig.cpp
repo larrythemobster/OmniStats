@@ -13,14 +13,14 @@ namespace OverlayLayout {
         {
             ContainerConfig c;
             c.id = "demo_tracker";
-            c.x = 1252.0f;
+            c.x = 1270.0f;
             c.y = 0.0f;
-            c.w = 228.0f;
-            c.h = 494.0f;
+            c.w = 220.0f;
+            c.h = 489.0f;
             c.widgets = {
                 DashboardLayout::WidgetId::DemoTracker,
-                DashboardLayout::WidgetId::SessionStats,
-                DashboardLayout::WidgetId::StreaksStats};
+                DashboardLayout::WidgetId::StreaksStats,
+                DashboardLayout::WidgetId::SessionStats};
             config.containers.push_back(c);
         }
 
@@ -28,8 +28,8 @@ namespace OverlayLayout {
         {
             ContainerConfig c;
             c.id = "lobby_ranks";
-            c.x = 648.0f;
-            c.y = 870.75f;
+            c.x = 743.5f;
+            c.y = 774.0f;
             c.w = 0.0f;
             c.h = 0.0f;
             c.widgets = {DashboardLayout::WidgetId::LobbyRanks};
@@ -40,7 +40,7 @@ namespace OverlayLayout {
         {
             ContainerConfig c;
             c.id = "previous_games";
-            c.x = 936.0f;
+            c.x = 427.5f;
             c.y = 0.0f;
             c.w = 316.0f;
             c.h = 415.0f;
@@ -52,10 +52,10 @@ namespace OverlayLayout {
         {
             ContainerConfig c;
             c.id = "main_stack";
-            c.x = 1480.0f;
+            c.x = 1490.0f;
             c.y = 0.0f;
-            c.w = 410.0f;
-            c.h = 0.0f;
+            c.w = 430.0f;
+            c.h = 759.0f;
             c.widgets = {
                 DashboardLayout::WidgetId::LiveRoster,
                 DashboardLayout::WidgetId::LiveMatchStats,

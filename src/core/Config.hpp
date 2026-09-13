@@ -104,13 +104,17 @@ struct ConfigData {
     int key_save_replay = VK_BACK;  // Key code for saving replays in Rocket League
 
     // Theme colors
-    ColorRGBA themeBg = {0.05f, 0.06f, 0.08f, 0.90f};
-    ColorRGBA themeSettingsPanel = {0.08f, 0.09f, 0.11f, 1.00f};
+    ColorRGBA themeBg = {0.05254244804382324f, 0.05254244804382324f, 0.05254244804382324f, 0.9843137264251709f};
+    ColorRGBA themeSettingsPanel = {0.048387110233306885f, 0.048387110233306885f, 0.048387110233306885f, 1.00f};
+    // Dashboard top bar and graph panel: shades of black, kept independent of
+    // the main background so both read as their own layer.
+    ColorRGBA themeTopbar = {0.050980392f, 0.050980392f, 0.050980392f, 1.00f};
+    ColorRGBA themeGraphPanel = {0.039215686f, 0.039215686f, 0.039215686f, 1.00f};
     ColorRGBA themeText = {0.92f, 0.94f, 0.96f, 1.00f};
-    ColorRGBA themeAccent = {1.00f, 0.00f, 0.13f, 1.00f};
-    ColorRGBA themeWin = {0.2629031836986542f, 0.85f, 0.15f, 1.00f};
+    ColorRGBA themeAccent = {0.44470369815826416f, 0.10417655110359192f, 0.10417655110359192f, 1.00f};
+    ColorRGBA themeWin = {0.09470447152853012f, 0.5524193644523621f, 0.006682485807687044f, 1.00f};
     ColorRGBA themeLoss = {1.00f, 0.012096762657165527f, 0.012096762657165527f, 1.00f};
-    ColorRGBA themeDim = {0.45f, 0.50f, 0.55f, 0.60f};
+    ColorRGBA themeDim = {1.00f, 1.00f, 1.00f, 1.00f};
     ColorRGBA themeMuted = {0.65f, 0.70f, 0.75f, 1.00f};
     ColorRGBA themeGraphLine = {0.20201940834522247f, 0.36447927355766296f, 0.7056452035903931f, 1.00f};
     ColorRGBA themeGraphBaseline = {0.913241446018219f, 0.9516128897666931f, 0.0f, 1.00f};
@@ -167,8 +171,8 @@ struct ConfigData {
     // the post-match summary. -1 keeps the legacy centered placement.
     float session_view_x = 439.0f;
     float session_view_y = 2.2f;
-    float match_summary_x = -1.0f;
-    float match_summary_y = -1.0f;
+    float match_summary_x = 1496.0f;
+    float match_summary_y = 677.2f;
 
     int overlay_fps_cap = 60;
     bool vsync = false;

@@ -257,7 +257,7 @@ div.value { display: block; }
 }
 .lobby-rank-header { min-height: 22dp; font-size: 9dp; font-weight: 700; letter-spacing: 0.3dp; color: #8993a2; }
 .lobby-rank-header .player-name { display: flex; align-items: center; }
-.rank-icon { width: 30dp; height: 20dp; margin-right: 5dp; }
+.rank-icon { width: 39dp; height: 26dp; margin-right: 5dp; }
 
 .lobby-rank-heading { display: block; width: 100%; text-align: center; }
 .lobby-rank-header .player-name .lobby-rank-heading { text-align: left; }
@@ -285,8 +285,8 @@ div.value { display: block; }
     bottom: 2dp;
     cursor: resize;
     background-color: #ffffff22;
-    border-right: 2dp #8f99a888;
-    border-bottom: 2dp #8f99a888;
+    border-right: 2dp #94949488;
+    border-bottom: 2dp #94949488;
     border-bottom-right-radius: 6dp;
 }
 .overlay-edit .overlay-resize {
@@ -374,8 +374,8 @@ div.value { display: block; }
 .dashboard-topbar {
     height: 34dp;
     padding: 3dp 10dp;
-    background-color: #10131a;
-    border-bottom: 1dp #2b303d;
+    background-color: #0d0d0d;
+    border-bottom: 1dp #242424;
     display: flex;
     flex-direction: row;
     align-items: center;
@@ -575,7 +575,7 @@ button.window-control.danger:hover {
     height: 7dp;
     border: 1dp #c8d0dc;
     border-radius: 1dp;
-    background-color: #10131a;
+    background-color: #0d0d0d;
 }
 .win-icon-close {
     display: inline-block;
@@ -709,8 +709,8 @@ button:disabled { color: #606978; background-color: #161920; border-color: #2429
     border-top: 1dp #20253044;
 }
 .setting-info { display: flex; flex-direction: column; justify-content: center; flex-grow: 1; min-width: 0; padding-right: 16dp; }
-.setting-name { display: block; color: #edf1f6; font-size: 12dp; font-weight: 600; line-height: 1.25; }
-.setting-help { display: block; color: #747e8c; font-size: 10.5dp; line-height: 1.35; margin-top: 2dp; }
+.setting-name { display: block; color: #f0f0f0; font-size: 12dp; font-weight: 600; line-height: 1.25; }
+.setting-help { display: block; color: #7d7d7d; font-size: 10.5dp; line-height: 1.35; margin-top: 2dp; }
 .settings-page select { min-width: 155dp; max-width: 270dp; font-size: 11.5dp; height: 26dp; }
 .settings-page input.text, .settings-page input.password { min-width: 190dp; max-width: 320dp; font-size: 11.5dp; height: 26dp; }
 .settings-page button, .settings-page .button { font-size: 11.5dp; }
@@ -936,7 +936,7 @@ scrollbarcorner { background-color: #0b0e13aa; }
 .color-range { flex-grow: 1; width: auto; }
 .color-channel-value { width: 30dp; text-align: right; color: #9da6b3; }
 
-.graph-wrap { position: relative; height: 220dp; background-color: #0d1016; border: 1dp #242a35; border-radius: 6dp; overflow: hidden; }
+.graph-wrap { position: relative; height: 220dp; background-color: #0a0a0a; border: 1dp #242424; border-radius: 6dp; overflow: hidden; }
 .graph-empty { min-height: 150dp; display: flex; flex-direction: column; justify-content: center; gap: 4dp; padding: 0 8dp; }
 .graph-gridline { position: absolute; height: 1dp; background-color: #69728055; }
 .graph-label { position: absolute; color: #697280; font-family: "JetBrains Mono"; font-size: 10dp; }
@@ -1009,8 +1009,8 @@ scrollbarcorner { background-color: #0b0e13aa; }
 /* Native rank badge parity: tier crest + four-step Rocket League division stack. */
 .rank-badge { display: flex; flex-direction: row; align-items: center; flex-shrink: 0; margin-right: 8dp; min-width: 45dp; }
 .rank-badge .rank-icon { margin-right: 3dp; }
-.division-stack { width: 11dp; display: flex; flex-direction: column; justify-content: center; gap: 1dp; }
-.division-pill { width: 11dp; height: 3dp; }
+.division-stack { width: 14dp; display: flex; flex-direction: column; justify-content: center; gap: 1dp; }
+.division-pill { width: 14dp; height: 4dp; }
 .tooltip-host { position: relative; }
 .tooltip-bubble {
     display: none;
