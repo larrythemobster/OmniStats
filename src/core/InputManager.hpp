@@ -3,6 +3,8 @@
 #include <memory>
 #include <atomic>
 #include <thread>
+#include <condition_variable>
+#include <mutex>
 #include "SessionState.hpp"
 
 #ifndef OMNISTATS_ENABLE_LOW_LEVEL_HOOK
@@ -45,6 +47,8 @@ class InputManager {
     std::shared_ptr<SessionState> m_state;
     std::jthread m_keyboardThread;
     std::jthread m_gamepadThread;
+    std::mutex m_gamepadWakeMutex;
+    std::condition_variable m_gamepadWakeCv;
     std::atomic<bool> m_isRunning{false};
     std::atomic<DWORD> m_keyboardThreadId{0};
     std::atomic<int> m_keyOverlay{VK_TAB};

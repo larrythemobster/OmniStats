@@ -32,7 +32,11 @@ namespace {
         }
 
         char windowTitle[256] = {0};
-        if (GetWindowTextA(foreground, windowTitle, sizeof(windowTitle)) <= 0) {
+        DWORD_PTR textLength = 0;
+        if (SendMessageTimeoutA(foreground, WM_GETTEXT, sizeof(windowTitle),
+                                reinterpret_cast<LPARAM>(windowTitle),
+                                SMTO_ABORTIFHUNG | SMTO_BLOCK, 50, &textLength) == 0 ||
+            textLength == 0) {
             return false;
         }
 
@@ -229,21 +233,36 @@ void InputManager::Start() {
 
 void InputManager::Stop() {
     m_isRunning = false;
+    m_gamepadWakeCv.notify_all();
+
     DWORD keyboardThreadId = m_keyboardThreadId.load(std::memory_order_acquire);
     if (keyboardThreadId != 0) {
         PostThreadMessage(keyboardThreadId, WM_QUIT, 0, 0);
     }
-    if (m_keyboardThread.joinable())
-        m_keyboardThread.join();
+    if (m_keyboardThread.joinable()) {
+        HANDLE hThread = reinterpret_cast<HANDLE>(m_keyboardThread.native_handle());
+        if (hThread && WaitForSingleObject(hThread, 2000) != WAIT_OBJECT_0) {
+            std::cout << "[InputManager] Warning: Keyboard thread did not stop within timeout; detaching.\n";
+            m_keyboardThread.detach();
+        } else {
+            m_keyboardThread.join();
+        }
+    }
 #if OMNISTATS_ENABLE_LOW_LEVEL_HOOK
     if (m_hook) {
         UnhookWindowsHookEx(m_hook);
         m_hook = nullptr;
     }
 #endif
-    if (m_gamepadThread.joinable())
-        m_gamepadThread.join();
-
+    if (m_gamepadThread.joinable()) {
+        HANDLE hGamepad = reinterpret_cast<HANDLE>(m_gamepadThread.native_handle());
+        if (hGamepad && WaitForSingleObject(hGamepad, 2000) != WAIT_OBJECT_0) {
+            std::cout << "[InputManager] Warning: Gamepad thread did not stop within timeout; detaching.\n";
+            m_gamepadThread.detach();
+        } else {
+            m_gamepadThread.join();
+        }
+    }
     SDL_QuitSubSystem(SDL_INIT_GAMECONTROLLER | SDL_INIT_JOYSTICK);
     g_instance.store(nullptr, std::memory_order_release);
 }
@@ -823,7 +842,9 @@ void InputManager::GamepadThreadLoop() {
             }
         }
         const bool hasController = controller != nullptr || fallbackJoystick != nullptr;
-        std::this_thread::sleep_for(hasController ? std::chrono::milliseconds(16) : std::chrono::milliseconds(250));
+        const auto sleepDuration = hasController ? std::chrono::milliseconds(16) : std::chrono::milliseconds(250);
+        std::unique_lock<std::mutex> lock(m_gamepadWakeMutex);
+        m_gamepadWakeCv.wait_for(lock, sleepDuration, [this] { return !m_isRunning.load(std::memory_order_relaxed); });
     }
 
     if (controller) SDL_GameControllerClose(controller);

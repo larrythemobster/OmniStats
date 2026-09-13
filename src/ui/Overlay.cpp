@@ -1,6 +1,5 @@
 #include "Overlay.hpp"
 
-#include <SDL2/SDL.h>
 #include <chrono>
 #include <dwmapi.h>
 #include <iomanip>
@@ -248,12 +247,6 @@ void Overlay::RunLoop() {
             break;
         }
 
-        if (SDL_WasInit(SDL_INIT_GAMECONTROLLER | SDL_INIT_JOYSTICK) != 0) {
-            SDL_Event event;
-            while (SDL_PollEvent(&event)) {
-            }
-        }
-
         MSG msg{};
         while (PeekMessage(&msg, nullptr, 0U, 0U, PM_REMOVE)) {
             TranslateMessage(&msg);
@@ -306,7 +299,10 @@ void Overlay::RunLoop() {
                     char className[256]{};
                     char title[256]{};
                     GetClassNameA(fg, className, sizeof(className));
-                    GetWindowTextA(fg, title, sizeof(title));
+                    DWORD_PTR textLength = 0;
+                    SendMessageTimeoutA(fg, WM_GETTEXT, sizeof(title),
+                                        reinterpret_cast<LPARAM>(title),
+                                        SMTO_ABORTIFHUNG | SMTO_BLOCK, 50, &textLength);
                     const std::string cls(className);
                     const std::string windowTitle(title);
                     bool isRL = cls == "LaunchUnrealUWindowsClient";
