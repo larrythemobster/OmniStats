@@ -5,12 +5,15 @@
 #include <RmlUi/Core/Element.h>
 #include <RmlUi/Core/ElementDocument.h>
 #include <RmlUi/Core/ElementInstancer.h>
+#include <RmlUi/Core/ElementText.h>
 #include <RmlUi/Core/Factory.h>
+#include <RmlUi/Core/StyleSheetContainer.h>
 #include <RmlUi/Core/Elements/ElementFormControl.h>
 #include <RmlUi/Core/Event.h>
 #include <SDL2/SDL_gamecontroller.h>
 #include <algorithm>
 #include <array>
+#include <bit>
 #include <chrono>
 #include <cctype>
 #include <cstdio>
@@ -59,6 +62,34 @@ namespace {
         std::transform(value.begin(), value.end(), value.begin(), [](unsigned char c) {
             return static_cast<char>(std::tolower(c));
         });
+        return value;
+    }
+
+    constexpr uint64_t kFnvOffset = 1469598103934665603ull;
+    constexpr uint64_t kFnvPrime = 1099511628211ull;
+
+    void HashAppend(uint64_t& hash, std::string_view value) {
+        for (unsigned char c : value) {
+            hash ^= c;
+            hash *= kFnvPrime;
+        }
+        hash ^= 0xffu;
+        hash *= kFnvPrime;
+    }
+
+    void HashAppend(uint64_t& hash, uint64_t value) {
+        for (int i = 0; i < 8; ++i) {
+            hash ^= static_cast<unsigned char>((value >> (i * 8)) & 0xffu);
+            hash *= kFnvPrime;
+        }
+    }
+
+    uint64_t AvalancheHash(uint64_t value) {
+        value ^= value >> 33;
+        value *= 0xff51afd7ed558ccdull;
+        value ^= value >> 33;
+        value *= 0xc4ceb9fe1a85ec53ull;
+        value ^= value >> 33;
         return value;
     }
 
@@ -836,6 +867,15 @@ bool RmlUiController::Initialize(HWND hwnd, ID3D11Device* device, ID3D11DeviceCo
     }
     m_document->Show();
 
+    // Keep an immutable copy of the document's packaged RCSS. Theme changes are
+    // layered on top as a stylesheet, so newly created DOM automatically gets
+    // the current colors without rescanning every matching element after each
+    // SetInnerRML call.
+    if (const auto* packagedStyle = m_document->GetStyleSheetContainer()) {
+        if (auto emptyStyle = Rml::Factory::InstanceStyleSheetString("#__omnistats_theme_base__ { color: inherit; }"))
+            m_baseStyleSheet = packagedStyle->CombineStyleSheetContainer(*emptyStyle);
+    }
+
     for (const char* event : {"click", "change", "input", "mousedown", "mousemove", "mouseup"}) {
         m_context->AddEventListener(event, this);
     }
@@ -864,6 +904,7 @@ void RmlUiController::Shutdown() {
         m_context = nullptr;
         m_document = nullptr;
     }
+    m_baseStyleSheet.reset();
     if (m_rmlInitialized) {
         Rml::Shutdown();
         m_rmlInitialized = false;
@@ -897,22 +938,30 @@ void RmlUiController::Resize(int width, int height, float dpiScale) {
     // A window-mode switch changes the client size. Re-center Settings for the
     // new size instead of leaving it positioned (and clipped) for the old one.
     if (sizeChanged) {
+        m_renderDirty = true;
         m_settingsPositioned = false;
         if (m_state && m_state->ui.showMenu.load()) RebuildSettings();
     }
 }
 
 void RmlUiController::SetDpiScale(float dpiScale) {
+    const float previous = m_dpiScale;
     m_dpiScale = SanitizedScale(dpiScale);
     m_appliedUiScale = SanitizedUiScale(m_config.ui_scale);
     if (m_context) m_context->SetDensityIndependentPixelRatio(m_dpiScale * m_appliedUiScale);
+    if (m_dpiScale != previous) m_renderDirty = true;
 }
 
 bool RmlUiController::ProcessWindowMessage(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam) {
     // Losing the button (focus change or capture loss) never delivers `mouseup`,
     // so release the rebuild hold here or live updates would stay frozen.
     if (message == WM_KILLFOCUS || message == WM_CAPTURECHANGED || message == WM_LBUTTONUP) m_pointerPressed = false;
-    return RmlInputWin32::ProcessWindowMessage(m_context, hwnd, message, wParam, lParam);
+    const bool handled = RmlInputWin32::ProcessWindowMessage(m_context, hwnd, message, wParam, lParam);
+    // Hover/focus/scroll state can change RmlUi pseudo-classes without touching
+    // application data, so any input consumed by RmlUi requests a new frame.
+    if (handled || message == WM_KILLFOCUS || message == WM_SETFOCUS || message == WM_CAPTURECHANGED)
+        m_renderDirty = true;
+    return handled;
 }
 
 bool RmlUiController::ApplyMouseCursor() {
@@ -922,7 +971,45 @@ bool RmlUiController::ApplyMouseCursor() {
 void RmlUiController::Render() {
     if (!m_context) return;
     m_context->Update();
+
+    // GetNextUpdateDelay() is a delay value, not a continuously decreasing
+    // timer. Convert it to an absolute deadline immediately after Update().
+    // Without this, a finite request such as a caret blink in 0.5 seconds would
+    // be observed as "0.5" forever and the context would never be updated
+    // again unless some unrelated input/data dirtied the UI.
+    const double nextDelay = m_context->GetNextUpdateDelay();
+    const auto now = std::chrono::steady_clock::now();
+    if (nextDelay <= 0.0) {
+        m_nextRmlUpdateAt = now;
+    } else if (std::isfinite(nextDelay)) {
+        m_nextRmlUpdateAt = now + std::chrono::duration_cast<std::chrono::steady_clock::duration>(
+                                      std::chrono::duration<double>(nextDelay));
+    } else {
+        m_nextRmlUpdateAt = std::chrono::steady_clock::time_point::max();
+    }
+
+    // RmlUi emits many small geometry draws. Bind the invariant DX11 pipeline
+    // state once per UI frame instead of rebinding shaders/layout/blend/depth
+    // for every geometry handle. Per-draw buffers, constants, scissor and
+    // texture changes are still applied by the render interface.
+    m_renderInterface.BeginFrame();
     m_context->Render();
+    m_renderInterface.EndFrame();
+    m_renderDirty = false;
+}
+
+bool RmlUiController::ShouldRender() const {
+    if (!m_context) return false;
+    // Keep the last presented swap-chain image until application data/input
+    // changes or RmlUi's previously scheduled update deadline arrives. This
+    // preserves transitions, smooth scrolling and caret blinking without
+    // forcing static UI through a full Update/Render/Present every frame.
+    if (m_renderDirty) return true;
+    return std::chrono::steady_clock::now() >= m_nextRmlUpdateAt;
+}
+
+void RmlUiController::RequestRender() {
+    m_renderDirty = true;
 }
 
 bool RmlUiController::WantsInteraction() const {
@@ -934,76 +1021,86 @@ bool RmlUiController::WantsInteraction() const {
     return m_state->ui.showMenu.load() || m_state->ui.dashboardLayoutEditMode.load() ||
            m_config.second_monitor_mode || m_drag.kind != DragKind::None;
 }
-void RmlUiController::Update(const ConfigData& config) {
-    const auto sameColor = [](const ColorRGBA& a, const ColorRGBA& b) {
-        return a.r == b.r && a.g == b.g && a.b == b.b && a.a == b.a;
-    };
-    // Compare against the scale actually pushed into the RmlUi context, not the
-    // previous config: a `<select>` change writes the new value into m_config and
-    // defers the rest of its work, so a config-to-config comparison would never
-    // see the change and the context would keep rendering at the old dp ratio
-    // while all geometry was computed for the new one.
-    const bool scaleChanged = SanitizedUiScale(config.ui_scale) != m_appliedUiScale;
-    const bool themeChanged = !sameColor(config.themeBg, m_config.themeBg) ||
-                              !sameColor(config.themeSettingsPanel, m_config.themeSettingsPanel) ||
-                              !sameColor(config.themeText, m_config.themeText) ||
-                              !sameColor(config.themeAccent, m_config.themeAccent) ||
-                              !sameColor(config.themeWin, m_config.themeWin) ||
-                              !sameColor(config.themeLoss, m_config.themeLoss) ||
-                              !sameColor(config.themeDim, m_config.themeDim) ||
-                              !sameColor(config.themeMuted, m_config.themeMuted) ||
-                              !sameColor(config.themeGraphLine, m_config.themeGraphLine) ||
-                              !sameColor(config.themeGraphBaseline, m_config.themeGraphBaseline);
+void RmlUiController::Update(const ConfigData& config, bool configChanged, uint64_t configRevision) {
+    // UI event handlers apply their own targeted/structural updates immediately.
+    // The render loop observes that Config revision a few microseconds later; do
+    // not treat the same revision as a second UI invalidation and rebuild again.
+    const bool localConfigEcho = configChanged && configRevision != 0 && configRevision == m_lastLocalConfigRevision;
+    bool scaleChanged = false;
+    bool themeChanged = false;
 
-    const auto activeDragKind = m_drag.kind;
-    const std::string draggingId = m_drag.containerId;
-    float inFlightX = 0.0f, inFlightY = 0.0f, inFlightW = 0.0f, inFlightH = 0.0f;
-    bool hasInFlight = false;
-    if (activeDragKind == DragKind::OverlayMove || activeDragKind == DragKind::OverlayResize) {
-        auto it = std::find_if(m_config.overlay_layout.containers.begin(), m_config.overlay_layout.containers.end(),
-                               [&](const auto& c) { return c.id == draggingId; });
-        if (it != m_config.overlay_layout.containers.end()) {
-            inFlightX = it->x;
-            inFlightY = it->y;
-            inFlightW = it->w;
-            inFlightH = it->h;
-            hasInFlight = true;
-        }
-    }
-    // The same applies to the floating cards: their position lives in m_config
-    // while the pointer is down, and the per-frame assignment below would
-    // otherwise snap them back to the persisted value every frame.
-    const float inFlightSessionX = m_config.session_view_x;
-    const float inFlightSessionY = m_config.session_view_y;
-    const float inFlightSummaryX = m_config.match_summary_x;
-    const float inFlightSummaryY = m_config.match_summary_y;
+    if (configChanged) {
+        const auto sameColor = [](const ColorRGBA& a, const ColorRGBA& b) {
+            return a.r == b.r && a.g == b.g && a.b == b.b && a.a == b.a;
+        };
+        // Compare against the scale actually pushed into the RmlUi context, not the
+        // previous config: a `<select>` change writes the new value into m_config and
+        // defers the rest of its work, so a config-to-config comparison would never
+        // see the change and the context would keep rendering at the old dp ratio
+        // while all geometry was computed for the new one.
+        scaleChanged = SanitizedUiScale(config.ui_scale) != m_appliedUiScale;
+        themeChanged = !sameColor(config.themeBg, m_config.themeBg) ||
+                       !sameColor(config.themeSettingsPanel, m_config.themeSettingsPanel) ||
+                       !sameColor(config.themeText, m_config.themeText) ||
+                       !sameColor(config.themeAccent, m_config.themeAccent) ||
+                       !sameColor(config.themeWin, m_config.themeWin) ||
+                       !sameColor(config.themeLoss, m_config.themeLoss) ||
+                       !sameColor(config.themeDim, m_config.themeDim) ||
+                       !sameColor(config.themeMuted, m_config.themeMuted) ||
+                       !sameColor(config.themeGraphLine, m_config.themeGraphLine) ||
+                       !sameColor(config.themeGraphBaseline, m_config.themeGraphBaseline);
 
-    m_config = config;
-
-    if (hasInFlight) {
-        for (auto& c : m_config.overlay_layout.containers) {
-            if (c.id == draggingId) {
-                c.x = inFlightX;
-                c.y = inFlightY;
-                c.w = inFlightW;
-                c.h = inFlightH;
-                break;
+        const auto activeDragKind = m_drag.kind;
+        const std::string draggingId = m_drag.containerId;
+        float inFlightX = 0.0f, inFlightY = 0.0f, inFlightW = 0.0f, inFlightH = 0.0f;
+        bool hasInFlight = false;
+        if (activeDragKind == DragKind::OverlayMove || activeDragKind == DragKind::OverlayResize) {
+            auto it = std::find_if(m_config.overlay_layout.containers.begin(), m_config.overlay_layout.containers.end(),
+                                   [&](const auto& c) { return c.id == draggingId; });
+            if (it != m_config.overlay_layout.containers.end()) {
+                inFlightX = it->x;
+                inFlightY = it->y;
+                inFlightW = it->w;
+                inFlightH = it->h;
+                hasInFlight = true;
             }
         }
+        // Positions are edited live in m_config while dragging; preserve those
+        // in-flight values until the drag commits them to Config.
+        const float inFlightSessionX = m_config.session_view_x;
+        const float inFlightSessionY = m_config.session_view_y;
+        const float inFlightSummaryX = m_config.match_summary_x;
+        const float inFlightSummaryY = m_config.match_summary_y;
+
+        m_config = config;
+
+        if (hasInFlight) {
+            for (auto& c : m_config.overlay_layout.containers) {
+                if (c.id == draggingId) {
+                    c.x = inFlightX;
+                    c.y = inFlightY;
+                    c.w = inFlightW;
+                    c.h = inFlightH;
+                    break;
+                }
+            }
+        }
+        if (activeDragKind == DragKind::FloatingCard) {
+            m_config.session_view_x = inFlightSessionX;
+            m_config.session_view_y = inFlightSessionY;
+            m_config.match_summary_x = inFlightSummaryX;
+            m_config.match_summary_y = inFlightSummaryY;
+        }
     }
-    if (activeDragKind == DragKind::FloatingCard) {
-        m_config.session_view_x = inFlightSessionX;
-        m_config.session_view_y = inFlightSessionY;
-        m_config.match_summary_x = inFlightSummaryX;
-        m_config.match_summary_y = inFlightSummaryY;
-    }
+
+    const uint64_t previousGameVersion = m_lastGameVersion;
+    const uint64_t previousHistoryVersion = m_lastHistoryVersion;
     SnapshotState();
-    RefreshAsyncData();
+    const bool stateChanged = previousGameVersion != m_lastGameVersion || previousHistoryVersion != m_lastHistoryVersion;
+    if (configChanged || stateChanged) RefreshAsyncData();
+
     const bool settingsOpen = m_state && m_state->ui.showMenu.load();
     if (m_lastShowMenu && !settingsOpen) {
-        // Settings can be closed outside the RmlUi document (F5/Escape via
-        // InputManager). Treat that the same as an in-document close so no
-        // sensitive/re-entrant modal state survives into the next open.
         FinishBindCapture();
         m_showBallchasingToken = false;
         m_confirmReplayUploads = false;
@@ -1013,54 +1110,76 @@ void RmlUiController::Update(const ConfigData& config) {
         UpdateInputCapture();
     }
     if (scaleChanged) SetDpiScale(m_dpiScale);
-    if (themeChanged) UpdateThemeProperties();
-    RebuildVisibleUi(false);
+    if (themeChanged) {
+        UpdateThemeProperties();
+        RefreshThemeEditorControls();
+    }
+    RebuildVisibleUi(false, configChanged && !localConfigEcho);
 }
 
 Rml::Element* RmlUiController::Root(const char* id) const {
     return m_document ? m_document->GetElementById(id) : nullptr;
 }
 
-void RmlUiController::SetRootRml(const char* id, const std::string& rml) {
-    if (auto* root = Root(id)) {
-        const bool prev = m_rebuildingUi;
-        m_rebuildingUi = true;
-        // Overlay telemetry replaces its DOM frequently. Batch cursor writes
-        // and replay the last pointer coordinate against the new tree, matching
-        // Settings' stable hover behavior instead of flashing arrow/move.
-        m_systemInterface.BeginCursorUpdate();
-        root->SetInnerRML(rml);
-        UpdateThemeProperties();
-        if (m_hasPointerPosition)
-            m_context->ProcessMouseMove(m_lastPointerX, m_lastPointerY, 0);
-        m_systemInterface.EndCursorUpdate();
-        m_rebuildingUi = prev;
-    }
+void RmlUiController::SetElementRml(Rml::Element* element, const std::string& rml, bool replayPointer) {
+    if (!element) return;
+    m_liveElementCacheDirty = true;
+    const bool prev = m_rebuildingUi;
+    m_rebuildingUi = true;
+    m_systemInterface.BeginCursorUpdate();
+    element->SetInnerRML(rml);
+    if (replayPointer && m_hasPointerPosition && m_context)
+        m_context->ProcessMouseMove(m_lastPointerX, m_lastPointerY, 0);
+    m_systemInterface.EndCursorUpdate();
+    m_rebuildingUi = prev;
+    m_renderDirty = true;
 }
 
-bool RmlUiController::PointerOverInteractiveOverlay() const {
-    if (!m_hasPointerPosition) return false;
-
-    const auto containsPointer = [&](const char* selector) {
-        if (auto* app = Root("app")) {
-            Rml::ElementList elements;
-            app->QuerySelectorAll(elements, selector);
-            for (Rml::Element* element : elements) {
-                const float left = element->GetAbsoluteLeft();
-                const float top = element->GetAbsoluteTop();
-                if (m_lastPointerX >= left && m_lastPointerX <= left + element->GetOffsetWidth() &&
-                    m_lastPointerY >= top && m_lastPointerY <= top + element->GetOffsetHeight()) {
-                    return true;
-                }
-            }
+void RmlUiController::SetElementText(Rml::Element* element, const std::string& text) {
+    if (!element) return;
+    // Live values are rendered as a single text node. Updating that node avoids
+    // reparsing RML and replacing child DOM/geometry for every telemetry value.
+    if (element->GetNumChildren() == 1) {
+        if (auto* textElement = dynamic_cast<Rml::ElementText*>(element->GetFirstChild())) {
+            textElement->SetText(text);
+            m_renderDirty = true;
+            return;
         }
-        return false;
-    };
+    }
+    SetElementRml(element, Escape(text), false);
+}
 
-    // These live RML trees are rebuilt on telemetry updates. Replacing a hovered
-    // card destroys RmlUi's hover target, which is the cursor flash the static
-    // Settings tree does not have.
-    return containsPointer(".overlay-card.interactive") || containsPointer(".floating-card-movable");
+void RmlUiController::SetRootRml(const char* id, const std::string& rml) {
+    // Root replacement is now reserved for structural UI changes. Theme selector
+    // work is intentionally not performed here; telemetry/data refreshes update
+    // persistent child elements instead of recreating the large root tree.
+    SetElementRml(Root(id), rml, true);
+}
+
+void RmlUiController::RebuildLiveElementCache() {
+    m_liveValueElements.clear();
+    m_playerLiveStatElements.clear();
+    auto* app = Root("app");
+    if (!app) {
+        m_liveElementCacheDirty = false;
+        return;
+    }
+
+    Rml::ElementList liveValues;
+    app->GetElementsByClassName(liveValues, "live-value");
+    for (Rml::Element* element : liveValues) {
+        const std::string key = Attribute(element, "data-live-value");
+        if (!key.empty()) m_liveValueElements[key].push_back(element);
+    }
+
+    Rml::ElementList playerStats;
+    app->GetElementsByClassName(playerStats, "player-live-stats");
+    for (Rml::Element* element : playerStats) {
+        const std::string id = Attribute(element, "data-live-player-stats");
+        if (!id.empty()) m_playerLiveStatElements[id].push_back(element);
+    }
+
+    m_liveElementCacheDirty = false;
 }
 
 void RmlUiController::SnapshotState() {
@@ -1157,25 +1276,8 @@ void RmlUiController::RefreshAsyncData() {
 }
 
 void RmlUiController::UpdateThemeProperties() {
-    auto* app = Root("app");
-    if (!app) return;
+    if (!m_document || !m_baseStyleSheet) return;
 
-    // Apply the persisted OmniStats theme as ordinary local properties instead of
-    // depending on stylesheet custom-property support in any particular packaged
-    // RmlUi version. SetInnerRML replaces descendants, so SetRootRml reapplies this
-    // pass after each targeted DOM rebuild.
-    const auto setClass = [&](const char* className, const char* property, const std::string& value) {
-        Rml::ElementList elements;
-        app->GetElementsByClassName(elements, className);
-        for (Rml::Element* element : elements)
-            element->SetProperty(property, value);
-    };
-    const auto setSelector = [&](const char* selector, const char* property, const std::string& value) {
-        Rml::ElementList elements;
-        app->QuerySelectorAll(elements, selector);
-        for (Rml::Element* element : elements)
-            element->SetProperty(property, value);
-    };
     const std::string bg = CssColor(m_config.themeBg);
     const std::string panel = CssColor(m_config.themeSettingsPanel);
     const std::string text = CssColor(m_config.themeText);
@@ -1196,343 +1298,256 @@ void RmlUiController::UpdateThemeProperties() {
     const std::string accentDark = scaledColor(m_config.themeAccent, 0.28f, 0.95f);
     const std::string accentMid = scaledColor(m_config.themeAccent, 0.62f, 1.0f);
 
-    app->SetProperty("color", text);
-    setClass("card", "background-color", bg);
-    // Dashboard widgets sit one layer above the shell so each card reads as a
-    // surface instead of one long text list.
-    setClass("dashboard-shell", "background-color", scaledColor(m_config.themeBg, 0.55f, 1.0f));
-    setClass("card", "color", text);
-    setClass("card-title", "color", text);
-    setClass("value", "color", text);
-    setClass("metric-value", "color", text);
-    setClass("setting-name", "color", text);
-    setClass("debug-value", "color", text);
-    setSelector("button, .button, input.text, input.password, select", "color", text);
-    // RmlUi implements selects with generated child elements; theme those too so
-    // changing themeText does not leave the dropdown value/options at RCSS defaults.
-    setSelector("select selectvalue, select selectbox option", "color", text);
-    setClass("tooltip-bubble", "color", text);
+    // Theme overrides are compiled only when a theme value actually changes.
+    // Keeping them in the document stylesheet means structural DOM rebuilds do
+    // not need class/selector scans or local-property reapplication.
+    std::ostringstream css;
+    const auto rule = [&](std::string_view selectors, std::string_view property, const std::string& value) {
+        // Prefix theme rules with the document id so the dynamic theme has the
+        // same practical precedence as the old local SetProperty() pass, even
+        // over more-specific packaged hover/state rules.
+        size_t begin = 0;
+        bool first = true;
+        while (begin < selectors.size()) {
+            const size_t comma = selectors.find(',', begin);
+            const size_t end = comma == std::string_view::npos ? selectors.size() : comma;
+            std::string_view selector = selectors.substr(begin, end - begin);
+            while (!selector.empty() && selector.front() == ' ')
+                selector.remove_prefix(1);
+            while (!selector.empty() && selector.back() == ' ')
+                selector.remove_suffix(1);
+            if (!first) css << ", ";
+            if (selector == "#app")
+                css << selector;
+            else
+                css << "#app " << selector;
+            first = false;
+            if (comma == std::string_view::npos) break;
+            begin = comma + 1;
+        }
+        css << " { " << property << ": " << value << "; }\n";
+    };
 
-    setClass("settings-window", "background-color", panel);
-    setClass("settings-header", "background-color", scaledColor(m_config.themeSettingsPanel, 1.08f, 1.0f));
-    setClass("settings-nav", "background-color", scaledColor(m_config.themeSettingsPanel, 0.90f, 1.0f));
-    setClass("settings-page", "background-color", panel);
-    setClass("settings-footer", "background-color", scaledColor(m_config.themeSettingsPanel, 1.05f, 1.0f));
-    setClass("update-dialog", "background-color", panel);
+    rule("#app", "color", text);
+    rule(".card", "background-color", bg);
+    rule(".dashboard-shell", "background-color", scaledColor(m_config.themeBg, 0.55f, 1.0f));
+    for (const char* selector : {".card", ".card-title", ".value", ".metric-value", ".setting-name", ".debug-value",
+                                 "button, .button, input.text, input.password, select", "select selectvalue, select selectbox option",
+                                 ".tooltip-bubble"})
+        rule(selector, "color", text);
 
-    setClass("card-subtitle", "color", muted);
-    setClass("stat-section-title", "color", muted);
-    setClass("label", "color", muted);
-    setClass("metric-label", "color", muted);
-    setClass("muted", "color", muted);
-    setClass("badge", "color", muted);
-    setClass("running-indicator", "color", muted);
-    setClass("roster-footer", "color", muted);
-    setClass("rank-table-row", "color", muted);
-    setClass("debug-label", "color", muted);
-    setClass("match-mode", "color", muted);
-    setClass("dim", "color", dim);
-    setClass("lobby-rank-matches", "color", dim);
-    setClass("dashboard-edit-zone", "color", dim);
-    setClass("setting-help", "color", dim);
-    setClass("match-time", "color", dim);
-    setClass("lobby-rank-header", "color", muted);
-    setClass("lobby-rank-header", "background-color", scaledColor(m_config.themeBg, 0.70f, 0.80f));
-    setClass("accent", "color", accent);
-    setClass("setting-title", "color", accent);
-    setSelector(".badge.accent", "color", accent);
-    setSelector(".overlay-edit", "border-color", accent);
-    setSelector(".dashboard-widget.dragging", "border-color", accent);
-    setSelector(".settings-nav button.active", "border-color", accent);
-    setSelector(".settings-nav button.active", "background-color", accentDark);
-    setSelector("button.primary, .button.primary", "background-color", accentMid);
-    setSelector("button.primary, .button.primary", "border-color", accent);
-    setSelector("input.text:focus, input.password:focus, select:focus, select:checked", "border-color", accent);
-    setSelector("input.checkbox:checked", "border-color", accent);
-    setSelector("input.checkbox:checked", "background-color", accentDark);
-    setSelector("input.range sliderprogress", "background-color", accentMid);
-    setSelector("input.range sliderbar", "border-color", accent);
-    setSelector("scrollbarvertical sliderbar:active, scrollbarhorizontal sliderbar:active", "background-color", accent);
-    setSelector("select selectbox option:checked", "background-color", accentDark);
+    rule(".settings-window", "background-color", panel);
+    rule(".settings-header", "background-color", scaledColor(m_config.themeSettingsPanel, 1.08f, 1.0f));
+    rule(".settings-nav", "background-color", scaledColor(m_config.themeSettingsPanel, 0.90f, 1.0f));
+    rule(".settings-page", "background-color", panel);
+    rule(".settings-footer", "background-color", scaledColor(m_config.themeSettingsPanel, 1.05f, 1.0f));
+    rule(".update-dialog", "background-color", panel);
 
-    setClass("win", "color", win);
-    setSelector(".badge.win", "color", win);
-    setClass("loss", "color", loss);
-    setSelector(".badge.loss", "color", loss);
-    setClass("match-win", "color", win);
-    setClass("match-loss", "color", loss);
-    // `.match-mode` and `.match-time` carry their own muted/dim colors, so the
-    // win/loss result color has to be pushed onto them explicitly for the whole
-    // history line to read as one result.
-    setSelector(".match-win .match-mode, .match-win .match-time", "color", win);
-    setSelector(".match-loss .match-mode, .match-loss .match-time", "color", loss);
+    for (const char* selector : {".card-subtitle", ".stat-section-title", ".label", ".metric-label", ".muted", ".badge",
+                                 ".running-indicator", ".roster-footer", ".rank-table-row", ".debug-label", ".match-mode",
+                                 ".lobby-rank-header"})
+        rule(selector, "color", muted);
+    for (const char* selector : {".dim", ".lobby-rank-matches", ".dashboard-edit-zone", ".setting-help", ".match-time"})
+        rule(selector, "color", dim);
+    rule(".lobby-rank-header", "background-color", scaledColor(m_config.themeBg, 0.70f, 0.80f));
+    for (const char* selector : {".accent", ".setting-title", ".badge.accent"})
+        rule(selector, "color", accent);
+    rule(".overlay-edit", "border-color", accent);
+    rule(".dashboard-widget.dragging", "border-color", accent);
+    rule(".settings-nav button.active", "border-color", accent);
+    rule(".settings-nav button.active", "background-color", accentDark);
+    rule("button.primary, .button.primary", "background-color", accentMid);
+    rule("button.primary, .button.primary", "border-color", accent);
+    rule("input.text:focus, input.password:focus, select:focus, select:checked", "border-color", accent);
+    rule("input.checkbox:checked", "border-color", accent);
+    rule("input.checkbox:checked", "background-color", accentDark);
+    rule("input.range sliderprogress", "background-color", accentMid);
+    rule("input.range sliderbar", "border-color", accent);
+    rule("scrollbarvertical sliderbar:active, scrollbarhorizontal sliderbar:active", "background-color", accent);
+    rule("select selectbox option:checked", "background-color", accentDark);
 
-    // Platform identity colors are brand colors, not theme colors. They are
-    // applied last because the passes above overwrite `.badge` and `.label`.
+    for (const char* selector : {".win", ".badge.win", ".match-win", ".match-win .match-mode", ".match-win .match-time"})
+        rule(selector, "color", win);
+    for (const char* selector : {".loss", ".badge.loss", ".match-loss", ".match-loss .match-mode", ".match-loss .match-time"})
+        rule(selector, "color", loss);
+
     for (const auto& swatch : kPlatformPalette) {
         const std::string selector = std::string(".") + swatch.className;
         const std::string color = swatch.color;
-        setSelector(selector.c_str(), "color", color);
-        setSelector((".badge" + selector).c_str(), "border-color", color + "66");
-        setSelector((".badge" + selector).c_str(), "background-color", color + "1f");
+        rule(selector, "color", color);
+        rule(".badge" + selector, "border-color", color + "66");
+        rule(".badge" + selector, "background-color", color + "1f");
     }
 
-    setClass("graph-line", "background-color", graph);
-    setClass("graph-polyline", "color", graph);
-    setClass("graph-point", "background-color", graph);
-    setClass("graph-point-halo", "background-color", graph);
-    setSelector(".graph-line.baseline", "background-color", baseline);
-    setSelector(".graph-point.win, .graph-point-halo.win", "background-color", win);
-    setSelector(".graph-point.loss, .graph-point-halo.loss", "background-color", loss);
-    setSelector(".graph-point.neutral, .graph-point-halo.neutral", "background-color", muted);
-    setSelector(".graph-point.estimated", "background-color", "transparent");
-    setSelector(".graph-point.estimated", "border-color", text);
+    rule(".graph-line", "background-color", graph);
+    rule(".graph-polyline", "color", graph);
+    rule(".graph-point", "background-color", graph);
+    rule(".graph-point-halo", "background-color", graph);
+    rule(".graph-line.baseline", "background-color", baseline);
+    rule(".graph-point.win, .graph-point-halo.win", "background-color", win);
+    rule(".graph-point.loss, .graph-point-halo.loss", "background-color", loss);
+    rule(".graph-point.neutral, .graph-point-halo.neutral", "background-color", muted);
+    rule(".graph-point.estimated", "background-color", std::string("transparent"));
+    rule(".graph-point.estimated", "border-color", text);
+
+    auto themeStyle = Rml::Factory::InstanceStyleSheetString(css.str());
+    if (!themeStyle) return;
+    auto combined = m_baseStyleSheet->CombineStyleSheetContainer(*themeStyle);
+    if (combined) {
+        m_document->SetStyleSheetContainer(std::move(combined));
+        m_renderDirty = true;
+    }
 }
 
-void RmlUiController::RebuildVisibleUi(bool force) {
+void RmlUiController::RebuildVisibleUi(bool force, bool configChanged) {
     if (m_rebuildingUi) return;
-    if (m_drag.kind != DragKind::None) return;
-    // RmlUi only emits `click` when the element that received `mousedown` is
-    // still the hovered element on `mouseup`. Live telemetry used to replace the
-    // overlay DOM between those two events, which silently swallowed every
-    // click on overlay controls (toolbox, widget remove buttons).
-    if (m_pointerPressed && !force) return;
-    // Keep this fingerprint complete for any configuration value that changes
-    // rendered RML or conditional control state. Live-edited text/theme values
-    // are intentionally excluded so an `input` event never replaces the
-    // focused text control on the following frame. Their committed `change`
-    // handlers force a rebuild, and theme colors have a targeted style path.
-    std::ostringstream fp;
-    fp << std::setprecision(9)
-       << m_config.require_rl_focus << '|' << m_config.second_monitor_mode << '|'
-       << m_config.second_monitor_show_roster << '|' << m_config.second_monitor_show_session << '|'
-       << m_config.show_match_summary << '|' << m_config.show_running_indicator << '|'
-       << m_config.reset_session_on_close << '|' << m_config.run_on_startup << '|'
-       << m_config.check_for_updates << '|' << m_config.enable_auto_updates << '|'
-       << m_config.last_primary_id << '|';
-    for (const auto& id : m_config.known_primary_ids)
-        fp << id << ',';
-    fp << '|'
-       << m_config.show_session_record << '|'
-       << m_config.show_session_goals << '|' << m_config.show_session_saves << '|'
-       << m_config.show_session_demos << '|' << m_config.show_session_assists << '|'
-       << m_config.show_session_goal_participation << '|' << m_config.show_session_mmr_change << '|'
-       << m_config.show_session_boost << '|' << m_config.use_rank_icons << '|'
-       << m_config.show_lobby_ranks_overlay << '|' << m_config.show_lobby_rank_1v1 << '|'
-       << m_config.show_lobby_rank_2v2 << '|' << m_config.show_lobby_rank_3v3 << '|'
-       << m_config.show_lobby_rank_casual << '|' << m_config.show_lobby_rank_tourny << '|'
-       << m_config.show_lobby_rank_hoops << '|' << m_config.show_lobby_rank_rumble << '|'
-       << m_config.show_lobby_rank_dropshot << '|' << m_config.show_lobby_rank_snowday << '|'
-       << m_config.show_lobby_rank_heatseeker << '|' << m_config.show_account_wins_overlay << '|'
-       << m_config.show_demo_tracker_overlay << '|' << m_config.show_previous_games_summary << '|'
-       << m_config.previous_games_limit << '|' << m_config.show_streaks_stats << '|'
-       << m_config.show_longest_loss_streak << '|' << m_config.show_gamemode_breakdown << '|'
-       << m_config.show_gamemode_record_1v1 << '|' << m_config.show_gamemode_record_2v2 << '|'
-       << m_config.show_gamemode_record_3v3 << '|' << m_config.gamemode_breakdown_scope << '|'
-       << m_config.mmr_category << '|' << m_config.auto_switch_mmr_category << '|'
-       << m_config.graph_follow_current_playlist << '|' << m_config.graph_mmr_category << '|'
-       << m_config.show_extra_playlists << '|' << m_config.ui_scale << '|'
-       << m_config.imperial_units << '|' << m_config.crossbar_display_mode << '|'
-       << m_config.use_roman_numerals << '|' << m_config.auto_upload_replays << '|'
-       << m_config.ballchasing_upload_notice_accepted << '|' << m_config.ballchasing_visibility << '|'
-       << m_config.auto_save_replays << '|' << m_config.discord_rpc_enabled << '|'
-       << m_config.enable_mmr_tracking << '|' << m_config.crash_reports_enabled << '|'
-       << m_config.check_stats_api_config_on_startup << '|' << m_config.debug_logging << '|'
-       << m_config.key_overlay << '|' << m_config.key_cycle << '|' << m_config.key_expand << '|'
-       << m_config.key_session << '|' << m_config.key_menu << '|' << m_config.key_save_replay << '|'
-       << m_config.key_graph_pan_left << '|' << m_config.key_graph_pan_right << '|'
-       << m_config.gamepad_overlay << '|' << m_config.gamepad_overlay_raw << '|' << m_config.gamepad_overlay_raw_button << '|'
-       << m_config.gamepad_cycle << '|' << m_config.gamepad_cycle_raw << '|' << m_config.gamepad_cycle_raw_button << '|'
-       << m_config.gamepad_expand << '|' << m_config.gamepad_expand_raw << '|' << m_config.gamepad_expand_raw_button << '|'
-       << m_config.gamepad_session << '|' << m_config.gamepad_session_raw << '|' << m_config.gamepad_session_raw_button << '|'
-       << m_config.gamepad_menu << '|' << m_config.gamepad_menu_raw << '|' << m_config.gamepad_menu_raw_button << '|'
-       << m_config.gamepad_graph_pan_left << '|' << m_config.gamepad_graph_pan_left_raw << '|' << m_config.gamepad_graph_pan_left_raw_button << '|'
-       << m_config.gamepad_graph_pan_right << '|' << m_config.gamepad_graph_pan_right_raw << '|' << m_config.gamepad_graph_pan_right_raw_button << '|';
 
-    // Settings should not be rebuilt just because live telemetry/history or
-    // persisted overlay geometry changed. Keep a settings-specific base before
-    // layout state is appended to the general render fingerprint.
-    const std::string settingsConfigFingerprint = fp.str();
+    // A pointer release is not always delivered: switching out of second-monitor
+    // mode makes the overlay click-through mid-click, and hiding the window
+    // swallows WM_LBUTTONUP. Trust the physical button instead of waiting for a
+    // message that will never arrive, or the hold below never lifts.
+    if (m_pointerPressed && (GetAsyncKeyState(VK_LBUTTON) & 0x8000) == 0) m_pointerPressed = false;
 
-    fp << m_config.overlay_layout.version << '|' << m_config.overlay_layout.toolboxOpen << '|';
-    for (const auto& container : m_config.overlay_layout.containers) {
-        fp << container.id << ':' << container.x << ',' << container.y << ',' << container.w << ',' << container.h << '[';
-        for (auto widget : container.widgets)
-            fp << static_cast<int>(widget) << ',';
-        fp << "];";
-    }
-    fp << '|' << m_config.dashboard_layout.version << '|' << m_config.dashboard_layout.leftColumnWeight << '|';
-    for (const auto& widget : m_config.dashboard_layout.widgets) {
-        fp << static_cast<int>(widget.id) << ',' << static_cast<int>(widget.zone) << ',' << widget.order << ','
-           << widget.height << ',' << widget.collapsed << ';';
-    }
-    uint64_t dbStatsVersion = 0;
-    if (m_state) {
-        dbStatsVersion = m_state->ui.dbStatsVersion.load(std::memory_order_relaxed);
-        fp << '|' << m_state->ui.graphOffset.load(std::memory_order_relaxed);
-        fp << '|' << m_state->ui.updateChecked.load(std::memory_order_relaxed)
-           << '|' << m_state->ui.updateAvailable.load(std::memory_order_relaxed)
-           << '|' << m_state->ui.updateDownloading.load(std::memory_order_relaxed)
-           << '|' << m_state->ui.updateDownloadFailed.load(std::memory_order_relaxed)
-           << '|' << m_state->ui.controllerConnected.load(std::memory_order_relaxed)
-           << '|' << m_state->ui.controllerIsGameController.load(std::memory_order_relaxed)
-           << '|' << m_state->ui.lastKeyboardKeyPressed.load(std::memory_order_relaxed)
-           << '|' << m_state->ui.lastControllerButtonPressed.load(std::memory_order_relaxed)
-           << '|' << m_state->ui.lastRawControllerButtonPressed.load(std::memory_order_relaxed);
-        if (m_state->ui.updateAvailable.load(std::memory_order_relaxed)) {
-            std::lock_guard lock(m_state->ui.updateMutex);
-            fp << '|' << m_state->ui.updateAvailableVersion;
-        }
-        if (m_state->ui.controllerConnected.load(std::memory_order_relaxed)) {
-            std::lock_guard lock(m_state->ui.controllerDebugMutex);
-            fp << '|' << m_state->ui.controllerDebugName;
-        }
-        fp << '|' << m_state->ui.statsApiChecked.load(std::memory_order_relaxed);
-        {
-            std::lock_guard lock(m_state->ui.statsApiMutex);
-            const auto& result = m_state->ui.statsApiResult;
-            fp << '|' << static_cast<int>(result.status)
-               << '|' << result.path
-               << '|' << result.message
-               << '|' << result.expectedPort
-               << '|' << result.actualPort
-               << '|' << result.packetSendRate
-               << '|' << result.rlRunning;
-        }
-    }
-    const std::string fingerprint = fp.str();
-
-    const bool showMenu = m_state && m_state->ui.showMenu.load();
-    const bool showOverlay = m_state && m_state->ui.showOverlay.load();
-    const bool showSession = m_state && m_state->ui.showSessionView.load();
-    bool showSummary = m_state && m_state->ui.showMatchSummary.load();
-    if (showSummary && m_state && (SteadyNowMs() - m_state->ui.matchSummaryStartMs.load()) >= 30000) {
-        m_state->ui.showMatchSummary.store(false);
-        showSummary = false;
-    }
-    const bool dashboardEdit = m_state && m_state->ui.dashboardLayoutEditMode.load();
-
-    // Build a narrowly scoped Settings fingerprint. The old implementation had
-    // persistent controls; rebuilding the whole Settings DOM on every game
-    // version invalidates the hovered element and produces cursor flicker (and
-    // destroys focus while typing). Only include state that can actually alter
-    // Settings content.
-    std::ostringstream settingsFp;
-    settingsFp << settingsConfigFingerprint
-               << "|page=" << static_cast<int>(m_settingsPage)
-               << "|edit=" << dashboardEdit
-               << "|bind=" << static_cast<int>(m_bindCaptureTarget)
-               << "|showToken=" << m_showBallchasingToken
-               << "|confirmReplay=" << m_confirmReplayUploads
-               << "|confirmDelete=" << m_confirmDeleteHistory
-               << "|editColor=" << m_editColorKey
-               << "|statsPathError=" << m_statsApiPathError;
-    if (m_state) {
-        settingsFp << "|updateChecked=" << m_state->ui.updateChecked.load(std::memory_order_relaxed)
-                   << "|updateAvailable=" << m_state->ui.updateAvailable.load(std::memory_order_relaxed)
-                   << "|updateDownloading=" << m_state->ui.updateDownloading.load(std::memory_order_relaxed)
-                   << "|updateFailed=" << m_state->ui.updateDownloadFailed.load(std::memory_order_relaxed)
-                   << "|controllerConnected=" << m_state->ui.controllerConnected.load(std::memory_order_relaxed)
-                   << "|controllerMapped=" << m_state->ui.controllerIsGameController.load(std::memory_order_relaxed)
-                   << "|lastKeyboard=" << m_state->ui.lastKeyboardKeyPressed.load(std::memory_order_relaxed)
-                   << "|lastController=" << m_state->ui.lastControllerButtonPressed.load(std::memory_order_relaxed)
-                   << "|lastRawController=" << m_state->ui.lastRawControllerButtonPressed.load(std::memory_order_relaxed)
-                   << "|statsApiChecked=" << m_state->ui.statsApiChecked.load(std::memory_order_relaxed);
-        if (m_state->ui.updateAvailable.load(std::memory_order_relaxed)) {
-            std::lock_guard lock(m_state->ui.updateMutex);
-            settingsFp << "|updateVersion=" << m_state->ui.updateAvailableVersion;
-        }
-        if (m_state->ui.controllerConnected.load(std::memory_order_relaxed)) {
-            std::lock_guard lock(m_state->ui.controllerDebugMutex);
-            settingsFp << "|controllerName=" << m_state->ui.controllerDebugName;
-        }
-        {
-            std::lock_guard lock(m_state->ui.statsApiMutex);
-            const auto& result = m_state->ui.statsApiResult;
-            settingsFp << "|statsApi=" << static_cast<int>(result.status)
-                       << ',' << result.path << ',' << result.message << ','
-                       << result.expectedPort << ',' << result.actualPort << ','
-                       << result.packetSendRate << ',' << result.rlRunning;
-        }
+    // The toast is purely time-based and lives in its own leaf root, so expiring
+    // it is safe during an interaction and must not be gated behind the hold.
+    if (m_statusUntilMs && SteadyNowMs() >= m_statusUntilMs) {
+        m_statusUntilMs = 0;
+        RebuildToast();
     }
 
-    // General's identity picker and Ranks' local rank table are the only
-    // settings surfaces that depend on live roster data. Fingerprint just the
-    // identity/rank fields, not goals/saves/etc., so ordinary telemetry updates
-    // cannot replace the Settings DOM under the mouse.
-    if (m_settingsPage == SettingsPage::General || m_settingsPage == SettingsPage::Ranks) {
-        std::vector<std::string> rosterIds;
-        rosterIds.reserve(m_snap.roster.size());
-        for (const auto& [id, _] : m_snap.roster)
-            rosterIds.push_back(id);
-        std::sort(rosterIds.begin(), rosterIds.end());
-        for (const auto& id : rosterIds) {
-            const auto& player = m_snap.roster.at(id);
-            settingsFp << "|player=" << id << ',' << player.name;
-        }
-        if (m_settingsPage == SettingsPage::Ranks) {
-            const std::string effectiveId = m_snap.myPrimaryId.empty() ? m_config.last_primary_id : m_snap.myPrimaryId;
-            if (auto it = m_snap.roster.find(effectiveId); it != m_snap.roster.end()) {
-                const auto& player = it->second;
-                settingsFp << "|me=" << player.fetched << ',' << player.mmr << ',' << player.rankTier;
-                for (auto category : MmrCategories(false, m_config.show_extra_playlists)) {
-                    const std::string key = MmrCategoryToString(category);
-                    const auto mmrIt = player.playlists.find(key);
-                    const auto tierIt = player.playlistTiers.find(key);
-                    const auto matchesIt = player.playlistMatches.find(key);
-                    settingsFp << '|' << key << ':'
-                               << (mmrIt == player.playlists.end() ? 0 : mmrIt->second) << ':'
-                               << (tierIt == player.playlistTiers.end() ? std::string{} : tierIt->second) << ':'
-                               << (matchesIt == player.playlistMatches.end() ? 0 : matchesIt->second);
-                }
-            }
-        }
-    }
-    const std::string settingsFingerprint = settingsFp.str();
-    const bool settingsDirty = force || (showMenu && !m_lastShowMenu) || m_lastSettingsFingerprint != settingsFingerprint;
-
-    const bool showGraphView = m_state && m_state->ui.showGraphView.load();
-    const bool h2hExpanded = m_state && m_state->ui.h2hExpanded.load();
-    const bool showLifetimeGraph = m_state && m_state->history.showLifetimeGraph.load();
-    const int graphOffset = m_state ? m_state->ui.graphOffset.load() : 0;
-    const MmrCategory rosterCategory = m_state ? m_state->ui.rosterMmrCategory.load() : MmrCategory::Best;
-    const MmrCategory graphCategory = m_state ? m_state->ui.graphMmrCategory.load() : MmrCategory::Best;
-    const bool dirtyState = force || m_lastRenderedGameVersion != m_lastGameVersion || m_lastRenderedHistoryVersion != m_lastHistoryVersion ||
-                            m_lastRenderedDbStatsVersion != dbStatsVersion ||
-                            m_lastShowMenu != showMenu || m_lastShowOverlay != showOverlay || m_lastShowSessionView != showSession ||
-                            m_lastShowMatchSummary != showSummary || m_lastSecondMonitor != m_config.second_monitor_mode ||
-                            m_lastDashboardEditMode != dashboardEdit || m_lastShowGraphView != showGraphView || m_lastH2hExpanded != h2hExpanded ||
-                            m_lastShowLifetimeGraph != showLifetimeGraph || m_lastGraphOffset != graphOffset ||
-                            m_lastRosterMmrCategory != rosterCategory || m_lastGraphMmrCategory != graphCategory ||
-                            m_lastConfigFingerprint != fingerprint;
-
-    // Settings remains stable because its DOM only rebuilds when its own input
-    // changes. Apply the same rule to a live overlay while the cursor is on one
-    // of its interactive cards. We leave the render fingerprint untouched, so
-    // telemetry catches up immediately when the cursor leaves.
-    const bool deferOverlayRefresh = dirtyState && !force && showMenu && !m_config.second_monitor_mode &&
-                                     PointerOverInteractiveOverlay();
-    if (!dirtyState && !settingsDirty) {
-        if (m_statusUntilMs && SteadyNowMs() >= m_statusUntilMs) {
-            m_statusUntilMs = 0;
-            RebuildToast();
-        }
+    // Do not replace DOM while a pointer target is active, but keep safe leaf
+    // telemetry flowing. This preserves drag/click stability without freezing
+    // live counters for the entire interaction. Structural versions remain
+    // pending and are reconciled as soon as the interaction ends.
+    if (m_drag.kind != DragKind::None || (m_pointerPressed && !force)) {
+        RefreshLiveUi(false, false);
         return;
     }
 
-    if (dirtyState && !deferOverlayRefresh) {
+    const bool showMenu = m_state && m_state->ui.showMenu.load(std::memory_order_relaxed);
+    const bool showOverlay = m_state && m_state->ui.showOverlay.load(std::memory_order_relaxed);
+    const bool showSession = m_state && m_state->ui.showSessionView.load(std::memory_order_relaxed);
+    bool showSummary = m_state && m_state->ui.showMatchSummary.load(std::memory_order_relaxed);
+    if (showSummary && m_state && (SteadyNowMs() - m_state->ui.matchSummaryStartMs.load(std::memory_order_relaxed)) >= 30000) {
+        m_state->ui.showMatchSummary.store(false, std::memory_order_relaxed);
+        showSummary = false;
+    }
+    const bool dashboardEdit = m_state && m_state->ui.dashboardLayoutEditMode.load(std::memory_order_relaxed);
+    const bool showGraphView = m_state && m_state->ui.showGraphView.load(std::memory_order_relaxed);
+    const bool h2hExpanded = m_state && m_state->ui.h2hExpanded.load(std::memory_order_relaxed);
+
+    // Runtime state that changes the dashboard/overlay structure but is not part
+    // of Config. Keep this intentionally tiny; telemetry versions do not belong
+    // here and must never invalidate a large root. Hash it directly so the 10 Hz
+    // reconciliation path does not allocate/build fingerprint strings.
+    uint64_t runtimeStructuralHash = kFnvOffset;
+    HashAppend(runtimeStructuralHash, static_cast<uint64_t>(showMenu));
+    HashAppend(runtimeStructuralHash, static_cast<uint64_t>(showOverlay));
+    HashAppend(runtimeStructuralHash, static_cast<uint64_t>(showSession));
+    HashAppend(runtimeStructuralHash, static_cast<uint64_t>(showSummary));
+    HashAppend(runtimeStructuralHash, static_cast<uint64_t>(dashboardEdit));
+    HashAppend(runtimeStructuralHash, static_cast<uint64_t>(showGraphView));
+    HashAppend(runtimeStructuralHash, static_cast<uint64_t>(h2hExpanded));
+    HashAppend(runtimeStructuralHash, static_cast<uint64_t>(m_snap.inMatch));
+    HashAppend(runtimeStructuralHash, static_cast<uint64_t>(m_config.second_monitor_mode));
+    if (m_state && m_config.second_monitor_mode) {
+        const bool updateAvailable = m_state->ui.updateAvailable.load(std::memory_order_relaxed);
+        HashAppend(runtimeStructuralHash, static_cast<uint64_t>(updateAvailable));
+        HashAppend(runtimeStructuralHash, static_cast<uint64_t>(m_state->ui.updateDownloading.load(std::memory_order_relaxed)));
+        HashAppend(runtimeStructuralHash, static_cast<uint64_t>(m_state->ui.updateDownloadFailed.load(std::memory_order_relaxed)));
+        if (updateAvailable) {
+            std::lock_guard lock(m_state->ui.updateMutex);
+            HashAppend(runtimeStructuralHash, m_state->ui.updateAvailableVersion);
+        }
+    }
+
+    // Keep an externally-observable value for tests/diagnostics, but materialize
+    // its string only when the underlying hash changes.
+    uint64_t invalidationHash = runtimeStructuralHash;
+    if (m_state) {
+        HashAppend(invalidationHash, static_cast<uint64_t>(m_state->ui.statsApiChecked.load(std::memory_order_relaxed)));
+        std::lock_guard lock(m_state->ui.statsApiMutex);
+        const auto& result = m_state->ui.statsApiResult;
+        HashAppend(invalidationHash, static_cast<uint64_t>(result.status));
+        HashAppend(invalidationHash, result.path);
+        HashAppend(invalidationHash, result.message);
+        HashAppend(invalidationHash, static_cast<uint64_t>(static_cast<int64_t>(result.expectedPort)));
+        HashAppend(invalidationHash, static_cast<uint64_t>(static_cast<int64_t>(result.actualPort)));
+        HashAppend(invalidationHash, static_cast<uint64_t>(std::bit_cast<uint32_t>(result.packetSendRate)));
+        HashAppend(invalidationHash, static_cast<uint64_t>(result.rlRunning));
+    }
+    if (m_lastConfigHash != invalidationHash) {
+        m_lastConfigHash = invalidationHash;
+        m_lastConfigFingerprint = std::to_string(invalidationHash);
+    }
+
+    // Config is revision-gated by Overlay. Build the larger render-config
+    // fingerprint only when a config commit actually occurred. Theme colors,
+    // vsync and the FPS cap are intentionally excluded: they do not change DOM
+    // structure and must not recreate the overlay/dashboard roots.
+    bool renderConfigChanged = force;
+    if (force || configChanged) {
+        std::ostringstream fp;
+        fp << std::setprecision(9)
+           << m_config.require_rl_focus << '|' << m_config.second_monitor_mode << '|'
+           << m_config.second_monitor_show_roster << '|' << m_config.second_monitor_show_session << '|'
+           << m_config.show_match_summary << '|' << m_config.show_running_indicator << '|'
+           << m_config.enable_auto_updates << '|'
+           << m_config.last_primary_id << '|'
+           << m_config.show_session_record << '|' << m_config.show_session_goals << '|'
+           << m_config.show_session_saves << '|' << m_config.show_session_demos << '|'
+           << m_config.show_session_assists << '|' << m_config.show_session_goal_participation << '|'
+           << m_config.show_session_mmr_change << '|' << m_config.show_session_boost << '|'
+           << m_config.use_rank_icons << '|' << m_config.show_lobby_ranks_overlay << '|'
+           << m_config.show_lobby_rank_1v1 << '|' << m_config.show_lobby_rank_2v2 << '|'
+           << m_config.show_lobby_rank_3v3 << '|' << m_config.show_lobby_rank_casual << '|'
+           << m_config.show_lobby_rank_tourny << '|' << m_config.show_lobby_rank_hoops << '|'
+           << m_config.show_lobby_rank_rumble << '|' << m_config.show_lobby_rank_dropshot << '|'
+           << m_config.show_lobby_rank_snowday << '|' << m_config.show_lobby_rank_heatseeker << '|'
+           << m_config.show_account_wins_overlay << '|' << m_config.show_demo_tracker_overlay << '|'
+           << m_config.show_previous_games_summary << '|' << m_config.previous_games_limit << '|'
+           << m_config.show_streaks_stats << '|' << m_config.show_longest_loss_streak << '|'
+           << m_config.show_gamemode_breakdown << '|' << m_config.show_gamemode_record_1v1 << '|'
+           << m_config.show_gamemode_record_2v2 << '|' << m_config.show_gamemode_record_3v3 << '|'
+           << m_config.gamemode_breakdown_scope << '|' << m_config.mmr_category << '|'
+           << m_config.auto_switch_mmr_category << '|' << m_config.graph_follow_current_playlist << '|'
+           << m_config.graph_mmr_category << '|' << m_config.show_extra_playlists << '|'
+           << m_config.ui_scale << '|' << m_config.imperial_units << '|' << m_config.crossbar_display_mode << '|'
+           << m_config.use_roman_numerals << '|' << m_config.key_cycle << '|' << m_config.key_expand << '|'
+           << m_config.key_session << '|';
+        fp << m_config.overlay_layout.version << '|' << m_config.overlay_layout.toolboxOpen << '|';
+        for (const auto& container : m_config.overlay_layout.containers) {
+            fp << container.id << ':' << container.x << ',' << container.y << ',' << container.w << ',' << container.h << '[';
+            for (auto widget : container.widgets)
+                fp << static_cast<int>(widget) << ',';
+            fp << "];";
+        }
+        fp << '|' << m_config.dashboard_layout.version << '|' << m_config.dashboard_layout.leftColumnWeight << '|';
+        for (const auto& widget : m_config.dashboard_layout.widgets)
+            fp << static_cast<int>(widget.id) << ',' << static_cast<int>(widget.zone) << ',' << widget.order << ','
+               << widget.height << ',' << widget.collapsed << ';';
+
+        const std::string renderConfigFingerprint = fp.str();
+        renderConfigChanged = force || m_lastRenderConfigFingerprint != renderConfigFingerprint;
+        m_lastRenderConfigFingerprint = renderConfigFingerprint;
+    }
+
+    const bool modeChanged = m_lastSecondMonitor != m_config.second_monitor_mode;
+    const bool structuralDirty = force || renderConfigChanged || modeChanged ||
+                                 m_lastRuntimeStructuralHash != runtimeStructuralHash;
+
+    bool rebuiltMainStructure = false;
+    if (structuralDirty) {
         if (m_config.second_monitor_mode) {
-            SetRootRml("overlay-root", "");
+            if (modeChanged || force) SetRootRml("overlay-root", "");
             RebuildDashboard();
         } else {
-            SetRootRml("dashboard-root", "");
+            if (modeChanged || force) SetRootRml("dashboard-root", "");
             RebuildOverlay();
         }
         RebuildToast();
+        rebuiltMainStructure = true;
 
-        m_lastRenderedGameVersion = m_lastGameVersion;
-        m_lastRenderedHistoryVersion = m_lastHistoryVersion;
-        m_lastRenderedDbStatsVersion = dbStatsVersion;
         m_lastShowOverlay = showOverlay;
         m_lastShowSessionView = showSession;
         m_lastShowMatchSummary = showSummary;
@@ -1540,21 +1555,446 @@ void RmlUiController::RebuildVisibleUi(bool force) {
         m_lastDashboardEditMode = dashboardEdit;
         m_lastShowGraphView = showGraphView;
         m_lastH2hExpanded = h2hExpanded;
+        m_lastInMatch = m_snap.inMatch;
+        m_lastRuntimeStructuralHash = runtimeStructuralHash;
+    }
+
+    // Settings has its own narrow invalidation path. It is never tied to
+    // game.version, match counters, or the dashboard render cadence.
+    if (showMenu) {
+        uint64_t settingsHash = kFnvOffset;
+        HashAppend(settingsHash, static_cast<uint64_t>(m_settingsPage));
+        HashAppend(settingsHash, static_cast<uint64_t>(m_bindCaptureTarget));
+        HashAppend(settingsHash, static_cast<uint64_t>(m_showBallchasingToken));
+        HashAppend(settingsHash, static_cast<uint64_t>(m_confirmReplayUploads));
+        HashAppend(settingsHash, static_cast<uint64_t>(m_confirmDeleteHistory));
+        HashAppend(settingsHash, m_editColorKey);
+        HashAppend(settingsHash, m_statsApiPathError);
+        if (m_state) {
+            HashAppend(settingsHash, static_cast<uint64_t>(m_state->ui.updateChecked.load(std::memory_order_relaxed)));
+            const bool updateAvailable = m_state->ui.updateAvailable.load(std::memory_order_relaxed);
+            HashAppend(settingsHash, static_cast<uint64_t>(updateAvailable));
+            HashAppend(settingsHash, static_cast<uint64_t>(m_state->ui.updateDownloading.load(std::memory_order_relaxed)));
+            HashAppend(settingsHash, static_cast<uint64_t>(m_state->ui.updateDownloadFailed.load(std::memory_order_relaxed)));
+            const bool controllerConnected = m_state->ui.controllerConnected.load(std::memory_order_relaxed);
+            HashAppend(settingsHash, static_cast<uint64_t>(controllerConnected));
+            HashAppend(settingsHash, static_cast<uint64_t>(m_state->ui.controllerIsGameController.load(std::memory_order_relaxed)));
+            HashAppend(settingsHash, static_cast<uint64_t>(static_cast<int64_t>(m_state->ui.lastKeyboardKeyPressed.load(std::memory_order_relaxed))));
+            HashAppend(settingsHash, static_cast<uint64_t>(static_cast<int64_t>(m_state->ui.lastControllerButtonPressed.load(std::memory_order_relaxed))));
+            HashAppend(settingsHash, static_cast<uint64_t>(static_cast<int64_t>(m_state->ui.lastRawControllerButtonPressed.load(std::memory_order_relaxed))));
+            HashAppend(settingsHash, static_cast<uint64_t>(m_state->ui.statsApiChecked.load(std::memory_order_relaxed)));
+            if (updateAvailable) {
+                std::lock_guard lock(m_state->ui.updateMutex);
+                HashAppend(settingsHash, m_state->ui.updateAvailableVersion);
+            }
+            if (controllerConnected) {
+                std::lock_guard lock(m_state->ui.controllerDebugMutex);
+                HashAppend(settingsHash, m_state->ui.controllerDebugName);
+            }
+            {
+                std::lock_guard lock(m_state->ui.statsApiMutex);
+                const auto& result = m_state->ui.statsApiResult;
+                HashAppend(settingsHash, static_cast<uint64_t>(result.status));
+                HashAppend(settingsHash, result.path);
+                HashAppend(settingsHash, result.message);
+                HashAppend(settingsHash, static_cast<uint64_t>(static_cast<int64_t>(result.expectedPort)));
+                HashAppend(settingsHash, static_cast<uint64_t>(static_cast<int64_t>(result.actualPort)));
+                HashAppend(settingsHash, static_cast<uint64_t>(std::bit_cast<uint32_t>(result.packetSendRate)));
+                HashAppend(settingsHash, static_cast<uint64_t>(result.rlRunning));
+            }
+        }
+        if (m_settingsPage == SettingsPage::General || m_settingsPage == SettingsPage::Ranks) {
+            // game.version also advances for ordinary match counters. Hash only
+            // the identity/rank fields rendered by these settings pages, without
+            // sorting IDs or constructing a large temporary fingerprint string.
+            if (force || configChanged || !m_hasSettingsRosterHash ||
+                m_lastSettingsRosterGameVersion != m_lastGameVersion ||
+                m_lastSettingsRosterPage != m_settingsPage) {
+                uint64_t rosterHash = kFnvOffset;
+                HashAppend(rosterHash, static_cast<uint64_t>(m_settingsPage));
+                HashAppend(rosterHash, static_cast<uint64_t>(m_snap.roster.size()));
+                uint64_t membersHash = 0;
+                for (const auto& [id, player] : m_snap.roster) {
+                    uint64_t playerHash = kFnvOffset;
+                    HashAppend(playerHash, id);
+                    HashAppend(playerHash, player.name);
+                    HashAppend(playerHash, static_cast<uint64_t>(player.fetched));
+                    HashAppend(playerHash, static_cast<uint64_t>(static_cast<int64_t>(player.mmr)));
+                    HashAppend(playerHash, player.rankTier);
+                    if (m_settingsPage == SettingsPage::Ranks) {
+                        for (auto category : MmrCategories(false, m_config.show_extra_playlists)) {
+                            const std::string key = MmrCategoryToString(category);
+                            HashAppend(playerHash, key);
+                            const auto mmrIt = player.playlists.find(key);
+                            const auto tierIt = player.playlistTiers.find(key);
+                            const auto matchesIt = player.playlistMatches.find(key);
+                            HashAppend(playerHash, static_cast<uint64_t>(static_cast<int64_t>(mmrIt == player.playlists.end() ? 0 : mmrIt->second)));
+                            if (tierIt != player.playlistTiers.end())
+                                HashAppend(playerHash, tierIt->second);
+                            else
+                                HashAppend(playerHash, std::string_view{});
+                            HashAppend(playerHash, static_cast<uint64_t>(static_cast<int64_t>(matchesIt == player.playlistMatches.end() ? 0 : matchesIt->second)));
+                        }
+                    }
+                    membersHash ^= AvalancheHash(playerHash);
+                }
+                HashAppend(rosterHash, membersHash);
+                m_lastSettingsRosterHash = rosterHash;
+                m_hasSettingsRosterHash = true;
+                m_lastSettingsRosterGameVersion = m_lastGameVersion;
+                m_lastSettingsRosterPage = m_settingsPage;
+            }
+            HashAppend(settingsHash, m_lastSettingsRosterHash);
+        }
+        const bool settingsDirty = force || configChanged || !m_lastShowMenu || m_lastSettingsHash != settingsHash;
+        if (settingsDirty) {
+            RebuildSettings();
+            m_lastSettingsHash = settingsHash;
+            m_lastSettingsFingerprint = std::to_string(settingsHash);
+        }
+    } else if (m_lastShowMenu) {
+        SetRootRml("settings-root", "");
+        m_lastSettingsFingerprint.clear();
+        m_lastSettingsHash = 0;
+        m_hasSettingsRosterHash = false;
+        m_lastSettingsRosterGameVersion = std::numeric_limits<uint64_t>::max();
+    }
+
+    m_lastShowMenu = showMenu;
+
+    if (rebuiltMainStructure) m_liveDomNeedsPrime = true;
+
+    RefreshLiveUi(false);
+}
+
+void RmlUiController::RefreshLiveUi(bool force, bool allowStructural) {
+    auto* app = Root("app");
+    if (!app || !m_state) return;
+
+    const uint64_t dbStatsVersion = m_state->ui.dbStatsVersion.load(std::memory_order_relaxed);
+    const bool gameChanged = force || m_lastRenderedGameVersion != m_lastGameVersion;
+    const bool leafGameChanged = force || m_lastLeafGameVersion != m_lastGameVersion;
+    const bool historyChanged = force || m_lastRenderedHistoryVersion != m_lastHistoryVersion;
+    const bool dbChanged = force || m_lastRenderedDbStatsVersion != dbStatsVersion;
+    const int graphOffset = m_state->ui.graphOffset.load(std::memory_order_relaxed);
+    const MmrCategory rosterCategory = m_state->ui.rosterMmrCategory.load(std::memory_order_relaxed);
+    const MmrCategory graphCategory = m_state->ui.graphMmrCategory.load(std::memory_order_relaxed);
+    const bool showLifetimeGraph = m_state->history.showLifetimeGraph.load(std::memory_order_relaxed);
+    const bool rosterCategoryChanged = force || m_lastRosterMmrCategory != rosterCategory;
+    const bool graphCategoryChanged = force || m_lastGraphMmrCategory != graphCategory;
+    const bool graphOffsetChanged = force || m_lastGraphOffset != graphOffset;
+    const bool lifetimeGraphChanged = force || m_lastShowLifetimeGraph != showLifetimeGraph;
+
+    const bool structuralPending = gameChanged || historyChanged || dbChanged || rosterCategoryChanged ||
+                                   graphCategoryChanged || graphOffsetChanged || lifetimeGraphChanged;
+    const bool primeStructure = allowStructural && m_liveDomNeedsPrime;
+    if (!leafGameChanged && !primeStructure && (!allowStructural || !structuralPending)) return;
+
+    if (allowStructural) {
+        // Resolve widget wrappers lazily. The ordinary telemetry path updates leaf
+        // values and never needs this scan unless a widget's structure/data source
+        // truly changed.
+        bool widgetGroupsReady = false;
+        std::unordered_map<std::string, std::vector<Rml::Element*>> widgetGroups;
+        const auto ensureWidgetGroups = [&]() {
+            if (widgetGroupsReady) return;
+            widgetGroupsReady = true;
+            Rml::ElementList liveWidgets;
+            app->GetElementsByClassName(liveWidgets, "live-widget");
+            for (Rml::Element* element : liveWidgets) {
+                const std::string id = Attribute(element, "data-live-widget");
+                const std::string surface = Attribute(element, "data-live-surface");
+                if (!id.empty()) widgetGroups[surface + ":" + id].push_back(element);
+            }
+        };
+
+        const auto refreshWidget = [&](DashboardLayout::WidgetId id, bool primeOnly = false) {
+            ensureWidgetGroups();
+            const std::string domId = WidgetDomId(id);
+            for (const char* surfaceName : {"overlay", "dashboard"}) {
+                const std::string groupKey = std::string(surfaceName) + ":" + domId;
+                auto groupIt = widgetGroups.find(groupKey);
+                if (groupIt == widgetGroups.end() || groupIt->second.empty()) continue;
+
+                const bool dashboard = std::string_view(surfaceName) == "dashboard";
+                const std::string rml = RenderWidget(id, dashboard);
+                const std::string cacheKey = "widget:" + groupKey;
+                auto cacheIt = m_lastLiveWidgetRml.find(cacheKey);
+                if (primeOnly || cacheIt == m_lastLiveWidgetRml.end()) {
+                    // A newly built root already contains the current data. Prime the
+                    // cache without immediately compiling identical geometry again.
+                    m_lastLiveWidgetRml[cacheKey] = rml;
+                    continue;
+                }
+                if (!force && cacheIt->second == rml) continue;
+                cacheIt->second = rml;
+                for (Rml::Element* element : groupIt->second)
+                    SetElementRml(element, rml, false);
+            }
+        };
+
+        // After startup or a mode/layout rebuild, prime the content caches from the
+        // DOM that was just rendered. This guarantees the *next* data change is
+        // compared against the data actually on screen instead of being mistaken
+        // for the initial cache population.
+        if (m_liveDomNeedsPrime) {
+            for (DashboardLayout::WidgetId id : {DashboardLayout::WidgetId::LiveRoster,
+                                                 DashboardLayout::WidgetId::LobbyRanks,
+                                                 DashboardLayout::WidgetId::LiveMatchStats,
+                                                 DashboardLayout::WidgetId::SessionStats,
+                                                 DashboardLayout::WidgetId::DemoTracker,
+                                                 DashboardLayout::WidgetId::MmrGraph,
+                                                 DashboardLayout::WidgetId::PreviousGames,
+                                                 DashboardLayout::WidgetId::StreaksStats,
+                                                 DashboardLayout::WidgetId::GamemodeBreakdown})
+                refreshWidget(id, true);
+        }
+
+        // The roster's high-frequency goals/saves/etc. are leaf updates below. Only
+        // rank/identity/team changes alter the roster subtree. game.version is a
+        // coarse telemetry version, so use a cheap order-independent hash here
+        // instead of sorting IDs and constructing a large fingerprint string on
+        // every telemetry tick.
+        if (gameChanged || rosterCategoryChanged || m_liveDomNeedsPrime) {
+            uint64_t rosterHash = kFnvOffset;
+            HashAppend(rosterHash, m_snap.myPrimaryId);
+            HashAppend(rosterHash, static_cast<uint64_t>(rosterCategory));
+            HashAppend(rosterHash, static_cast<uint64_t>(m_snap.roster.size()));
+
+            const std::string category = MmrCategoryToString(rosterCategory);
+            uint64_t membersHash = 0;
+            for (const auto& [id, p] : m_snap.roster) {
+                int selectedMmr = p.mmr;
+                const std::string* selectedTier = &p.rankTier;
+                int selectedMatches = 0;
+                if (category != "best") {
+                    if (auto it = p.playlists.find(category); it != p.playlists.end()) selectedMmr = it->second;
+                    if (auto it = p.playlistTiers.find(category); it != p.playlistTiers.end()) selectedTier = &it->second;
+                    if (auto it = p.playlistMatches.find(category); it != p.playlistMatches.end()) selectedMatches = it->second;
+                }
+
+                uint64_t playerHash = kFnvOffset;
+                HashAppend(playerHash, id);
+                HashAppend(playerHash, p.name);
+                HashAppend(playerHash, static_cast<uint64_t>(static_cast<int64_t>(p.team)));
+                HashAppend(playerHash, static_cast<uint64_t>(p.fetched));
+                HashAppend(playerHash, static_cast<uint64_t>(static_cast<int64_t>(selectedMmr)));
+                HashAppend(playerHash, *selectedTier);
+                HashAppend(playerHash, static_cast<uint64_t>(static_cast<int64_t>(selectedMatches)));
+                HashAppend(playerHash, static_cast<uint64_t>(static_cast<int64_t>(p.totalWins)));
+
+                // LobbyRanks renders all fetched playlist columns, not only the
+                // currently selected roster category. Fold all rank payload maps
+                // into the structural hash so an async rank result refreshes the
+                // table without tying the whole root to game.version.
+                uint64_t playlistHash = 0;
+                for (const auto& [key, value] : p.playlists) {
+                    uint64_t entryHash = kFnvOffset;
+                    HashAppend(entryHash, key);
+                    HashAppend(entryHash, static_cast<uint64_t>(static_cast<int64_t>(value)));
+                    playlistHash ^= AvalancheHash(entryHash);
+                }
+                HashAppend(playerHash, playlistHash);
+                uint64_t tierHash = 0;
+                for (const auto& [key, value] : p.playlistTiers) {
+                    uint64_t entryHash = kFnvOffset;
+                    HashAppend(entryHash, key);
+                    HashAppend(entryHash, value);
+                    tierHash ^= AvalancheHash(entryHash);
+                }
+                HashAppend(playerHash, tierHash);
+                uint64_t matchesHash = 0;
+                for (const auto& [key, value] : p.playlistMatches) {
+                    uint64_t entryHash = kFnvOffset;
+                    HashAppend(entryHash, key);
+                    HashAppend(entryHash, static_cast<uint64_t>(static_cast<int64_t>(value)));
+                    matchesHash ^= AvalancheHash(entryHash);
+                }
+                HashAppend(playerHash, matchesHash);
+
+                HashAppend(playerHash, static_cast<uint64_t>(p.hasLifetimeData));
+                HashAppend(playerHash, static_cast<uint64_t>(static_cast<int64_t>(p.lifetimeWinsWith)));
+                HashAppend(playerHash, static_cast<uint64_t>(static_cast<int64_t>(p.lifetimeLossesWith)));
+                HashAppend(playerHash, static_cast<uint64_t>(static_cast<int64_t>(p.lifetimeWinsAgainst)));
+                HashAppend(playerHash, static_cast<uint64_t>(static_cast<int64_t>(p.lifetimeLossesAgainst)));
+                membersHash ^= AvalancheHash(playerHash);
+            }
+            HashAppend(rosterHash, membersHash);
+
+            if (m_liveDomNeedsPrime || !m_hasRosterStructureHash) {
+                // A freshly built root already contains this exact roster.
+                m_lastRosterStructureHash = rosterHash;
+                m_hasRosterStructureHash = true;
+            } else if (m_lastRosterStructureHash != rosterHash) {
+                m_lastRosterStructureHash = rosterHash;
+                refreshWidget(DashboardLayout::WidgetId::LiveRoster);
+                refreshWidget(DashboardLayout::WidgetId::LobbyRanks);
+            }
+        }
+
+        // Live Match Stats only changes structure when optional rows appear. All
+        // ordinary counter/speed changes stay on the existing DOM nodes.
+        if (gameChanged || m_liveDomNeedsPrime) {
+            const bool hasDemoed = m_snap.currentMatch.demoedSelf > 0;
+            const bool hasOwnGoals = m_snap.currentMatch.ownGoals > 0;
+            if (!m_liveDomNeedsPrime && (hasDemoed != m_lastLiveMatchHadDemoedRow || hasOwnGoals != m_lastLiveMatchHadOwnGoalsRow))
+                refreshWidget(DashboardLayout::WidgetId::LiveMatchStats);
+            m_lastLiveMatchHadDemoedRow = hasDemoed;
+            m_lastLiveMatchHadOwnGoalsRow = hasOwnGoals;
+        }
+
+        if (historyChanged || graphCategoryChanged || graphOffsetChanged || lifetimeGraphChanged)
+            refreshWidget(DashboardLayout::WidgetId::MmrGraph);
+        if (historyChanged) refreshWidget(DashboardLayout::WidgetId::PreviousGames);
+        if (dbChanged) refreshWidget(DashboardLayout::WidgetId::StreaksStats);
+        if (dbChanged || gameChanged || m_liveDomNeedsPrime) {
+            uint64_t breakdownHash = kFnvOffset;
+            HashAppend(breakdownHash, static_cast<uint64_t>(ScopeFromConfigString(m_config.gamemode_breakdown_scope)));
+            HashAppend(breakdownHash, dbStatsVersion);
+            for (const char* mode : {"1v1", "2v2", "3v3"}) {
+                HashAppend(breakdownHash, mode);
+                if (auto it = m_snap.sessionGamemodes.find(mode); it != m_snap.sessionGamemodes.end()) {
+                    HashAppend(breakdownHash, static_cast<uint64_t>(static_cast<int64_t>(it->second.wins)));
+                    HashAppend(breakdownHash, static_cast<uint64_t>(static_cast<int64_t>(it->second.losses)));
+                    HashAppend(breakdownHash, static_cast<uint64_t>(static_cast<int64_t>(it->second.total)));
+                }
+            }
+            if (m_liveDomNeedsPrime || !m_hasGamemodeBreakdownHash) {
+                m_lastGamemodeBreakdownHash = breakdownHash;
+                m_hasGamemodeBreakdownHash = true;
+            } else if (m_lastGamemodeBreakdownHash != breakdownHash) {
+                m_lastGamemodeBreakdownHash = breakdownHash;
+                refreshWidget(DashboardLayout::WidgetId::GamemodeBreakdown);
+            }
+        }
+
+        // A graph shown inside the floating session card is not one of the normal
+        // layout widgets. It changes only on graph/history navigation, never on each
+        // telemetry packet.
+        const bool sessionViewVisible = m_state->ui.showSessionView.load(std::memory_order_relaxed);
+        const bool sessionGraphVisible = m_state->ui.showGraphView.load(std::memory_order_relaxed);
+        const bool sessionViewStructureChanged = graphCategoryChanged ||
+                                                 (sessionGraphVisible && (historyChanged || graphOffsetChanged || lifetimeGraphChanged));
+        if (sessionViewVisible && (m_liveDomNeedsPrime || sessionViewStructureChanged)) {
+            if (auto* overlayRoot = Root("overlay-root")) {
+                Rml::ElementList specials;
+                overlayRoot->GetElementsByClassName(specials, "live-special");
+                for (Rml::Element* element : specials) {
+                    if (Attribute(element, "data-live-special") != "session-view") continue;
+                    const std::string rml = RenderSessionView();
+                    if (m_liveDomNeedsPrime || m_lastSessionViewRml.empty()) {
+                        m_lastSessionViewRml = rml;
+                    } else if (force || m_lastSessionViewRml != rml) {
+                        m_lastSessionViewRml = rml;
+                        SetElementRml(element, rml, false);
+                    }
+                }
+            }
+        }
+    }
+
+    if (leafGameChanged || primeStructure) {
+        const bool primeOnly = primeStructure;
+        const auto& match = m_snap.currentMatch;
+        const auto& sessionStats = m_snap.sessionTotals;
+        const int sessionMmr = static_cast<int>(std::lround(sessionStats.totalMmrChange));
+        const float gp = sessionStats.teamGoals > 0
+                             ? 100.0f * static_cast<float>(sessionStats.goalParticipations) / static_cast<float>(sessionStats.teamGoals)
+                             : 0.0f;
+        const auto demos = CalculateSessionDemolitionCounts(m_snap.sessionTotals, m_snap.currentMatch, m_snap.matchFinalized);
+
+        if (m_liveElementCacheDirty) RebuildLiveElementCache();
+        const auto updateLiveValue = [&](std::string_view key, std::string value) {
+            // Keep one persistent value per leaf instead of allocating a temporary
+            // unordered_map plus prefixed cache key for every telemetry refresh.
+            auto cacheIt = m_lastLiveValues.find(key);
+            if (primeOnly || cacheIt == m_lastLiveValues.end()) {
+                if (cacheIt == m_lastLiveValues.end())
+                    m_lastLiveValues.emplace(std::string(key), std::move(value));
+                else
+                    cacheIt->second = std::move(value);
+                return;
+            }
+            if (!force && cacheIt->second == value) return;
+            cacheIt->second = value;
+
+            auto elementIt = m_liveValueElements.find(key);
+            if (elementIt == m_liveValueElements.end()) return;
+            for (Rml::Element* element : elementIt->second) {
+                SetElementText(element, value);
+                if (key == "session-mmr") {
+                    element->SetClass("win", sessionMmr > 0);
+                    element->SetClass("loss", sessionMmr < 0);
+                }
+            }
+        };
+
+        updateLiveValue("match-saves", Format::PairCount(match.saves, match.savesSelf));
+        updateLiveValue("match-shots", Format::PairCount(match.shots, match.shotsSelf));
+        updateLiveValue("match-assists", Format::PairCount(match.assists, match.assistsSelf));
+        updateLiveValue("match-demos", Format::PairCount(match.demos, match.demosSelf));
+        updateLiveValue("match-demoed", std::to_string(match.demoedSelf));
+        updateLiveValue("match-crossbars", Format::PairCount(match.crossbars, match.crossbarsSelf));
+        updateLiveValue("match-max-goal-speed", Format::PairSpeed(match.maxGoalSpeed, match.maxGoalSpeedSelf, true, " kph", m_config.imperial_units));
+        updateLiveValue("match-max-ball-speed", Format::PairSpeed(match.maxBallSpeed, match.maxBallSpeedSelf, true, " kph", m_config.imperial_units));
+        updateLiveValue("match-hardest-crossbar", m_config.crossbar_display_mode == "speed"
+                                                      ? Format::PairSpeed(match.maxImpactForce * 0.036f, match.maxImpactForceSelf * 0.036f, true, " kph", m_config.imperial_units)
+                                                      : Format::PairSpeed(match.maxImpactForce, match.maxImpactForceSelf, true, "", false));
+        updateLiveValue("match-fastest-goal", Format::PairFastest(match.fastestGoalTime, match.fastestGoalTimeSelf));
+        updateLiveValue("match-own-goals", Format::PairCount(match.ownGoals, match.ownGoalsSelf));
+        updateLiveValue("session-record", FormatRecord(sessionStats.wins, sessionStats.losses));
+        updateLiveValue("session-goals", std::to_string(sessionStats.goals));
+        updateLiveValue("session-saves", std::to_string(sessionStats.saves));
+        updateLiveValue("session-assists", std::to_string(sessionStats.assists));
+        updateLiveValue("session-demos", std::to_string(sessionStats.demos));
+        updateLiveValue("session-boost", std::to_string(CalculateSessionBoostPickedUp(m_snap.sessionTotals, m_snap.currentMatch, m_snap.matchFinalized)));
+        updateLiveValue("session-goal-participation", sessionStats.teamGoals > 0 ? FormatNumber(gp, 0) + "%" : "--");
+        updateLiveValue("session-mmr", (sessionMmr >= 0 ? "+" : "") + std::to_string(sessionMmr));
+        updateLiveValue("session-net", std::to_string(sessionStats.wins - sessionStats.losses));
+        updateLiveValue("demo-game-count", std::to_string(match.demosSelf) + "-" + std::to_string(match.demoedSelf));
+        updateLiveValue("demo-game-kd", FormatDemoKd(match.demosSelf, match.demoedSelf));
+        updateLiveValue("demo-session-count", std::to_string(demos.demos) + "-" + std::to_string(demos.demoed));
+        updateLiveValue("demo-session-kd", FormatDemoKd(demos.demos, demos.demoed));
+        updateLiveValue("roster-arena", m_snap.arenaName.empty() ? (m_snap.inMatch ? "Active match" : "No active match connected") : m_snap.arenaName);
+        updateLiveValue("dashboard-status", m_snap.inMatch ? ("ACTIVE MATCH · " + m_snap.arenaName) : "WAITING IN LOBBY");
+
+        // Player rows stay allocated for the life of the roster membership.
+        // Only the in-match stat chip changes at telemetry frequency.
+        for (const auto& [id, p] : m_snap.roster) {
+            auto elementIt = m_playerLiveStatElements.find(id);
+            if (elementIt == m_playerLiveStatElements.end()) continue;
+            const PlayerLiveStatState state{p.goals, p.saves, p.assists, p.shots, p.demos,
+                                            p.goals || p.saves || p.shots || p.assists || p.demos};
+            auto cacheIt = m_lastPlayerLiveStats.find(id);
+            if (primeOnly || cacheIt == m_lastPlayerLiveStats.end()) {
+                m_lastPlayerLiveStats[id] = state;
+                continue;
+            }
+            if (!force && cacheIt->second == state) continue;
+            cacheIt->second = state;
+
+            // Only format the chip after one of its raw counters actually changed.
+            const std::string value = "G" + std::to_string(state.goals) + " S" + std::to_string(state.saves) +
+                                      " A" + std::to_string(state.assists) + " Sh" + std::to_string(state.shots) +
+                                      " D" + std::to_string(state.demos);
+            for (Rml::Element* element : elementIt->second) {
+                SetElementText(element, value);
+                element->SetProperty("display", state.visible ? "inline-block" : "none");
+            }
+        }
+    }
+
+    if (leafGameChanged || primeStructure) m_lastLeafGameVersion = m_lastGameVersion;
+    if (allowStructural) {
+        m_liveDomNeedsPrime = false;
+        m_lastRenderedGameVersion = m_lastGameVersion;
+        m_lastRenderedHistoryVersion = m_lastHistoryVersion;
+        m_lastRenderedDbStatsVersion = dbStatsVersion;
         m_lastShowLifetimeGraph = showLifetimeGraph;
         m_lastGraphOffset = graphOffset;
         m_lastRosterMmrCategory = rosterCategory;
         m_lastGraphMmrCategory = graphCategory;
-        m_lastConfigFingerprint = fingerprint;
     }
-
-    if (showMenu) {
-        if (settingsDirty) RebuildSettings();
-    } else if (m_lastShowMenu) {
-        SetRootRml("settings-root", "");
-    }
-
-    m_lastShowMenu = showMenu;
-    m_lastSettingsFingerprint = settingsFingerprint;
 }
 
 std::string RmlUiController::Escape(std::string_view text) {
@@ -1859,7 +2299,7 @@ std::string RmlUiController::RenderPlayerRoster(int team, const char* label) {
         const auto matchesIt = p->playlistMatches.find(category == "best" ? "best" : rankSource);
         const int matchCount = matchesIt != p->playlistMatches.end() ? matchesIt->second : 0;
 
-        out << "<div class='player-row" << (self ? " self" : "") << "'>";
+        out << "<div class='player-row" << (self ? " self" : "") << "' data-live-player='" << Escape(p->primaryId) << "'>";
         if (m_config.use_rank_icons) {
             const std::string rankTooltip = p->fetched || mmr > 0 ? Format::RankTier(tier, m_config.use_roman_numerals) : "Fetching rank...";
             out << "<div class='player-crest'>" << RenderRankBadge(tier, p->fetched || mmr > 0, rankTooltip) << "</div>";
@@ -1889,10 +2329,11 @@ std::string RmlUiController::RenderPlayerRoster(int team, const char* label) {
 
         if (mmr > 0 && matchCount > 0) out << "<span class='chip'>" << matchCount << (matchCount == 1 ? " match" : " matches") << "</span>";
         if (m_config.show_account_wins_overlay && p->totalWins >= 0) out << "<span class='chip'>" << p->totalWins << " wins</span>";
-        if (p->goals || p->saves || p->shots || p->assists || p->demos) {
-            out << "<span class='chip'>G" << p->goals << " S" << p->saves << " A" << p->assists
-                << " Sh" << p->shots << " D" << p->demos << "</span>";
-        }
+        const bool hasLiveStats = p->goals || p->saves || p->shots || p->assists || p->demos;
+        out << "<span class='chip player-live-stats' data-live-player-stats='" << Escape(p->primaryId) << "'";
+        if (!hasLiveStats) out << " style='display:none'";
+        out << ">G" << p->goals << " S" << p->saves << " A" << p->assists
+            << " Sh" << p->shots << " D" << p->demos << "</span>";
         out << "</div></div>";
 
         // Trailing status column, one state per player: yourself, a player with
@@ -1918,28 +2359,31 @@ std::string RmlUiController::RenderPlayerRoster(int team, const char* label) {
 
 std::string RmlUiController::RenderLiveMatchStats() {
     const auto& s = m_snap.currentMatch;
-    std::vector<std::pair<std::string, std::string>> play = {
-        {"Saves", Format::PairCount(s.saves, s.savesSelf)},
-        {"Shots", Format::PairCount(s.shots, s.shotsSelf)},
-        {"Assists", Format::PairCount(s.assists, s.assistsSelf)},
-        {"Demos", Format::PairCount(s.demos, s.demosSelf)},
-        {"Crossbars", Format::PairCount(s.crossbars, s.crossbarsSelf)}};
-    if (s.demoedSelf > 0) play.insert(play.end() - 1, {"Demoed", std::to_string(s.demoedSelf)});
-    std::vector<std::pair<std::string, std::string>> fun = {
-        {"Max goal speed", Format::PairSpeed(s.maxGoalSpeed, s.maxGoalSpeedSelf, true, " kph", m_config.imperial_units)},
-        {"Max ball speed", Format::PairSpeed(s.maxBallSpeed, s.maxBallSpeedSelf, true, " kph", m_config.imperial_units)},
-        {"Hardest crossbar", m_config.crossbar_display_mode == "speed"
-                                 ? Format::PairSpeed(s.maxImpactForce * 0.036f, s.maxImpactForceSelf * 0.036f, true, " kph", m_config.imperial_units)
-                                 : Format::PairSpeed(s.maxImpactForce, s.maxImpactForceSelf, true, "", false)},
-        {"Fastest goal", Format::PairFastest(s.fastestGoalTime, s.fastestGoalTimeSelf)}};
-    if (s.ownGoals > 0) fun.push_back({"Own goals", Format::PairCount(s.ownGoals, s.ownGoalsSelf)});
+    struct Row {
+        const char* label;
+        const char* key;
+        std::string value;
+    };
+    std::vector<Row> play = {
+        {"Saves", "match-saves", Format::PairCount(s.saves, s.savesSelf)},
+        {"Shots", "match-shots", Format::PairCount(s.shots, s.shotsSelf)},
+        {"Assists", "match-assists", Format::PairCount(s.assists, s.assistsSelf)},
+        {"Demos", "match-demos", Format::PairCount(s.demos, s.demosSelf)},
+        {"Crossbars", "match-crossbars", Format::PairCount(s.crossbars, s.crossbarsSelf)}};
+    if (s.demoedSelf > 0) play.insert(play.end() - 1, {"Demoed", "match-demoed", std::to_string(s.demoedSelf)});
+    std::vector<Row> fun = {
+        {"Max goal speed", "match-max-goal-speed", Format::PairSpeed(s.maxGoalSpeed, s.maxGoalSpeedSelf, true, " kph", m_config.imperial_units)},
+        {"Max ball speed", "match-max-ball-speed", Format::PairSpeed(s.maxBallSpeed, s.maxBallSpeedSelf, true, " kph", m_config.imperial_units)},
+        {"Hardest crossbar", "match-hardest-crossbar", m_config.crossbar_display_mode == "speed" ? Format::PairSpeed(s.maxImpactForce * 0.036f, s.maxImpactForceSelf * 0.036f, true, " kph", m_config.imperial_units) : Format::PairSpeed(s.maxImpactForce, s.maxImpactForceSelf, true, "", false)},
+        {"Fastest goal", "match-fastest-goal", Format::PairFastest(s.fastestGoalTime, s.fastestGoalTimeSelf)}};
+    if (s.ownGoals > 0) fun.push_back({"Own goals", "match-own-goals", Format::PairCount(s.ownGoals, s.ownGoalsSelf)});
 
     auto list = [](const auto& rows) {
         std::ostringstream html;
         html << "<div class='metric-list'>";
-        for (const auto& [label, value] : rows) {
-            html << "<div class='metric-row'><div class='metric-label'>" << label
-                 << "</div><div class='metric-value mono'>" << value << "</div></div>";
+        for (const auto& row : rows) {
+            html << "<div class='metric-row'><div class='metric-label'>" << row.label
+                 << "</div><div class='metric-value mono live-value' data-live-value='" << row.key << "'>" << row.value << "</div></div>";
         }
         html << "</div>";
         return html.str();
@@ -1947,6 +2391,7 @@ std::string RmlUiController::RenderLiveMatchStats() {
     return "<div class='stat-section-title'>PLAY</div>" + list(play) +
            "<div class='stat-section-title' style='margin-top:7dp'>FUN</div>" + list(fun);
 }
+
 std::string RmlUiController::RenderStreaksStats() {
     int cw = 0, cl = 0, lw = 0, ll = 0;
     if (m_state) {
@@ -2016,26 +2461,30 @@ std::string RmlUiController::RenderSessionStats(bool compact, bool includeStreak
     const float gp = stats.teamGoals > 0 ? 100.0f * static_cast<float>(stats.goalParticipations) / static_cast<float>(stats.teamGoals) : 0.0f;
 
     if (compact) {
-        std::vector<std::pair<std::string, std::string>> rows;
-        if (m_config.show_session_record) rows.push_back({"Record", FormatRecord(stats.wins, stats.losses)});
-        if (m_config.show_session_goals) rows.push_back({"Goals", std::to_string(stats.goals)});
-        if (m_config.show_session_saves) rows.push_back({"Saves", std::to_string(stats.saves)});
-        if (m_config.show_session_assists) rows.push_back({"Assists", std::to_string(stats.assists)});
-        if (m_config.show_session_demos) rows.push_back({"Demos", std::to_string(stats.demos)});
-        if (m_config.show_session_boost) rows.push_back({"Boost", std::to_string(CalculateSessionBoostPickedUp(
-                                                                      m_snap.sessionTotals, m_snap.currentMatch, m_snap.matchFinalized))});
-        if (m_config.show_session_goal_participation) rows.push_back({"Goal participation", stats.teamGoals > 0 ? FormatNumber(gp, 0) + "%" : "--"});
-        if (m_config.show_session_mmr_change) rows.push_back({"MMR", (mmr >= 0 ? "+" : "") + std::to_string(mmr)});
-        if (includeStreak && m_config.show_streaks_stats) rows.push_back({"Session", std::to_string(stats.wins - stats.losses)});
+        struct Row {
+            const char* name;
+            const char* key;
+            std::string value;
+        };
+        std::vector<Row> rows;
+        if (m_config.show_session_record) rows.push_back({"Record", "session-record", FormatRecord(stats.wins, stats.losses)});
+        if (m_config.show_session_goals) rows.push_back({"Goals", "session-goals", std::to_string(stats.goals)});
+        if (m_config.show_session_saves) rows.push_back({"Saves", "session-saves", std::to_string(stats.saves)});
+        if (m_config.show_session_assists) rows.push_back({"Assists", "session-assists", std::to_string(stats.assists)});
+        if (m_config.show_session_demos) rows.push_back({"Demos", "session-demos", std::to_string(stats.demos)});
+        if (m_config.show_session_boost) rows.push_back({"Boost", "session-boost", std::to_string(CalculateSessionBoostPickedUp(m_snap.sessionTotals, m_snap.currentMatch, m_snap.matchFinalized))});
+        if (m_config.show_session_goal_participation) rows.push_back({"Goal participation", "session-goal-participation", stats.teamGoals > 0 ? FormatNumber(gp, 0) + "%" : "--"});
+        if (m_config.show_session_mmr_change) rows.push_back({"MMR", "session-mmr", (mmr >= 0 ? "+" : "") + std::to_string(mmr)});
+        if (includeStreak && m_config.show_streaks_stats) rows.push_back({"Session", "session-net", std::to_string(stats.wins - stats.losses)});
 
         std::ostringstream out;
         out << "<div class='metric-list'>";
-        for (const auto& [name, value] : rows) {
+        for (const auto& row : rows) {
             std::string cls;
-            if (name == "MMR") cls = mmr > 0 ? " win" : mmr < 0 ? " loss"
-                                                                : "";
-            out << "<div class='metric-row'><div class='metric-label'>" << name
-                << "</div><div class='metric-value mono" << cls << "'>" << value << "</div></div>";
+            if (std::string_view(row.name) == "MMR") cls = mmr > 0 ? " win" : mmr < 0 ? " loss"
+                                                                                      : "";
+            out << "<div class='metric-row'><div class='metric-label'>" << row.name
+                << "</div><div class='metric-value mono live-value" << cls << "' data-live-value='" << row.key << "'>" << row.value << "</div></div>";
         }
         out << "</div>";
         return out.str();
@@ -2092,10 +2541,10 @@ std::string RmlUiController::RenderDemoTracker() {
     const auto session = CalculateSessionDemolitionCounts(m_snap.sessionTotals, m_snap.currentMatch, m_snap.matchFinalized);
     std::ostringstream out;
     out << "<div class='metric-pair'>"
-        << "<div class='mini-metric'><div class='label'>GAME K/D</div><div class='value mono'>" << m_snap.currentMatch.demosSelf << '-' << m_snap.currentMatch.demoedSelf
-        << " <span class='muted'>" << FormatDemoKd(m_snap.currentMatch.demosSelf, m_snap.currentMatch.demoedSelf) << "</span></div></div>"
-        << "<div class='mini-metric'><div class='label'>SESSION K/D</div><div class='value mono'>" << session.demos << '-' << session.demoed
-        << " <span class='muted'>" << FormatDemoKd(session.demos, session.demoed) << "</span></div></div></div>";
+        << "<div class='mini-metric'><div class='label'>GAME K/D</div><div class='value mono'><span class='live-value' data-live-value='demo-game-count'>" << m_snap.currentMatch.demosSelf << '-' << m_snap.currentMatch.demoedSelf
+        << "</span> <span class='muted live-value' data-live-value='demo-game-kd'>" << FormatDemoKd(m_snap.currentMatch.demosSelf, m_snap.currentMatch.demoedSelf) << "</span></div></div>"
+        << "<div class='mini-metric'><div class='label'>SESSION K/D</div><div class='value mono'><span class='live-value' data-live-value='demo-session-count'>" << session.demos << '-' << session.demoed
+        << "</span> <span class='muted live-value' data-live-value='demo-session-kd'>" << FormatDemoKd(session.demos, session.demoed) << "</span></div></div></div>";
     return out.str();
 }
 std::string RmlUiController::RenderPreviousGames(bool includeHeading) {
@@ -2408,7 +2857,7 @@ std::string RmlUiController::RenderWidget(DashboardLayout::WidgetId id, bool das
             html << "<div class='roster-header'><div class='row'><div class='brand-mini grow'>OMNISTATS</div><div class='row gap-xs'>";
             if (m_config.use_rank_icons && !playlistImage.empty()) html << "<img class='playlist-icon' src='" << playlistImage << "'/>";
             html << "<span class='badge'>MMR · " << Escape(categoryName) << "</span></div></div>"
-                 << "<div class='label'>" << Escape(m_snap.arenaName.empty() ? (m_snap.inMatch ? "Active match" : "No active match connected") : m_snap.arenaName) << "</div></div>";
+                 << "<div class='label live-value' data-live-value='roster-arena'>" << Escape(m_snap.arenaName.empty() ? (m_snap.inMatch ? "Active match" : "No active match connected") : m_snap.arenaName) << "</div></div>";
         }
         html << RenderPlayerRoster(0, "BLUE") << RenderPlayerRoster(1, "ORANGE");
         if (!dashboard) {
@@ -2679,7 +3128,8 @@ std::string RmlUiController::RenderOverlayContainer(const OverlayLayout::Contain
         } else if (widgets.size() > 1 && widget != DashboardLayout::WidgetId::PreviousGames) {
             out << "<div class='overlay-widget-title' style='margin-top:" << (i ? 8 : 2) << "dp'>" << Escape(DashboardLayout::GetWidgetDisplayName(widget)) << "</div>";
         }
-        out << RenderWidget(widget, false);
+        out << "<div class='live-widget' data-live-widget='" << WidgetDomId(widget)
+            << "' data-live-surface='overlay'>" << RenderWidget(widget, false) << "</div>";
     }
     if (editMode) out << "<div class='overlay-resize' data-action='overlay-resize' data-container='" << Escape(container.id) << "'></div>";
     out << "</div>";
@@ -2719,21 +3169,21 @@ std::string RmlUiController::RenderOverlayToolbox(bool editMode) {
 }
 
 void RmlUiController::RebuildOverlay() {
-    if (m_config.second_monitor_mode) {
-        SetRootRml("overlay-root", "");
-        return;
-    }
+    // The inactive surface is cleared exactly once when window mode changes.
+    // Do not keep touching an unused root during unrelated Settings/layout work.
+    if (m_config.second_monitor_mode) return;
     std::ostringstream out;
     if (m_config.show_running_indicator) out << "<div class='running-indicator'><span class='win'>●</span> OmniStats</div>";
 
     if (m_state && m_state->ui.showMatchSummary.load() && m_config.show_match_summary) {
         const int64_t elapsed = SteadyNowMs() - m_state->ui.matchSummaryStartMs.load();
         if (elapsed < 30000)
-            out << RenderMatchSummary();
+            out << "<div class='live-special' data-live-special='match-summary'>" << RenderMatchSummary() << "</div>";
         else
             m_state->ui.showMatchSummary.store(false);
     }
-    if (m_state && m_state->ui.showSessionView.load()) out << RenderSessionView();
+    if (m_state && m_state->ui.showSessionView.load())
+        out << "<div class='live-special' data-live-special='session-view'>" << RenderSessionView() << "</div>";
 
     const bool editMode = m_state && m_state->ui.showMenu.load() && m_state->ui.dashboardLayoutEditMode.load();
     for (const auto& container : m_config.overlay_layout.containers)
@@ -2744,13 +3194,13 @@ void RmlUiController::RebuildOverlay() {
             << "<div id='overlay-snap-y' class='overlay-snap-guide horizontal'></div>";
     }
     SetRootRml("overlay-root", out.str());
+    m_liveDomNeedsPrime = true;
 }
 
 void RmlUiController::RebuildDashboard() {
-    if (!m_config.second_monitor_mode) {
-        SetRootRml("dashboard-root", "");
-        return;
-    }
+    // The inactive surface is cleared exactly once when window mode changes.
+    // Do not keep touching an unused root during unrelated Settings/layout work.
+    if (!m_config.second_monitor_mode) return;
     const bool editMode = m_state && m_state->ui.dashboardLayoutEditMode.load();
     DashboardLayout::LayoutConfig layout = m_config.dashboard_layout;
     DashboardLayout::Sanitize(layout);
@@ -2789,7 +3239,10 @@ void RmlUiController::RebuildDashboard() {
               << "<div class='dashboard-widget-title' data-action='dashboard-drag' data-widget='" << id << "'><span class='name'>" << Escape(DashboardLayout::GetWidgetDisplayName(placement.id)) << "</span>";
             if (editMode) z << "<span class='badge accent'>DRAG</span>";
             z << "</div>";
-            if (!placement.collapsed) z << RenderWidget(placement.id, true);
+            if (!placement.collapsed) {
+                z << "<div class='live-widget' data-live-widget='" << id
+                  << "' data-live-surface='dashboard'>" << RenderWidget(placement.id, true) << "</div>";
+            }
             z << "</div>";
         }
         if (editMode && !placements.empty()) {
@@ -2831,7 +3284,7 @@ void RmlUiController::RebuildDashboard() {
     out << "<div class='dashboard-shell" << (editMode ? " dashboard-edit-active" : "")
         << (isMaximized ? " maximized" : "") << "'><div class='dashboard-topbar'><img class='brand-logo' src='res://images/Logo.png'/>"
         << "<div class='row grow' style='align-items:center'><div class='brand-title'>OmniStats <span class='version'>v" << Escape(AppVersion::Current) << "</span></div>"
-        << "<div class='match-status'>" << (m_snap.inMatch ? ("ACTIVE MATCH · " + Escape(m_snap.arenaName)) : "WAITING IN LOBBY") << "</div></div>";
+        << "<div id='dashboard-match-status' class='match-status live-value' data-live-value='dashboard-status'>" << (m_snap.inMatch ? ("ACTIVE MATCH · " + Escape(m_snap.arenaName)) : "WAITING IN LOBBY") << "</div></div>";
     if (updateAvailable) out << Button("update-app", Escape(updateLabel), "primary compact");
     out << "<div class='topbar-actions'>"
         << Button("dashboard-edit", editMode ? "Done Editing" : "Edit Layout", editMode ? "primary compact" : "ghost compact")
@@ -2862,6 +3315,7 @@ void RmlUiController::RebuildDashboard() {
     }
     out << "</div>";
     SetRootRml("dashboard-root", out.str());
+    m_liveDomNeedsPrime = true;
 }
 
 std::string RmlUiController::RenderSettingsGeneral() {
@@ -3086,9 +3540,9 @@ std::string RmlUiController::RenderSettingsAppearance() {
     auto rangeRow = [&](const char* channel, char component, int value) {
         std::ostringstream html;
         html << "<div class='color-channel'><span class='color-channel-label'>" << channel << "</span>"
-             << "<input type='range' class='range color-range' min='0' max='255' step='1' data-setting='"
+             << "<input id='theme-color-" << component << "' type='range' class='range color-range' min='0' max='255' step='1' data-setting='"
              << m_editColorKey << ':' << component << "' value='" << value << "'/>"
-             << "<span class='mono color-channel-value'>" << value << "</span></div>";
+             << "<span id='theme-color-" << component << "-value' class='mono color-channel-value'>" << value << "</span></div>";
         return html.str();
     };
     auto channelByte = [](float value) {
@@ -3109,14 +3563,14 @@ std::string RmlUiController::RenderSettingsAppearance() {
            << Escape(ThemeColorLabel(key)) << "</div>"
            << "<button class='ghost compact' data-action='close-color-editor'>Close</button></div>"
            << "<div class='color-picker'>"
-           << "<div class='color-field' data-action='color-field' style='decorator: image(gen://sv?h="
+           << "<div id='theme-color-field' class='color-field' data-action='color-field' style='decorator: image(gen://sv?h="
            << static_cast<int>(std::lround(hue / 2.0f)) * 2 << ");'>"
-           << "<div class='color-field-marker' style='left:" << percent(hsv.s) << "%;top:" << percent(1.0f - hsv.v) << "%'></div>"
+           << "<div id='theme-color-field-marker' class='color-field-marker' style='left:" << percent(hsv.s) << "%;top:" << percent(1.0f - hsv.v) << "%'></div>"
            << "</div>"
-           << "<div class='color-hue' data-action='color-hue'>"
-           << "<div class='color-hue-marker' style='left:" << percent(hue / 360.0f) << "%'></div>"
+           << "<div id='theme-color-hue' class='color-hue' data-action='color-hue'>"
+           << "<div id='theme-color-hue-marker' class='color-hue-marker' style='left:" << percent(hue / 360.0f) << "%'></div>"
            << "</div></div>"
-           << "<div class='color-editor-preview' style='background-color:" << CssColor(color) << "'></div>"
+           << "<div id='theme-color-preview' class='color-editor-preview' style='background-color:" << CssColor(color) << "'></div>"
            << rangeRow("R", 'r', channelByte(color.r))
            << rangeRow("G", 'g', channelByte(color.g))
            << rangeRow("B", 'b', channelByte(color.b))
@@ -3130,9 +3584,9 @@ std::string RmlUiController::RenderSettingsAppearance() {
         const bool isEditing = (m_editColorKey == key);
         html << "<div class='setting-row" << (isEditing ? " color-row-active" : "") << "'><div class='setting-info'><div class='setting-name'>" << label
              << "</div><div class='setting-help'>Click the swatch to pick a color, or edit the hex value.</div></div>"
-             << "<button class='color-dot color-dot-button" << (isEditing ? " active" : "") << "' style='background-color:" << CssColor(color)
+             << "<button id='theme-swatch-" << key << "' class='color-dot color-dot-button" << (isEditing ? " active" : "") << "' style='background-color:" << CssColor(color)
              << "' data-action='edit-color' data-color-key='" << key << "'></button>"
-             << "<input type='text' class='text mono' style='width:100dp;margin-left:6dp' data-setting='" << key
+             << "<input id='theme-hex-" << key << "' type='text' class='text mono' style='width:100dp;margin-left:6dp' data-setting='" << key
              << "' value='" << CssColor(color) << "'/></div>";
         if (isEditing) {
             html << renderColorEditor(key, color);
@@ -3379,6 +3833,7 @@ void RmlUiController::ProcessEvent(Rml::Event& event) {
     if (m_rebuildingUi) return;
     Rml::Element* target = event.GetTargetElement();
     if (!target) return;
+    const uint64_t configRevisionBefore = Config::Revision();
     const std::string type = event.GetType().c_str();
     if (type == "mousedown") m_pointerPressed = true;
     if (type == "click")
@@ -3395,6 +3850,9 @@ void RmlUiController::ProcessEvent(Rml::Event& event) {
         HandleMouseMove(event);
     else if (type == "mouseup")
         HandleMouseUp(event);
+
+    const uint64_t configRevisionAfter = Config::Revision();
+    if (configRevisionAfter != configRevisionBefore) m_lastLocalConfigRevision = configRevisionAfter;
 }
 
 void RmlUiController::HandleClick(Rml::Element* target) {
@@ -3691,7 +4149,13 @@ void RmlUiController::HandleInput(Rml::Element* target) {
     }
 
     m_config = Config::Read();
-    if (themeChanged) UpdateThemeProperties();
+    if (themeChanged) {
+        UpdateThemeProperties();
+        // Preserve the text field currently being typed into so canonicalizing
+        // the hex value does not reset its caret/selection on every keystroke.
+        const std::string_view preserveHexKey = key.find(':') == std::string::npos ? std::string_view(key) : std::string_view{};
+        RefreshThemeEditorControls(preserveHexKey);
+    }
 }
 
 void RmlUiController::HandleChange(Rml::Element* target, Rml::Event& event) {
@@ -3751,15 +4215,13 @@ void RmlUiController::HandleChange(Rml::Element* target, Rml::Event& event) {
         return true;
     };
 
-    bool windowChanged = false;
-    bool styleChanged = false;
+    bool themeChanged = false;
     Config::Update([&](ConfigData& c) {
         if (key == "require_rl_focus")
             c.require_rl_focus = checked;
-        else if (key == "second_monitor_mode") {
+        else if (key == "second_monitor_mode")
             c.second_monitor_mode = checked;
-            windowChanged = true;
-        } else if (key == "second_monitor_show_roster")
+        else if (key == "second_monitor_show_roster")
             c.second_monitor_show_roster = checked;
         else if (key == "second_monitor_show_session")
             c.second_monitor_show_session = checked;
@@ -3901,13 +4363,13 @@ void RmlUiController::HandleChange(Rml::Element* target, Rml::Event& event) {
             std::string_view componentColorKey;
             char component = 0;
             if (ParseThemeComponentKey(key, componentColorKey, component)) {
-                styleChanged = SetThemeComponent(c, key, value);
+                themeChanged = SetThemeComponent(c, key, value);
             } else {
                 ColorRGBA parsed;
                 if (parseColor(value, parsed)) {
                     if (ColorRGBA* targetColor = ThemeColorForKey(c, key)) {
                         *targetColor = parsed;
-                        styleChanged = true;
+                        themeChanged = true;
                     }
                 }
             }
@@ -3962,12 +4424,13 @@ void RmlUiController::HandleChange(Rml::Element* target, Rml::Event& event) {
         // Defer any scale update and UI rebuild to the next Update() cycle.
         return;
     }
-    if (styleChanged) {
-        SetDpiScale(m_dpiScale);
+    if (themeChanged) {
         UpdateThemeProperties();
+        RefreshThemeEditorControls();
     }
-    if (windowChanged) ShowToast("Window mode changed.");
-    RebuildVisibleUi(true);
+    // Theme-only changes are handled entirely by the persistent stylesheet.
+    // Do not rebuild either large root just to apply colors.
+    RebuildVisibleUi(!themeChanged, !themeChanged);
 }
 
 void RmlUiController::BeginBindCapture(BindCaptureTarget target) {
@@ -4166,6 +4629,11 @@ void RmlUiController::HandleMouseDown(Rml::Element* target, Rml::Event& event) {
         m_drag.widget = WidgetFromDom(Attribute(actionElement, "data-widget"));
         m_drag.startMouseX = event.GetParameter<float>("mouse_x", 0.0f);
         m_drag.startMouseY = event.GetParameter<float>("mouse_y", 0.0f);
+        if (auto* root = Root("dashboard-root")) {
+            const std::string draggedDomId = WidgetDomId(m_drag.widget);
+            m_drag.element = root->QuerySelector(("[data-widget='" + draggedDomId + "']").c_str());
+            if (m_drag.element) m_drag.element->SetClass("dragging", true);
+        }
         m_systemInterface.LockCursor("move");
     } else if (action == "overlay-toolbox-drag") {
         m_drag = {};
@@ -4203,6 +4671,7 @@ void RmlUiController::HandleMouseDown(Rml::Element* target, Rml::Event& event) {
         m_drag.startY = m_settingsY;
         m_drag.startW = settingsWidth;
         m_drag.startH = settingsHeight;
+        if (auto* root = Root("settings-root")) m_drag.element = root->QuerySelector(".settings-window");
         m_systemInterface.LockCursor("move");
     } else if (action == "overlay-drag" || action == "overlay-resize") {
         const std::string id = Attribute(actionElement, "data-container");
@@ -4220,11 +4689,30 @@ void RmlUiController::HandleMouseDown(Rml::Element* target, Rml::Event& event) {
         m_drag.startW = resolvedWidth;
         m_drag.startH = resolvedHeight;
         if (auto* root = Root("overlay-root")) {
-            if (auto* element = root->QuerySelector(("[data-container='" + id + "']").c_str())) {
-                const float renderedWidth = element->GetOffsetWidth();
-                const float renderedHeight = element->GetOffsetHeight();
+            // The overlay DOM is deliberately held stable for the duration of a
+            // drag, so these pointers remain valid until mouse-up. Resolve them
+            // once instead of running selectors for every WM_MOUSEMOVE.
+            m_drag.element = root->QuerySelector(("[data-container='" + id + "']").c_str());
+            m_drag.guideX = m_document ? m_document->GetElementById("overlay-snap-x") : nullptr;
+            m_drag.guideY = m_document ? m_document->GetElementById("overlay-snap-y") : nullptr;
+            if (m_drag.element) {
+                // Outside edit mode a container auto-fits its visible widgets, so
+                // use its actual rendered bounds instead of the saved/default size.
+                const float renderedWidth = m_drag.element->GetOffsetWidth();
+                const float renderedHeight = m_drag.element->GetOffsetHeight();
                 if (renderedWidth > 1.0f) m_drag.startW = renderedWidth;
                 if (renderedHeight > 1.0f) m_drag.startH = renderedHeight;
+            }
+
+            m_drag.snapRects.reserve(m_config.overlay_layout.containers.size());
+            for (const auto& other : m_config.overlay_layout.containers) {
+                if (other.id == id) continue;
+                auto [ow, oh] = OverlayContainerSize(other, m_dpiScale, &m_config);
+                if (auto* element = root->QuerySelector(("[data-container='" + other.id + "']").c_str())) {
+                    if (element->GetOffsetWidth() > 1.0f) ow = element->GetOffsetWidth();
+                    if (element->GetOffsetHeight() > 1.0f) oh = element->GetOffsetHeight();
+                }
+                m_drag.snapRects.push_back({other.x, other.y, ow, oh});
             }
         }
         m_systemInterface.LockCursor(action == "overlay-resize" ? "resize" : "move");
@@ -4242,12 +4730,14 @@ void RmlUiController::HandleMouseDown(Rml::Element* target, Rml::Event& event) {
         m_drag.startY = actionElement->GetAbsoluteTop();
         m_drag.startW = actionElement->GetOffsetWidth();
         m_drag.startH = actionElement->GetOffsetHeight();
+        m_drag.element = actionElement;
         m_systemInterface.LockCursor("move");
     } else if (action == "color-field" || action == "color-hue") {
         m_drag = {};
         m_drag.kind = action == "color-field" ? DragKind::ColorField : DragKind::ColorHue;
-        // The picker rect is captured once: rebuilding the settings DOM on every
-        // move would otherwise invalidate the element mid-drag.
+        m_colorPickDirty = false;
+        // Capture the picker rect once so pointer math stays stable while only
+        // the existing marker/preview controls are updated during the drag.
         m_drag.startX = actionElement->GetAbsoluteLeft();
         m_drag.startY = actionElement->GetAbsoluteTop();
         m_drag.startW = std::max(actionElement->GetClientWidth(), 1.0f);
@@ -4258,8 +4748,9 @@ void RmlUiController::HandleMouseDown(Rml::Element* target, Rml::Event& event) {
 }
 
 // Maps a pointer position inside the saturation/value field or hue strip onto the
-// color being edited. The picker rect was captured on mousedown, so this stays
-// correct while the settings DOM is rebuilt between moves.
+// color being edited. The picker rect is captured once on mousedown. The color is
+// previewed entirely in the persistent DOM while dragging, then committed once on
+// mouse-up; this avoids config churn and a full Settings rebuild for every sample.
 void RmlUiController::ApplyColorPick(float mouseX, float mouseY) {
     ColorRGBA* current = ThemeColorForKey(m_config, m_editColorKey);
     if (!current) return;
@@ -4281,14 +4772,83 @@ void RmlUiController::ApplyColorPick(float mouseX, float mouseY) {
     }
     m_editColorHue = picked.h;
 
-    const ColorRGBA updated = HsvToRgb(picked, current->a);
-    const std::string key = m_editColorKey;
-    Config::Update([key, updated](ConfigData& c) {
-        if (ColorRGBA* target = ThemeColorForKey(c, key)) *target = updated;
-    });
-    m_config = Config::Read();
+    *current = HsvToRgb(picked, current->a);
+    m_colorPickDirty = true;
     UpdateThemeProperties();
-    RebuildSettings();
+    RefreshThemeEditorControls();
+}
+
+void RmlUiController::RefreshThemeEditorControls(std::string_view preserveHexKey) {
+    if (!m_document || m_settingsPage != SettingsPage::Appearance) return;
+
+    constexpr std::array<const char*, 10> kThemeKeys = {
+        "theme_bg", "theme_panel", "theme_text", "theme_accent", "theme_win",
+        "theme_loss", "theme_dim", "theme_muted", "theme_graph", "theme_baseline"};
+
+    for (const char* key : kThemeKeys) {
+        const ColorRGBA* color = ThemeColorForKey(m_config, key);
+        if (!color) continue;
+        const std::string css = CssColor(*color);
+        if (auto* swatch = m_document->GetElementById((std::string("theme-swatch-") + key).c_str()))
+            swatch->SetProperty("background-color", css);
+        if (preserveHexKey != key) {
+            if (auto* element = m_document->GetElementById((std::string("theme-hex-") + key).c_str())) {
+                if (auto* control = dynamic_cast<Rml::ElementFormControl*>(element)) control->SetValue(css);
+            }
+        }
+    }
+
+    const ColorRGBA* editing = ThemeColorForKey(m_config, m_editColorKey);
+    if (!editing) return;
+    const Hsv hsv = RgbToHsv(*editing);
+    const float hue = hsv.s > 0.0f ? hsv.h : m_editColorHue;
+    const auto percent = [](float value) {
+        std::ostringstream text;
+        text << std::fixed << std::setprecision(2) << std::clamp(value, 0.0f, 1.0f) * 100.0f << '%';
+        return text.str();
+    };
+    const auto channelByte = [](float value) {
+        if (!std::isfinite(value)) return 0;
+        return std::clamp(static_cast<int>(std::lround(value * 255.0f)), 0, 255);
+    };
+
+    if (auto* field = m_document->GetElementById("theme-color-field"))
+        field->SetProperty("decorator", "image(gen://sv?h=" + std::to_string(static_cast<int>(std::lround(hue / 2.0f)) * 2) + ")");
+    if (auto* marker = m_document->GetElementById("theme-color-field-marker")) {
+        marker->SetProperty("left", percent(hsv.s));
+        marker->SetProperty("top", percent(1.0f - hsv.v));
+    }
+    if (auto* marker = m_document->GetElementById("theme-color-hue-marker"))
+        marker->SetProperty("left", percent(hue / 360.0f));
+    if (auto* preview = m_document->GetElementById("theme-color-preview"))
+        preview->SetProperty("background-color", CssColor(*editing));
+
+    const std::array<std::pair<char, int>, 4> channels = {{{'r', channelByte(editing->r)},
+                                                           {'g', channelByte(editing->g)},
+                                                           {'b', channelByte(editing->b)},
+                                                           {'a', channelByte(editing->a)}}};
+    for (const auto [component, value] : channels) {
+        const std::string id = std::string("theme-color-") + component;
+        if (auto* element = m_document->GetElementById(id.c_str())) {
+            if (auto* control = dynamic_cast<Rml::ElementFormControl*>(element)) control->SetValue(std::to_string(value));
+        }
+        if (auto* label = m_document->GetElementById((id + "-value").c_str())) SetElementText(label, std::to_string(value));
+    }
+}
+
+void RmlUiController::CommitColorPick() {
+    if (!m_colorPickDirty) return;
+    const ColorRGBA* current = ThemeColorForKey(m_config, m_editColorKey);
+    if (!current) {
+        m_colorPickDirty = false;
+        return;
+    }
+    const std::string key = m_editColorKey;
+    const ColorRGBA color = *current;
+    Config::Update([key, color](ConfigData& c) {
+        if (ColorRGBA* target = ThemeColorForKey(c, key)) *target = color;
+    });
+    m_colorPickDirty = false;
 }
 
 void RmlUiController::HandleMouseMove(Rml::Event& event) {
@@ -4303,12 +4863,10 @@ void RmlUiController::HandleMouseMove(Rml::Event& event) {
         m_settingsX = std::clamp(m_drag.startX + dx, 0.0f, std::max(0.0f, static_cast<float>(m_width) - m_drag.startW));
         m_settingsY = std::clamp(m_drag.startY + dy, 0.0f, std::max(0.0f, static_cast<float>(m_height) - m_drag.startH));
 
-        if (auto* root = Root("settings-root")) {
-            if (auto* window = root->QuerySelector(".settings-window")) {
-                const float rmlScale = SanitizedScale(m_dpiScale) * SanitizedUiScale(m_config.ui_scale);
-                window->SetProperty("left", std::to_string(m_settingsX / std::max(rmlScale, 0.01f)) + "dp");
-                window->SetProperty("top", std::to_string(m_settingsY / std::max(rmlScale, 0.01f)) + "dp");
-            }
+        if (m_drag.element) {
+            const float rmlScale = SanitizedScale(m_dpiScale) * SanitizedUiScale(m_config.ui_scale);
+            m_drag.element->SetProperty("left", std::to_string(m_settingsX / std::max(rmlScale, 0.01f)) + "dp");
+            m_drag.element->SetProperty("top", std::to_string(m_settingsY / std::max(rmlScale, 0.01f)) + "dp");
         }
         return;
     }
@@ -4329,12 +4887,10 @@ void RmlUiController::HandleMouseMove(Rml::Event& event) {
             m_config.match_summary_x = x;
             m_config.match_summary_y = y;
         }
-        if (auto* root = Root("overlay-root")) {
-            if (auto* card = root->QuerySelector(("[data-card='" + m_drag.containerId + "']").c_str())) {
-                card->SetProperty("left", std::to_string(x / std::max(rmlScale, 0.01f)) + "dp");
-                card->SetProperty("top", std::to_string(y / std::max(rmlScale, 0.01f)) + "dp");
-                card->SetProperty("margin-left", "0");
-            }
+        if (m_drag.element) {
+            m_drag.element->SetProperty("left", std::to_string(x / std::max(rmlScale, 0.01f)) + "dp");
+            m_drag.element->SetProperty("top", std::to_string(y / std::max(rmlScale, 0.01f)) + "dp");
+            m_drag.element->SetProperty("margin-left", "0");
         }
         return;
     }
@@ -4342,10 +4898,6 @@ void RmlUiController::HandleMouseMove(Rml::Event& event) {
         const float mouseX = event.GetParameter<float>("mouse_x", 0.0f);
         const float mouseY = event.GetParameter<float>("mouse_y", 0.0f);
         if (auto* root = Root("dashboard-root")) {
-            const std::string draggedDomId = WidgetDomId(m_drag.widget);
-            if (auto* draggedEl = root->QuerySelector(("[data-widget='" + draggedDomId + "']").c_str())) {
-                draggedEl->SetClass("dragging", true);
-            }
             Rml::Element* hovered = m_context ? m_context->GetElementAtPoint(Rml::Vector2f(mouseX, mouseY)) : nullptr;
             Rml::Element* targetSlot = nullptr;
             while (hovered && hovered != root) {
@@ -4359,13 +4911,10 @@ void RmlUiController::HandleMouseMove(Rml::Event& event) {
                 }
                 hovered = hovered->GetParentNode();
             }
-            Rml::ElementList previousTargets;
-            root->QuerySelectorAll(previousTargets, ".drag-target");
-            for (auto* el : previousTargets) {
-                if (el != targetSlot) el->SetClass("drag-target", false);
-            }
-            if (targetSlot) {
-                targetSlot->SetClass("drag-target", true);
+            if (targetSlot != m_drag.dropTarget) {
+                if (m_drag.dropTarget) m_drag.dropTarget->SetClass("drag-target", false);
+                if (targetSlot) targetSlot->SetClass("drag-target", true);
+                m_drag.dropTarget = targetSlot;
             }
         }
         return;
@@ -4386,80 +4935,80 @@ void RmlUiController::HandleMouseMove(Rml::Event& event) {
     auto it = std::find_if(m_config.overlay_layout.containers.begin(), m_config.overlay_layout.containers.end(), [&](const auto& c) { return c.id == m_drag.containerId; });
     if (it == m_config.overlay_layout.containers.end()) return;
 
-    struct SnapCandidate {
-        float value;
-        float guide;
-    };
     struct SnapResult {
         float value;
         float guide;
         bool snapped;
     };
-    auto snapNearest = [&](float value, const std::vector<SnapCandidate>& candidates) {
-        SnapResult result{value, 0.0f, false};
-        float bestDistance = snap;
-        for (const auto& candidate : candidates) {
-            const float distance = std::abs(value - candidate.value);
-            if (distance < bestDistance) {
-                bestDistance = distance;
-                result = {candidate.value, candidate.guide, true};
-            }
+    const auto considerSnap = [&](float source, float candidate, float guide, SnapResult& result, float& bestDistance) {
+        const float distance = std::abs(source - candidate);
+        if (distance < bestDistance) {
+            bestDistance = distance;
+            result = {candidate, guide, true};
         }
-        return result;
     };
 
     SnapResult xSnap{0.0f, 0.0f, false};
     SnapResult ySnap{0.0f, 0.0f, false};
     if (m_drag.kind == DragKind::OverlayMove) {
-        float x = std::max(0.0f, m_drag.startX + dx);
-        float y = std::max(0.0f, m_drag.startY + dy);
-        std::vector<SnapCandidate> xCandidates{{moveMargin, moveMargin}, {screenWidth - moveMargin - m_drag.startW, screenWidth - moveMargin}};
-        std::vector<SnapCandidate> yCandidates{{moveMargin, moveMargin}, {screenHeight - moveMargin - m_drag.startH, screenHeight - moveMargin}};
-        // Snap against what each neighbour actually occupies on screen, for the
-        // same reason the dragged container is clamped to its rendered size.
-        auto* overlayRoot = Root("overlay-root");
-        for (const auto& other : m_config.overlay_layout.containers) {
-            if (other.id == it->id) continue;
-            auto [ow, oh] = OverlayContainerSize(other, m_dpiScale, &m_config);
-            if (overlayRoot) {
-                if (auto* element = overlayRoot->QuerySelector(("[data-container='" + other.id + "']").c_str())) {
-                    if (element->GetOffsetWidth() > 1.0f) ow = element->GetOffsetWidth();
-                    if (element->GetOffsetHeight() > 1.0f) oh = element->GetOffsetHeight();
-                }
-            }
-            xCandidates.insert(xCandidates.end(), {{other.x, other.x}, {other.x + ow, other.x + ow}, {other.x - m_drag.startW, other.x}, {other.x + ow - m_drag.startW, other.x + ow}});
-            yCandidates.insert(yCandidates.end(), {{other.y, other.y}, {other.y + oh, other.y + oh}, {other.y - m_drag.startH, other.y}, {other.y + oh - m_drag.startH, other.y + oh}});
+        const float x = std::max(0.0f, m_drag.startX + dx);
+        const float y = std::max(0.0f, m_drag.startY + dy);
+        xSnap = {x, 0.0f, false};
+        ySnap = {y, 0.0f, false};
+        float bestX = snap;
+        float bestY = snap;
+        considerSnap(x, moveMargin, moveMargin, xSnap, bestX);
+        considerSnap(x, screenWidth - moveMargin - m_drag.startW, screenWidth - moveMargin, xSnap, bestX);
+        considerSnap(y, moveMargin, moveMargin, ySnap, bestY);
+        considerSnap(y, screenHeight - moveMargin - m_drag.startH, screenHeight - moveMargin, ySnap, bestY);
+
+        // Neighbour bounds were resolved once on mouse-down. Check candidates
+        // directly so mouse motion does not allocate temporary vectors.
+        for (const auto& other : m_drag.snapRects) {
+            considerSnap(x, other.x, other.x, xSnap, bestX);
+            considerSnap(x, other.x + other.w, other.x + other.w, xSnap, bestX);
+            considerSnap(x, other.x - m_drag.startW, other.x, xSnap, bestX);
+            considerSnap(x, other.x + other.w - m_drag.startW, other.x + other.w, xSnap, bestX);
+            considerSnap(y, other.y, other.y, ySnap, bestY);
+            considerSnap(y, other.y + other.h, other.y + other.h, ySnap, bestY);
+            considerSnap(y, other.y - m_drag.startH, other.y, ySnap, bestY);
+            considerSnap(y, other.y + other.h - m_drag.startH, other.y + other.h, ySnap, bestY);
         }
-        xSnap = snapNearest(x, xCandidates);
-        ySnap = snapNearest(y, yCandidates);
         it->x = std::clamp(xSnap.value, 0.0f, std::max(0.0f, screenWidth - m_drag.startW));
         it->y = std::clamp(ySnap.value, 0.0f, std::max(0.0f, screenHeight - m_drag.startH));
     } else {
         const auto [minWidth, minHeight] = OverlayContainerMinSize(*it, dpi, &m_config);
         float newWidth = std::max(minWidth, m_drag.startW + dx);
         float newHeight = std::max(minHeight, m_drag.startH + dy);
-        std::vector<SnapCandidate> rightCandidates{{screenWidth - resizeMargin, screenWidth - resizeMargin}};
-        std::vector<SnapCandidate> bottomCandidates{{screenHeight - resizeMargin, screenHeight - resizeMargin}};
-        for (const auto& other : m_config.overlay_layout.containers) {
-            if (other.id == it->id) continue;
-            const auto [ow, oh] = OverlayContainerSize(other, m_dpiScale, &m_config);
-            if (std::abs(newWidth - ow) < snap) {
-                newWidth = ow;
+        for (const auto& other : m_drag.snapRects) {
+            if (std::abs(newWidth - other.w) < snap) {
+                newWidth = other.w;
                 xSnap = {it->x + newWidth, it->x + newWidth, true};
             }
-            if (std::abs(newHeight - oh) < snap) {
-                newHeight = oh;
+            if (std::abs(newHeight - other.h) < snap) {
+                newHeight = other.h;
                 ySnap = {it->y + newHeight, it->y + newHeight, true};
             }
-            rightCandidates.insert(rightCandidates.end(), {{other.x, other.x}, {other.x + ow, other.x + ow}});
-            bottomCandidates.insert(bottomCandidates.end(), {{other.y, other.y}, {other.y + oh, other.y + oh}});
         }
-        const auto rightSnap = snapNearest(it->x + newWidth, rightCandidates);
-        const auto bottomSnap = snapNearest(it->y + newHeight, bottomCandidates);
+
+        const float right = it->x + newWidth;
+        const float bottom = it->y + newHeight;
+        SnapResult rightSnap{right, 0.0f, false};
+        SnapResult bottomSnap{bottom, 0.0f, false};
+        float bestRight = snap;
+        float bestBottom = snap;
+        considerSnap(right, screenWidth - resizeMargin, screenWidth - resizeMargin, rightSnap, bestRight);
+        considerSnap(bottom, screenHeight - resizeMargin, screenHeight - resizeMargin, bottomSnap, bestBottom);
+        for (const auto& other : m_drag.snapRects) {
+            considerSnap(right, other.x, other.x, rightSnap, bestRight);
+            considerSnap(right, other.x + other.w, other.x + other.w, rightSnap, bestRight);
+            considerSnap(bottom, other.y, other.y, bottomSnap, bestBottom);
+            considerSnap(bottom, other.y + other.h, other.y + other.h, bottomSnap, bestBottom);
+        }
         if (rightSnap.snapped) xSnap = rightSnap;
         if (bottomSnap.snapped) ySnap = bottomSnap;
-        const float snappedRight = rightSnap.snapped ? rightSnap.value : it->x + newWidth;
-        const float snappedBottom = bottomSnap.snapped ? bottomSnap.value : it->y + newHeight;
+        const float snappedRight = rightSnap.snapped ? rightSnap.value : right;
+        const float snappedBottom = bottomSnap.snapped ? bottomSnap.value : bottom;
         // Every value above is in rendered screen pixels; stored geometry is
         // design pixels at 100% text size, so divide the scale back out.
         const float uiScale = SanitizedUiScale(m_config.ui_scale);
@@ -4467,42 +5016,37 @@ void RmlUiController::HandleMouseMove(Rml::Event& event) {
         it->h = std::clamp(snappedBottom - it->y, minHeight, std::max(minHeight, screenHeight - resizeMargin - it->y)) / uiScale;
     }
 
-    if (auto* root = Root("overlay-root")) {
-        const auto toDp = [rmlScale](float pixels) { return pixels / std::max(rmlScale, 0.5f); };
-        const std::string selector = "[data-container='" + m_drag.containerId + "']";
-        if (auto* element = root->QuerySelector(selector)) {
-            element->SetProperty("left", std::to_string(toDp(it->x)) + "dp");
-            element->SetProperty("top", std::to_string(toDp(it->y)) + "dp");
-            if (m_drag.kind == DragKind::OverlayResize) {
-                const auto [resolvedWidth, resolvedHeight] = OverlayContainerSize(*it, m_dpiScale, &m_config);
-                element->SetProperty("width", std::to_string(toDp(resolvedWidth)) + "dp");
-                element->SetProperty("min-height", std::to_string(toDp(resolvedHeight)) + "dp");
-            }
+    const auto toDp = [rmlScale](float pixels) { return pixels / std::max(rmlScale, 0.5f); };
+    if (m_drag.element) {
+        m_drag.element->SetProperty("left", std::to_string(toDp(it->x)) + "dp");
+        m_drag.element->SetProperty("top", std::to_string(toDp(it->y)) + "dp");
+        if (m_drag.kind == DragKind::OverlayResize) {
+            const auto [resolvedWidth, resolvedHeight] = OverlayContainerSize(*it, m_dpiScale, &m_config);
+            m_drag.element->SetProperty("width", std::to_string(toDp(resolvedWidth)) + "dp");
+            m_drag.element->SetProperty("min-height", std::to_string(toDp(resolvedHeight)) + "dp");
         }
-        if (auto* guide = root->QuerySelector("#overlay-snap-x")) {
-            guide->SetProperty("display", xSnap.snapped ? "block" : "none");
-            if (xSnap.snapped) guide->SetProperty("left", std::to_string(toDp(xSnap.guide)) + "dp");
-        }
-        if (auto* guide = root->QuerySelector("#overlay-snap-y")) {
-            guide->SetProperty("display", ySnap.snapped ? "block" : "none");
-            if (ySnap.snapped) guide->SetProperty("top", std::to_string(toDp(ySnap.guide)) + "dp");
-        }
+    }
+    if (m_drag.guideX) {
+        m_drag.guideX->SetProperty("display", xSnap.snapped ? "block" : "none");
+        if (xSnap.snapped) m_drag.guideX->SetProperty("left", std::to_string(toDp(xSnap.guide)) + "dp");
+    }
+    if (m_drag.guideY) {
+        m_drag.guideY->SetProperty("display", ySnap.snapped ? "block" : "none");
+        if (ySnap.snapped) m_drag.guideY->SetProperty("top", std::to_string(toDp(ySnap.guide)) + "dp");
     }
 }
 void RmlUiController::HandleMouseUp(Rml::Event& event) {
     m_systemInterface.UnlockCursor();
     const float mouseX = event.GetParameter<float>("mouse_x", 0.0f);
     const float mouseY = event.GetParameter<float>("mouse_y", 0.0f);
-    if (auto* root = Root("overlay-root")) {
-        if (auto* guide = root->QuerySelector("#overlay-snap-x")) guide->SetProperty("display", "none");
-        if (auto* guide = root->QuerySelector("#overlay-snap-y")) guide->SetProperty("display", "none");
-    }
+    if (m_drag.guideX) m_drag.guideX->SetProperty("display", "none");
+    if (m_drag.guideY) m_drag.guideY->SetProperty("display", "none");
 
     if (m_drag.kind == DragKind::SettingsMove) {
         // Position is intentionally session-local; reopening Settings keeps the
         // user's last placement without changing the existing config format.
     } else if (m_drag.kind == DragKind::ColorField || m_drag.kind == DragKind::ColorHue) {
-        // ApplyColorPick already committed every sample.
+        CommitColorPick();
     } else if (m_drag.kind == DragKind::FloatingCard) {
         const float sessionX = m_config.session_view_x;
         const float sessionY = m_config.session_view_y;

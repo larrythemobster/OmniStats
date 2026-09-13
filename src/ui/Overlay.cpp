@@ -94,11 +94,12 @@ LRESULT WINAPI WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         return 0;
 
     case WM_NCCALCSIZE:
-        if (wParam && Config::Read().second_monitor_mode) return 0;
+        if (wParam && ((overlay && overlay->m_frameConfig.second_monitor_mode) ||
+                       (!overlay && Config::Read().second_monitor_mode))) return 0;
         break;
 
     case WM_NCHITTEST:
-        if (overlay && Config::Read().second_monitor_mode) {
+        if (overlay && overlay->m_frameConfig.second_monitor_mode) {
             const LRESULT hit = DefWindowProcW(hWnd, msg, wParam, lParam);
             if (hit == HTCLIENT) {
                 POINT pt{static_cast<int>(static_cast<short>(LOWORD(lParam))),
@@ -141,7 +142,8 @@ LRESULT WINAPI WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         return 0;
 
     case WM_GETMINMAXINFO:
-        if (Config::Read().second_monitor_mode) {
+        if ((overlay && overlay->m_frameConfig.second_monitor_mode) ||
+            (!overlay && Config::Read().second_monitor_mode)) {
             auto* mmi = reinterpret_cast<MINMAXINFO*>(lParam);
             float dpiScale = overlay ? overlay->m_dpiScale : 1.0f;
             if (!overlay) {
@@ -219,9 +221,8 @@ bool Overlay::Initialize() {
 
 void Overlay::UpdateWindowStyle() {
     if (!m_window) return;
-    const ConfigData config = Config::Read();
     const bool interactiveOverlay = m_rmlUi && m_rmlUi->WantsInteraction();
-    m_window->UpdateStyle(config.second_monitor_mode, m_state->ui.showMenu.load() || interactiveOverlay);
+    m_window->UpdateStyle(m_frameConfig.second_monitor_mode, m_state->ui.showMenu.load() || interactiveOverlay);
 }
 
 void Overlay::RunLoop() {
@@ -233,14 +234,19 @@ void Overlay::RunLoop() {
     auto rlFocusReadyAt = (std::chrono::steady_clock::time_point::min)();
     bool validateDeviceAfterFocus = false;
     auto lastFrameTime = std::chrono::steady_clock::now();
+    auto lastUiDataUpdate = lastFrameTime - std::chrono::milliseconds(100);
+    uint64_t lastConfigRevision = Config::Revision();
+    // The revision edge must survive iterations that never reach the UI update
+    // below (window hidden, focus-transition delay, device revalidation).
+    // Consuming it at read time would drop config commits made while hidden and
+    // leave the controller rendering the previous mode's DOM.
+    bool configDirty = false;
 
     while (!done) {
         if (m_state->ui.appExitRequested.load()) {
             std::cout << "[Overlay] Exit requested by external updater.\n";
             break;
         }
-
-        m_frameConfig = Config::Read();
 
         if (SDL_WasInit(SDL_INIT_GAMECONTROLLER | SDL_INIT_JOYSTICK) != 0) {
             SDL_Event event;
@@ -256,7 +262,13 @@ void Overlay::RunLoop() {
         }
         if (done) break;
 
-        m_frameConfig = Config::Read();
+        const uint64_t configRevision = Config::Revision();
+        if (configRevision != lastConfigRevision) {
+            m_frameConfig = Config::Read();
+            lastConfigRevision = configRevision;
+            configDirty = true;
+        }
+        const bool configChanged = configDirty;
         if (m_frameConfig.second_monitor_mode != m_lastSecondMonitorMode) {
             m_lastSecondMonitorMode = m_frameConfig.second_monitor_mode;
             UpdateWindowStyle();
@@ -356,6 +368,7 @@ void Overlay::RunLoop() {
         if (!wasVisible) {
             UpdateWindowStyle();
             ShowWindow(m_hwnd, SW_SHOWNOACTIVATE);
+            m_rmlUi->RequestRender();
             SetWindowPos(m_hwnd,
                          m_frameConfig.second_monitor_mode ? HWND_NOTOPMOST : HWND_TOPMOST,
                          0, 0, 0, 0,
@@ -370,7 +383,18 @@ void Overlay::RunLoop() {
         }
         wasRLActive = isRLActive;
 
-        m_rmlUi->Update(m_frameConfig);
+        // RmlUi layout/animation/rendering still runs every rendered frame, but
+        // telemetry snapshots and DOM data reconciliation do not need to run at
+        // 60-240 Hz. Ten updates per second is responsive for live stats and
+        // removes a large amount of repeated map/string/allocation work. Config
+        // commits are applied immediately regardless of this cadence.
+        const auto uiNow = std::chrono::steady_clock::now();
+        constexpr auto kUiDataInterval = std::chrono::milliseconds(100);
+        if (configChanged || uiNow - lastUiDataUpdate >= kUiDataInterval) {
+            m_rmlUi->Update(m_frameConfig, configChanged, lastConfigRevision);
+            configDirty = false;
+            lastUiDataUpdate = uiNow;
+        }
         const bool needsInteract = m_rmlUi->WantsInteraction();
         isClickThrough = (GetWindowLong(m_hwnd, GWL_EXSTYLE) & WS_EX_TRANSPARENT) != 0;
         if (needsInteract && isClickThrough) {
@@ -392,24 +416,33 @@ void Overlay::RunLoop() {
             isClickThrough = true;
         }
 
-        const float clearColor[4] = {0.0f, 0.0f, 0.0f, m_frameConfig.second_monitor_mode ? 1.0f : 0.0f};
-        m_d3d11->Context()->OMSetRenderTargets(1, m_d3d11->RenderTargetViewAddress(), nullptr);
-        m_d3d11->Context()->ClearRenderTargetView(m_d3d11->RenderTargetView(), clearColor);
-        m_rmlUi->Render();
+        const bool renderFrame = m_rmlUi->ShouldRender();
+        if (renderFrame) {
+            const float clearColor[4] = {0.0f, 0.0f, 0.0f, m_frameConfig.second_monitor_mode ? 1.0f : 0.0f};
+            m_d3d11->Context()->OMSetRenderTargets(1, m_d3d11->RenderTargetViewAddress(), nullptr);
+            m_d3d11->Context()->ClearRenderTargetView(m_d3d11->RenderTargetView(), clearColor);
+            m_rmlUi->Render();
 
-        const UINT syncInterval = m_frameConfig.vsync ? 1U : 0U;
-        const HRESULT presentHr = m_d3d11->SwapChain()->Present(syncInterval, 0);
-        if (presentHr == DXGI_ERROR_DEVICE_REMOVED || presentHr == DXGI_ERROR_DEVICE_RESET || presentHr == DXGI_ERROR_DEVICE_HUNG) {
-            if (!HandleDeviceLost("Present", presentHr)) done = true;
-            continue;
-        }
-        if (FAILED(presentHr)) {
-            std::cout << "[D3D11] Present failed: 0x" << std::hex << presentHr << std::dec << "\n";
+            const UINT syncInterval = m_frameConfig.vsync ? 1U : 0U;
+            const HRESULT presentHr = m_d3d11->SwapChain()->Present(syncInterval, 0);
+            if (presentHr == DXGI_ERROR_DEVICE_REMOVED || presentHr == DXGI_ERROR_DEVICE_RESET || presentHr == DXGI_ERROR_DEVICE_HUNG) {
+                if (!HandleDeviceLost("Present", presentHr)) done = true;
+                continue;
+            }
+            if (FAILED(presentHr)) {
+                std::cout << "[D3D11] Present failed: 0x" << std::hex << presentHr << std::dec << "\n";
+            }
         }
 
-        if (!m_frameConfig.vsync && m_frameConfig.overlay_fps_cap > 0 && !needsInteract) {
+        // Present(0) must never turn into a busy loop. Interaction (Settings,
+        // overlay dragging and second-monitor mode) only changes input routing;
+        // it is not a reason to bypass the configured render cadence. A static
+        // on-demand frame also needs an explicit limiter when vsync is enabled,
+        // because skipping Present(1) removes DXGI's normal blocking wait.
+        if (!m_frameConfig.vsync || !renderFrame) {
+            const int frameCap = m_frameConfig.overlay_fps_cap > 0 ? m_frameConfig.overlay_fps_cap : 60;
             const auto now = std::chrono::steady_clock::now();
-            const auto targetDuration = std::chrono::duration<double, std::milli>(1000.0 / m_frameConfig.overlay_fps_cap);
+            const auto targetDuration = std::chrono::duration<double, std::milli>(1000.0 / static_cast<double>(frameCap));
             const auto elapsed = std::chrono::duration<double, std::milli>(now - lastFrameTime);
             if (elapsed < targetDuration) std::this_thread::sleep_for(targetDuration - elapsed);
         }
@@ -446,7 +479,7 @@ void Overlay::SaveSecondMonitorWindowBounds() {
     if (!m_hwnd || IsIconic(m_hwnd)) return;
     if (GetForegroundWindow() != m_hwnd && (GetAsyncKeyState(VK_LBUTTON) & 0x8000) == 0) return;
 
-    const ConfigData config = Config::Read();
+    const ConfigData& config = m_frameConfig;
     if (!config.second_monitor_mode) return;
 
     RECT rect{};
@@ -474,7 +507,7 @@ void Overlay::HandleDpiChanged(UINT dpi, const RECT* suggestedRect) {
     if (m_dpiScale < 0.5f) m_dpiScale = 1.0f;
     if (m_window) m_window->SetDpiScale(m_dpiScale);
 
-    const ConfigData config = Config::Read();
+    const ConfigData& config = m_frameConfig;
     const bool keepSecondMonitorBounds = config.second_monitor_mode && m_hwnd &&
                                          MonitorFromWindow(m_hwnd, MONITOR_DEFAULTTONULL) != nullptr;
     if (suggestedRect && m_hwnd) {

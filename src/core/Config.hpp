@@ -1,5 +1,6 @@
 #pragma once
 #include <string>
+#include <cstdint>
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
 #endif
@@ -183,6 +184,10 @@ namespace Config {
 
     // Safely reads a point-in-time snapshot of the configuration under a shared lock
     ConfigData Read();
+
+    // Monotonic in-process revision. Readers can cheaply avoid copying the full
+    // ConfigData object every render frame when nothing has changed.
+    uint64_t Revision();
 
     // Safely updates the configuration under an exclusive lock and saves to disk
     void Update(std::function<void(ConfigData&)> fn, bool saveToDisk = true);

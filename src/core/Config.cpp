@@ -117,12 +117,17 @@ namespace Config {
     static ConfigData Current;
     static std::shared_mutex Mutex;
     static std::atomic<bool> s_pendingSave{false};
+    static std::atomic<uint64_t> s_revision{1};
     static std::atomic<bool> s_appRunning{true};
     static std::jthread s_saveThread;
 
     ConfigData Read() {
         std::shared_lock<std::shared_mutex> lock(Mutex);
         return Current;
+    }
+
+    uint64_t Revision() {
+        return s_revision.load(std::memory_order_acquire);
     }
 
     // Forward declaration of internal non-locking save
@@ -169,6 +174,7 @@ namespace Config {
                 Current.known_primary_ids.push_back(Current.last_primary_id);
             }
         }
+        s_revision.fetch_add(1, std::memory_order_release);
         if (saveToDisk) {
             s_pendingSave.store(true);
         }
@@ -184,6 +190,7 @@ namespace Config {
         if (!fs::exists(configFile)) {
             std::cout << "[Config] No config found. Creating default config.\n";
             SaveInternal();
+            s_revision.fetch_add(1, std::memory_order_release);
             return;
         }
 
@@ -465,6 +472,7 @@ namespace Config {
             if (needsSave) {
                 s_pendingSave.store(true);
             }
+            s_revision.fetch_add(1, std::memory_order_release);
 
         } catch (const std::exception& e) {
             std::cout << "[Config] Failed to parse config.json: " << e.what() << "\n";
@@ -472,6 +480,7 @@ namespace Config {
             fs::rename(configFile, configFile + ".corrupt", ec);
             Current = ConfigData{};
             SaveInternal();
+            s_revision.fetch_add(1, std::memory_order_release);
         }
     }
 

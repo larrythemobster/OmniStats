@@ -13,6 +13,8 @@ class RmlRenderInterfaceD3D11 final : public Rml::RenderInterface {
     bool Initialize(ID3D11Device* device, ID3D11DeviceContext* context, int width, int height);
     void Shutdown();
     void SetViewport(int width, int height);
+    void BeginFrame();
+    void EndFrame();
 
     Rml::CompiledGeometryHandle CompileGeometry(Rml::Span<const Rml::Vertex> vertices,
                                                 Rml::Span<const int> indices) override;
@@ -54,6 +56,7 @@ class RmlRenderInterfaceD3D11 final : public Rml::RenderInterface {
     void DrawGeometry(ID3D11Buffer* vertexBuffer, ID3D11Buffer* indexBuffer, int indexCount,
                       Rml::TextureHandle texture, const Rml::Vector2f& translation);
     void UpdateConstants(Rml::TextureHandle texture, const Rml::Vector2f& translation);
+    void ApplyRasterizerState();
 
     ID3D11Device* m_device = nullptr;
     ID3D11DeviceContext* m_context = nullptr;
@@ -61,6 +64,11 @@ class RmlRenderInterfaceD3D11 final : public Rml::RenderInterface {
     int m_height = 1;
     bool m_scissorEnabled = false;
     D3D11_RECT m_scissor{0, 0, 1, 1};
+    bool m_frameActive = false;
+    bool m_rasterizerDirty = true;
+    bool m_scissorRectDirty = true;
+    Rml::TextureHandle m_boundTexture = 0;
+    bool m_textureBindingKnown = false;
     Rml::Matrix4f m_transform = Rml::Matrix4f::Identity();
     bool m_hasTransform = false;
     ULONG_PTR m_gdiplusToken = 0;

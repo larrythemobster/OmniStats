@@ -189,6 +189,11 @@ void RmlRenderInterfaceD3D11::Shutdown() {
     m_context = nullptr;
     m_scissorEnabled = false;
     m_scissor = {0, 0, 1, 1};
+    m_frameActive = false;
+    m_rasterizerDirty = true;
+    m_scissorRectDirty = true;
+    m_boundTexture = 0;
+    m_textureBindingKnown = false;
     m_hasTransform = false;
     m_transform = Rml::Matrix4f::Identity();
     if (m_gdiplusToken) {
@@ -200,6 +205,56 @@ void RmlRenderInterfaceD3D11::Shutdown() {
 void RmlRenderInterfaceD3D11::SetViewport(int width, int height) {
     m_width = std::max(width, 1);
     m_height = std::max(height, 1);
+}
+
+void RmlRenderInterfaceD3D11::BeginFrame() {
+    if (!m_context || m_frameActive) return;
+    m_frameActive = true;
+    m_rasterizerDirty = true;
+    m_scissorRectDirty = true;
+    m_textureBindingKnown = false;
+
+    D3D11_VIEWPORT viewport{0.0f, 0.0f, static_cast<float>(m_width), static_cast<float>(m_height), 0.0f, 1.0f};
+    m_context->RSSetViewports(1, &viewport);
+    m_context->IASetInputLayout(m_inputLayout.Get());
+    m_context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+    m_context->VSSetShader(m_vertexShader.Get(), nullptr, 0);
+    ID3D11Buffer* cb = m_constantBuffer.Get();
+    m_context->VSSetConstantBuffers(0, 1, &cb);
+    m_context->PSSetConstantBuffers(0, 1, &cb);
+    m_context->PSSetShader(m_pixelShader.Get(), nullptr, 0);
+    ID3D11SamplerState* sampler = m_sampler.Get();
+    m_context->PSSetSamplers(0, 1, &sampler);
+    const float blendFactor[4] = {0, 0, 0, 0};
+    m_context->OMSetBlendState(m_blendState.Get(), blendFactor, 0xffffffffu);
+    m_context->OMSetDepthStencilState(m_depthState.Get(), 0);
+    ApplyRasterizerState();
+}
+
+void RmlRenderInterfaceD3D11::EndFrame() {
+    if (!m_context || !m_frameActive) return;
+    // Leave no UI texture bound after rendering so future render-target/resource
+    // transitions elsewhere on the D3D11 context cannot hit an SRV hazard.
+    if (m_textureBindingKnown && m_boundTexture) {
+        ID3D11ShaderResourceView* nullSrv = nullptr;
+        m_context->PSSetShaderResources(0, 1, &nullSrv);
+    }
+    m_boundTexture = 0;
+    m_textureBindingKnown = false;
+    m_frameActive = false;
+}
+
+void RmlRenderInterfaceD3D11::ApplyRasterizerState() {
+    if (!m_context) return;
+    if (m_rasterizerDirty) {
+        m_context->RSSetState(m_scissorEnabled ? m_rasterizerScissor.Get() : m_rasterizerNoScissor.Get());
+        m_rasterizerDirty = false;
+        if (m_scissorEnabled) m_scissorRectDirty = true;
+    }
+    if (m_scissorEnabled && m_scissorRectDirty) {
+        m_context->RSSetScissorRects(1, &m_scissor);
+        m_scissorRectDirty = false;
+    }
 }
 
 bool RmlRenderInterfaceD3D11::CreatePipeline() {
@@ -315,35 +370,20 @@ void RmlRenderInterfaceD3D11::DrawGeometry(ID3D11Buffer* vertexBuffer, ID3D11Buf
                                            Rml::TextureHandle texture, const Rml::Vector2f& translation) {
     if (!m_context || !vertexBuffer || !indexBuffer || indexCount <= 0) return;
     UpdateConstants(texture, translation);
-
-    D3D11_VIEWPORT viewport{0.0f, 0.0f, static_cast<float>(m_width), static_cast<float>(m_height), 0.0f, 1.0f};
-    m_context->RSSetViewports(1, &viewport);
-    m_context->RSSetState(m_scissorEnabled ? m_rasterizerScissor.Get() : m_rasterizerNoScissor.Get());
-    if (m_scissorEnabled) m_context->RSSetScissorRects(1, &m_scissor);
+    ApplyRasterizerState();
 
     UINT stride = sizeof(Rml::Vertex), offset = 0;
-    m_context->IASetInputLayout(m_inputLayout.Get());
     m_context->IASetVertexBuffers(0, 1, &vertexBuffer, &stride, &offset);
     m_context->IASetIndexBuffer(indexBuffer, DXGI_FORMAT_R32_UINT, 0);
-    m_context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-    m_context->VSSetShader(m_vertexShader.Get(), nullptr, 0);
-    ID3D11Buffer* cb = m_constantBuffer.Get();
-    m_context->VSSetConstantBuffers(0, 1, &cb);
-    // UiConstants is declared in both shader stages. Without binding b0 to the
-    // pixel shader, `hasTexture` reads as zero and every glyph renders as its
-    // solid geometry quad instead of sampling the font atlas.
-    m_context->PSSetConstantBuffers(0, 1, &cb);
-    m_context->PSSetShader(m_pixelShader.Get(), nullptr, 0);
-    ID3D11SamplerState* sampler = m_sampler.Get();
-    m_context->PSSetSamplers(0, 1, &sampler);
-    ID3D11ShaderResourceView* srv = reinterpret_cast<ID3D11ShaderResourceView*>(texture);
-    m_context->PSSetShaderResources(0, 1, &srv);
-    const float blendFactor[4] = {0, 0, 0, 0};
-    m_context->OMSetBlendState(m_blendState.Get(), blendFactor, 0xffffffffu);
-    m_context->OMSetDepthStencilState(m_depthState.Get(), 0);
+
+    if (!m_textureBindingKnown || texture != m_boundTexture) {
+        ID3D11ShaderResourceView* srv = reinterpret_cast<ID3D11ShaderResourceView*>(texture);
+        m_context->PSSetShaderResources(0, 1, &srv);
+        m_boundTexture = texture;
+        m_textureBindingKnown = true;
+    }
+
     m_context->DrawIndexed(static_cast<UINT>(indexCount), 0, 0);
-    ID3D11ShaderResourceView* nullSrv = nullptr;
-    m_context->PSSetShaderResources(0, 1, &nullSrv);
 }
 
 Rml::CompiledGeometryHandle RmlRenderInterfaceD3D11::CompileGeometry(Rml::Span<const Rml::Vertex> vertices,
@@ -380,7 +420,10 @@ void RmlRenderInterfaceD3D11::RenderGeometry(Rml::CompiledGeometryHandle handle,
     // Texture ownership/state is deliberately supplied per draw by RmlUi 6. Do
     // not cache it in compiled geometry: font atlas textures may be regenerated
     // as new glyphs are requested (for example when Settings opens).
+    const bool ownsFrame = !m_frameActive;
+    if (ownsFrame) BeginFrame();
     DrawGeometry(geometry->vertexBuffer.Get(), geometry->indexBuffer.Get(), geometry->indexCount, texture, translation);
+    if (ownsFrame) EndFrame();
 }
 
 void RmlRenderInterfaceD3D11::ReleaseGeometry(Rml::CompiledGeometryHandle handle) {
@@ -388,7 +431,9 @@ void RmlRenderInterfaceD3D11::ReleaseGeometry(Rml::CompiledGeometryHandle handle
 }
 
 void RmlRenderInterfaceD3D11::EnableScissorRegion(bool enable) {
+    if (m_scissorEnabled == enable) return;
     m_scissorEnabled = enable;
+    m_rasterizerDirty = true;
 }
 
 void RmlRenderInterfaceD3D11::SetScissorRegion(Rml::Rectanglei region) {
@@ -397,7 +442,12 @@ void RmlRenderInterfaceD3D11::SetScissorRegion(Rml::Rectanglei region) {
     const long top = std::clamp<long>(region.Top(), 0, m_height);
     const long right = std::max(left, std::clamp<long>(region.Right(), 0, m_width));
     const long bottom = std::max(top, std::clamp<long>(region.Bottom(), 0, m_height));
-    m_scissor = {left, top, right, bottom};
+    const D3D11_RECT next{left, top, right, bottom};
+    if (m_scissor.left != next.left || m_scissor.top != next.top ||
+        m_scissor.right != next.right || m_scissor.bottom != next.bottom) {
+        m_scissor = next;
+        m_scissorRectDirty = true;
+    }
 }
 
 bool RmlRenderInterfaceD3D11::CreateTextureFromRgba(const unsigned char* rgba, int width, int height, Rml::TextureHandle& handle) {

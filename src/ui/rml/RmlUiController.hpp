@@ -5,9 +5,13 @@
 #include <windows.h>
 #include <d3d11.h>
 #include <cstdint>
+#include <chrono>
+#include <functional>
 #include <map>
+#include <limits>
 #include <memory>
 #include <string>
+#include <string_view>
 #include <unordered_map>
 #include <vector>
 
@@ -25,6 +29,7 @@ namespace Rml {
     class ElementDocument;
     class ElementInstancer;
     class Event;
+    class StyleSheetContainer;
 }
 
 struct RmlRenderSnapshot {
@@ -70,8 +75,10 @@ class RmlUiController final : public Rml::EventListener {
     void SetDpiScale(float dpiScale);
     bool ProcessWindowMessage(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam);
     bool ApplyMouseCursor();
-    void Update(const ConfigData& config);
+    void Update(const ConfigData& config, bool configChanged = true, uint64_t configRevision = 0);
     void Render();
+    bool ShouldRender() const;
+    void RequestRender();
     bool WantsInteraction() const;
 
     void ProcessEvent(Rml::Event& event) override;
@@ -118,6 +125,33 @@ class RmlUiController final : public Rml::EventListener {
                           ColorField,
                           ColorHue };
 
+    struct TransparentStringHash {
+        using is_transparent = void;
+        size_t operator()(std::string_view value) const noexcept {
+            return std::hash<std::string_view>{}(value);
+        }
+        size_t operator()(const std::string& value) const noexcept {
+            return (*this)(std::string_view(value));
+        }
+    };
+
+    struct PlayerLiveStatState {
+        int goals = 0;
+        int saves = 0;
+        int assists = 0;
+        int shots = 0;
+        int demos = 0;
+        bool visible = false;
+        bool operator==(const PlayerLiveStatState&) const = default;
+    };
+
+    struct DragSnapRect {
+        float x = 0.0f;
+        float y = 0.0f;
+        float w = 0.0f;
+        float h = 0.0f;
+    };
+
     struct DragState {
         DragKind kind = DragKind::None;
         DashboardLayout::WidgetId widget = DashboardLayout::WidgetId::LiveRoster;
@@ -130,6 +164,11 @@ class RmlUiController final : public Rml::EventListener {
         float startW = 0.0f;
         float startH = 0.0f;
         bool allowDock = false;
+        Rml::Element* element = nullptr;
+        Rml::Element* guideX = nullptr;
+        Rml::Element* guideY = nullptr;
+        Rml::Element* dropTarget = nullptr;
+        std::vector<DragSnapRect> snapRects;
     };
 
     void SnapshotState();
@@ -137,8 +176,11 @@ class RmlUiController final : public Rml::EventListener {
     void RefreshAsyncData();
     void UpdateInputCapture();
     void UpdateThemeProperties();
-    void RebuildVisibleUi(bool force = false);
-    bool PointerOverInteractiveOverlay() const;
+    void RebuildVisibleUi(bool force = false, bool configChanged = false);
+    void RefreshLiveUi(bool force = false, bool allowStructural = true);
+    void RebuildLiveElementCache();
+    void SetElementRml(Rml::Element* element, const std::string& rml, bool replayPointer = false);
+    void SetElementText(Rml::Element* element, const std::string& text);
     void RebuildOverlay();
     void RebuildDashboard();
     void RebuildSettings();
@@ -175,6 +217,8 @@ class RmlUiController final : public Rml::EventListener {
     void HandleInput(Rml::Element* target);
     void HandleMouseDown(Rml::Element* target, Rml::Event& event);
     void ApplyColorPick(float mouseX, float mouseY);
+    void RefreshThemeEditorControls(std::string_view preserveHexKey = {});
+    void CommitColorPick();
     void HandleMouseMove(Rml::Event& event);
     void HandleMouseUp(Rml::Event& event);
     void PanGraph(int direction);
@@ -221,6 +265,7 @@ class RmlUiController final : public Rml::EventListener {
     RmlRenderInterfaceD3D11 m_renderInterface;
     Rml::Context* m_context = nullptr;
     Rml::ElementDocument* m_document = nullptr;
+    Rml::SharedPtr<Rml::StyleSheetContainer> m_baseStyleSheet;
     bool m_rmlInitialized = false;
     // Faces loaded from disk must outlive Rml::Shutdown; RCDATA-backed faces
     // point into the module image and need no storage.
@@ -233,6 +278,7 @@ class RmlUiController final : public Rml::EventListener {
     uint64_t m_lastGameVersion = 0;
     uint64_t m_lastHistoryVersion = 0;
     uint64_t m_lastRenderedGameVersion = 0;
+    uint64_t m_lastLeafGameVersion = 0;
     uint64_t m_lastRenderedHistoryVersion = 0;
     uint64_t m_lastRenderedDbStatsVersion = 0;
     bool m_lastShowMenu = false;
@@ -244,11 +290,34 @@ class RmlUiController final : public Rml::EventListener {
     bool m_lastShowGraphView = false;
     bool m_lastH2hExpanded = false;
     bool m_lastShowLifetimeGraph = false;
+    bool m_lastInMatch = false;
     int m_lastGraphOffset = 0;
     MmrCategory m_lastRosterMmrCategory = MmrCategory::Best;
     MmrCategory m_lastGraphMmrCategory = MmrCategory::Best;
     std::string m_lastConfigFingerprint;
+    uint64_t m_lastConfigHash = 0;
+    uint64_t m_lastRuntimeStructuralHash = 0;
+    std::string m_lastRenderConfigFingerprint;
     std::string m_lastSettingsFingerprint;
+    uint64_t m_lastSettingsHash = 0;
+    uint64_t m_lastSettingsRosterHash = 0;
+    bool m_hasSettingsRosterHash = false;
+    uint64_t m_lastSettingsRosterGameVersion = std::numeric_limits<uint64_t>::max();
+    SettingsPage m_lastSettingsRosterPage = SettingsPage::General;
+    std::unordered_map<std::string, std::string> m_lastLiveWidgetRml;
+    std::unordered_map<std::string, std::vector<Rml::Element*>, TransparentStringHash, std::equal_to<>> m_liveValueElements;
+    std::unordered_map<std::string, std::vector<Rml::Element*>> m_playerLiveStatElements;
+    bool m_liveElementCacheDirty = true;
+    bool m_liveDomNeedsPrime = true;
+    uint64_t m_lastRosterStructureHash = 0;
+    bool m_hasRosterStructureHash = false;
+    bool m_lastLiveMatchHadDemoedRow = false;
+    bool m_lastLiveMatchHadOwnGoalsRow = false;
+    std::string m_lastSessionViewRml;
+    uint64_t m_lastGamemodeBreakdownHash = 0;
+    bool m_hasGamemodeBreakdownHash = false;
+    std::unordered_map<std::string, std::string, TransparentStringHash, std::equal_to<>> m_lastLiveValues;
+    std::unordered_map<std::string, PlayerLiveStatState> m_lastPlayerLiveStats;
 
     std::string m_lastDbFetchPrimaryId;
     std::string m_lastLifetimeHistoryPrimaryId;
@@ -263,6 +332,7 @@ class RmlUiController final : public Rml::EventListener {
     // Hue is tracked separately from the edited RGBA: dragging saturation or
     // value through gray would otherwise lose the hue the user picked.
     float m_editColorHue = 0.0f;
+    bool m_colorPickDirty = false;
     bool m_confirmReplayUploads = false;
     bool m_confirmDeleteHistory = false;
     bool m_showUpdatePrompt = false;
@@ -274,6 +344,9 @@ class RmlUiController final : public Rml::EventListener {
     bool m_statusError = false;
     int64_t m_statusUntilMs = 0;
     bool m_rebuildingUi = false;
+    bool m_renderDirty = true;
+    std::chrono::steady_clock::time_point m_nextRmlUpdateAt = std::chrono::steady_clock::time_point::max();
+    uint64_t m_lastLocalConfigRevision = 0;
 
     // Replayed after an overlay DOM rebuild so RmlUi immediately resolves the
     // new hover chain instead of briefly falling back to the arrow cursor.

@@ -851,7 +851,7 @@ TEST_F(RmlUiControllerStateTest, CompactSessionKeepsLegacySignedZeroMmrChange) {
     RmlUiController controller(state, nullptr);
     controller.Update(config);
     const std::string html = RenderCompactSession(controller);
-    EXPECT_NE(html.find("<div class='metric-label'>MMR</div><div class='metric-value mono'>+0</div>"), std::string::npos);
+    EXPECT_NE(html.find("data-live-value='session-mmr'>+0</div>"), std::string::npos);
 }
 
 TEST_F(RmlUiControllerStateTest, CompactSessionUsesFinalizedDemoTotalsOnly) {
@@ -870,8 +870,8 @@ TEST_F(RmlUiControllerStateTest, CompactSessionUsesFinalizedDemoTotalsOnly) {
     controller.Update(config);
 
     const std::string html = RenderCompactSession(controller);
-    EXPECT_NE(html.find("<div class='metric-label'>Demos</div><div class='metric-value mono'>3</div>"), std::string::npos);
-    EXPECT_EQ(html.find("<div class='metric-label'>Demos</div><div class='metric-value mono'>5</div>"), std::string::npos);
+    EXPECT_NE(html.find("data-live-value='session-demos'>3</div>"), std::string::npos);
+    EXPECT_EQ(html.find("data-live-value='session-demos'>5</div>"), std::string::npos);
 }
 
 TEST_F(RmlUiControllerStateTest, LiveTelemetryDoesNotInvalidateOpenSettingsDom) {
@@ -1420,7 +1420,10 @@ TEST_F(RmlUiControllerStateTest, LongSettingsPagesScrollAndPreservePositionAfter
             for (char ch : value) {
                 controller.ProcessWindowMessage(hwnd, WM_CHAR, static_cast<WPARAM>(ch), 0);
                 state->game.version.fetch_add(1);
-                controller.Update(Config::Read());
+                // Mirror Overlay::RunLoop: the render loop reports the config
+                // revision it observed, so a local edit is not mistaken for an
+                // external change that would rebuild the focused Settings DOM.
+                controller.Update(Config::Read(), true, Config::Revision());
                 controller.Render();
             }
             EXPECT_EQ(Config::Read().ballchasing_token, value);
