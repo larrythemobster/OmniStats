@@ -316,6 +316,55 @@ TEST_F(RmlUiControllerStateTest, LobbyRanksKeepsEnabledPlaylistColumnHeaders) {
     EXPECT_EQ(html.find(">Hoops</div>"), std::string::npos);
 }
 
+TEST_F(RmlUiControllerStateTest, LobbyRanksCalculatesRanksPerPlaylistForUnrankedPlacementPlayers) {
+    auto state = std::make_shared<SessionState>();
+    {
+        std::unique_lock lock(state->game.mutex);
+        PlayerData player;
+        player.primaryId = "Epic|test1";
+        player.name = "TestPlayer";
+        player.playlists["casual"] = 698;
+        player.playlistTiers["casual"] = "Unranked";
+        player.playlists["1v1"] = 586;
+        player.playlistTiers["1v1"] = "Unranked";
+        player.playlists["2v2"] = 1114;
+        player.playlistTiers["2v2"] = "Champion I Div II";
+        player.playlists["3v3"] = 699;
+        player.playlistTiers["3v3"] = "Unranked";
+        player.playlists["t"] = 1122;
+        player.playlistTiers["t"] = "Unranked";
+        player.fetched = true;
+        state->game.roster[player.primaryId] = player;
+        state->game.version.fetch_add(1);
+    }
+
+    ConfigData config = Config::Read();
+    config.show_lobby_rank_1v1 = true;
+    config.show_lobby_rank_2v2 = true;
+    config.show_lobby_rank_3v3 = true;
+    config.show_lobby_rank_casual = true;
+    config.show_lobby_rank_tourny = true;
+    RmlUiController controller(state, nullptr);
+    controller.Update(config);
+    const std::string html = RenderLobbyRanks(controller);
+
+    // Rank sits on its own line above the rating, which carries the games played.
+    const auto stacked = [](const char* tier, const char* mmr) {
+        return std::string("<div class='mono'>") + tier + "</div><div><span class='mono'>" + mmr + "</span>";
+    };
+    // 2v2 has an actual rank from Tracker Network.
+    EXPECT_NE(html.find(stacked("C1.D2", "1114")), std::string::npos);
+    // Tourney maps tournament MMR to a tournament tier.
+    EXPECT_NE(html.find(stacked("C1.D2", "1122")), std::string::npos);
+    // Unranked 1v1 maps MMR to 1v1 specific thresholds (586 is G3.D2 in 1v1).
+    EXPECT_NE(html.find(stacked("G3.D2", "586")), std::string::npos);
+    // Unranked 3v3 maps MMR to 3v3 specific thresholds (699 is P1.D4 in 3v3).
+    EXPECT_NE(html.find(stacked("P1.D4", "699")), std::string::npos);
+    // Casual is not a ranked playlist: raw MMR only, no rank line.
+    EXPECT_NE(html.find("<span class='mono'>698</span>"), std::string::npos);
+    EXPECT_EQ(html.find(stacked("P1.D4", "698")), std::string::npos);
+}
+
 TEST_F(RmlUiControllerStateTest, PreviousGamesKeepsSessionRecordWhileHistoryIsLoadingOrEmpty) {
     auto state = std::make_shared<SessionState>();
     {
@@ -906,6 +955,23 @@ TEST_F(RmlUiControllerStateTest, LobbyRanksContainerWidthGrowsWithEnabledColumns
     controller.Update(config);
     const float fiveColumns = widthOf(RenderOverlayContainer(controller, container));
     ASSERT_GT(fiveColumns, 0.0f);
+    EXPECT_LE(fiveColumns, 520.0f);
+
+    config.show_lobby_rank_1v1 = false;
+    config.show_lobby_rank_2v2 = true;
+    config.show_lobby_rank_3v3 = false;
+    config.show_lobby_rank_casual = false;
+    config.show_lobby_rank_tourny = false;
+    controller.Update(config);
+    const float oneColumn = widthOf(RenderOverlayContainer(controller, container));
+    EXPECT_LT(oneColumn, fiveColumns);
+    EXPECT_LE(oneColumn, 240.0f);
+
+    config.show_lobby_rank_1v1 = true;
+    config.show_lobby_rank_2v2 = true;
+    config.show_lobby_rank_3v3 = true;
+    config.show_lobby_rank_casual = true;
+    config.show_lobby_rank_tourny = true;
 
     config.show_extra_playlists = true;
     config.show_lobby_rank_hoops = true;

@@ -598,6 +598,33 @@ namespace {
         return ColorRGBA{r, g, b, std::clamp(alpha, 0.0f, 1.0f)};
     }
 
+    int EnabledLobbyRankColumns(const ConfigData& config) {
+        int rankColumns = 0;
+        rankColumns += config.show_lobby_rank_1v1 ? 1 : 0;
+        rankColumns += config.show_lobby_rank_2v2 ? 1 : 0;
+        rankColumns += config.show_lobby_rank_3v3 ? 1 : 0;
+        rankColumns += config.show_lobby_rank_casual ? 1 : 0;
+        rankColumns += config.show_lobby_rank_tourny ? 1 : 0;
+        if (config.show_extra_playlists) {
+            rankColumns += config.show_lobby_rank_hoops ? 1 : 0;
+            rankColumns += config.show_lobby_rank_rumble ? 1 : 0;
+            rankColumns += config.show_lobby_rank_dropshot ? 1 : 0;
+            rankColumns += config.show_lobby_rank_snowday ? 1 : 0;
+            rankColumns += config.show_lobby_rank_heatseeker ? 1 : 0;
+        }
+        return std::max(rankColumns, 1);
+    }
+
+    float LobbyRanksContentMinDp(const ConfigData& config) {
+        const int columns = EnabledLobbyRankColumns(config);
+        // Keep a protected identity column plus one column per enabled playlist,
+        // matching the compact .lobby-rank-* metrics in the stylesheet:
+        // 135dp identity column + 4dp row padding + 22dp card padding/border + 4dp tolerance
+        // = 165dp base, plus 68dp per enabled playlist column (rank/rating pair
+        // plus the games-played gutter).
+        return 165.0f + 68.0f * static_cast<float>(columns);
+    }
+
     std::pair<float, float> OverlayWidgetDefaultSize(DashboardLayout::WidgetId widget, float dpiScale) {
         const float dpi = SanitizedScale(dpiScale);
         std::pair<float, float> size;
@@ -622,8 +649,8 @@ namespace {
             break;
         case DashboardLayout::WidgetId::LobbyRanks:
             // Auto width comes from the per-column minimum below, so this only
-            // has to cover the identity column.
-            size = {240.0f, 220.0f};
+            // has to cover the identity column and margins.
+            size = {165.0f, 220.0f};
             break;
         case DashboardLayout::WidgetId::DemoTracker:
             size = {280.0f, 84.0f};
@@ -2130,12 +2157,28 @@ std::string RmlUiController::RenderLobbyRanks() {
             }
             out << "<div class='lobby-rank-cell tooltip-host' style='color:" << CssColor(Format::RankColor(tier)) << "'>";
             if (mmr > 0) {
-                out << "<div class='mono'>" << Escape(Format::AbbreviateRank(tier)) << ' ' << mmr << "</div>";
-                if (matches > 0) out << "<div class='lobby-rank-matches'>" << matches << (matches == 1 ? " game" : " games") << "</div>";
-                out << "<span class='tooltip-bubble'>" << Escape(Format::RankTier(tier, m_config.use_roman_numerals))
-                    << " · MMR " << mmr << " · " << matches << " games this season</span>";
+                // Rank above the rating, with the season games played trailing the
+                // rating on the same line: a third line made the table taller than
+                // the roster it sits under.
+                out << "<div class='lobby-rank-value'>";
+                if (tier != "Unranked" && !tier.empty() && std::string_view(pl.key) != "casual") {
+                    out << "<div class='mono'>" << Escape(Format::AbbreviateRank(tier)) << "</div>";
+                }
+                out << "<div><span class='mono'>" << mmr << "</span>";
+                if (matches > 0) out << "<span class='lobby-rank-matches'>(" << matches << ")</span>";
+                out << "</div></div>";
+                out << "<span class='tooltip-bubble'>";
+                if (std::string_view(pl.key) == "casual") {
+                    out << "Casual · MMR " << mmr;
+                } else if (tier != "Unranked" && !tier.empty()) {
+                    out << Escape(Format::RankTier(tier, m_config.use_roman_numerals)) << " · MMR " << mmr;
+                } else {
+                    out << "Unranked · MMR " << mmr;
+                }
+                if (matches > 0) out << " · " << matches << " games this season";
+                out << "</span>";
             } else {
-                out << "<div>" << (p->fetched ? "-" : "...") << "</div>";
+                out << "<div class='lobby-rank-value'><div>" << (p->fetched ? "-" : "...") << "</div></div>";
                 if (!p->fetched) out << "<span class='tooltip-bubble'>Fetching rank...</span>";
             }
             out << "</div>";
@@ -2544,23 +2587,7 @@ std::string RmlUiController::RenderOverlayContainer(const OverlayLayout::Contain
     // room for the identity column and every enabled playlist so flex layout
     // never has to collapse the player's name or overlap rank/MMR text.
     if (std::find(widgets.begin(), widgets.end(), DashboardLayout::WidgetId::LobbyRanks) != widgets.end()) {
-        int rankColumns = 0;
-        rankColumns += m_config.show_lobby_rank_1v1 ? 1 : 0;
-        rankColumns += m_config.show_lobby_rank_2v2 ? 1 : 0;
-        rankColumns += m_config.show_lobby_rank_3v3 ? 1 : 0;
-        rankColumns += m_config.show_lobby_rank_casual ? 1 : 0;
-        rankColumns += m_config.show_lobby_rank_tourny ? 1 : 0;
-        if (m_config.show_extra_playlists) {
-            rankColumns += m_config.show_lobby_rank_hoops ? 1 : 0;
-            rankColumns += m_config.show_lobby_rank_rumble ? 1 : 0;
-            rankColumns += m_config.show_lobby_rank_dropshot ? 1 : 0;
-            rankColumns += m_config.show_lobby_rank_snowday ? 1 : 0;
-            rankColumns += m_config.show_lobby_rank_heatseeker ? 1 : 0;
-        }
-        // Keep a protected identity column plus one column per enabled playlist,
-        // matching the compact `.lobby-rank-*` metrics in the stylesheet.
-        // 176dp identity column + its 8dp gutter + the card's horizontal padding.
-        const float lobbyContentMinDp = 216.0f + 84.0f * static_cast<float>(std::max(rankColumns, 1));
+        const float lobbyContentMinDp = LobbyRanksContentMinDp(m_config);
         minW = std::max(minW, lobbyContentMinDp * rmlScale);
         w = std::max(w, minW);
     }

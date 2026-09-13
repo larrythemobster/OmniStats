@@ -231,10 +231,10 @@ div.value { display: block; }
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    flex-grow: 0;
+    flex-grow: 1;
     flex-shrink: 0;
-    width: 65dp;
-    min-width: 58dp;
+    width: 68dp;
+    min-width: 60dp;
     overflow: hidden;
     padding: 0 2dp;
     text-align: center;
@@ -243,15 +243,17 @@ div.value { display: block; }
     line-height: 1.15;
     white-space: nowrap;
 }
-.lobby-rank-cell > div { display: block; width: 100%; text-align: center; white-space: nowrap; }
-/* Season games played, sized to sit under the rank/MMR line without adding a
-   second full-height row. */
+/* Rank sits directly above the rating, both centred in the column. */
+.lobby-rank-value { display: flex; flex-direction: column; align-items: center; width: 100%; }
+.lobby-rank-value > div { display: block; width: 100%; text-align: center; white-space: nowrap; }
+/* Season games played trails the rating on the same line. */
 .lobby-rank-matches {
+    display: inline;
+    margin-left: 3dp;
     font-family: "Inter";
-    font-size: 9dp;
+    font-size: 8dp;
     font-weight: 500;
     color: #6f7887;
-    line-height: 1.1;
 }
 .lobby-rank-header { min-height: 22dp; font-size: 9dp; font-weight: 700; letter-spacing: 0.3dp; color: #8993a2; }
 .lobby-rank-header .player-name { display: flex; align-items: center; }

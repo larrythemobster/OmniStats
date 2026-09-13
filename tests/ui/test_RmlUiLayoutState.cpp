@@ -31,6 +31,23 @@ TEST(RmlUiLayoutState, OverlaySanitizeRemovesDuplicateWidgetsAndEmptyContainers)
     ASSERT_EQ(layout.containers.front().widgets.size(), 2u);
 }
 
+TEST(RmlUiLayoutState, OverlaySanitizeV3ResetsLobbyRanksDimensions) {
+    OverlayLayout::LayoutConfig layout;
+    layout.version = 2;
+    layout.containers = {
+        {.id = "lobby_ranks", .x = 10.0f, .y = 10.0f, .w = 636.0f, .h = 220.0f, .widgets = {DashboardLayout::WidgetId::LobbyRanks}},
+        {.id = "other", .x = 20.0f, .y = 20.0f, .w = 300.0f, .h = 200.0f, .widgets = {DashboardLayout::WidgetId::LiveRoster}}};
+
+    OverlayLayout::Sanitize(layout);
+
+    EXPECT_EQ(layout.version, 3);
+    ASSERT_EQ(layout.containers.size(), 2u);
+    EXPECT_EQ(layout.containers[0].w, 0.0f);
+    EXPECT_EQ(layout.containers[0].h, 0.0f);
+    EXPECT_EQ(layout.containers[1].w, 300.0f);
+    EXPECT_EQ(layout.containers[1].h, 200.0f);
+}
+
 TEST(RmlUiLayoutState, DashboardSanitizeRestoresMissingWidgetsAndBoundsColumnWeight) {
     DashboardLayout::LayoutConfig layout;
     layout.leftColumnWeight = 4.0f;

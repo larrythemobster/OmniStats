@@ -6,7 +6,7 @@ namespace OverlayLayout {
 
     LayoutConfig DefaultOverlayLayout() {
         LayoutConfig config;
-        config.version = 2;
+        config.version = 3;
         config.toolboxOpen = false;
 
         // 1. Demo Tracker, Session Stats, Streaks Stats (docked)
@@ -84,6 +84,21 @@ namespace OverlayLayout {
                 container.h = 0.0f;
             }
             layout.version = 2;
+        }
+
+        // Version 3 calculates lobby-rank table width dynamically from enabled
+        // playlist columns. Reset previously clamped oversized dimensions so
+        // containers auto-size to the new compact metrics.
+        if (layout.version < 3) {
+            for (auto& container : layout.containers) {
+                const bool hasLobbyRanks =
+                    std::find(container.widgets.begin(), container.widgets.end(),
+                              DashboardLayout::WidgetId::LobbyRanks) != container.widgets.end();
+                if (!hasLobbyRanks) continue;
+                container.w = 0.0f;
+                container.h = 0.0f;
+            }
+            layout.version = 3;
         }
 
         // Ensure we don't have duplicate widgets across multiple containers
