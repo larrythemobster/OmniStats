@@ -1027,6 +1027,24 @@ TEST_F(RmlUiControllerStateTest, RosterMmrChipShowsOnlyMmrWhenRankIconsEnabled) 
     EXPECT_EQ(html.find("C1.D2"), std::string::npos);
 }
 
+TEST_F(RmlUiControllerStateTest, OverlayContainerResizeHandleVisibleInEditMode) {
+    auto state = std::make_shared<SessionState>();
+    state->ui.showOverlay.store(true);
+    state->ui.dashboardLayoutEditMode.store(true);
+    RmlUiController controller(state, nullptr);
+
+    OverlayLayout::ContainerConfig container;
+    container.id = "lobby_ranks";
+    container.widgets = {DashboardLayout::WidgetId::LobbyRanks};
+
+    ConfigData config = Config::Read();
+    config.show_lobby_ranks_overlay = true;
+    controller.Update(config);
+
+    const std::string html = RenderOverlayContainer(controller, container, true);
+    EXPECT_NE(html.find("data-action='overlay-resize'"), std::string::npos);
+}
+
 TEST_F(RmlUiControllerStateTest, ChangingUiScaleSelectDoesNotCrashOrCorruptState) {
     auto state = std::make_shared<SessionState>();
     state->ui.showMenu.store(true);

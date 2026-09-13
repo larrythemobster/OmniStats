@@ -277,7 +277,24 @@ div.value { display: block; }
 .overlay-drag { cursor: move; }
 .overlay-widget-handle { cursor: move; min-height: 24dp; padding: 2dp 0; }
 .widget-close { min-width: 24dp; width: 24dp; min-height: 22dp; height: 22dp; padding: 0; margin-left: 6dp; background-color: #35171a; border-color: #743238; color: #ffb2b7; }
-.overlay-resize { position: absolute; width: 13dp; height: 13dp; right: 2dp; bottom: 2dp; cursor: resize; background-color: #ff002166; }
+.overlay-resize {
+    position: absolute;
+    width: 14dp;
+    height: 14dp;
+    right: 2dp;
+    bottom: 2dp;
+    cursor: resize;
+    background-color: #ffffff22;
+    border-right: 2dp #8f99a888;
+    border-bottom: 2dp #8f99a888;
+    border-bottom-right-radius: 6dp;
+}
+.overlay-edit .overlay-resize {
+    background-color: #ff002166;
+    border-right: 0;
+    border-bottom: 0;
+    border-radius: 0;
+}
 .overlay-snap-guide { position: absolute; display: none; pointer-events: none; background-color: #eb8c24cc; }
 .overlay-snap-guide.vertical { top: 0; width: 2dp; height: 100%; }
 .overlay-snap-guide.horizontal { left: 0; width: 100%; height: 2dp; }
@@ -364,7 +381,7 @@ div.value { display: block; }
     align-items: center;
 }
 .brand-logo { width: 22dp; height: 22dp; margin-right: 7dp; }
-.brand-title { display: flex; flex-direction: row; align-items: baseline; font-family: "Russo One"; font-size: 14dp; letter-spacing: 0.4dp; line-height: 1; }
+.brand-title { display: inline-block; font-family: "Russo One"; font-size: 14dp; letter-spacing: 0.4dp; line-height: 1; }
 .brand-title .version { font-family: "Inter"; font-size: 9dp; font-weight: 600; letter-spacing: 0; color: #9da6b3; margin-left: 5dp; }
 .dashboard-topbar .match-status { font-size: 11dp; font-weight: 500; color: #8f99a8; margin-left: 14dp; }
 .playlist-icon { width: 20dp; height: 20dp; }
