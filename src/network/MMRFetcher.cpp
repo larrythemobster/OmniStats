@@ -14,10 +14,21 @@
 #include <initializer_list>
 #include <map>
 #include <cmath>
-
+#include <cctype>
+#include <string_view>
 #include "PlaylistRankThresholds.inl"
 
 namespace {
+    static bool CaseInsensitiveEquals(std::string_view a, std::string_view b) {
+        if (a.size() != b.size()) return false;
+        for (size_t i = 0; i < a.size(); ++i) {
+            if (std::tolower(static_cast<unsigned char>(a[i])) !=
+                std::tolower(static_cast<unsigned char>(b[i]))) {
+                return false;
+            }
+        }
+        return true;
+    }
     template <size_t N>
     std::string LookupTierFromThresholds(const std::array<RankThreshold, N>& table, int mmr) {
         if (mmr <= 0) return "Unranked";
@@ -1167,6 +1178,12 @@ bool MMRFetcher::HasPendingDestroyedMatchForTests(
 bool MMRFetcher::IsRateLimitedForTests() const {
     return m_rateLimitedUntil > std::chrono::steady_clock::now();
 }
+CustomApiFetchResult MMRFetcher::FetchProfileFromCustomApiForTests(const MMRRequest& req) {
+    return FetchProfileFromCustomApi(req);
+}
+bool MMRFetcher::PublishProfileResultForTests(const MMRRequest& req, const NormalizedProfileResult& profile) {
+    return PublishProfileResult(req, profile);
+}
 
 #endif
 
@@ -1582,15 +1599,15 @@ void MMRFetcher::FinishRequest(const MMRRequest& req) {
         EnsureProvisionalPoint(req, req.previousMmr);
     }
 }
-bool MMRFetcher::FetchProfileFromCustomApi(const MMRRequest& req) {
+CustomApiFetchResult MMRFetcher::FetchProfileFromCustomApi(const MMRRequest& req) {
     auto& ci = CurlImpersonate::Instance();
     if (!ci.IsReady()) {
-        return false;
+        return CustomApiFetchResult::DisabledOrNotReady;
     }
 
     const auto config = Config::Read();
     if (!config.custom_api_enabled || config.custom_api_key.empty()) {
-        return false;
+        return CustomApiFetchResult::DisabledOrNotReady;
     }
     std::string baseUrl = config.custom_api_base_url;
     if (baseUrl.empty()) {
@@ -1601,7 +1618,12 @@ bool MMRFetcher::FetchProfileFromCustomApi(const MMRRequest& req) {
     }
 
     const size_t delim = req.primaryId.find('|');
-    if (delim == std::string::npos) return false;
+    if (delim == std::string::npos) {
+        std::cout << "[MMRFetcher] Custom API skipped for "
+                  << PrivacyLog::Sensitive(req.name, "player name")
+                  << ": invalid primaryId format.\n";
+        return CustomApiFetchResult::UnusableData;
+    }
 
     std::string rawPlat = req.primaryId.substr(0, delim);
     rawPlat.erase(0, rawPlat.find_first_not_of(" \t\r\n"));
@@ -1614,14 +1636,18 @@ bool MMRFetcher::FetchProfileFromCustomApi(const MMRRequest& req) {
         platform = "Epic";
     else if (platLower == "steam")
         platform = "Steam";
-    else if (platLower == "ps4" || platLower == "psn" || platLower == "playstation")
+    else if (platLower == "ps4" || platLower == "ps5" || platLower == "psn" || platLower == "playstation")
         platform = "PS4";
     else if (platLower == "xbox" || platLower == "xboxone" || platLower == "xbl")
         platform = "Xbox";
     else if (platLower == "switch" || platLower == "nintendo")
         platform = "Switch";
-    else
-        return false;
+    else {
+        std::cout << "[MMRFetcher] Custom API skipped for "
+                  << PrivacyLog::Sensitive(req.name, "player name")
+                  << ": unsupported platform '" << rawPlat << "'.\n";
+        return CustomApiFetchResult::UnusableData;
+    }
 
     std::string accountId = req.primaryId.substr(delim + 1);
     const size_t secondDelim = accountId.find('|');
@@ -1630,7 +1656,12 @@ bool MMRFetcher::FetchProfileFromCustomApi(const MMRRequest& req) {
     }
     accountId.erase(0, accountId.find_first_not_of(" \t\r\n"));
     accountId.erase(accountId.find_last_not_of(" \t\r\n") + 1);
-    if (accountId.empty()) return false;
+    if (accountId.empty()) {
+        std::cout << "[MMRFetcher] Custom API skipped for "
+                  << PrivacyLog::Sensitive(req.name, "player name")
+                  << ": empty account ID in primaryId.\n";
+        return CustomApiFetchResult::UnusableData;
+    }
 
     nlohmann::json reqBody = {
         {"players", nlohmann::json::array({{{"platform", platform}, {"account_id", accountId}}})}};
@@ -1661,7 +1692,7 @@ bool MMRFetcher::FetchProfileFromCustomApi(const MMRRequest& req) {
     const std::string url = baseUrl + "/v1/ranks";
 
     void* ci_curl = ci.easy_init();
-    if (!ci_curl) return false;
+    if (!ci_curl) return CustomApiFetchResult::DisabledOrNotReady;
 
     void* headers = nullptr;
     headers = ci.slist_append(headers, "Content-Type: application/json");
@@ -1692,98 +1723,385 @@ bool MMRFetcher::FetchProfileFromCustomApi(const MMRRequest& req) {
     ci.slist_free_all(headers);
     ci.easy_cleanup(ci_curl);
 
-    if (res != 0 || httpCode != 200) {
-        return false;
+    if (res != 0) {
+        std::cout << "[MMRFetcher] Custom API network error for "
+                  << PrivacyLog::Sensitive(req.name, "player name")
+                  << ": curl error " << res << ".\n";
+        return CustomApiFetchResult::TransientError;
+    }
+    if (httpCode == 401 || httpCode == 403) {
+        std::cout << "[MMRFetcher] Custom API authentication failed (HTTP "
+                  << httpCode << ") for "
+                  << PrivacyLog::Sensitive(req.name, "player name")
+                  << ". Check your custom API key.\n";
+        return CustomApiFetchResult::AuthFailure;
+    }
+    if (httpCode == 429) {
+        std::cout << "[MMRFetcher] Custom API rate limited (HTTP 429) for "
+                  << PrivacyLog::Sensitive(req.name, "player name") << ".\n";
+        return CustomApiFetchResult::TransientError;
+    }
+    if (httpCode == 404) {
+        std::cout << "[MMRFetcher] Custom API returned HTTP 404 (not found) for "
+                  << PrivacyLog::Sensitive(req.name, "player name") << ".\n";
+        return CustomApiFetchResult::UnusableData;
+    }
+    if (httpCode >= 500 && httpCode <= 599) {
+        std::cout << "[MMRFetcher] Custom API server error (HTTP "
+                  << httpCode << ") for "
+                  << PrivacyLog::Sensitive(req.name, "player name") << ".\n";
+        return CustomApiFetchResult::TransientError;
+    }
+    if (httpCode != 200) {
+        std::cout << "[MMRFetcher] Custom API returned unexpected HTTP "
+                  << httpCode << " for "
+                  << PrivacyLog::Sensitive(req.name, "player name") << ".\n";
+        return CustomApiFetchResult::UnusableData;
     }
 
     nlohmann::json jsonResp;
     try {
         jsonResp = nlohmann::json::parse(readBuffer);
     } catch (...) {
-        return false;
+        std::cout << "[MMRFetcher] Custom API returned malformed JSON for "
+                  << PrivacyLog::Sensitive(req.name, "player name") << ".\n";
+        return CustomApiFetchResult::UnusableData;
+    }
+
+    if (jsonResp.contains("error") && jsonResp["error"].is_object()) {
+        std::string errCode = jsonResp["error"].value("code", "unknown");
+        std::string errMsg = jsonResp["error"].value("message", "");
+        std::cout << "[MMRFetcher] Custom API error for "
+                  << PrivacyLog::Sensitive(req.name, "player name")
+                  << ": " << errCode;
+        if (!errMsg.empty()) {
+            std::cout << " (" << errMsg << ")";
+        }
+        std::cout << ".\n";
+        return CustomApiFetchResult::UnusableData;
     }
 
     if (!jsonResp.contains("players") || !jsonResp["players"].is_array() || jsonResp["players"].empty()) {
-        return false;
+        std::cout << "[MMRFetcher] Custom API returned HTTP 200 but missing player data for "
+                  << PrivacyLog::Sensitive(req.name, "player name") << ".\n";
+        return CustomApiFetchResult::UnusableData;
     }
 
-    const auto& playerObj = jsonResp["players"][0];
-    if (!playerObj.contains("skills") || !playerObj["skills"].is_array()) {
-        return false;
+    const nlohmann::json* matchedPlayer = nullptr;
+    for (const auto& p : jsonResp["players"]) {
+        if (!p.is_object()) continue;
+        if (p.contains("account_id") && p["account_id"].is_string()) {
+            if (CaseInsensitiveEquals(p["account_id"].get<std::string>(), accountId)) {
+                matchedPlayer = &p;
+                break;
+            }
+        }
+    }
+    if (!matchedPlayer) {
+        if (jsonResp["players"].size() == 1 && jsonResp["players"][0].is_object()) {
+            matchedPlayer = &jsonResp["players"][0];
+            if (matchedPlayer->contains("account_id") && (*matchedPlayer)["account_id"].is_string()) {
+                const std::string respId = (*matchedPlayer)["account_id"].get<std::string>();
+                if (!respId.empty() && !CaseInsensitiveEquals(respId, accountId)) {
+                    matchedPlayer = nullptr;
+                }
+            }
+        }
     }
 
+    if (!matchedPlayer) {
+        std::cout << "[MMRFetcher] Custom API returned HTTP 200 but player "
+                  << PrivacyLog::Sensitive(req.name, "player name")
+                  << " was not in response.\n";
+        return CustomApiFetchResult::UnusableData;
+    }
+
+    if (matchedPlayer->contains("error") && !(*matchedPlayer)["error"].is_null()) {
+        std::cout << "[MMRFetcher] Custom API returned player-level error for "
+                  << PrivacyLog::Sensitive(req.name, "player name") << ".\n";
+        return CustomApiFetchResult::UnusableData;
+    }
+
+    if (!matchedPlayer->contains("skills") || !(*matchedPlayer)["skills"].is_array() ||
+        (*matchedPlayer)["skills"].empty()) {
+        std::cout << "[MMRFetcher] Custom API returned HTTP 200 but no skills for "
+                  << PrivacyLog::Sensitive(req.name, "player name") << ".\n";
+        return CustomApiFetchResult::UnusableData;
+    }
+
+    const size_t totalSkills = (*matchedPlayer)["skills"].size();
+    size_t unrecognizedPlaylists = 0;
+    size_t invalidMmrCount = 0;
     int bestMmr = 0;
     std::string bestTier = "Unranked";
-    int fetchedPostMatchMmr = -1;
-    int fetchedPostMatchCount = -1;
-    std::map<std::string, int> parsedPlaylists;
-    std::map<std::string, std::string> parsedTiers;
-    std::map<std::string, int> parsedMatches;
+    std::string bestPlaylistName = "best";
+    std::map<std::string, int> playlistMMRs;
+    std::map<std::string, std::string> playlistTiers;
+    std::map<std::string, int> playlistMatches;
 
-    for (const auto& skill : playerObj["skills"]) {
-        if (!skill.contains("playlist") || !skill["playlist"].is_number_integer()) continue;
+    for (const auto& skill : (*matchedPlayer)["skills"]) {
+        if (!skill.is_object()) continue;
+        if (!skill.contains("playlist") || !skill["playlist"].is_number_integer()) {
+            unrecognizedPlaylists++;
+            continue;
+        }
         int pid = skill["playlist"].get<int>();
         std::string plName = PlaylistNameForTrackerId(pid);
-        if (plName.empty()) continue;
+        if (plName.empty()) {
+            unrecognizedPlaylists++;
+            continue;
+        }
 
-        double mmrDouble = skill.value("mmr", 0.0);
+        if (!skill.contains("mmr") || !skill["mmr"].is_number()) {
+            invalidMmrCount++;
+            continue;
+        }
+        double mmrDouble = skill["mmr"].get<double>();
         int mmrInt = static_cast<int>(std::lround(mmrDouble));
+        if (mmrInt <= 0) {
+            invalidMmrCount++;
+            continue;
+        }
+
         int tier = skill.value("tier", 0);
         int div = skill.value("division", 0);
         int matches = skill.value("matches_played", -1);
 
-        std::string tierName = RankTierName(tier, div);
+        std::string tierName = (plName == "t") ? GetTournamentTierForMmr(mmrInt) : RankTierName(tier, div);
 
-        parsedPlaylists[plName] = mmrInt;
-        if (!tierName.empty()) {
-            parsedTiers[plName] = tierName;
+        if (ShouldReplacePlaylistBucket(playlistMMRs, plName, mmrInt)) {
+            playlistMMRs[plName] = mmrInt;
+            playlistTiers[plName] = tierName;
         }
         if (matches >= 0) {
-            parsedMatches[plName] = matches;
+            playlistMatches[plName] += matches;
         }
 
-        if (req.reason == MMRRequestReason::PostMatch && plName == req.playlist) {
-            fetchedPostMatchMmr = mmrInt;
-            fetchedPostMatchCount = matches;
-        }
-
-        if (plName != "casual" && mmrInt > bestMmr) {
+        if (plName != "casual" && plName != "t" && mmrInt > bestMmr) {
             bestMmr = mmrInt;
             bestTier = tierName;
+            bestPlaylistName = plName;
+        }
+    }
+
+    if (playlistMMRs.empty()) {
+        if (unrecognizedPlaylists == totalSkills) {
+            std::cout << "[MMRFetcher] Custom API returned HTTP 200 but no recognized playlist IDs for "
+                      << PrivacyLog::Sensitive(req.name, "player name") << ".\n";
+        } else if (invalidMmrCount == totalSkills) {
+            std::cout << "[MMRFetcher] Custom API returned HTTP 200 but invalid/missing MMR for "
+                      << PrivacyLog::Sensitive(req.name, "player name") << ".\n";
+        } else {
+            std::cout << "[MMRFetcher] Custom API returned HTTP 200 but no usable rank data for "
+                      << PrivacyLog::Sensitive(req.name, "player name") << ".\n";
+        }
+        return CustomApiFetchResult::UnusableData;
+    }
+
+    playlistMMRs["best"] = bestMmr;
+    playlistTiers["best"] = bestTier;
+    if (playlistMatches.count(bestPlaylistName)) {
+        playlistMatches["best"] = playlistMatches[bestPlaylistName];
+    }
+
+    std::cout << "[MMRFetcher] Custom API updated "
+              << PrivacyLog::Sensitive(req.name, "player name")
+              << ": skills=" << totalSkills
+              << ", usable=" << (playlistMMRs.size() - 1)
+              << ", best=" << bestMmr << "\n";
+
+    NormalizedProfileResult profile;
+    profile.bestMmr = bestMmr;
+    profile.bestTier = bestTier;
+    profile.bestPlaylistName = bestPlaylistName;
+    profile.playlistMMRs = std::move(playlistMMRs);
+    profile.playlistTiers = std::move(playlistTiers);
+    profile.playlistMatches = std::move(playlistMatches);
+    profile.totalWins = -1;
+    profile.rankVerificationSource = "ServerA";
+
+    const bool requeued = PublishProfileResult(req, profile);
+    return requeued ? CustomApiFetchResult::SuccessRequeued : CustomApiFetchResult::SuccessFinished;
+}
+
+bool MMRFetcher::PublishProfileResult(const MMRRequest& req, const NormalizedProfileResult& profile) {
+    int postMatchMmr = 0;
+    int postMatchMatches = -1;
+    bool postMatchConfirmed = false;
+    if (req.reason == MMRRequestReason::PostMatch) {
+        const auto playlistIt = profile.playlistMMRs.find(req.playlist);
+        if (playlistIt != profile.playlistMMRs.end()) postMatchMmr = playlistIt->second;
+        const auto matchesIt = profile.playlistMatches.find(req.playlist);
+        if (matchesIt != profile.playlistMatches.end()) postMatchMatches = matchesIt->second;
+
+        size_t pendingCount = 0;
+        {
+            std::lock_guard<std::mutex> queueLock(m_queueMutex);
+            pendingCount = PendingPlaylistCountLocked(req.playlist);
+        }
+        std::cout
+            << "[MMRFetcher] Post-match refresh: matchGuid="
+            << PrivacyLog::Sensitive(
+                   req.matchGuid, "match GUID")
+            << ", playlist=" << req.playlist
+            << ", previousMmr=" << req.previousMmr
+            << ", fetchedMmr=" << postMatchMmr
+            << ", previousMatches=" << req.previousMatches
+            << ", fetchedMatches=" << postMatchMatches
+            << ", pending=" << pendingCount << ".\n";
+
+        postMatchConfirmed = ReconcileTrackerResponse(req, postMatchMmr, postMatchMatches);
+        if (!postMatchConfirmed && req.retriesRemaining > 0) {
+            std::cout
+                << "[MMRFetcher] Post-match reconciliation deferred: matchGuid="
+                << PrivacyLog::Sensitive(
+                       req.matchGuid, "match GUID")
+                << ", playlist=" << req.playlist << ".\n";
+            return ScheduleRetry(req, kStalePostMatchRetryDelay, "post-match match count not advanced");
+        }
+        if (!postMatchConfirmed) {
+            EnsureProvisionalPoint(req, req.previousMmr, postMatchMmr, postMatchMatches);
+        }
+    } else if (req.primaryId == m_state->game.myPrimaryId) {
+        // Roster refreshes may confirm provisional points, but the pending
+        // match records remain the sole owners of graph cardinality.
+        std::vector<MMRRequest> pendingPlaylists;
+        {
+            std::lock_guard<std::mutex> queueLock(m_queueMutex);
+            for (const auto& [playlist, guids] : m_pendingPostMatchesByPlaylist) {
+                if (guids.empty()) continue;
+                const auto recordIt = m_postMatchRecordsByGuid.find(guids.front());
+                if (recordIt == m_postMatchRecordsByGuid.end()) continue;
+                MMRRequest pendingReq;
+                pendingReq.primaryId = recordIt->second.primaryId;
+                pendingReq.matchGuid = recordIt->second.matchGuid;
+                pendingReq.playlist = playlist;
+                pendingReq.previousMmr = recordIt->second.preMatchMmr;
+                pendingReq.previousMatches = recordIt->second.preMatchMatchesPlayed;
+                pendingReq.previousMmrIsPlaylistSpecific =
+                    recordIt->second.preMatchMmrIsPlaylistSpecific;
+                pendingReq.won = recordIt->second.won;
+                pendingReq.resultKnown =
+                    recordIt->second.resultKnown;
+                pendingPlaylists.push_back(std::move(pendingReq));
+            }
+        }
+        for (const auto& pendingReq : pendingPlaylists) {
+            const auto mmrIt = profile.playlistMMRs.find(pendingReq.playlist);
+            if (mmrIt == profile.playlistMMRs.end()) continue;
+            const auto matchesIt = profile.playlistMatches.find(pendingReq.playlist);
+            const int fetchedMatches =
+                matchesIt != profile.playlistMatches.end() ? matchesIt->second : -1;
+            const bool confirmed =
+                ReconcileTrackerResponse(pendingReq, mmrIt->second, fetchedMatches);
+            if (!confirmed) {
+                EnsureProvisionalPoint(
+                    pendingReq, pendingReq.previousMmr, mmrIt->second, fetchedMatches);
+            }
+        }
+    }
+
+    // Cache only the local player's successful profile. A normal
+    // roster result can populate the cache on first use (including solo
+    // training). After a completed match, EnqueuePostMatch invalidates the
+    // cache and only a fully reconciled result can make it valid again.
+    StoreLocalProfileCache(req,
+                           profile.bestMmr,
+                           profile.bestTier,
+                           profile.playlistMMRs,
+                           profile.playlistTiers,
+                           profile.playlistMatches,
+                           profile.totalWins,
+                           postMatchConfirmed);
+
+    std::unordered_set<std::string> playlistsAwaitingPostMatch;
+    {
+        std::lock_guard<std::mutex> queueLock(m_queueMutex);
+        for (const auto& [playlist, guids] : m_pendingPostMatchesByPlaylist) {
+            if (!guids.empty()) playlistsAwaitingPostMatch.insert(playlist);
         }
     }
 
     {
-        std::unique_lock<std::shared_mutex> lock(m_state->game.mutex);
-        auto& pData = m_state->game.roster[req.primaryId];
-        pData.primaryId = req.primaryId;
-        pData.name = req.name;
+        std::unique_lock<std::shared_mutex> gameLock(m_state->game.mutex);
+        std::unique_lock<std::shared_mutex> historyLock(m_state->history.mutex);
 
-        for (const auto& [pl, mmr] : parsedPlaylists) {
-            pData.playlists[pl] = mmr;
-        }
-        for (const auto& [pl, t] : parsedTiers) {
-            pData.playlistTiers[pl] = t;
-        }
-        for (const auto& [pl, m] : parsedMatches) {
-            pData.playlistMatches[pl] = m;
+        if (req.reason == MMRRequestReason::Roster &&
+            req.primaryId == m_state->game.myPrimaryId &&
+            m_state->game.inMatch &&
+            !m_state->game.matchGuid.empty() &&
+            m_state->game.preMatchMmrByGuid.count(m_state->game.matchGuid) == 0) {
+            const bool hasPlaylistMmr = std::any_of(
+                profile.playlistMMRs.begin(), profile.playlistMMRs.end(),
+                [](const auto& entry) {
+                    return entry.first != "best" && entry.second > 0;
+                });
+            if (hasPlaylistMmr) {
+                m_state->game.preMatchMmrByGuid.emplace(
+                    m_state->game.matchGuid,
+                    LocalPreMatchMmrSnapshot{
+                        .playlistMmrs = profile.playlistMMRs,
+                        .playlistMatches = profile.playlistMatches});
+                std::cout
+                    << "[MMRFetcher] Captured pre-match MMR snapshot: matchGuid="
+                    << PrivacyLog::Sensitive(
+                           m_state->game.matchGuid,
+                           "match GUID")
+                    << ".\n";
+            }
         }
 
-        if (bestMmr > 0) {
-            pData.mmr = bestMmr;
-            pData.rankTier = bestTier;
+        auto& player = m_state->game.roster[req.primaryId];
+        player.primaryId = req.primaryId;
+        if (player.name.empty()) player.name = req.name;
+        player.playlists = profile.playlistMMRs;
+        player.playlistTiers = profile.playlistTiers;
+        player.playlistMatches = profile.playlistMatches;
+        if (profile.totalWins >= 0) {
+            player.totalWins = profile.totalWins;
         }
-        pData.fetched = true;
-        pData.fetchFailed = false;
-        pData.rankVerificationSource = "ServerA";
+        player.mmr = profile.bestMmr;
+        player.rankTier = profile.bestTier;
+        player.fetched = true;
+        player.fetchFailed = false;
+        player.rankVerificationSource = profile.rankVerificationSource;
+
+        if (req.primaryId == m_state->game.myPrimaryId) {
+            if (m_state->history.initialMmr == -1 && profile.bestMmr > 0) {
+                m_state->history.initialMmr = profile.bestMmr;
+            }
+            if (req.reason == MMRRequestReason::Roster && profile.bestMmr > 0) {
+                m_state->history.mmrHistoryY.push_back(static_cast<float>(profile.bestMmr));
+                m_state->history.mmrHistoryX.push_back(static_cast<float>(m_state->history.mmrHistoryY.size()));
+            }
+
+            for (const auto& [playlistName, fetchedMmr] : profile.playlistMMRs) {
+                if (fetchedMmr <= 0 || playlistName == "best" || playlistName == "t" ||
+                    playlistName == "casual") {
+                    continue;
+                }
+                if (req.reason == MMRRequestReason::PostMatch && playlistName == req.playlist) continue;
+                if (playlistsAwaitingPostMatch.count(playlistName) > 0) continue;
+
+                auto& history = m_state->history.playlistHistoryY[playlistName];
+                if (m_state->history.playlistInitialMmr.count(playlistName) == 0) {
+                    m_state->history.playlistInitialMmr[playlistName] = fetchedMmr;
+                }
+                m_state->game.sessionTotals.mmrChangeByPlaylist[playlistName] =
+                    fetchedMmr - m_state->history.playlistInitialMmr[playlistName];
+                if (history.empty() || static_cast<int>(std::lround(history.back())) != fetchedMmr) {
+                    history.push_back(static_cast<float>(fetchedMmr));
+                }
+            }
+            UpdateSessionAggregateLocked();
+        }
+
+        std::cout << "[MMRFetcher] Updated: " << PrivacyLog::Sensitive(req.name, "player name")
+                  << " -> Best: " << profile.bestMmr << "\n";
         m_state->game.version++;
+        m_state->history.version++;
     }
-
-    if (req.reason == MMRRequestReason::PostMatch && fetchedPostMatchMmr > 0) {
-        ReconcileTrackerResponse(req, fetchedPostMatchMmr, fetchedPostMatchCount);
-    }
-
-    return true;
+    return false;
 }
 
 bool MMRFetcher::FetchProfile(MMRRequest req) {
@@ -1796,8 +2114,39 @@ bool MMRFetcher::FetchProfile(MMRRequest req) {
         }
     }
     if (m_useCustomApiFallback.load()) {
-        if (FetchProfileFromCustomApi(req)) {
+        const auto customResult = FetchProfileFromCustomApi(req);
+        if (customResult == CustomApiFetchResult::SuccessFinished) {
             return false;
+        }
+        if (customResult == CustomApiFetchResult::SuccessRequeued) {
+            return true;
+        }
+        if (customResult == CustomApiFetchResult::AuthFailure) {
+            m_useCustomApiFallback.store(false);
+        } else if (customResult == CustomApiFetchResult::TransientError) {
+            if (ScheduleRetry(req, kTransientRetryDelay, "transient custom API failure")) {
+                return true;
+            }
+            std::unique_lock<std::shared_mutex> gameLock(m_state->game.mutex);
+            if (m_state->game.roster.count(req.primaryId)) {
+                auto& player = m_state->game.roster[req.primaryId];
+                player.fetched = true;
+                player.fetchFailed = true;
+                m_state->game.version++;
+            }
+            return false;
+        } else if (customResult == CustomApiFetchResult::UnusableData) {
+            const auto now = std::chrono::steady_clock::now();
+            if (m_rateLimitedUntil > now) {
+                std::unique_lock<std::shared_mutex> gameLock(m_state->game.mutex);
+                if (m_state->game.roster.count(req.primaryId)) {
+                    auto& player = m_state->game.roster[req.primaryId];
+                    player.fetched = true;
+                    player.fetchFailed = true;
+                    m_state->game.version++;
+                }
+                return false;
+            }
         }
     }
     auto& ci = CurlImpersonate::Instance();
@@ -1894,11 +2243,18 @@ bool MMRFetcher::FetchProfile(MMRRequest req) {
                 << "[MMRFetcher] Tracker.gg returned HTTP 403 after "
                 << kTrackerForbiddenAttempts
                 << " attempts. Attempting fallback to custom API...\n";
-            if (FetchProfileFromCustomApi(req)) {
+            const auto customResult = FetchProfileFromCustomApi(req);
+            if (customResult == CustomApiFetchResult::SuccessFinished) {
                 std::cout << "[MMRFetcher] Successfully fetched ranks from custom API for "
                           << PrivacyLog::Sensitive(req.name, "player name") << "!\n";
                 m_useCustomApiFallback.store(true);
                 return false;
+            }
+            if (customResult == CustomApiFetchResult::SuccessRequeued) {
+                std::cout << "[MMRFetcher] Successfully fetched ranks from custom API for "
+                          << PrivacyLog::Sensitive(req.name, "player name") << "!\n";
+                m_useCustomApiFallback.store(true);
+                return true;
             }
             std::cout << "[MMRFetcher] Custom API fallback was unavailable or failed.\n";
             if (!m_isRunning) return false;
@@ -1959,6 +2315,7 @@ bool MMRFetcher::FetchProfile(MMRRequest req) {
         m_rateLimitedUntil = {};
     }
     if (recoveredFromForbidden) {
+        m_useCustomApiFallback.store(false);
         std::cout
             << "[MMRFetcher] Tracker.gg requests recovered; circuit breaker reset.\n";
     }
@@ -2067,181 +2424,17 @@ bool MMRFetcher::FetchProfile(MMRRequest req) {
         if (playlistMatches.count(bestPlaylistName)) {
             playlistMatches["best"] = playlistMatches[bestPlaylistName];
         }
+        NormalizedProfileResult profile;
+        profile.bestMmr = bestMMR;
+        profile.bestTier = bestTier;
+        profile.bestPlaylistName = bestPlaylistName;
+        profile.playlistMMRs = std::move(playlistMMRs);
+        profile.playlistTiers = std::move(playlistTiers);
+        profile.playlistMatches = std::move(playlistMatches);
+        profile.totalWins = profileTotals.totalWins;
+        profile.rankVerificationSource = "Tracker";
 
-        int postMatchMmr = 0;
-        int postMatchMatches = -1;
-        bool postMatchConfirmed = false;
-        if (req.reason == MMRRequestReason::PostMatch) {
-            const auto playlistIt = playlistMMRs.find(req.playlist);
-            if (playlistIt != playlistMMRs.end()) postMatchMmr = playlistIt->second;
-            const auto matchesIt = playlistMatches.find(req.playlist);
-            if (matchesIt != playlistMatches.end()) postMatchMatches = matchesIt->second;
-
-            size_t pendingCount = 0;
-            {
-                std::lock_guard<std::mutex> queueLock(m_queueMutex);
-                pendingCount = PendingPlaylistCountLocked(req.playlist);
-            }
-            std::cout
-                << "[MMRFetcher] Post-match refresh: matchGuid="
-                << PrivacyLog::Sensitive(
-                       req.matchGuid, "match GUID")
-                << ", playlist=" << req.playlist
-                << ", previousMmr=" << req.previousMmr
-                << ", fetchedMmr=" << postMatchMmr
-                << ", previousMatches=" << req.previousMatches
-                << ", fetchedMatches=" << postMatchMatches
-                << ", pending=" << pendingCount << ".\n";
-
-            postMatchConfirmed = ReconcileTrackerResponse(req, postMatchMmr, postMatchMatches);
-            if (!postMatchConfirmed && req.retriesRemaining > 0) {
-                std::cout
-                    << "[MMRFetcher] Post-match reconciliation deferred: matchGuid="
-                    << PrivacyLog::Sensitive(
-                           req.matchGuid, "match GUID")
-                    << ", playlist=" << req.playlist << ".\n";
-                return ScheduleRetry(req, kStalePostMatchRetryDelay, "post-match match count not advanced");
-            }
-            if (!postMatchConfirmed) {
-                EnsureProvisionalPoint(req, req.previousMmr, postMatchMmr, postMatchMatches);
-            }
-        } else if (req.primaryId == m_state->game.myPrimaryId) {
-            // Roster refreshes may confirm provisional points, but the pending
-            // match records remain the sole owners of graph cardinality.
-            std::vector<MMRRequest> pendingPlaylists;
-            {
-                std::lock_guard<std::mutex> queueLock(m_queueMutex);
-                for (const auto& [playlist, guids] : m_pendingPostMatchesByPlaylist) {
-                    if (guids.empty()) continue;
-                    const auto recordIt = m_postMatchRecordsByGuid.find(guids.front());
-                    if (recordIt == m_postMatchRecordsByGuid.end()) continue;
-                    MMRRequest pendingReq;
-                    pendingReq.primaryId = recordIt->second.primaryId;
-                    pendingReq.matchGuid = recordIt->second.matchGuid;
-                    pendingReq.playlist = playlist;
-                    pendingReq.previousMmr = recordIt->second.preMatchMmr;
-                    pendingReq.previousMatches = recordIt->second.preMatchMatchesPlayed;
-                    pendingReq.previousMmrIsPlaylistSpecific =
-                        recordIt->second.preMatchMmrIsPlaylistSpecific;
-                    pendingReq.won = recordIt->second.won;
-                    pendingReq.resultKnown =
-                        recordIt->second.resultKnown;
-                    pendingPlaylists.push_back(std::move(pendingReq));
-                }
-            }
-            for (const auto& pendingReq : pendingPlaylists) {
-                const auto mmrIt = playlistMMRs.find(pendingReq.playlist);
-                if (mmrIt == playlistMMRs.end()) continue;
-                const auto matchesIt = playlistMatches.find(pendingReq.playlist);
-                const int fetchedMatches =
-                    matchesIt != playlistMatches.end() ? matchesIt->second : -1;
-                const bool confirmed =
-                    ReconcileTrackerResponse(pendingReq, mmrIt->second, fetchedMatches);
-                if (!confirmed) {
-                    EnsureProvisionalPoint(
-                        pendingReq, pendingReq.previousMmr, mmrIt->second, fetchedMatches);
-                }
-            }
-        }
-
-        // Cache only the local player's successful Tracker profile. A normal
-        // roster result can populate the cache on first use (including solo
-        // training). After a completed match, EnqueuePostMatch invalidates the
-        // cache and only a fully reconciled result can make it valid again.
-        StoreLocalProfileCache(req,
-                               bestMMR,
-                               bestTier,
-                               playlistMMRs,
-                               playlistTiers,
-                               playlistMatches,
-                               profileTotals.totalWins,
-                               postMatchConfirmed);
-
-        std::unordered_set<std::string> playlistsAwaitingPostMatch;
-        {
-            std::lock_guard<std::mutex> queueLock(m_queueMutex);
-            for (const auto& [playlist, guids] : m_pendingPostMatchesByPlaylist) {
-                if (!guids.empty()) playlistsAwaitingPostMatch.insert(playlist);
-            }
-        }
-
-        {
-            std::unique_lock<std::shared_mutex> gameLock(m_state->game.mutex);
-            std::unique_lock<std::shared_mutex> historyLock(m_state->history.mutex);
-
-            if (req.reason == MMRRequestReason::Roster &&
-                req.primaryId == m_state->game.myPrimaryId &&
-                m_state->game.inMatch &&
-                !m_state->game.matchGuid.empty() &&
-                m_state->game.preMatchMmrByGuid.count(m_state->game.matchGuid) == 0) {
-                const bool hasPlaylistMmr = std::any_of(
-                    playlistMMRs.begin(), playlistMMRs.end(),
-                    [](const auto& entry) {
-                        return entry.first != "best" && entry.second > 0;
-                    });
-                if (hasPlaylistMmr) {
-                    m_state->game.preMatchMmrByGuid.emplace(
-                        m_state->game.matchGuid,
-                        LocalPreMatchMmrSnapshot{
-                            .playlistMmrs = playlistMMRs,
-                            .playlistMatches = playlistMatches});
-                    std::cout
-                        << "[MMRFetcher] Captured pre-match MMR snapshot: matchGuid="
-                        << PrivacyLog::Sensitive(
-                               m_state->game.matchGuid,
-                               "match GUID")
-                        << ".\n";
-                }
-            }
-
-            if (m_state->game.roster.count(req.primaryId)) {
-                auto& player = m_state->game.roster[req.primaryId];
-                player.playlists = playlistMMRs;
-                player.playlistTiers = playlistTiers;
-                player.playlistMatches = playlistMatches;
-                player.totalWins = profileTotals.totalWins;
-                player.mmr = bestMMR;
-                player.rankTier = bestTier;
-                player.fetched = true;
-                player.fetchFailed = false;
-            }
-
-            if (req.primaryId == m_state->game.myPrimaryId) {
-                if (m_state->history.initialMmr == -1 && bestMMR > 0) {
-                    m_state->history.initialMmr = bestMMR;
-                }
-                if (req.reason == MMRRequestReason::Roster && bestMMR > 0) {
-                    m_state->history.mmrHistoryY.push_back(static_cast<float>(bestMMR));
-                    m_state->history.mmrHistoryX.push_back(static_cast<float>(m_state->history.mmrHistoryY.size()));
-                }
-
-                for (const auto& [playlistName, fetchedMmr] : playlistMMRs) {
-                    if (fetchedMmr <= 0 || playlistName == "best" || playlistName == "t" ||
-                        playlistName == "casual") {
-                        continue;
-                    }
-                    if (req.reason == MMRRequestReason::PostMatch && playlistName == req.playlist) continue;
-                    if (playlistsAwaitingPostMatch.count(playlistName) > 0) continue;
-
-                    auto& history = m_state->history.playlistHistoryY[playlistName];
-                    if (m_state->history.playlistInitialMmr.count(playlistName) == 0) {
-                        m_state->history.playlistInitialMmr[playlistName] = fetchedMmr;
-                    }
-                    m_state->game.sessionTotals.mmrChangeByPlaylist[playlistName] =
-                        fetchedMmr - m_state->history.playlistInitialMmr[playlistName];
-                    if (history.empty() || static_cast<int>(std::lround(history.back())) != fetchedMmr) {
-                        history.push_back(static_cast<float>(fetchedMmr));
-                    }
-                }
-                UpdateSessionAggregateLocked();
-            }
-
-            std::cout << "[MMRFetcher] Updated: " << PrivacyLog::Sensitive(req.name, "player name")
-                      << " -> Best: " << bestMMR << "\n";
-            m_state->game.version++;
-            m_state->history.version++;
-        }
-        return false;
+        return PublishProfileResult(req, profile);
     } catch (const std::exception& e) {
         std::cout << "[MMRFetcher] JSON Parse Error: " << e.what() << "\n";
         if (ScheduleRetry(req, kTransientRetryDelay, "invalid Tracker response")) return true;

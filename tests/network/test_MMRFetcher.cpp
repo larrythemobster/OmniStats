@@ -20,10 +20,11 @@ static long g_mock_response_code = 200;
 static std::string g_mock_url = "";
 static long g_mock_custom_api_response_code = 0;
 static std::string g_mock_custom_api_response = "";
+static int g_mock_perform_res = 0;
+static int g_mock_custom_api_perform_res = 0;
 static std::atomic<int> g_mock_perform_count{0};
 static std::string g_mock_impersonation_profile;
 static std::string g_mock_user_agent_header;
-
 static int mock_easy_setopt(void* curl, int option, ...) {
     va_list args;
     va_start(args, option);
@@ -47,17 +48,21 @@ static int mock_easy_perform(void* curl) {
     g_mock_perform_count.fetch_add(1);
     long code = g_mock_response_code;
     const std::string* body = &g_mock_response;
+    int res = g_mock_perform_res;
     if (g_mock_custom_api_response_code > 0 && (g_mock_url.find("/v1/ranks") != std::string::npos || g_mock_url.find("/v1/pro/ranks") != std::string::npos)) {
         code = g_mock_custom_api_response_code;
         body = &g_mock_custom_api_response;
+        if (g_mock_custom_api_perform_res != 0) {
+            res = g_mock_custom_api_perform_res;
+        }
     }
     if (g_header_callback && g_header_data && !g_mock_headers.empty()) {
         g_header_callback((char*)g_mock_headers.data(), 1, g_mock_headers.size(), g_header_data);
     }
-    if (g_write_callback && g_write_data && code == 200) {
+    if (g_write_callback && g_write_data && !body->empty()) {
         g_write_callback((void*)body->data(), 1, body->size(), g_write_data);
     }
-    return 0; // CURLE_OK
+    return res;
 }
 
 static int mock_easy_getinfo(void* curl, int info, ...) {
@@ -109,6 +114,8 @@ class MMRFetcherTest : public ::testing::Test {
         g_mock_response.clear();
         g_mock_impersonation_profile.clear();
         g_mock_user_agent_header.clear();
+        g_mock_perform_res = 0;
+        g_mock_custom_api_perform_res = 0;
         sessionState = std::make_shared<SessionState>();
         fetcher = std::make_shared<MMRFetcher>(sessionState);
 
@@ -155,6 +162,8 @@ class MMRFetcherTest : public ::testing::Test {
         g_mock_custom_api_response_code = 0;
         g_mock_custom_api_response.clear();
         Config::Update([this](ConfigData& config) { config = originalConfig; }, false);
+        g_mock_perform_res = 0;
+        g_mock_custom_api_perform_res = 0;
     }
 
     void EnqueuePostMatch(const std::string& guid,
@@ -1140,4 +1149,358 @@ TEST_F(MMRFetcherTest, FallsBackToCustomApiWhenTrackerReturns403) {
     EXPECT_EQ(player.playlists.at("2v2"), 1250);
     EXPECT_EQ(player.playlistTiers.at("2v2"), "Diamond II Div III");
     EXPECT_EQ(player.mmr, 1250);
+}
+TEST_F(MMRFetcherTest, CustomApiMultipleSkillsParsesAllAndSetsBest) {
+    g_mock_response_code = 403;
+    g_mock_custom_api_response_code = 200;
+    Config::Update([](ConfigData& config) {
+        config.custom_api_enabled = true;
+        config.custom_api_key = "oms_test_account_key";
+    },
+                   false);
+
+    g_mock_custom_api_response = R"({
+        "players": [{
+            "platform": "Epic",
+            "account_id": "test_epic_id",
+            "skills": [
+                { "playlist": 10, "mmr": 850.0, "tier": 8, "division": 1, "matches_played": 15 },
+                { "playlist": 11, "mmr": 1250.0, "tier": 14, "division": 2, "matches_played": 45 },
+                { "playlist": 13, "mmr": 1100.0, "tier": 12, "division": 3, "matches_played": 20 },
+                { "playlist": 0, "mmr": 1400.0, "tier": 0, "division": 0, "matches_played": 100 },
+                { "playlist": 34, "mmr": 1300.0, "tier": 0, "division": 0, "matches_played": 10 }
+            ]
+        }]
+    })";
+
+    fetcher->FetchRosterProfileForTests("Epic|test_epic_id", "TestPlayer");
+
+    std::shared_lock<std::shared_mutex> lock(sessionState->game.mutex);
+    ASSERT_TRUE(sessionState->game.roster.count("Epic|test_epic_id") > 0);
+    const auto& player = sessionState->game.roster["Epic|test_epic_id"];
+    EXPECT_TRUE(player.fetched);
+    EXPECT_FALSE(player.fetchFailed);
+    EXPECT_EQ(player.rankVerificationSource, "ServerA");
+    EXPECT_EQ(player.playlists.at("1v1"), 850);
+    EXPECT_EQ(player.playlists.at("2v2"), 1250);
+    EXPECT_EQ(player.playlists.at("3v3"), 1100);
+    EXPECT_EQ(player.playlists.at("casual"), 1400);
+    EXPECT_EQ(player.playlists.at("t"), 1300);
+    EXPECT_EQ(player.playlists.at("best"), 1250);
+    EXPECT_EQ(player.mmr, 1250);
+    EXPECT_EQ(player.rankTier, "Diamond II Div III");
+    EXPECT_EQ(player.playlistTiers.at("best"), "Diamond II Div III");
+    EXPECT_EQ(player.playlistTiers.at("t"), MMRFetcher::GetTournamentTierForMmr(1300));
+}
+
+TEST_F(MMRFetcherTest, CustomApiSingleSkillParsesCorrectly) {
+    Config::Update([](ConfigData& config) {
+        config.custom_api_enabled = true;
+        config.custom_api_key = "oms_test_account_key";
+    },
+                   false);
+    g_mock_custom_api_response_code = 200;
+    g_mock_custom_api_response = R"({
+        "players": [{
+            "platform": "Steam",
+            "account_id": "76561198000000000",
+            "skills": [
+                { "playlist": 13, "mmr": 1050.0, "tier": 12, "division": 1, "matches_played": 30 }
+            ]
+        }]
+    })";
+
+    MMRRequest req;
+    req.primaryId = "Steam|76561198000000000|0";
+    req.name = "SteamPlayer";
+    const auto res = fetcher->FetchProfileFromCustomApiForTests(req);
+    EXPECT_EQ(res, CustomApiFetchResult::SuccessFinished);
+
+    std::shared_lock<std::shared_mutex> lock(sessionState->game.mutex);
+    ASSERT_TRUE(sessionState->game.roster.count("Steam|76561198000000000|0") > 0);
+    const auto& player = sessionState->game.roster["Steam|76561198000000000|0"];
+    EXPECT_TRUE(player.fetched);
+    EXPECT_FALSE(player.fetchFailed);
+    EXPECT_EQ(player.mmr, 1050);
+    EXPECT_EQ(player.playlists.at("3v3"), 1050);
+    EXPECT_EQ(player.playlists.at("best"), 1050);
+}
+
+TEST_F(MMRFetcherTest, CustomApiEmptySkillsReturnsUnusableDataAndPreventsFalseSuccess) {
+    Config::Update([](ConfigData& config) {
+        config.custom_api_enabled = true;
+        config.custom_api_key = "oms_test_account_key";
+    },
+                   false);
+    g_mock_response_code = 403;
+    g_mock_custom_api_response_code = 200;
+    g_mock_custom_api_response = R"({
+        "players": [{
+            "platform": "Xbox",
+            "account_id": "2535421607154237",
+            "skills": []
+        }]
+    })";
+
+    MMRRequest req;
+    req.primaryId = "XboxOne|2535421607154237|0";
+    req.name = "RollrTraks2x";
+    const auto res = fetcher->FetchProfileFromCustomApiForTests(req);
+    EXPECT_EQ(res, CustomApiFetchResult::UnusableData);
+
+    // Now test full path: Tracker 403 followed by custom API fallback
+    fetcher->FetchRosterProfileForTests("XboxOne|2535421607154237|0", "RollrTraks2x");
+
+    std::shared_lock<std::shared_mutex> lock(sessionState->game.mutex);
+    if (sessionState->game.roster.count("XboxOne|2535421607154237|0")) {
+        const auto& player = sessionState->game.roster["XboxOne|2535421607154237|0"];
+        // Must NOT be marked fetched with empty ranks!
+        EXPECT_FALSE(player.fetched && !player.fetchFailed);
+    }
+}
+
+TEST_F(MMRFetcherTest, CustomApiUnrecognizedPlaylistIdsReturnsUnusableData) {
+    Config::Update([](ConfigData& config) {
+        config.custom_api_enabled = true;
+        config.custom_api_key = "oms_test_account_key";
+    },
+                   false);
+    g_mock_custom_api_response_code = 200;
+    g_mock_custom_api_response = R"({
+        "players": [{
+            "platform": "Epic",
+            "account_id": "test_epic_id",
+            "skills": [
+                { "playlist": 9999, "mmr": 1200.0, "tier": 14, "division": 1 }
+            ]
+        }]
+    })";
+
+    MMRRequest req;
+    req.primaryId = "Epic|test_epic_id|0";
+    req.name = "TestPlayer";
+    const auto res = fetcher->FetchProfileFromCustomApiForTests(req);
+    EXPECT_EQ(res, CustomApiFetchResult::UnusableData);
+}
+
+TEST_F(MMRFetcherTest, CustomApiMissingOrInvalidMmrReturnsUnusableData) {
+    Config::Update([](ConfigData& config) {
+        config.custom_api_enabled = true;
+        config.custom_api_key = "oms_test_account_key";
+    },
+                   false);
+    g_mock_custom_api_response_code = 200;
+    g_mock_custom_api_response = R"({
+        "players": [{
+            "platform": "Epic",
+            "account_id": "test_epic_id",
+            "skills": [
+                { "playlist": 11, "mmr": 0.0, "tier": 0, "division": 0 },
+                { "playlist": 13, "mmr": -10.0, "tier": 0, "division": 0 }
+            ]
+        }]
+    })";
+
+    MMRRequest req;
+    req.primaryId = "Epic|test_epic_id|0";
+    req.name = "TestPlayer";
+    const auto res = fetcher->FetchProfileFromCustomApiForTests(req);
+    EXPECT_EQ(res, CustomApiFetchResult::UnusableData);
+}
+
+TEST_F(MMRFetcherTest, CustomApiMissingPlayersArrayReturnsUnusableData) {
+    Config::Update([](ConfigData& config) {
+        config.custom_api_enabled = true;
+        config.custom_api_key = "oms_test_account_key";
+    },
+                   false);
+    g_mock_custom_api_response_code = 200;
+    g_mock_custom_api_response = R"({ "players": [] })";
+
+    MMRRequest req;
+    req.primaryId = "Epic|test_epic_id|0";
+    req.name = "TestPlayer";
+    const auto res = fetcher->FetchProfileFromCustomApiForTests(req);
+    EXPECT_EQ(res, CustomApiFetchResult::UnusableData);
+}
+
+TEST_F(MMRFetcherTest, CustomApiMalformedJsonReturnsUnusableData) {
+    Config::Update([](ConfigData& config) {
+        config.custom_api_enabled = true;
+        config.custom_api_key = "oms_test_account_key";
+    },
+                   false);
+    g_mock_custom_api_response_code = 200;
+    g_mock_custom_api_response = "{ not valid json";
+
+    MMRRequest req;
+    req.primaryId = "Epic|test_epic_id|0";
+    req.name = "TestPlayer";
+    const auto res = fetcher->FetchProfileFromCustomApiForTests(req);
+    EXPECT_EQ(res, CustomApiFetchResult::UnusableData);
+}
+
+TEST_F(MMRFetcherTest, CustomApiAuthFailure401And403) {
+    Config::Update([](ConfigData& config) {
+        config.custom_api_enabled = true;
+        config.custom_api_key = "oms_test_account_key";
+    },
+                   false);
+
+    MMRRequest req;
+    req.primaryId = "Epic|test_epic_id|0";
+    req.name = "TestPlayer";
+
+    g_mock_custom_api_response_code = 401;
+    g_mock_custom_api_response = R"({"error": {"code": "invalid_api_key", "message": "Unauthorized"}})";
+    EXPECT_EQ(fetcher->FetchProfileFromCustomApiForTests(req), CustomApiFetchResult::AuthFailure);
+
+    g_mock_custom_api_response_code = 403;
+    g_mock_custom_api_response = R"({"error": {"code": "access_denied", "message": "Forbidden"}})";
+    EXPECT_EQ(fetcher->FetchProfileFromCustomApiForTests(req), CustomApiFetchResult::AuthFailure);
+}
+
+TEST_F(MMRFetcherTest, CustomApiNotFound404ReturnsUnusableData) {
+    Config::Update([](ConfigData& config) {
+        config.custom_api_enabled = true;
+        config.custom_api_key = "oms_test_account_key";
+    },
+                   false);
+    g_mock_custom_api_response_code = 404;
+    g_mock_custom_api_response = R"({"error": {"code": "not_found", "message": "Player not found"}})";
+
+    MMRRequest req;
+    req.primaryId = "Epic|test_epic_id|0";
+    req.name = "TestPlayer";
+    EXPECT_EQ(fetcher->FetchProfileFromCustomApiForTests(req), CustomApiFetchResult::UnusableData);
+}
+
+TEST_F(MMRFetcherTest, CustomApiServerAndNetworkFailureReturnsTransientError) {
+    Config::Update([](ConfigData& config) {
+        config.custom_api_enabled = true;
+        config.custom_api_key = "oms_test_account_key";
+    },
+                   false);
+
+    MMRRequest req;
+    req.primaryId = "Epic|test_epic_id|0";
+    req.name = "TestPlayer";
+
+    g_mock_custom_api_response_code = 500;
+    g_mock_custom_api_response = R"({"error": {"code": "server_error", "message": "Internal error"}})";
+    EXPECT_EQ(fetcher->FetchProfileFromCustomApiForTests(req), CustomApiFetchResult::TransientError);
+
+    g_mock_custom_api_response_code = 200;
+    g_mock_custom_api_perform_res = 7; // CURLE_COULDNT_CONNECT
+    EXPECT_EQ(fetcher->FetchProfileFromCustomApiForTests(req), CustomApiFetchResult::TransientError);
+}
+
+TEST_F(MMRFetcherTest, CustomApiXboxPlayerResponseHandledCorrectly) {
+    Config::Update([](ConfigData& config) {
+        config.custom_api_enabled = true;
+        config.custom_api_key = "oms_test_account_key";
+    },
+                   false);
+    g_mock_custom_api_response_code = 200;
+    g_mock_custom_api_response = R"({
+        "players": [{
+            "platform": "Xbox",
+            "account_id": "2535421607154237",
+            "skills": [
+                { "playlist": 11, "mmr": 1354.0, "tier": 16, "division": 1, "matches_played": 62 }
+            ]
+        }]
+    })";
+
+    MMRRequest req;
+    req.primaryId = "XboxOne|2535421607154237|0";
+    req.name = "RollrTraks2x";
+    const auto res = fetcher->FetchProfileFromCustomApiForTests(req);
+    EXPECT_EQ(res, CustomApiFetchResult::SuccessFinished);
+
+    std::shared_lock<std::shared_mutex> lock(sessionState->game.mutex);
+    ASSERT_TRUE(sessionState->game.roster.count("XboxOne|2535421607154237|0") > 0);
+    const auto& player = sessionState->game.roster["XboxOne|2535421607154237|0"];
+    EXPECT_TRUE(player.fetched);
+    EXPECT_FALSE(player.fetchFailed);
+    EXPECT_EQ(player.rankVerificationSource, "ServerA");
+    EXPECT_EQ(player.playlists.at("2v2"), 1354);
+    EXPECT_EQ(player.playlists.at("best"), 1354);
+    EXPECT_EQ(player.mmr, 1354);
+    EXPECT_EQ(player.rankTier, "Champion I Div II");
+}
+
+TEST_F(MMRFetcherTest, CustomApiPlatformMappingsSupported) {
+    Config::Update([](ConfigData& config) {
+        config.custom_api_enabled = true;
+        config.custom_api_key = "oms_test_account_key";
+    },
+                   false);
+    g_mock_custom_api_response_code = 200;
+
+    const std::vector<std::pair<std::string, std::string>> platforms = {
+        {"Steam|76561198000000001|0", "76561198000000001"},
+        {"PS4|123456789012|0", "123456789012"},
+        {"Epic|abcdef0123456789|0", "abcdef0123456789"},
+        {"Switch|switchaccountid|0", "switchaccountid"}};
+
+    for (const auto& [primaryId, accountId] : platforms) {
+        g_mock_custom_api_response = R"({
+            "players": [{
+                "platform": "Any",
+                "account_id": ")" + accountId +
+                                     R"(",
+                "skills": [
+                    { "playlist": 11, "mmr": 1000.0, "tier": 11, "division": 0, "matches_played": 10 }
+                ]
+            }]
+        })";
+
+        MMRRequest req;
+        req.primaryId = primaryId;
+        req.name = "PlatformTestPlayer";
+        const auto res = fetcher->FetchProfileFromCustomApiForTests(req);
+        EXPECT_EQ(res, CustomApiFetchResult::SuccessFinished);
+
+        std::shared_lock<std::shared_mutex> lock(sessionState->game.mutex);
+        ASSERT_TRUE(sessionState->game.roster.count(primaryId) > 0);
+        EXPECT_EQ(sessionState->game.roster[primaryId].mmr, 1000);
+    }
+}
+
+TEST_F(MMRFetcherTest, CustomApiUpdatesLocalPlayerHistoryAndCache) {
+    sessionState->game.myPrimaryId = "Epic|local_hero_id|0";
+    Config::Update([](ConfigData& config) {
+        config.custom_api_enabled = true;
+        config.custom_api_key = "oms_test_account_key";
+    },
+                   false);
+    g_mock_custom_api_response_code = 200;
+    g_mock_custom_api_response = R"({
+        "players": [{
+            "account_id": "local_hero_id",
+            "skills": [
+                { "playlist": 11, "mmr": 1250.0, "tier": 14, "division": 2, "matches_played": 45 }
+            ]
+        }]
+    })";
+
+    MMRRequest req;
+    req.primaryId = "Epic|local_hero_id|0";
+    req.name = "LocalHero";
+    req.reason = MMRRequestReason::Roster;
+
+    const auto res = fetcher->FetchProfileFromCustomApiForTests(req);
+    EXPECT_EQ(res, CustomApiFetchResult::SuccessFinished);
+
+    {
+        std::shared_lock<std::shared_mutex> gameLock(sessionState->game.mutex);
+        std::shared_lock<std::shared_mutex> histLock(sessionState->history.mutex);
+        EXPECT_EQ(sessionState->history.initialMmr, 1250);
+        EXPECT_EQ(sessionState->history.playlistInitialMmr["2v2"], 1250);
+        ASSERT_FALSE(sessionState->history.mmrHistoryY.empty());
+        EXPECT_EQ(static_cast<int>(sessionState->history.mmrHistoryY.back()), 1250);
+        ASSERT_FALSE(sessionState->history.playlistHistoryY["2v2"].empty());
+        EXPECT_EQ(static_cast<int>(sessionState->history.playlistHistoryY["2v2"].back()), 1250);
+    }
 }

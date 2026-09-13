@@ -42,6 +42,25 @@ struct MMRProfileTotals {
     int totalWins = -1;
 };
 
+enum class CustomApiFetchResult {
+    SuccessFinished,
+    SuccessRequeued,
+    AuthFailure,
+    TransientError,
+    UnusableData,
+    DisabledOrNotReady
+};
+
+struct NormalizedProfileResult {
+    int bestMmr = 0;
+    std::string bestTier = "Unranked";
+    std::string bestPlaylistName = "best";
+    std::map<std::string, int> playlistMMRs;
+    std::map<std::string, std::string> playlistTiers;
+    std::map<std::string, int> playlistMatches;
+    int totalWins = -1;
+    std::string rankVerificationSource = "Tracker";
+};
 enum class PostMatchReconciliationState {
     AwaitingTracker,
     Provisional,
@@ -125,6 +144,8 @@ class MMRFetcher {
     bool HasPendingDestroyedMatchForTests(const std::string& matchGuid);
     void FetchRosterProfileForTests(const std::string& primaryId, const std::string& name);
     bool IsRateLimitedForTests() const;
+    CustomApiFetchResult FetchProfileFromCustomApiForTests(const MMRRequest& req);
+    bool PublishProfileResultForTests(const MMRRequest& req, const NormalizedProfileResult& profile);
 #endif
 
   private:
@@ -141,7 +162,8 @@ class MMRFetcher {
 
     void WorkerLoop();
     bool FetchProfile(MMRRequest req);
-    bool FetchProfileFromCustomApi(const MMRRequest& req);
+    CustomApiFetchResult FetchProfileFromCustomApi(const MMRRequest& req);
+    bool PublishProfileResult(const MMRRequest& req, const NormalizedProfileResult& profile);
     bool ScheduleRetry(MMRRequest req, std::chrono::milliseconds delay, const char* reason);
     std::string GetTRNPlatform(const std::string& primaryId);
     void FinishRequest(const MMRRequest& req);
