@@ -858,6 +858,16 @@ scrollbarcorner { background-color: #0b0e13aa; }
 
 .color-dot { width: 20dp; height: 20dp; border: 1dp #ffffff33; border-radius: 4dp; }
 .color-dot-button { min-width: 20dp; padding: 0; margin: 0; }
+.color-dot-button.active { border: 2dp #ffffff; }
+.color-row-active { border-top: 1dp #ff183888; }
+.color-editor-panel {
+    display: block;
+    margin: 4dp 0 10dp 0;
+    padding: 8dp 10dp;
+    background-color: #12151c;
+    border: 1dp #2a3140;
+    border-radius: 8dp;
+}
 /* Saturation/value field plus hue strip. RmlUi paints CSS gradients through
    render-interface shaders that this D3D11 interface does not implement, so both
    use procedurally generated `gen://` textures instead. */

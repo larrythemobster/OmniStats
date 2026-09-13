@@ -3083,26 +3083,60 @@ std::string RmlUiController::RenderSettingsShortcuts() {
 }
 
 std::string RmlUiController::RenderSettingsAppearance() {
-    auto colorRow = [&](const char* key, const char* label, const ColorRGBA& color) {
-        std::ostringstream html;
-        html << "<div class='setting-row'><div class='setting-info'><div class='setting-name'>" << label
-             << "</div><div class='setting-help'>Click the swatch to pick a color, or edit the hex value.</div></div>"
-             << "<button class='color-dot color-dot-button' style='background-color:" << CssColor(color)
-             << "' data-action='edit-color' data-color-key='" << key << "'></button>"
-             << "<input type='text' class='text mono' style='width:100dp;margin-left:6dp' data-setting='" << key
-             << "' value='" << CssColor(color) << "'/></div>";
-        return html.str();
-    };
-    auto channelByte = [](float value) {
-        if (!std::isfinite(value)) return 0;
-        return std::clamp(static_cast<int>(std::lround(value * 255.0f)), 0, 255);
-    };
     auto rangeRow = [&](const char* channel, char component, int value) {
         std::ostringstream html;
         html << "<div class='color-channel'><span class='color-channel-label'>" << channel << "</span>"
              << "<input type='range' class='range color-range' min='0' max='255' step='1' data-setting='"
              << m_editColorKey << ':' << component << "' value='" << value << "'/>"
              << "<span class='mono color-channel-value'>" << value << "</span></div>";
+        return html.str();
+    };
+    auto channelByte = [](float value) {
+        if (!std::isfinite(value)) return 0;
+        return std::clamp(static_cast<int>(std::lround(value * 255.0f)), 0, 255);
+    };
+    auto renderColorEditor = [&](const char* key, const ColorRGBA& color) {
+        const Hsv hsv = RgbToHsv(color);
+        const float hue = hsv.s > 0.0f ? hsv.h : m_editColorHue;
+        const auto percent = [](float value) {
+            std::ostringstream text;
+            text << std::fixed << std::setprecision(2) << std::clamp(value, 0.0f, 1.0f) * 100.0f;
+            return text.str();
+        };
+        std::ostringstream ed;
+        ed << "<div class='color-editor-panel' id='active-color-editor'>"
+           << "<div class='row' style='margin-bottom:6dp'><div class='setting-name grow' style='color:#eef1f5'>Editing "
+           << Escape(ThemeColorLabel(key)) << "</div>"
+           << "<button class='ghost compact' data-action='close-color-editor'>Close</button></div>"
+           << "<div class='color-picker'>"
+           << "<div class='color-field' data-action='color-field' style='decorator: image(gen://sv?h="
+           << static_cast<int>(std::lround(hue / 2.0f)) * 2 << ");'>"
+           << "<div class='color-field-marker' style='left:" << percent(hsv.s) << "%;top:" << percent(1.0f - hsv.v) << "%'></div>"
+           << "</div>"
+           << "<div class='color-hue' data-action='color-hue'>"
+           << "<div class='color-hue-marker' style='left:" << percent(hue / 360.0f) << "%'></div>"
+           << "</div></div>"
+           << "<div class='color-editor-preview' style='background-color:" << CssColor(color) << "'></div>"
+           << rangeRow("R", 'r', channelByte(color.r))
+           << rangeRow("G", 'g', channelByte(color.g))
+           << rangeRow("B", 'b', channelByte(color.b))
+           << rangeRow("A", 'a', channelByte(color.a))
+           << "<div class='row gap-sm' style='margin-top:8dp'>" << Button("close-color-editor", "Done", "ghost") << "</div>"
+           << "</div>";
+        return ed.str();
+    };
+    auto colorRow = [&](const char* key, const char* label, const ColorRGBA& color) {
+        std::ostringstream html;
+        const bool isEditing = (m_editColorKey == key);
+        html << "<div class='setting-row" << (isEditing ? " color-row-active" : "") << "'><div class='setting-info'><div class='setting-name'>" << label
+             << "</div><div class='setting-help'>Click the swatch to pick a color, or edit the hex value.</div></div>"
+             << "<button class='color-dot color-dot-button" << (isEditing ? " active" : "") << "' style='background-color:" << CssColor(color)
+             << "' data-action='edit-color' data-color-key='" << key << "'></button>"
+             << "<input type='text' class='text mono' style='width:100dp;margin-left:6dp' data-setting='" << key
+             << "' value='" << CssColor(color) << "'/></div>";
+        if (isEditing) {
+            html << renderColorEditor(key, color);
+        }
         return html.str();
     };
 
@@ -3130,35 +3164,6 @@ std::string RmlUiController::RenderSettingsAppearance() {
         << colorRow("theme_graph", "Graph line", m_config.themeGraphLine)
         << colorRow("theme_baseline", "Graph baseline", m_config.themeGraphBaseline)
         << SectionEnd();
-
-    if (const ColorRGBA* editing = ThemeColorForKey(m_config, m_editColorKey)) {
-        const Hsv hsv = RgbToHsv(*editing);
-        // A gray color carries no hue, so the picker keeps the last hue the user
-        // chose instead of snapping the field back to red.
-        const float hue = hsv.s > 0.0f ? hsv.h : m_editColorHue;
-        const auto percent = [](float value) {
-            std::ostringstream text;
-            text << std::fixed << std::setprecision(2) << std::clamp(value, 0.0f, 1.0f) * 100.0f;
-            return text.str();
-        };
-
-        out << SectionStart(std::string("Color editor · ") + ThemeColorLabel(m_editColorKey))
-            << "<div class='color-picker'>"
-            << "<div class='color-field' data-action='color-field' style='decorator: image(gen://sv?h="
-            << static_cast<int>(std::lround(hue / 2.0f)) * 2 << ");'>"
-            << "<div class='color-field-marker' style='left:" << percent(hsv.s) << "%;top:" << percent(1.0f - hsv.v) << "%'></div>"
-            << "</div>"
-            << "<div class='color-hue' data-action='color-hue'>"
-            << "<div class='color-hue-marker' style='left:" << percent(hue / 360.0f) << "%'></div>"
-            << "</div></div>"
-            << "<div class='color-editor-preview' style='background-color:" << CssColor(*editing) << "'></div>"
-            << rangeRow("R", 'r', channelByte(editing->r))
-            << rangeRow("G", 'g', channelByte(editing->g))
-            << rangeRow("B", 'b', channelByte(editing->b))
-            << rangeRow("A", 'a', channelByte(editing->a))
-            << "<div class='row gap-sm' style='margin-top:8dp'>" << Button("close-color-editor", "Done", "ghost") << "</div>"
-            << SectionEnd();
-    }
 
     out << SectionStart("Units & Formatting")
         << "<div class='setting-row'><div class='setting-info'><div class='setting-name'>Speed units</div></div><select data-setting='speed_units'><option value='metric'" << Selected(!m_config.imperial_units) << ">Kilometers per hour</option><option value='imperial'" << Selected(m_config.imperial_units) << ">Miles per hour</option></select></div>"
@@ -3552,6 +3557,11 @@ void RmlUiController::HandleClick(Rml::Element* target) {
         const std::string key = Attribute(target, "data-color-key");
         m_editColorKey = ThemeColorForKey(m_config, key) ? key : std::string{};
         RebuildSettings();
+        if (auto* root = Root("settings-root")) {
+            if (auto* el = root->QuerySelector("#active-color-editor")) {
+                el->ScrollIntoView(false);
+            }
+        }
     } else if (action == "close-color-editor") {
         m_editColorKey.clear();
         RebuildSettings();
