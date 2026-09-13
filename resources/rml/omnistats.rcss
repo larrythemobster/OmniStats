@@ -34,7 +34,7 @@ body {
 
 .card.compact { padding: 6dp 8dp; }
 .card-title { display: block; font-family: "Russo One"; font-size: 13dp; letter-spacing: 0.5dp; color: #eef1f5; margin-bottom: 5dp; }
-.card-subtitle { display: block; color: #8f99a8; font-size: 11dp; font-weight: 500; line-height: 1.2; }
+.card-subtitle { display: block; color: #8f99a8; font-size: 11dp; font-weight: 400; line-height: 1.2; }
 .overlay-widget-title { display: block; color: #8f99a8; font-size: 10dp; font-weight: 700; letter-spacing: 0.3dp; line-height: 1.2; margin-top: 7dp; margin-bottom: 4dp; }
 .stat-section-title { display: block; color: #778190; font-size: 10dp; font-weight: 700; letter-spacing: 0.3dp; line-height: 1.2; margin-bottom: 4dp; }
 
@@ -49,7 +49,7 @@ body {
 .center { align-items: center; justify-content: center; }
 .right { text-align: right; }
 
-.label { color: #9da6b3; font-size: 12dp; font-weight: 500; line-height: 1.25; }
+.label { color: #9da6b3; font-size: 12dp; font-weight: 400; line-height: 1.25; }
 .value { color: #eef1f5; font-weight: 700; line-height: 1.25; }
 div.label { display: block; }
 div.value { display: block; }
@@ -96,7 +96,7 @@ div.value { display: block; }
 }
 .stat-grid.cols-2 .stat-cell { width: 48%; flex-grow: 1; }
 .stat-grid.cols-3 .stat-cell { width: 31%; flex-grow: 1; }
-.stat-cell .label { display: block; width: 100%; margin-bottom: 2dp; text-align: center; font-size: 10dp; line-height: 1.15; }
+.stat-cell .label { display: block; width: 100%; margin-bottom: 2dp; text-align: center; font-size: 11dp; line-height: 1.15; }
 .stat-cell .value { display: block; width: 100%; text-align: center; font-size: 12dp; line-height: 1.15; }
 .compact-stats .stat-cell { min-height: 34dp; padding: 3dp 5dp; }
 
@@ -109,7 +109,7 @@ div.value { display: block; }
     padding: 3dp 1dp;
     border-bottom: 1dp #252b3455;
 }
-.metric-label { flex-grow: 1; min-width: 0; color: #909aa8; font-size: 11dp; font-weight: 500; line-height: 1.15; }
+.metric-label { flex-grow: 1; min-width: 0; color: #9aa4b2; font-size: 11dp; font-weight: 400; line-height: 1.2; }
 .metric-value { flex-shrink: 0; min-width: 80dp; text-align: right; color: #eef1f5; font-size: 11dp; font-weight: 700; line-height: 1.15; }
 .metric-pair { display: flex; flex-direction: row; gap: 5dp; }
 .mini-metric {
@@ -126,12 +126,12 @@ div.value { display: block; }
     background-color: #10131a80;
     text-align: center;
 }
-.mini-metric .label { font-size: 10dp; margin-bottom: 2dp; }
+.mini-metric .label { font-size: 11dp; margin-bottom: 2dp; }
 .mini-metric .value { font-size: 11dp; }
 .mini-metric .value .demo-kd { margin-left: 6dp; }
 .gamemode-breakdown .row { min-height: 24dp; font-size: 11dp; }
 .gamemode-breakdown .value { font-size: 11dp; }
-.gamemode-breakdown .label { font-size: 10dp; }
+.gamemode-breakdown .label { font-size: 11dp; }
 
 .team-block { margin-top: 6dp; }
 .team-header { display: flex; flex-direction: row; align-items: center; margin-bottom: 4dp; }
@@ -189,7 +189,7 @@ div.value { display: block; }
     margin-left: 8dp;
     gap: 2dp;
 }
-.player-flags .label { display: block; font-size: 10dp; line-height: 1.2; text-align: right; }
+.player-flags .label { display: block; font-size: 11dp; line-height: 1.2; text-align: right; }
 .player-name {
     flex-grow: 1;
     flex-shrink: 0;
@@ -224,7 +224,7 @@ div.value { display: block; }
     display: inline;
     margin-top: 0;
     margin-left: 6dp;
-    font-size: 10dp;
+    font-size: 11dp;
     white-space: nowrap;
 }
 .lobby-rank-cell {
@@ -252,9 +252,9 @@ div.value { display: block; }
     display: inline;
     margin-left: 3dp;
     font-family: "Inter";
-    font-size: 8dp;
-    font-weight: 500;
-    color: #6f7887;
+    font-size: 9dp;
+    font-weight: 600;
+    color: #7d8796;
 }
 .lobby-rank-header { min-height: 22dp; font-size: 9dp; font-weight: 700; letter-spacing: 0.3dp; color: #8993a2; }
 .lobby-rank-header .player-name { display: flex; align-items: center; }
@@ -416,10 +416,10 @@ button.version-update .tooltip-bubble {
     margin-top: 5dp;
     margin-bottom: 0;
 }
-.dashboard-topbar .match-status { font-size: 11dp; font-weight: 500; color: #8f99a8; margin-left: 14dp; }
+.dashboard-topbar .match-status { font-size: 11dp; font-weight: 400; color: #9aa4b2; margin-left: 14dp; }
 .playlist-icon { width: 20dp; height: 20dp; }
 .roster-header { display: block; padding-bottom: 4dp; border-bottom: 1dp #252a3555; }
-.roster-footer { display: flex; flex-direction: row; justify-content: space-between; gap: 7dp; margin-top: 4dp; padding-top: 4dp; border-top: 1dp #252a3555; color: #8f99a8; font-size: 10dp; }
+.roster-footer { display: flex; flex-direction: row; justify-content: space-between; gap: 7dp; margin-top: 4dp; padding-top: 4dp; border-top: 1dp #252a3555; color: #9aa4b2; font-size: 11dp; }
 .dashboard-widget-title { display: flex; flex-direction: row; align-items: center; margin-bottom: 5dp; }
 .dashboard-widget-title .name { font-family: "Russo One"; font-size: 13dp; letter-spacing: 0.4dp; }
 .dashboard-content { display: block; width: 100%; padding: 6dp 8dp; box-sizing: border-box; }
@@ -463,8 +463,9 @@ button.version-update .tooltip-bubble {
     display: flex;
 }
 .dashboard-drop-slot .drop-hint {
-    font-size: 9dp;
-    color: #5c6878;
+    font-size: 10dp;
+    font-weight: 600;
+    color: #697587;
     pointer-events: none;
 }
 .dashboard-drop-slot.drag-target {
@@ -489,16 +490,19 @@ button.version-update .tooltip-bubble {
     border-radius: 6dp;
 }
 .dashboard-widget .player-name-text { font-size: 12dp; }
-.dashboard-widget .player-flags .label { font-size: 9dp; }
-.dashboard-widget .chip { font-size: 9dp; padding: 1dp 5dp; }
+.dashboard-widget .player-flags .label { font-size: 10dp; font-weight: 600; }
+.dashboard-widget .chip { font-size: 10dp; padding: 1dp 5dp; }
 .dashboard-widget .stat-cell { min-height: 28dp; padding: 2dp 4dp; }
 .dashboard-widget .compact-stats .stat-cell { min-height: 25dp; padding: 2dp 4dp; }
 .dashboard-widget .metric-row { min-height: 21dp; padding: 1dp 1dp; }
-.dashboard-widget .metric-label { font-size: 10dp; }
-.dashboard-widget .metric-value { font-size: 10dp; }
+/* Keep normal-weight UI text at 11dp or larger. RmlUi/FreeType uses
+   grayscale glyph rasterization, and 9-10px regular Inter loses too much
+   coverage in rounded glyphs (notably o/e/g) at 100% scaling. */
+.dashboard-widget .metric-label { font-size: 11dp; }
+.dashboard-widget .metric-value { font-size: 11dp; }
 .dashboard-widget .graph-wrap { height: 160dp; }
 .dashboard-widget .match-row { min-height: 22dp; padding: 1dp 2dp; font-size: 11dp; }
-.dashboard-widget .match-header { min-height: 20dp; font-size: 10dp; }
+.dashboard-widget .match-header { min-height: 20dp; font-size: 11dp; }
 .dashboard-widget .previous-games-footer { min-height: 22dp; margin-top: 4dp; padding: 3dp 2dp 0 2dp; font-size: 11dp; }
 .previous-games-list { display: block; width: 100%; }
 .dashboard-widget .previous-games-list { display: block; width: 100%; }
@@ -972,7 +976,7 @@ scrollbarcorner { background-color: #0b0e13aa; }
 .graph-wrap { position: relative; height: 220dp; background-color: #0a0a0a; border: 1dp #242424; border-radius: 6dp; overflow: hidden; }
 .graph-empty { min-height: 150dp; display: flex; flex-direction: column; justify-content: center; gap: 4dp; padding: 0 8dp; }
 .graph-gridline { position: absolute; height: 1dp; background-color: #69728055; }
-.graph-label { position: absolute; color: #697280; font-family: "JetBrains Mono"; font-size: 10dp; }
+.graph-label { position: absolute; color: #778190; font-family: "JetBrains Mono"; font-size: 11dp; }
 .graph-last { text-align: right; }
 .graph-polyline { display: block; position: absolute; left: 0; top: 0; width: 100%; height: 100%; color: #5480d8; pointer-events: none; }
 .graph-line { position: absolute; height: 2dp; background-color: #5480d8; transform-origin: left center; opacity: 0.88; }

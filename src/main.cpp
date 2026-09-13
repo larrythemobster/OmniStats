@@ -26,6 +26,37 @@
 #include <windows.h>
 using TaskDialogIndirect_t = HRESULT(WINAPI*)(const TASKDIALOGCONFIG*, int*, int*, BOOL*);
 #pragma comment(linker, "/manifestdependency:\"type='win32' name='Microsoft.Windows.Common-Controls' version='6.0.0.0' processorArchitecture='*' publicKeyToken='6595b64144ccf1df' language='*'\"")
+
+namespace {
+    // RmlUi measures `dp` against the process DPI context. Make the process
+    // per-monitor-v2 aware before any HWND (including startup dialogs) is created,
+    // otherwise Windows can virtualize coordinates and RmlUi may rasterize small
+    // text at the wrong effective pixel size. Resolve dynamically so the client
+    // still starts on older Windows 10 builds that do not expose the v2 API.
+    void EnablePerMonitorDpiAwareness() {
+        HMODULE user32 = GetModuleHandleW(L"user32.dll");
+        if (!user32) return;
+
+        using SetProcessDpiAwarenessContextFn = BOOL(WINAPI*)(HANDLE);
+        const auto setContext = reinterpret_cast<SetProcessDpiAwarenessContextFn>(
+            GetProcAddress(user32, "SetProcessDpiAwarenessContext"));
+        if (setContext) {
+            // DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2 is the pseudo-handle -4.
+            const HANDLE perMonitorV2 = reinterpret_cast<HANDLE>(static_cast<INT_PTR>(-4));
+            if (setContext(perMonitorV2)) return;
+
+            // ERROR_ACCESS_DENIED means awareness was already established (for
+            // example by a manifest). Do not downgrade it with the legacy API.
+            if (GetLastError() == ERROR_ACCESS_DENIED) return;
+        }
+
+        using SetProcessDPIAwareFn = BOOL(WINAPI*)();
+        const auto setLegacyAware = reinterpret_cast<SetProcessDPIAwareFn>(
+            GetProcAddress(user32, "SetProcessDPIAware"));
+        if (setLegacyAware) setLegacyAware();
+    }
+} // namespace
+
 static wchar_t g_crashDumpPath[MAX_PATH] = {0};
 static HRESULT CALLBACK PrivacyTaskDialogCallback(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam, LONG_PTR lpRefData) {
     (void)hwnd;
@@ -149,6 +180,7 @@ GlobalUnhandledExceptionFilter(struct _EXCEPTION_POINTERS* exceptionInfo) {
 #pragma comment(linker, "/SUBSYSTEM:windows /ENTRY:mainCRTStartup")
 #endif
 int main(int argc, char* argv[]) {
+    EnablePerMonitorDpiAwareness();
     SetUnhandledExceptionFilter(GlobalUnhandledExceptionFilter);
     for (int i = 1; i < argc; ++i) {
         std::string arg = argv[i];

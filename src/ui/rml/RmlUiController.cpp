@@ -861,6 +861,12 @@ bool RmlUiController::Initialize(HWND hwnd, ID3D11Device* device, ID3D11DeviceCo
         return false;
     }
 
+    // Resolve `dp` lengths and font sizes against the target monitor from the
+    // first document layout instead of loading once at RmlUi's default 1.0
+    // density and correcting it afterwards.
+    m_config = Config::Read();
+    SetDpiScale(m_dpiScale);
+
     if (!LoadBundledFonts()) {
         Shutdown();
         return false;
@@ -886,9 +892,7 @@ bool RmlUiController::Initialize(HWND hwnd, ID3D11Device* device, ID3D11DeviceCo
         m_context->AddEventListener(event, this);
     }
     m_context->AddEventListener("blur", this, true);
-    m_config = Config::Read();
     if (m_pendingBallchasingToken.empty()) m_pendingBallchasingToken = m_config.ballchasing_token;
-    SetDpiScale(m_dpiScale);
     SnapshotState();
     RefreshAsyncData();
     UpdateThemeProperties();
