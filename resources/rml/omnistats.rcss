@@ -382,8 +382,40 @@ div.value { display: block; }
     align-items: center;
 }
 .brand-logo { width: 22dp; height: 22dp; margin-right: 7dp; }
+.brand-cluster { display: flex; flex-direction: row; align-items: center; flex-shrink: 0; }
 .brand-title { display: inline-block; font-family: "Russo One"; font-size: 14dp; letter-spacing: 0.4dp; line-height: 1; }
 .brand-title .version { font-family: "Inter"; font-size: 9dp; font-weight: 600; letter-spacing: 0; color: #9da6b3; margin-left: 5dp; }
+button.version-update {
+    width: 18dp;
+    min-width: 18dp;
+    height: 18dp;
+    min-height: 18dp;
+    margin-left: 4dp;
+    padding: 0;
+    border: 1dp transparent;
+    border-radius: 4dp;
+    background-color: transparent;
+    color: #ff304b;
+    font-family: "Inter";
+    font-size: 15dp;
+    font-weight: 700;
+    line-height: 16dp;
+    text-align: center;
+    vertical-align: middle;
+}
+button.version-update:hover { background-color: #24181b; border-color: #553038; color: #ff5870; }
+button.version-update:active { background-color: #171114; }
+button.version-update.failed { color: #ff8e95; }
+button.version-update .version-update-icon { display: inline-block; line-height: 16dp; }
+button.version-update .tooltip-bubble {
+    left: 50%;
+    top: 100%;
+    bottom: auto;
+    min-width: 190dp;
+    margin-left: -95dp;
+    margin-top: 5dp;
+    margin-bottom: 0;
+}
 .dashboard-topbar .match-status { font-size: 11dp; font-weight: 500; color: #8f99a8; margin-left: 14dp; }
 .playlist-icon { width: 20dp; height: 20dp; }
 .roster-header { display: block; padding-bottom: 4dp; border-bottom: 1dp #252a3555; }

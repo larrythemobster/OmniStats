@@ -18,6 +18,7 @@
 #include "core/Storage.hpp"
 #include "database/DatabaseManager.hpp"
 #include "ui/rml/RmlUiController.hpp"
+#include "network/ExternalUpdaterLauncher.hpp"
 
 class RmlUiControllerStateTest : public ::testing::Test {
   protected:
@@ -36,6 +37,7 @@ class RmlUiControllerStateTest : public ::testing::Test {
 
     void TearDown() override {
         Config::Update([this](ConfigData& c) { c = original; }, true);
+        ExternalUpdaterLauncher::ShutdownBackgroundTasks();
     }
 
     const RmlRenderSnapshot& Snapshot(const RmlUiController& controller) const {

@@ -1,5 +1,6 @@
 #include "ExternalUpdaterLauncher.hpp"
 #include "core/SessionState.hpp"
+#include <atomic>
 #include <fstream>
 #include <iostream>
 #include <mutex>
@@ -17,9 +18,21 @@ namespace {
     constexpr DWORD kUpdateCheckTimeoutMs = 20000;
     constexpr DWORD kUpdateAvailableExitCode = 0;
     constexpr DWORD kNoUpdateExitCode = 1;
+    constexpr ULONGLONG kSettingsUpdateCheckIntervalMs = 5ULL * 60ULL * 1000ULL;
+    constexpr ULONGLONG kPeriodicUpdateCheckIntervalMs = 60ULL * 60ULL * 1000ULL;
+    constexpr ULONGLONG kFailedUpdateCheckRetryMs = 5ULL * 60ULL * 1000ULL;
+
+    enum class UpdateCheckResult {
+        UpdateAvailable,
+        UpToDate,
+        Failed
+    };
 
     std::mutex g_updateThreadsMutex;
     std::vector<std::thread> g_updateThreads;
+    std::atomic<bool> g_updateCheckInProgress{false};
+    std::atomic<ULONGLONG> g_lastUpdateCheckAttemptMs{0};
+    std::atomic<ULONGLONG> g_lastSuccessfulUpdateCheckMs{0};
 
     std::string GetCurrentExecutablePath() {
         char path[MAX_PATH] = {0};
@@ -138,19 +151,19 @@ namespace {
         return LaunchUpdater(arguments);
     }
 
-    bool RunInstalledUpdaterCheck(std::string& latestVersion) {
+    UpdateCheckResult RunInstalledUpdaterCheck(std::string& latestVersion) {
         latestVersion.clear();
 
         std::string updaterPath;
         if (!FindUpdaterExecutable(updaterPath)) {
             std::cout << "[UpdaterLauncher] Installed updater not found; skipping update check.\n";
-            return false;
+            return UpdateCheckResult::Failed;
         }
 
         const std::string resultPath = GetUpdateCheckResultPath();
         if (resultPath.empty()) {
             std::cout << "[UpdaterLauncher] Failed to create updater check result path.\n";
-            return false;
+            return UpdateCheckResult::Failed;
         }
         DeleteFileA(resultPath.c_str());
 
@@ -158,7 +171,7 @@ namespace {
         const std::string arguments = "--check --result-file \"" + resultPath + "\"";
         if (!LaunchUpdater(arguments, &processHandle) || !processHandle) {
             DeleteFileA(resultPath.c_str());
-            return false;
+            return UpdateCheckResult::Failed;
         }
 
         const DWORD waitResult = WaitForSingleObject(processHandle, kUpdateCheckTimeoutMs);
@@ -166,7 +179,7 @@ namespace {
             std::cout << "[UpdaterLauncher] Installed updater check timed out.\n";
             CloseHandle(processHandle);
             DeleteFileA(resultPath.c_str());
-            return false;
+            return UpdateCheckResult::Failed;
         }
 
         DWORD exitCode = static_cast<DWORD>(-1);
@@ -174,7 +187,7 @@ namespace {
             std::cout << "[UpdaterLauncher] Failed to read updater check exit code. Error: " << GetLastError() << "\n";
             CloseHandle(processHandle);
             DeleteFileA(resultPath.c_str());
-            return false;
+            return UpdateCheckResult::Failed;
         }
         CloseHandle(processHandle);
 
@@ -182,12 +195,39 @@ namespace {
         DeleteFileA(resultPath.c_str());
 
         if (exitCode == kUpdateAvailableExitCode) {
-            return true;
+            return UpdateCheckResult::UpdateAvailable;
         }
-        if (exitCode != kNoUpdateExitCode) {
-            std::cout << "[UpdaterLauncher] Installed updater check failed with exit code " << exitCode << ".\n";
+        if (exitCode == kNoUpdateExitCode && !latestVersion.empty()) {
+            return UpdateCheckResult::UpToDate;
         }
-        return false;
+
+        std::cout << "[UpdaterLauncher] Installed updater check failed with exit code " << exitCode << ".\n";
+        return UpdateCheckResult::Failed;
+    }
+
+    ULONGLONG MinimumIntervalFor(ExternalUpdaterLauncher::BackgroundUpdateCheckReason reason) {
+        switch (reason) {
+        case ExternalUpdaterLauncher::BackgroundUpdateCheckReason::Initial:
+            return 0;
+        case ExternalUpdaterLauncher::BackgroundUpdateCheckReason::SettingsOpened:
+            return kSettingsUpdateCheckIntervalMs;
+        case ExternalUpdaterLauncher::BackgroundUpdateCheckReason::Periodic:
+            return kPeriodicUpdateCheckIntervalMs;
+        }
+        return kPeriodicUpdateCheckIntervalMs;
+    }
+
+    bool UpdateCheckAllowed(ExternalUpdaterLauncher::BackgroundUpdateCheckReason reason, ULONGLONG now) {
+        const ULONGLONG lastAttempt = g_lastUpdateCheckAttemptMs.load(std::memory_order_relaxed);
+        const ULONGLONG lastSuccess = g_lastSuccessfulUpdateCheckMs.load(std::memory_order_relaxed);
+
+        // A failed request should not turn an always-on check into a tight retry loop.
+        if (lastAttempt > lastSuccess && lastAttempt != 0 && now - lastAttempt < kFailedUpdateCheckRetryMs) {
+            return false;
+        }
+
+        const ULONGLONG minimumInterval = MinimumIntervalFor(reason);
+        return minimumInterval == 0 || lastSuccess == 0 || now - lastSuccess >= minimumInterval;
     }
 
     bool RunStatsApiRepair(const std::string& filePath, int expectedPort) {
@@ -232,14 +272,26 @@ namespace {
         std::lock_guard<std::mutex> lock(g_updateThreadsMutex);
         g_updateThreads.push_back(std::move(thread));
     }
+    struct BackgroundThreadGuard {
+        ~BackgroundThreadGuard() {
+            JoinBackgroundThreads();
+        }
+    } g_backgroundThreadGuard;
 
 } // namespace
 
 namespace ExternalUpdaterLauncher {
 
     bool RunStartupUpdateCheck() {
+        const ULONGLONG now = GetTickCount64();
+        g_lastUpdateCheckAttemptMs.store(now, std::memory_order_relaxed);
+
         std::string latestVersion;
-        if (!RunInstalledUpdaterCheck(latestVersion)) {
+        const UpdateCheckResult result = RunInstalledUpdaterCheck(latestVersion);
+        if (result != UpdateCheckResult::Failed) {
+            g_lastSuccessfulUpdateCheckMs.store(GetTickCount64(), std::memory_order_relaxed);
+        }
+        if (result != UpdateCheckResult::UpdateAvailable) {
             return false;
         }
 
@@ -251,27 +303,59 @@ namespace ExternalUpdaterLauncher {
         return true;
     }
 
-    void StartBackgroundUpdateCheck(std::shared_ptr<SessionState> state) {
+    bool StartBackgroundUpdateCheck(std::shared_ptr<SessionState> state, BackgroundUpdateCheckReason reason) {
         if (!state) {
-            return;
+            return false;
         }
+
+        const ULONGLONG now = GetTickCount64();
+        if (!UpdateCheckAllowed(reason, now)) {
+            return false;
+        }
+
+        bool expected = false;
+        if (!g_updateCheckInProgress.compare_exchange_strong(expected, true)) {
+            return false;
+        }
+
+        // Re-check after claiming the slot so two callers racing from the render
+        // thread and Settings cannot both pass the interval gate.
+        const ULONGLONG claimedAt = GetTickCount64();
+        if (!UpdateCheckAllowed(reason, claimedAt)) {
+            g_updateCheckInProgress.store(false);
+            return false;
+        }
+        g_lastUpdateCheckAttemptMs.store(claimedAt, std::memory_order_relaxed);
 
         StoreBackgroundThread(std::thread([state = std::move(state)]() {
             std::string latestVersion;
-            const bool updateAvailable = RunInstalledUpdaterCheck(latestVersion);
+            const UpdateCheckResult result = RunInstalledUpdaterCheck(latestVersion);
 
-            if (updateAvailable) {
+            if (result != UpdateCheckResult::Failed) {
+                g_lastSuccessfulUpdateCheckMs.store(GetTickCount64(), std::memory_order_relaxed);
                 {
                     std::lock_guard<std::mutex> lock(state->ui.updateMutex);
-                    state->ui.updateAvailableVersion = latestVersion;
+                    state->ui.updateAvailableVersion =
+                        result == UpdateCheckResult::UpdateAvailable ? latestVersion : std::string{};
                     state->ui.updateServerUrl.clear();
                 }
-                state->ui.updateAvailable.store(true);
+                const bool updateAvailable = result == UpdateCheckResult::UpdateAvailable;
+                state->ui.updateAvailable.store(updateAvailable);
+                state->ui.updateChecked.store(true);
+                if (!updateAvailable) {
+                    state->ui.updatePromptShown.store(false);
+                    state->ui.updateDownloadFailed.store(false);
+                }
             }
-            state->ui.updateChecked.store(true);
-            std::cout << "[UpdaterLauncher] Background updater check finished. Latest version: "
-                      << latestVersion << "\n";
+
+            g_updateCheckInProgress.store(false);
+            std::cout << "[UpdaterLauncher] Background updater check finished. Result: "
+                      << (result == UpdateCheckResult::UpdateAvailable ? "update available"
+                          : result == UpdateCheckResult::UpToDate      ? "up to date"
+                                                                       : "failed")
+                      << (latestVersion.empty() ? "" : ", latest version: ") << latestVersion << "\n";
         }));
+        return true;
     }
 
     void StartInteractiveUpdate(std::shared_ptr<SessionState> state) {

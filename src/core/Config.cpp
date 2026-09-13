@@ -279,10 +279,12 @@ namespace Config {
                     Current.auto_switch_mmr_category;
                 needsSave = true;
             }
-            if (j.contains("check_for_updates")) {
-                Current.check_for_updates = j["check_for_updates"];
-            } else if (j.contains("enable_auto_updates") && j["enable_auto_updates"].is_boolean()) {
-                Current.check_for_updates = j["enable_auto_updates"];
+            // Update discovery is mandatory. Migrate older configs that explicitly
+            // disabled it so the persisted compatibility field also reflects the
+            // current behavior.
+            if (!j.contains("check_for_updates") || !j["check_for_updates"].is_boolean() ||
+                !j["check_for_updates"].get<bool>()) {
+                needsSave = true;
             }
             if (j.contains("enable_auto_updates")) Current.enable_auto_updates = j["enable_auto_updates"];
             if (j.contains("crash_reports_enabled")) Current.crash_reports_enabled = j["crash_reports_enabled"];
@@ -530,7 +532,7 @@ namespace Config {
         j["discord_rpc_enabled"] = Current.discord_rpc_enabled;
         j["enable_mmr_tracking"] = Current.enable_mmr_tracking;
         j["auto_switch_mmr_category"] = Current.auto_switch_mmr_category;
-        j["check_for_updates"] = Current.check_for_updates;
+        j["check_for_updates"] = true;
         j["enable_auto_updates"] = Current.enable_auto_updates;
         j["crash_reports_enabled"] = Current.crash_reports_enabled;
         j["debug_logging"] = Current.debug_logging;

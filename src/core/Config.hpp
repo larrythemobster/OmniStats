@@ -67,7 +67,6 @@ struct ConfigData {
     bool discord_rpc_enabled = false;
     bool enable_mmr_tracking = false;
     bool auto_switch_mmr_category = true;
-    bool check_for_updates = false;
     bool enable_auto_updates = false;
     bool crash_reports_enabled = false;
     bool debug_logging = false;

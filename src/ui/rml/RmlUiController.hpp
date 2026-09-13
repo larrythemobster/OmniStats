@@ -360,4 +360,5 @@ class RmlUiController final : public Rml::EventListener {
     bool m_settingsPositioned = false;
     float m_settingsX = 0.0f;
     float m_settingsY = 0.0f;
+    int64_t m_nextUpdateCheckPollMs = 0;
 };

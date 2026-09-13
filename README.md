@@ -23,7 +23,7 @@ releases.
 - Local SQLite and JSONL history.
 - Click-through overlay and second-monitor dashboard.
 - Player roster context and browser links to public player profiles.
-- Required startup diagnostics plus optional Discord Rich Presence, Ballchasing replay uploads, update checks, and crash reports.
+- Required startup diagnostics and update checks, plus optional Discord Rich Presence, Ballchasing replay uploads, automatic update installation, and crash reports.
 
 OmniStats does not inject into Rocket League. Tracker rank lookup is an optional third-party integration and may stop working when Tracker Network changes its service.
 

@@ -1108,7 +1108,11 @@ void RmlUiController::Update(const ConfigData& config, bool configChanged, uint6
     if (configChanged || stateChanged) RefreshAsyncData();
 
     const bool settingsOpen = m_state && m_state->ui.showMenu.load();
-    if (m_lastShowMenu && !settingsOpen) {
+    if (!m_lastShowMenu && settingsOpen) {
+        ExternalUpdaterLauncher::StartBackgroundUpdateCheck(
+            m_state, ExternalUpdaterLauncher::BackgroundUpdateCheckReason::SettingsOpened);
+        UpdateInputCapture();
+    } else if (m_lastShowMenu && !settingsOpen) {
         FinishBindCapture();
         m_showBallchasingToken = false;
         m_confirmReplayUploads = false;
@@ -1122,6 +1126,16 @@ void RmlUiController::Update(const ConfigData& config, bool configChanged, uint6
         UpdateThemeProperties();
         RefreshThemeEditorControls();
     }
+
+    const int64_t nowMs = SteadyNowMs();
+    if (m_state && nowMs >= m_nextUpdateCheckPollMs) {
+        ExternalUpdaterLauncher::StartBackgroundUpdateCheck(
+            m_state, ExternalUpdaterLauncher::BackgroundUpdateCheckReason::Periodic);
+        // The launcher applies the one-hour success interval and a shorter retry
+        // delay after failures. Poll the gate once per minute instead of every frame.
+        m_nextUpdateCheckPollMs = nowMs + 60 * 1000;
+    }
+
     RebuildVisibleUi(false, configChanged && !localConfigEcho);
 }
 
@@ -1374,6 +1388,11 @@ void RmlUiController::UpdateThemeProperties() {
     rule(".settings-nav button.active", "background-color", accentDark);
     rule("button.primary, .button.primary", "background-color", accentMid);
     rule("button.primary, .button.primary", "border-color", accent);
+    rule("button.version-update", "color", accent);
+    rule("button.version-update:hover", "color", accent);
+    rule("button.version-update:hover", "background-color", accentDark);
+    rule("button.version-update:hover", "border-color", accentMid);
+    rule("button.version-update.failed", "color", loss);
     rule("input.text:focus, input.password:focus, select:focus, select:checked", "border-color", accent);
     rule("input.checkbox:checked", "border-color", accent);
     rule("input.checkbox:checked", "background-color", accentDark);
@@ -3302,14 +3321,6 @@ void RmlUiController::RebuildDashboard() {
         }
         if (updateAvailable && !m_config.enable_auto_updates && !m_state->ui.updatePromptShown.exchange(true)) m_showUpdatePrompt = true;
     }
-    std::string updateLabel;
-    if (updateDownloading)
-        updateLabel = updateVersion.empty() ? "Starting updater..." : "Starting v" + updateVersion + "...";
-    else if (updateFailed)
-        updateLabel = updateVersion.empty() ? "Retry Update" : "Retry Update v" + updateVersion;
-    else
-        updateLabel = updateVersion.empty() ? "Update Available" : "Update Available: v" + updateVersion;
-
     const bool dashboardHasVisibleWidgets = !zoneWidgets(DashboardLayout::Zone::Top).empty() ||
                                             !zoneWidgets(DashboardLayout::Zone::Left).empty() ||
                                             !zoneWidgets(DashboardLayout::Zone::Right).empty() ||
@@ -3318,10 +3329,23 @@ void RmlUiController::RebuildDashboard() {
     std::ostringstream out;
     out << "<div class='dashboard-shell" << (editMode ? " dashboard-edit-active" : "")
         << (isMaximized ? " maximized" : "") << "'><div class='dashboard-topbar'><img class='brand-logo' src='res://images/Logo.png'/>"
-        << "<div class='row grow' style='align-items:center'><div class='brand-title'>OmniStats <span class='version'>v" << Escape(AppVersion::Current) << "</span></div>"
-        << "<div id='dashboard-match-status' class='match-status live-value' data-live-value='dashboard-status'>" << (m_snap.inMatch ? ("ACTIVE MATCH · " + Escape(m_snap.arenaName)) : "WAITING IN LOBBY") << "</div></div>";
-    if (updateAvailable) out << Button("update-app", Escape(updateLabel), "primary compact");
-    out << "<div class='topbar-actions'>"
+        << "<div class='row grow' style='align-items:center'><div class='brand-cluster'><div class='brand-title'>OmniStats <span class='version'>v" << Escape(AppVersion::Current) << "</span></div>";
+    if (updateAvailable) {
+        std::string updateTooltip;
+        if (updateDownloading)
+            updateTooltip = updateVersion.empty() ? "Starting update..." : "Starting update to v" + updateVersion + "...";
+        else if (updateFailed)
+            updateTooltip = updateVersion.empty() ? "Update failed - click to retry" : "Update to v" + updateVersion + " failed - click to retry";
+        else
+            updateTooltip = updateVersion.empty() ? "Update available - click to install and restart" : "Update to v" + updateVersion + " and restart OmniStats";
+
+        out << "<button class='version-update tooltip-host" << (updateDownloading ? " updating" : "")
+            << (updateFailed ? " failed" : "") << "' data-action='update-app' aria-label='" << Escape(updateTooltip) << "'>"
+            << "<span class='version-update-icon'>&#8635;</span>"
+            << "<span class='tooltip-bubble'>" << Escape(updateTooltip) << "</span></button>";
+    }
+    out << "</div><div id='dashboard-match-status' class='match-status live-value' data-live-value='dashboard-status'>" << (m_snap.inMatch ? ("ACTIVE MATCH · " + Escape(m_snap.arenaName)) : "WAITING IN LOBBY") << "</div></div>"
+        << "<div class='topbar-actions'>"
         << Button("dashboard-edit", editMode ? "Done Editing" : "Edit Layout", editMode ? "primary compact" : "ghost compact")
         << Button("open-settings", "Settings", "ghost compact")
         << "<button class='window-control' data-action='window-minimize'><span class='win-icon-min'></span></button>"
@@ -3373,8 +3397,7 @@ std::string RmlUiController::RenderSettingsGeneral() {
 
     out << SectionStart("Startup & Updates")
         << ToggleControl("run_on_startup", "Run on Windows startup", "", m_config.run_on_startup)
-        << ToggleControl("check_for_updates", "Check for updates", "Checks OmniStats servers for available updates on startup.", m_config.check_for_updates)
-        << ToggleControl("enable_auto_updates", "Automatically install updates", "Enabling this also enables update checks and restarts OmniStats when an update is ready.", m_config.enable_auto_updates)
+        << ToggleControl("enable_auto_updates", "Automatically install updates", "Installs updates automatically on the next launch. OmniStats always checks for updates at startup, periodically while running, and when Settings is opened.", m_config.enable_auto_updates)
         << SectionEnd();
 
     out << SectionStart("Player Identity") << "<div class='setting-row'><div class='setting-info'><div class='setting-name'>Local account</div><div class='setting-help'>Used for lifetime history before telemetry identifies you.</div></div><select data-setting='identity'>";
@@ -4271,13 +4294,9 @@ void RmlUiController::HandleChange(Rml::Element* target, Rml::Event& event) {
             c.reset_session_on_close = checked;
         else if (key == "run_on_startup")
             c.run_on_startup = checked;
-        else if (key == "check_for_updates") {
-            c.check_for_updates = checked;
-            if (!checked) c.enable_auto_updates = false;
-        } else if (key == "enable_auto_updates") {
+        else if (key == "enable_auto_updates")
             c.enable_auto_updates = checked;
-            if (checked) c.check_for_updates = true;
-        } else if (key == "identity") {
+        else if (key == "identity") {
             c.last_primary_id = value;
             if (!value.empty() && std::find(c.known_primary_ids.begin(), c.known_primary_ids.end(), value) == c.known_primary_ids.end()) c.known_primary_ids.push_back(value);
         } else if (key == "show_session_record")

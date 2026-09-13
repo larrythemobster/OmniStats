@@ -49,14 +49,14 @@ The editable dashboard and transparent overlay keep separate persisted layouts. 
 
 ## External network requests
 
-The core Rocket League telemetry connection is loopback-only. Startup diagnostics are required after privacy acceptance; the remaining internet-facing features are optional:
+The core Rocket League telemetry connection is loopback-only. Startup diagnostics and version checks are required after privacy acceptance; the other internet-facing features are optional:
 
 | Destination | Purpose | Trigger |
 | --- | --- | --- |
 | Tracker Network Rocket League profile service | Public rank and MMR lookup for lobby players | User enables MMR tracking |
 | `api.omnistats.org/api/v1/telemetry` | App version, pseudonymous installation ID, and feature-toggle status | Every startup after privacy acceptance |
 | `api.omnistats.org/api/v1/crash` | Native crash dump upload | User enables crash reports and a pending dump exists |
-| `omnistats.org/version.txt` and release files | Update checks and updates | User enables update checks or starts an update |
+| `omnistats.org/version.txt` and release files | Update checks and updates | Version checks run at startup, periodically while running, and when Settings opens; release files download only when an update is installed |
 | Discord local RPC | Rich Presence | User enables Discord Rich Presence |
 | ballchasing.com | Replay upload | User supplies a token and enables uploads |
 | GitHub curl-impersonate release archive | Repair the Tracker compatibility runtime | User runs updater repair and the runtime is missing or invalid |

@@ -150,7 +150,7 @@ namespace TelemetryManager {
         j["version"] = AppVersion::Current;
         j["ballchasing_enabled"] = conf.auto_upload_replays;
         j["discord_rpc_enabled"] = conf.discord_rpc_enabled;
-        j["update_checks_enabled"] = conf.check_for_updates;
+        j["update_checks_enabled"] = true;
         j["auto_updater_enabled"] = conf.enable_auto_updates;
 
         std::string payload = j.dump();

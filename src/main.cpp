@@ -48,7 +48,7 @@ static bool ShowRequiredPrivacyDialog() {
     config.pszMainInstruction = L"Accept the Privacy Policy and Terms of Use to continue.";
     config.pszContent =
         L"Required startup diagnostics: app version, a pseudonymous installation ID, and feature-toggle status. Match data and player names are not included.\n\n"
-        L"Tracker rank lookup, Discord, Ballchasing, crash reports, and update checks stay off unless enabled.\n\n"
+        L"Update checks are always enabled. Tracker rank lookup, Discord, Ballchasing, crash reports, and automatic update installation stay off unless enabled.\n\n"
         L"<a href=\"https://omnistats.org/privacy\">Privacy Policy</a>\n"
         L"<a href=\"https://omnistats.org/terms\">Terms of Use</a>\n\n"
         L"Accept to continue, or Exit to close OmniStats.";
@@ -70,7 +70,7 @@ static bool ShowRequiredPrivacyDialog() {
     std::string message =
         "Accept the Privacy Policy and Terms of Use to continue.\n\n"
         "Required startup diagnostics: app version, a pseudonymous installation ID, and feature-toggle status. Match data and player names are not included.\n\n"
-        "Tracker rank lookup, Discord, Ballchasing, crash reports, and update checks stay off unless enabled.\n\n"
+        "Update checks are always enabled. Tracker rank lookup, Discord, Ballchasing, crash reports, and automatic update installation stay off unless enabled.\n\n"
         "Privacy Policy: https://omnistats.org/privacy\n"
         "Terms of Use: https://omnistats.org/terms\n\n"
         "Choose Yes to accept, or No to exit.";
@@ -183,8 +183,7 @@ int main(int argc, char* argv[]) {
         return 0;
     }
     ConfigData startupUpdateConf = Config::Read();
-    if (startupUpdateConf.check_for_updates && startupUpdateConf.enable_auto_updates &&
-        ExternalUpdaterLauncher::RunStartupUpdateCheck()) {
+    if (startupUpdateConf.enable_auto_updates && ExternalUpdaterLauncher::RunStartupUpdateCheck()) {
         std::cout << "[Main] External updater launched for startup update.\n";
         curl_global_cleanup();
         return 0;
@@ -241,8 +240,9 @@ int main(int argc, char* argv[]) {
         std::cout << "[StatsApiConfig] Rocket League Stats API config check failed: " << StatsApiConfig::GetStatusMessage(checkRes.status) << "\n";
     }
     ConfigData updateConf = Config::Read();
-    if (updateConf.check_for_updates && !updateConf.enable_auto_updates) {
-        ExternalUpdaterLauncher::StartBackgroundUpdateCheck(g_state);
+    if (!updateConf.enable_auto_updates) {
+        ExternalUpdaterLauncher::StartBackgroundUpdateCheck(
+            g_state, ExternalUpdaterLauncher::BackgroundUpdateCheckReason::Initial);
     }
     auto dbManager = std::make_shared<DatabaseManager>(g_state);
     (void)dbManager->Initialize(Storage::GetDataDirectory() + Storage::APP_NAME +

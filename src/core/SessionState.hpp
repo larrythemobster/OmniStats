@@ -250,7 +250,9 @@ struct UIState {
     mutable std::mutex controllerDebugMutex;
     std::string controllerDebugName;
 
-    // Background update check status (Startup check when auto-updates are disabled)
+    // Background update discovery status. Checks run at startup, periodically,
+    // and when Settings is opened; installing an update remains user-controlled
+    // while the app is already running.
     std::atomic<bool> updateChecked{false};
     std::atomic<bool> updateAvailable{false};
     std::atomic<bool> updateDownloading{false};
