@@ -107,6 +107,7 @@ class MMRFetcher {
     void SetDestroyedMatchConfirmationCallback(DestroyedMatchConfirmationCallback callback);
 
     static std::string GetTournamentTierForMmr(int mmr);
+    static std::string GetRankTierForPlaylistMmr(const std::string& playlist, int mmr);
     static std::string PlaylistNameForTrackerId(int playlistId);
     static std::string RankTierName(int tier, int division);
     static MMRProfileTotals ExtractProfileTotals(const nlohmann::json& jsonResp);

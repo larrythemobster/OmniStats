@@ -926,6 +926,34 @@ TEST_F(RmlUiControllerStateTest, LobbyRanksContainerWidthGrowsWithEnabledColumns
     EXPECT_GE(mergedWidth, fiveColumns) << "merged container clipped the lobby rank columns";
 }
 
+TEST_F(RmlUiControllerStateTest, RosterMmrChipShowsOnlyMmrWhenRankIconsEnabled) {
+    auto state = std::make_shared<SessionState>();
+    state->ui.rosterMmrCategory.store(MmrCategory::TwoVTwo);
+    {
+        std::unique_lock lock(state->game.mutex);
+        PlayerData player;
+        player.primaryId = "Epic|test1";
+        player.name = "TestPlayer";
+        player.team = 0;
+        player.mmr = 1114;
+        player.playlists["2v2"] = 1114;
+        player.playlistTiers["2v2"] = "Champion I Division II";
+        player.fetched = true;
+        state->game.roster[player.primaryId] = player;
+        state->game.version.fetch_add(1);
+    }
+
+    ConfigData config = Config::Read();
+    config.use_rank_icons = true;
+    RmlUiController controller(state, nullptr);
+    controller.Update(config);
+    const std::string html = RenderRoster(controller);
+
+    EXPECT_NE(html.find("chip-mmr"), std::string::npos);
+    EXPECT_NE(html.find(">1114</span>"), std::string::npos);
+    EXPECT_EQ(html.find("C1.D2"), std::string::npos);
+}
+
 // Live telemetry must not replace the overlay DOM between mousedown and
 // mouseup: RmlUi only emits `click` when both land on the same element, so a
 // rebuild in between silently swallowed every overlay control click.

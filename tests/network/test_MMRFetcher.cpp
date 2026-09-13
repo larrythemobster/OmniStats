@@ -277,6 +277,41 @@ TEST(MMRFetcherTournamentRankTest, KeepsBoundaryGapsInPreviousDivision) {
     EXPECT_EQ(MMRFetcher::GetTournamentTierForMmr(0), "Unranked");
 }
 
+TEST(MMRFetcherPlaylistRankThresholdsTest, UsesPlaylistSpecificMmrThresholds) {
+    // Casual has no ranks
+    EXPECT_EQ(MMRFetcher::GetRankTierForPlaylistMmr("casual", 1500), "Unranked");
+    EXPECT_EQ(MMRFetcher::GetRankTierForPlaylistMmr("casual", 698), "Unranked");
+
+    // 1v1 specific thresholds (playlist 10)
+    EXPECT_EQ(MMRFetcher::GetRankTierForPlaylistMmr("1v1", 586), "Gold III Div II");
+    EXPECT_EQ(MMRFetcher::GetRankTierForPlaylistMmr("1v1", 815), "Diamond I Div I");
+    EXPECT_EQ(MMRFetcher::GetRankTierForPlaylistMmr("1v1", 995), "Champion I Div I");
+    EXPECT_EQ(MMRFetcher::GetRankTierForPlaylistMmr("1v1", 1341), "Supersonic Legend");
+
+    // 2v2 specific thresholds (playlist 11)
+    EXPECT_EQ(MMRFetcher::GetRankTierForPlaylistMmr("2v2", 1075), "Champion I Div I");
+    EXPECT_EQ(MMRFetcher::GetRankTierForPlaylistMmr("2v2", 1114), "Champion I Div II");
+    EXPECT_EQ(MMRFetcher::GetRankTierForPlaylistMmr("2v2", 1860), "Supersonic Legend");
+
+    // 3v3 specific thresholds (playlist 13)
+    EXPECT_EQ(MMRFetcher::GetRankTierForPlaylistMmr("3v3", 699), "Platinum I Div IV");
+    EXPECT_EQ(MMRFetcher::GetRankTierForPlaylistMmr("3v3", 1075), "Champion I Div I");
+
+    // Tournament thresholds (playlist 34)
+    EXPECT_EQ(MMRFetcher::GetRankTierForPlaylistMmr("t", 1061), "Champion I Div I");
+    EXPECT_EQ(MMRFetcher::GetRankTierForPlaylistMmr("t", 1122), "Champion I Div II");
+
+    // Extra modes thresholds (hoops, rumble, dropshot, snowday, heatseeker)
+    EXPECT_EQ(MMRFetcher::GetRankTierForPlaylistMmr("hoops", 880), "Diamond III Div II");
+    EXPECT_EQ(MMRFetcher::GetRankTierForPlaylistMmr("rumble", 995), "Champion I Div I");
+    EXPECT_EQ(MMRFetcher::GetRankTierForPlaylistMmr("dropshot", 895), "Champion I Div I");
+    EXPECT_EQ(MMRFetcher::GetRankTierForPlaylistMmr("snowday", 921), "Champion I Div I");
+    EXPECT_EQ(MMRFetcher::GetRankTierForPlaylistMmr("heatseeker", 955), "Champion I Div I");
+    // Zero or negative MMR
+    EXPECT_EQ(MMRFetcher::GetRankTierForPlaylistMmr("2v2", 0), "Unranked");
+    EXPECT_EQ(MMRFetcher::GetRankTierForPlaylistMmr("1v1", -10), "Unranked");
+}
+
 TEST(MMRFetcherPlaylistMappingTest, MapsExtraModesToSeparatePlaylists) {
     EXPECT_EQ(MMRFetcher::PlaylistNameForTrackerId(10), "1v1");
     EXPECT_EQ(MMRFetcher::PlaylistNameForTrackerId(11), "2v2");

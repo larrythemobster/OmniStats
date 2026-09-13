@@ -15,100 +15,21 @@
 #include <map>
 #include <cmath>
 
+#include "PlaylistRankThresholds.inl"
+
 namespace {
-
-    struct TournamentRankThreshold {
-        int minMmr;
-        const char* tier;
-        const char* division;
-    };
-
-    static constexpr std::array<TournamentRankThreshold, 85> TournamentRankThresholds = {{{-4, "Bronze I", "Div I"},
-                                                                                          {119, "Bronze I", "Div II"},
-                                                                                          {138, "Bronze I", "Div III"},
-                                                                                          {157, "Bronze I", "Div IV"},
-                                                                                          {162, "Bronze II", "Div I"},
-                                                                                          {179, "Bronze II", "Div II"},
-                                                                                          {198, "Bronze II", "Div III"},
-                                                                                          {217, "Bronze II", "Div IV"},
-                                                                                          {221, "Bronze III", "Div I"},
-                                                                                          {239, "Bronze III", "Div II"},
-                                                                                          {258, "Bronze III", "Div III"},
-                                                                                          {277, "Bronze III", "Div IV"},
-                                                                                          {283, "Silver I", "Div I"},
-                                                                                          {299, "Silver I", "Div II"},
-                                                                                          {318, "Silver I", "Div III"},
-                                                                                          {337, "Silver I", "Div IV"},
-                                                                                          {342, "Silver II", "Div I"},
-                                                                                          {359, "Silver II", "Div II"},
-                                                                                          {378, "Silver II", "Div III"},
-                                                                                          {397, "Silver II", "Div IV"},
-                                                                                          {403, "Silver III", "Div I"},
-                                                                                          {419, "Silver III", "Div II"},
-                                                                                          {438, "Silver III", "Div III"},
-                                                                                          {457, "Silver III", "Div IV"},
-                                                                                          {461, "Gold I", "Div I"},
-                                                                                          {478, "Gold I", "Div II"},
-                                                                                          {498, "Gold I", "Div III"},
-                                                                                          {517, "Gold I", "Div IV"},
-                                                                                          {521, "Gold II", "Div I"},
-                                                                                          {539, "Gold II", "Div II"},
-                                                                                          {558, "Gold II", "Div III"},
-                                                                                          {577, "Gold II", "Div IV"},
-                                                                                          {581, "Gold III", "Div I"},
-                                                                                          {598, "Gold III", "Div II"},
-                                                                                          {618, "Gold III", "Div III"},
-                                                                                          {637, "Gold III", "Div IV"},
-                                                                                          {641, "Platinum I", "Div I"},
-                                                                                          {659, "Platinum I", "Div II"},
-                                                                                          {678, "Platinum I", "Div III"},
-                                                                                          {697, "Platinum I", "Div IV"},
-                                                                                          {701, "Platinum II", "Div I"},
-                                                                                          {719, "Platinum II", "Div II"},
-                                                                                          {738, "Platinum II", "Div III"},
-                                                                                          {757, "Platinum II", "Div IV"},
-                                                                                          {761, "Platinum III", "Div I"},
-                                                                                          {779, "Platinum III", "Div II"},
-                                                                                          {798, "Platinum III", "Div III"},
-                                                                                          {817, "Platinum III", "Div IV"},
-                                                                                          {824, "Diamond I", "Div I"},
-                                                                                          {844, "Diamond I", "Div II"},
-                                                                                          {868, "Diamond I", "Div III"},
-                                                                                          {892, "Diamond I", "Div IV"},
-                                                                                          {901, "Diamond II", "Div I"},
-                                                                                          {924, "Diamond II", "Div II"},
-                                                                                          {948, "Diamond II", "Div III"},
-                                                                                          {972, "Diamond II", "Div IV"},
-                                                                                          {981, "Diamond III", "Div I"},
-                                                                                          {1004, "Diamond III", "Div II"},
-                                                                                          {1028, "Diamond III", "Div III"},
-                                                                                          {1052, "Diamond III", "Div IV"},
-                                                                                          {1061, "Champion I", "Div I"},
-                                                                                          {1096, "Champion I", "Div II"},
-                                                                                          {1128, "Champion I", "Div III"},
-                                                                                          {1162, "Champion I", "Div IV"},
-                                                                                          {1181, "Champion II", "Div I"},
-                                                                                          {1215, "Champion II", "Div II"},
-                                                                                          {1254, "Champion II", "Div III"},
-                                                                                          {1282, "Champion II", "Div IV"},
-                                                                                          {1301, "Champion III", "Div I"},
-                                                                                          {1337, "Champion III", "Div II"},
-                                                                                          {1368, "Champion III", "Div III"},
-                                                                                          {1402, "Champion III", "Div IV"},
-                                                                                          {1421, "Grand Champion I", "Div I"},
-                                                                                          {1460, "Grand Champion I", "Div II"},
-                                                                                          {1498, "Grand Champion I", "Div III"},
-                                                                                          {1537, "Grand Champion I", "Div IV"},
-                                                                                          {1561, "Grand Champion II", "Div I"},
-                                                                                          {1600, "Grand Champion II", "Div II"},
-                                                                                          {1638, "Grand Champion II", "Div III"},
-                                                                                          {1677, "Grand Champion II", "Div IV"},
-                                                                                          {1701, "Grand Champion III", "Div I"},
-                                                                                          {1745, "Grand Champion III", "Div II"},
-                                                                                          {1788, "Grand Champion III", "Div III"},
-                                                                                          {1832, "Grand Champion III", "Div IV"},
-                                                                                          {1861, "Supersonic Legend", ""}}};
-
+    template <size_t N>
+    std::string LookupTierFromThresholds(const std::array<RankThreshold, N>& table, int mmr) {
+        if (mmr <= 0) return "Unranked";
+        const RankThreshold* threshold = nullptr;
+        for (const auto& entry : table) {
+            if (mmr < entry.minMmr) break;
+            threshold = &entry;
+        }
+        if (!threshold) return "Unranked";
+        if (threshold->division[0] == '\0') return threshold->tier;
+        return std::string(threshold->tier) + " " + threshold->division;
+    }
     static bool TryReadStatValue(const nlohmann::json& stats, std::initializer_list<const char*> keys, int& out) {
         for (const char* key : keys) {
             if (!stats.contains(key) || !stats[key].is_object()) continue;
@@ -348,16 +269,39 @@ MMRFetcher::~MMRFetcher() {
 
 std::string MMRFetcher::GetTournamentTierForMmr(int mmr) {
     if (mmr <= 0) return "Unranked";
+    return LookupTierFromThresholds(TournamentRankThresholds, mmr);
+}
 
-    const TournamentRankThreshold* threshold = nullptr;
-    for (const auto& entry : TournamentRankThresholds) {
-        if (mmr < entry.minMmr) break;
-        threshold = &entry;
+std::string MMRFetcher::GetRankTierForPlaylistMmr(const std::string& playlist, int mmr) {
+    if (mmr <= 0 || playlist == "casual") return "Unranked";
+    if (playlist == "1v1") {
+        return LookupTierFromThresholds(SoloDuelRankThresholds, mmr);
     }
-
-    if (!threshold) return "Unranked";
-    if (threshold->division[0] == '\0') return threshold->tier;
-    return std::string(threshold->tier) + " " + threshold->division;
+    if (playlist == "2v2") {
+        return LookupTierFromThresholds(DoublesRankThresholds, mmr);
+    }
+    if (playlist == "3v3") {
+        return LookupTierFromThresholds(StandardRankThresholds, mmr);
+    }
+    if (playlist == "hoops") {
+        return LookupTierFromThresholds(HoopsRankThresholds, mmr);
+    }
+    if (playlist == "rumble") {
+        return LookupTierFromThresholds(RumbleRankThresholds, mmr);
+    }
+    if (playlist == "dropshot") {
+        return LookupTierFromThresholds(DropshotRankThresholds, mmr);
+    }
+    if (playlist == "snowday") {
+        return LookupTierFromThresholds(SnowdayRankThresholds, mmr);
+    }
+    if (playlist == "heatseeker") {
+        return LookupTierFromThresholds(HeatseekerRankThresholds, mmr);
+    }
+    if (playlist == "t") {
+        return LookupTierFromThresholds(TournamentRankThresholds, mmr);
+    }
+    return GetTournamentTierForMmr(mmr);
 }
 
 std::string MMRFetcher::PlaylistNameForTrackerId(int playlistId) {

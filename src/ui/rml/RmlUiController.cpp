@@ -1796,8 +1796,8 @@ std::string RmlUiController::RenderPlayerRoster(int team, const char* label) {
                 }
             }
         }
-        if ((tier.empty() || tier == "Unranked") && mmr > 0) {
-            tier = MMRFetcher::GetTournamentTierForMmr(mmr);
+        if (category != "casual" && (tier.empty() || tier == "Unranked") && mmr > 0) {
+            tier = MMRFetcher::GetRankTierForPlaylistMmr(category == "best" ? rankSource : category, mmr);
         }
         std::string platform;
         if (const auto pos = p->primaryId.find('|'); pos != std::string::npos) platform = p->primaryId.substr(0, pos);
@@ -1831,8 +1831,6 @@ std::string RmlUiController::RenderPlayerRoster(int team, const char* label) {
             out << Escape(mmr > 0 ? Format::RankTier(tier, m_config.use_roman_numerals) : (p->fetched ? "Unranked" : "Fetching")) << ' ';
         else if (category == "best" && rankSource != "best")
             out << Escape(MmrLabel(StringToMmrCategory(rankSource))) << ' ';
-        else if (category != "best" && !tier.empty() && tier != "Unranked")
-            out << Escape(Format::AbbreviateRank(tier)) << ' ';
         out << (mmr > 0 ? std::to_string(mmr) : (p->fetched ? "-" : "...")) << "</span>";
 
         if (mmr > 0 && matchCount > 0) out << "<span class='chip'>" << matchCount << (matchCount == 1 ? " match" : " matches") << "</span>";
@@ -2127,8 +2125,8 @@ std::string RmlUiController::RenderLobbyRanks() {
             const int matches = [&]() { auto it = p->playlistMatches.find(pl.key); return it == p->playlistMatches.end() ? 0 : it->second; }();
             std::string tier = "Unranked";
             if (auto it = p->playlistTiers.find(pl.key); it != p->playlistTiers.end()) tier = it->second;
-            if ((tier.empty() || tier == "Unranked") && mmr > 0) {
-                tier = MMRFetcher::GetTournamentTierForMmr(mmr);
+            if (std::string_view(pl.key) != "casual" && (tier.empty() || tier == "Unranked") && mmr > 0) {
+                tier = MMRFetcher::GetRankTierForPlaylistMmr(pl.key, mmr);
             }
             out << "<div class='lobby-rank-cell tooltip-host' style='color:" << CssColor(Format::RankColor(tier)) << "'>";
             if (mmr > 0) {
