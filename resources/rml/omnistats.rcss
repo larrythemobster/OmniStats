@@ -128,6 +128,7 @@ div.value { display: block; }
 }
 .mini-metric .label { font-size: 10dp; margin-bottom: 2dp; }
 .mini-metric .value { font-size: 11dp; }
+.mini-metric .value .demo-kd { margin-left: 6dp; }
 .gamemode-breakdown .row { min-height: 24dp; font-size: 11dp; }
 .gamemode-breakdown .value { font-size: 11dp; }
 .gamemode-breakdown .label { font-size: 10dp; }

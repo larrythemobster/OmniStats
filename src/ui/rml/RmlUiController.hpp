@@ -82,6 +82,8 @@ class RmlUiController final : public Rml::EventListener {
     bool WantsInteraction() const;
 
     void ProcessEvent(Rml::Event& event) override;
+    static const char* DemoKdClass(int demos, int demoed);
+    static std::string FormatDemoKd(int demos, int demoed);
 
   private:
     enum class SettingsPage {
@@ -238,7 +240,6 @@ class RmlUiController final : public Rml::EventListener {
     static std::string FormatNumber(float value, int precision = 0);
     static std::string FormatRecord(int wins, int losses);
     static std::string FormatClock(int64_t unixSeconds);
-    static std::string FormatDemoKd(int demos, int demoed);
     static bool ValidateStatsApiPath(std::string input, std::string& normalized, std::string& error);
     static const char* SettingsPageName(SettingsPage page);
     static const char* ZoneName(DashboardLayout::Zone zone);

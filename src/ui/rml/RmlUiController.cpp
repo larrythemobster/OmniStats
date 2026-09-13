@@ -1941,6 +1941,16 @@ void RmlUiController::RefreshLiveUi(bool force, bool allowStructural) {
                 if (key == "session-mmr") {
                     element->SetClass("win", sessionMmr > 0);
                     element->SetClass("loss", sessionMmr < 0);
+                } else if (key == "demo-game-kd") {
+                    const char* cls = DemoKdClass(match.demosSelf, match.demoedSelf);
+                    element->SetClass("win", std::strcmp(cls, "win") == 0);
+                    element->SetClass("loss", std::strcmp(cls, "loss") == 0);
+                    element->SetClass("muted", std::strcmp(cls, "muted") == 0);
+                } else if (key == "demo-session-kd") {
+                    const char* cls = DemoKdClass(demos.demos, demos.demoed);
+                    element->SetClass("win", std::strcmp(cls, "win") == 0);
+                    element->SetClass("loss", std::strcmp(cls, "loss") == 0);
+                    element->SetClass("muted", std::strcmp(cls, "muted") == 0);
                 }
             }
         };
@@ -2135,6 +2145,14 @@ std::string RmlUiController::FormatClock(int64_t unixSeconds) {
 std::string RmlUiController::FormatDemoKd(int demos, int demoed) {
     if (demoed <= 0) return demos > 0 ? FormatNumber(static_cast<float>(demos), 1) : "0.0";
     return FormatNumber(static_cast<float>(demos) / static_cast<float>(demoed), 2);
+}
+
+const char* RmlUiController::DemoKdClass(int demos, int demoed) {
+    const float ratio = demoed <= 0 ? (demos > 0 ? static_cast<float>(demos) : 0.0f)
+                                    : (static_cast<float>(demos) / static_cast<float>(demoed));
+    if (ratio > 1.0f) return "win";
+    if (ratio < 1.0f) return "loss";
+    return "muted";
 }
 
 bool RmlUiController::ValidateStatsApiPath(std::string input, std::string& normalized, std::string& error) {
@@ -2555,12 +2573,14 @@ std::string RmlUiController::RenderSessionStats(bool compact, bool includeStreak
 
 std::string RmlUiController::RenderDemoTracker() {
     const auto session = CalculateSessionDemolitionCounts(m_snap.sessionTotals, m_snap.currentMatch, m_snap.matchFinalized);
+    const char* gameKdClass = DemoKdClass(m_snap.currentMatch.demosSelf, m_snap.currentMatch.demoedSelf);
+    const char* sessionKdClass = DemoKdClass(session.demos, session.demoed);
     std::ostringstream out;
     out << "<div class='metric-pair'>"
         << "<div class='mini-metric'><div class='label'>GAME K/D</div><div class='value mono'><span class='live-value' data-live-value='demo-game-count'>" << m_snap.currentMatch.demosSelf << '-' << m_snap.currentMatch.demoedSelf
-        << "</span> <span class='muted live-value' data-live-value='demo-game-kd'>" << FormatDemoKd(m_snap.currentMatch.demosSelf, m_snap.currentMatch.demoedSelf) << "</span></div></div>"
+        << "</span> <span class='demo-kd live-value " << gameKdClass << "' style='margin-left:6dp' data-live-value='demo-game-kd'>" << FormatDemoKd(m_snap.currentMatch.demosSelf, m_snap.currentMatch.demoedSelf) << "</span></div></div>"
         << "<div class='mini-metric'><div class='label'>SESSION K/D</div><div class='value mono'><span class='live-value' data-live-value='demo-session-count'>" << session.demos << '-' << session.demoed
-        << "</span> <span class='muted live-value' data-live-value='demo-session-kd'>" << FormatDemoKd(session.demos, session.demoed) << "</span></div></div></div>";
+        << "</span> <span class='demo-kd live-value " << sessionKdClass << "' style='margin-left:6dp' data-live-value='demo-session-kd'>" << FormatDemoKd(session.demos, session.demoed) << "</span></div></div></div>";
     return out.str();
 }
 std::string RmlUiController::RenderPreviousGames(bool includeHeading) {

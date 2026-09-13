@@ -89,6 +89,9 @@ class RmlUiControllerStateTest : public ::testing::Test {
     std::string RenderPreviousGames(RmlUiController& controller) {
         return controller.RenderPreviousGames();
     }
+    std::string RenderDemoTracker(RmlUiController& controller) {
+        return controller.RenderDemoTracker();
+    }
     std::string RenderOverlayContainer(RmlUiController& controller, const OverlayLayout::ContainerConfig& container, bool editMode = false) {
         return controller.RenderOverlayContainer(container, editMode);
     }
@@ -1437,4 +1440,39 @@ TEST_F(RmlUiControllerStateTest, LongSettingsPagesScrollAndPreservePositionAfter
     controller.Render();
 
     DestroyWindow(hwnd);
+}
+
+TEST_F(RmlUiControllerStateTest, DemoTrackerFormatsKdClassesAndSpacing) {
+    // 1. Check DemoKdClass logic
+    EXPECT_STREQ(RmlUiController::DemoKdClass(0, 0), "loss");
+    EXPECT_STREQ(RmlUiController::DemoKdClass(0, 1), "loss");
+    EXPECT_STREQ(RmlUiController::DemoKdClass(1, 4), "loss");
+    EXPECT_STREQ(RmlUiController::DemoKdClass(4, 13), "loss");
+    EXPECT_STREQ(RmlUiController::DemoKdClass(13, 4), "win");
+    EXPECT_STREQ(RmlUiController::DemoKdClass(2, 0), "win");
+    EXPECT_STREQ(RmlUiController::DemoKdClass(5, 2), "win");
+    EXPECT_STREQ(RmlUiController::DemoKdClass(1, 1), "muted");
+    EXPECT_STREQ(RmlUiController::DemoKdClass(4, 4), "muted");
+    EXPECT_STREQ(RmlUiController::DemoKdClass(1, 0), "muted");
+
+    // 2. Check initial rendering for 0-0 has loss class and 6dp margin spacing
+    auto state = std::make_shared<SessionState>();
+    RmlUiController controller(state, nullptr);
+    controller.Update(Config::Read());
+    std::string html = RenderDemoTracker(controller);
+    EXPECT_NE(html.find("data-live-value='demo-game-count'>0-0</span>"), std::string::npos);
+    EXPECT_NE(html.find("class='demo-kd live-value loss'"), std::string::npos);
+    EXPECT_NE(html.find("style='margin-left:6dp'"), std::string::npos);
+
+    // 3. Update state with 13-4 and verify win class
+    {
+        std::unique_lock lock(state->game.mutex);
+        state->game.currentMatch.demosSelf = 13;
+        state->game.currentMatch.demoedSelf = 4;
+        state->game.version.fetch_add(1);
+    }
+    controller.Update(Config::Read());
+    html = RenderDemoTracker(controller);
+    EXPECT_NE(html.find("data-live-value='demo-game-count'>13-4</span>"), std::string::npos);
+    EXPECT_NE(html.find("class='demo-kd live-value win' style='margin-left:6dp' data-live-value='demo-game-kd'>3.25</span>"), std::string::npos);
 }
