@@ -211,6 +211,8 @@ class RmlUiController final : public Rml::EventListener {
     std::shared_ptr<DatabaseManager> m_dbManager;
     HWND m_hwnd = nullptr;
     float m_dpiScale = 1.0f;
+    // ui_scale currently pushed into the RmlUi context.
+    float m_appliedUiScale = 1.0f;
     int m_width = 1;
     int m_height = 1;
 

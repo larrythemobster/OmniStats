@@ -671,41 +671,62 @@ namespace {
         return {220.0f * dpi, 120.0f * dpi};
     }
 
-    std::pair<float, float> OverlayContainerMinSize(const OverlayLayout::ContainerConfig& container, float dpiScale);
+    std::pair<float, float> OverlayContainerMinSize(const OverlayLayout::ContainerConfig& container, float dpiScale, const ConfigData* config = nullptr);
 
-    std::pair<float, float> OverlayContainerSize(const OverlayLayout::ContainerConfig& container, float dpiScale) {
-        float width = container.w;
-        float height = container.h;
-        if (width <= 1.0f) {
+    // Overlay container geometry is persisted in design pixels at 100% app text
+    // size. The drawn box has to grow and shrink with ui_scale exactly like the
+    // text inside it: otherwise low scales leave dead space (and high scales
+    // overflow), and every drag/resize clamp is computed against a box that is
+    // not what the user sees.
+    float OverlayUiScale(const ConfigData* config) {
+        return config ? SanitizedUiScale(config->ui_scale) : 1.0f;
+    }
+
+    std::pair<float, float> OverlayContainerSize(const OverlayLayout::ContainerConfig& container, float dpiScale, const ConfigData* config = nullptr) {
+        const float ui = OverlayUiScale(config);
+        float width = container.w * ui;
+        float height = container.h * ui;
+        if (container.w <= 1.0f) {
             width = 0.0f;
             for (auto widget : container.widgets)
-                width = std::max(width, OverlayWidgetDefaultSize(widget, dpiScale).first);
+                width = std::max(width, OverlayWidgetDefaultSize(widget, dpiScale).first * ui);
         }
-        if (height <= 1.0f) {
+        if (container.h <= 1.0f) {
             height = 0.0f;
             for (auto widget : container.widgets)
-                height += OverlayWidgetDefaultSize(widget, dpiScale).second;
-            height += std::max<int>(0, static_cast<int>(container.widgets.size()) - 1) * 42.0f * SanitizedScale(dpiScale);
+                height += OverlayWidgetDefaultSize(widget, dpiScale).second * ui;
+            height += std::max<int>(0, static_cast<int>(container.widgets.size()) - 1) * 42.0f * SanitizedScale(dpiScale) * ui;
         }
-        const auto [minWidth, minHeight] = OverlayContainerMinSize(container, dpiScale);
+        const auto [minWidth, minHeight] = OverlayContainerMinSize(container, dpiScale, config);
         return {std::max(width, minWidth), std::max(height, minHeight)};
     }
 
-    std::pair<float, float> OverlayContainerMinSize(const OverlayLayout::ContainerConfig& container, float dpiScale) {
+    std::pair<float, float> OverlayContainerMinSize(const OverlayLayout::ContainerConfig& container, float dpiScale, const ConfigData* config) {
         const float dpi = SanitizedScale(dpiScale);
-        float width = 220.0f * dpi;
-        float height = 120.0f * dpi;
+        const float ui = OverlayUiScale(config);
+        const float scale = dpi * ui;
+        float width = 220.0f * scale;
+        float height = 120.0f * scale;
         if (!container.widgets.empty()) {
             width = 0.0f;
             height = 0.0f;
             for (auto widget : container.widgets) {
-                const auto [widgetWidth, widgetHeight] = OverlayWidgetMinSize(widget, dpi);
+                float widgetWidth = 0.0f;
+                float widgetHeight = 0.0f;
+                if (widget == DashboardLayout::WidgetId::LobbyRanks && config) {
+                    widgetWidth = LobbyRanksContentMinDp(*config) * scale;
+                    widgetHeight = 120.0f * scale;
+                } else {
+                    const auto [ww, wh] = OverlayWidgetMinSize(widget, dpi);
+                    widgetWidth = ww * ui;
+                    widgetHeight = wh * ui;
+                }
                 width = std::max(width, widgetWidth);
                 height += widgetHeight;
             }
-            height += std::max<int>(0, static_cast<int>(container.widgets.size()) - 1) * 42.0f * dpi;
+            height += std::max<int>(0, static_cast<int>(container.widgets.size()) - 1) * 42.0f * scale;
         }
-        return {std::max(width, 220.0f * dpi), std::max(height, 120.0f * dpi)};
+        return {std::max(width, 220.0f * scale), std::max(height, 120.0f * scale)};
     }
 }
 
@@ -883,7 +904,8 @@ void RmlUiController::Resize(int width, int height, float dpiScale) {
 
 void RmlUiController::SetDpiScale(float dpiScale) {
     m_dpiScale = SanitizedScale(dpiScale);
-    if (m_context) m_context->SetDensityIndependentPixelRatio(m_dpiScale * SanitizedUiScale(m_config.ui_scale));
+    m_appliedUiScale = SanitizedUiScale(m_config.ui_scale);
+    if (m_context) m_context->SetDensityIndependentPixelRatio(m_dpiScale * m_appliedUiScale);
 }
 
 bool RmlUiController::ProcessWindowMessage(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam) {
@@ -916,7 +938,12 @@ void RmlUiController::Update(const ConfigData& config) {
     const auto sameColor = [](const ColorRGBA& a, const ColorRGBA& b) {
         return a.r == b.r && a.g == b.g && a.b == b.b && a.a == b.a;
     };
-    const bool scaleChanged = config.ui_scale != m_config.ui_scale;
+    // Compare against the scale actually pushed into the RmlUi context, not the
+    // previous config: a `<select>` change writes the new value into m_config and
+    // defers the rest of its work, so a config-to-config comparison would never
+    // see the change and the context would keep rendering at the old dp ratio
+    // while all geometry was computed for the new one.
+    const bool scaleChanged = SanitizedUiScale(config.ui_scale) != m_appliedUiScale;
     const bool themeChanged = !sameColor(config.themeBg, m_config.themeBg) ||
                               !sameColor(config.themeSettingsPanel, m_config.themeSettingsPanel) ||
                               !sameColor(config.themeText, m_config.themeText) ||
@@ -2577,8 +2604,8 @@ std::string RmlUiController::RenderOverlayContainer(const OverlayLayout::Contain
 
     OverlayLayout::ContainerConfig visibleContainer = container;
     visibleContainer.widgets = widgets;
-    auto [minW, minH] = OverlayContainerMinSize(visibleContainer, m_dpiScale);
-    auto [w, h] = OverlayContainerSize(visibleContainer, m_dpiScale);
+    auto [minW, minH] = OverlayContainerMinSize(visibleContainer, m_dpiScale, &m_config);
+    auto [w, h] = OverlayContainerSize(visibleContainer, m_dpiScale, &m_config);
 
     const float dpi = SanitizedScale(m_dpiScale);
     const float rmlScale = dpi * SanitizedUiScale(m_config.ui_scale);
@@ -2594,24 +2621,36 @@ std::string RmlUiController::RenderOverlayContainer(const OverlayLayout::Contain
 
     // The legacy layout manager persisted explicit undersized dimensions after
     // clamping them. Keep that compatibility so old/corrupt layouts repair
-    // themselves once instead of remaining invalid in Config forever.
-    const bool clampStoredWidth = container.w > 1.0f && container.w < minW;
-    const bool clampStoredHeight = container.h > 1.0f && container.h < minH;
+    // themselves once instead of remaining invalid in Config forever. Stored
+    // geometry is design pixels, so the rendered minimum converts back first.
+    const float uiScale = SanitizedUiScale(m_config.ui_scale);
+    const float minWStored = minW / uiScale;
+    const float minHStored = minH / uiScale;
+    const bool clampStoredWidth = container.w > 1.0f && container.w < minWStored;
+    const bool clampStoredHeight = container.h > 1.0f && container.h < minHStored;
     if (clampStoredWidth || clampStoredHeight) {
         const std::string containerId = container.id;
-        Config::Update([containerId, clampStoredWidth, clampStoredHeight, minW, minH](ConfigData& c) {
+        Config::Update([containerId, clampStoredWidth, clampStoredHeight, minWStored, minHStored](ConfigData& c) {
             for (auto& stored : c.overlay_layout.containers) {
                 if (stored.id != containerId) continue;
-                if (clampStoredWidth) stored.w = minW;
-                if (clampStoredHeight) stored.h = minH;
+                if (clampStoredWidth) stored.w = minWStored;
+                if (clampStoredHeight) stored.h = minHStored;
                 break;
             }
         },
                        true);
     }
 
+    // Changing the app text size rescales every card, so a position saved at one
+    // scale can push the card past the screen edge at another. Keep the whole
+    // card on screen horizontally, and at least its minimum height vertically -
+    // cards auto-size their height during play, so clamping against the (taller)
+    // edit-mode height would shove them up for no reason.
     float x = container.x;
     if (x + w > static_cast<float>(m_width)) x = std::max(12.0f * dpi, static_cast<float>(m_width) - w - 18.0f * dpi);
+    float y = container.y;
+    const float visibleHeight = std::min(h, minH);
+    if (y + visibleHeight > static_cast<float>(m_height)) y = std::max(0.0f, static_cast<float>(m_height) - visibleHeight);
     const auto toDp = [rmlScale](float pixels) { return pixels / std::max(rmlScale, 0.5f); };
 
     std::ostringstream out;
@@ -2620,7 +2659,7 @@ std::string RmlUiController::RenderOverlayContainer(const OverlayLayout::Contain
     if (editMode) out << " overlay-edit";
     out << "' data-container='" << Escape(container.id) << "'";
     if (settingsOpen && !editMode) out << " data-action='overlay-drag'";
-    out << " style='left:" << toDp(x) << "dp;top:" << toDp(container.y) << "dp;width:" << toDp(w) << "dp;";
+    out << " style='left:" << toDp(x) << "dp;top:" << toDp(y) << "dp;width:" << toDp(w) << "dp;";
     // The saved height is edit-mode geometry, matching the pre-RmlUi overlay.
     // During normal play (and while Settings is merely open), overlay windows
     // auto-size vertically to their currently visible widgets. Keeping the saved
@@ -3069,7 +3108,13 @@ std::string RmlUiController::RenderSettingsAppearance() {
 
     std::ostringstream out;
     out << SectionStart("Scale") << "<div class='setting-row'><div class='setting-info'><div class='setting-name'>App-wide text size</div></div><select data-setting='ui_scale'>"
+        << "<option value='0.75'" << Selected(std::fabs(m_config.ui_scale - 0.75f) < .01f) << ">75%</option>"
+        << "<option value='0.8'" << Selected(std::fabs(m_config.ui_scale - 0.8f) < .01f) << ">80%</option>"
+        << "<option value='0.85'" << Selected(std::fabs(m_config.ui_scale - 0.85f) < .01f) << ">85%</option>"
+        << "<option value='0.9'" << Selected(std::fabs(m_config.ui_scale - 0.9f) < .01f) << ">90%</option>"
+        << "<option value='0.95'" << Selected(std::fabs(m_config.ui_scale - 0.95f) < .01f) << ">95%</option>"
         << "<option value='1.0'" << Selected(std::fabs(m_config.ui_scale - 1.0f) < .01f) << ">100%</option>"
+        << "<option value='1.1'" << Selected(std::fabs(m_config.ui_scale - 1.1f) < .01f) << ">110%</option>"
         << "<option value='1.25'" << Selected(std::fabs(m_config.ui_scale - 1.25f) < .01f) << ">125%</option>"
         << "<option value='1.5'" << Selected(std::fabs(m_config.ui_scale - 1.5f) < .01f) << ">150%</option></select></div>"
         << "<div class='setting-help'>Changes text size throughout the dashboard and overlay.</div>" << SectionEnd();
@@ -3809,10 +3854,9 @@ void RmlUiController::HandleChange(Rml::Element* target, Rml::Event& event) {
             c.graph_follow_current_playlist = checked;
         else if (key == "graph_mmr_category")
             c.graph_mmr_category = value;
-        else if (key == "ui_scale") {
+        else if (key == "ui_scale")
             c.ui_scale = SanitizedUiScale(std::strtof(value.c_str(), nullptr));
-            styleChanged = true;
-        } else if (key == "speed_units")
+        else if (key == "speed_units")
             c.imperial_units = value == "imperial";
         else if (key == "crossbar_display_mode")
             c.crossbar_display_mode = value == "speed" ? "speed" : "raw";
@@ -3900,6 +3944,14 @@ void RmlUiController::HandleChange(Rml::Element* target, Rml::Event& event) {
     if (key == "statsapi_path") CheckStatsApi(false);
 
     m_config = Config::Read();
+    if (target && target->GetTagName() == "select") {
+        // Changing a <select> in settings dispatches a synchronous `change`
+        // event from inside WidgetDropDown::ProcessEvent. Rebuilding the DOM
+        // here would destroy the <select> before WidgetDropDown finishes
+        // closing its selection box, causing a use-after-free crash.
+        // Defer any scale update and UI rebuild to the next Update() cycle.
+        return;
+    }
     if (styleChanged) {
         SetDpiScale(m_dpiScale);
         UpdateThemeProperties();
@@ -4154,21 +4206,15 @@ void RmlUiController::HandleMouseDown(Rml::Element* target, Rml::Event& event) {
         m_drag.startX = it->x;
         m_drag.startY = it->y;
         m_drag.allowDock = m_state && m_state->ui.dashboardLayoutEditMode.load();
-        const auto [resolvedWidth, resolvedHeight] = OverlayContainerSize(*it, m_dpiScale);
+        const auto [resolvedWidth, resolvedHeight] = OverlayContainerSize(*it, m_dpiScale, &m_config);
         m_drag.startW = resolvedWidth;
         m_drag.startH = resolvedHeight;
-        if (m_drag.kind == DragKind::OverlayMove) {
-            // Outside edit mode a container auto-fits its visible widgets, so the
-            // resolved (saved/default) height is much taller than what is drawn.
-            // Clamping the drag against that phantom height made short cards
-            // unreachable in the lower part of the screen.
-            if (auto* root = Root("overlay-root")) {
-                if (auto* element = root->QuerySelector(("[data-container='" + id + "']").c_str())) {
-                    const float renderedWidth = element->GetOffsetWidth();
-                    const float renderedHeight = element->GetOffsetHeight();
-                    if (renderedWidth > 1.0f) m_drag.startW = renderedWidth;
-                    if (renderedHeight > 1.0f) m_drag.startH = renderedHeight;
-                }
+        if (auto* root = Root("overlay-root")) {
+            if (auto* element = root->QuerySelector(("[data-container='" + id + "']").c_str())) {
+                const float renderedWidth = element->GetOffsetWidth();
+                const float renderedHeight = element->GetOffsetHeight();
+                if (renderedWidth > 1.0f) m_drag.startW = renderedWidth;
+                if (renderedHeight > 1.0f) m_drag.startH = renderedHeight;
             }
         }
         m_systemInterface.LockCursor(action == "overlay-resize" ? "resize" : "move");
@@ -4364,7 +4410,7 @@ void RmlUiController::HandleMouseMove(Rml::Event& event) {
         auto* overlayRoot = Root("overlay-root");
         for (const auto& other : m_config.overlay_layout.containers) {
             if (other.id == it->id) continue;
-            auto [ow, oh] = OverlayContainerSize(other, m_dpiScale);
+            auto [ow, oh] = OverlayContainerSize(other, m_dpiScale, &m_config);
             if (overlayRoot) {
                 if (auto* element = overlayRoot->QuerySelector(("[data-container='" + other.id + "']").c_str())) {
                     if (element->GetOffsetWidth() > 1.0f) ow = element->GetOffsetWidth();
@@ -4379,14 +4425,14 @@ void RmlUiController::HandleMouseMove(Rml::Event& event) {
         it->x = std::clamp(xSnap.value, 0.0f, std::max(0.0f, screenWidth - m_drag.startW));
         it->y = std::clamp(ySnap.value, 0.0f, std::max(0.0f, screenHeight - m_drag.startH));
     } else {
-        const auto [minWidth, minHeight] = OverlayContainerMinSize(*it, dpi);
+        const auto [minWidth, minHeight] = OverlayContainerMinSize(*it, dpi, &m_config);
         float newWidth = std::max(minWidth, m_drag.startW + dx);
         float newHeight = std::max(minHeight, m_drag.startH + dy);
         std::vector<SnapCandidate> rightCandidates{{screenWidth - resizeMargin, screenWidth - resizeMargin}};
         std::vector<SnapCandidate> bottomCandidates{{screenHeight - resizeMargin, screenHeight - resizeMargin}};
         for (const auto& other : m_config.overlay_layout.containers) {
             if (other.id == it->id) continue;
-            const auto [ow, oh] = OverlayContainerSize(other, m_dpiScale);
+            const auto [ow, oh] = OverlayContainerSize(other, m_dpiScale, &m_config);
             if (std::abs(newWidth - ow) < snap) {
                 newWidth = ow;
                 xSnap = {it->x + newWidth, it->x + newWidth, true};
@@ -4404,8 +4450,11 @@ void RmlUiController::HandleMouseMove(Rml::Event& event) {
         if (bottomSnap.snapped) ySnap = bottomSnap;
         const float snappedRight = rightSnap.snapped ? rightSnap.value : it->x + newWidth;
         const float snappedBottom = bottomSnap.snapped ? bottomSnap.value : it->y + newHeight;
-        it->w = std::clamp(snappedRight - it->x, minWidth, std::max(minWidth, screenWidth - resizeMargin - it->x));
-        it->h = std::clamp(snappedBottom - it->y, minHeight, std::max(minHeight, screenHeight - resizeMargin - it->y));
+        // Every value above is in rendered screen pixels; stored geometry is
+        // design pixels at 100% text size, so divide the scale back out.
+        const float uiScale = SanitizedUiScale(m_config.ui_scale);
+        it->w = std::clamp(snappedRight - it->x, minWidth, std::max(minWidth, screenWidth - resizeMargin - it->x)) / uiScale;
+        it->h = std::clamp(snappedBottom - it->y, minHeight, std::max(minHeight, screenHeight - resizeMargin - it->y)) / uiScale;
     }
 
     if (auto* root = Root("overlay-root")) {
@@ -4415,7 +4464,7 @@ void RmlUiController::HandleMouseMove(Rml::Event& event) {
             element->SetProperty("left", std::to_string(toDp(it->x)) + "dp");
             element->SetProperty("top", std::to_string(toDp(it->y)) + "dp");
             if (m_drag.kind == DragKind::OverlayResize) {
-                const auto [resolvedWidth, resolvedHeight] = OverlayContainerSize(*it, m_dpiScale);
+                const auto [resolvedWidth, resolvedHeight] = OverlayContainerSize(*it, m_dpiScale, &m_config);
                 element->SetProperty("width", std::to_string(toDp(resolvedWidth)) + "dp");
                 element->SetProperty("min-height", std::to_string(toDp(resolvedHeight)) + "dp");
             }
@@ -4501,7 +4550,7 @@ void RmlUiController::HandleMouseUp(Rml::Event& event) {
         std::string targetId;
         bool insertAtTop = false;
         for (const auto& container : m_config.overlay_layout.containers) {
-            const auto [width, height] = OverlayContainerSize(container, m_dpiScale);
+            const auto [width, height] = OverlayContainerSize(container, m_dpiScale, &m_config);
             if (mouseX >= container.x && mouseX <= container.x + width && mouseY >= container.y && mouseY <= container.y + height) {
                 targetId = container.id;
                 insertAtTop = mouseY < container.y + height * 0.5f;
@@ -4544,7 +4593,7 @@ void RmlUiController::HandleMouseUp(Rml::Event& event) {
         bool insertAtTop = false;
         for (const auto& container : m_config.overlay_layout.containers) {
             if (container.id == m_drag.sourceContainerId) continue;
-            const auto [width, height] = OverlayContainerSize(container, m_dpiScale);
+            const auto [width, height] = OverlayContainerSize(container, m_dpiScale, &m_config);
             if (mouseX >= container.x && mouseX <= container.x + width && mouseY >= container.y && mouseY <= container.y + height) {
                 targetId = container.id;
                 insertAtTop = mouseY < container.y + height * 0.5f;
@@ -4603,7 +4652,7 @@ void RmlUiController::HandleMouseUp(Rml::Event& event) {
             bool dockAtTop = false;
             for (const auto& container : m_config.overlay_layout.containers) {
                 if (container.id == m_drag.containerId) continue;
-                const auto [width, height] = OverlayContainerSize(container, m_dpiScale);
+                const auto [width, height] = OverlayContainerSize(container, m_dpiScale, &m_config);
                 if (mouseX >= container.x && mouseX <= container.x + width && mouseY >= container.y && mouseY <= container.y + height) {
                     targetId = container.id;
                     // Match the legacy container docking preview: only the top

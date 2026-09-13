@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 #include <RmlUi/Core/Core.h>
+#include <RmlUi/Core/Context.h>
 #include <RmlUi/Core/Element.h>
 #include <RmlUi/Core/ElementDocument.h>
 #include <d3d11.h>
@@ -131,6 +132,9 @@ class RmlUiControllerStateTest : public ::testing::Test {
     Rml::ElementDocument* Document(RmlUiController& controller) {
         return controller.m_document;
     }
+    Rml::Context* RmlContext(RmlUiController& controller) {
+        return controller.m_context;
+    }
     void RefreshSettings(RmlUiController& controller) {
         controller.RebuildSettings();
         controller.Render();
@@ -154,6 +158,9 @@ class RmlUiControllerStateTest : public ::testing::Test {
             if (c.id == containerId) return {c.x, c.y};
         }
         return {-1.0f, -1.0f};
+    }
+    float GetConfigUiScale(const RmlUiController& controller) const {
+        return controller.m_config.ui_scale;
     }
 
     ConfigData original;
@@ -1018,6 +1025,171 @@ TEST_F(RmlUiControllerStateTest, RosterMmrChipShowsOnlyMmrWhenRankIconsEnabled) 
     EXPECT_NE(html.find("chip-mmr"), std::string::npos);
     EXPECT_NE(html.find(">1114</span>"), std::string::npos);
     EXPECT_EQ(html.find("C1.D2"), std::string::npos);
+}
+
+TEST_F(RmlUiControllerStateTest, ChangingUiScaleSelectDoesNotCrashOrCorruptState) {
+    auto state = std::make_shared<SessionState>();
+    state->ui.showMenu.store(true);
+    RmlUiController controller(state, nullptr);
+
+    ConfigData config = Config::Read();
+    config.ui_scale = 1.0f;
+    controller.Update(config);
+
+    // Verify switching ui_scale through different options including 0.85
+    config.ui_scale = 0.85f;
+    EXPECT_NO_THROW(controller.Update(config));
+    EXPECT_FLOAT_EQ(GetConfigUiScale(controller), 0.85f);
+
+    config.ui_scale = 0.75f;
+    EXPECT_NO_THROW(controller.Update(config));
+    EXPECT_FLOAT_EQ(GetConfigUiScale(controller), 0.75f);
+
+    config.ui_scale = 1.0f;
+    EXPECT_NO_THROW(controller.Update(config));
+    EXPECT_FLOAT_EQ(GetConfigUiScale(controller), 1.0f);
+}
+
+// App text size scales the card contents, so the card box must scale with it.
+// When it did not, low scales left dead space inside a full-size box (shrinking
+// the screen area a card could be dragged into) and high scales overflowed it.
+TEST_F(RmlUiControllerStateTest, OverlayCardGeometryFollowsUiScale) {
+    Microsoft::WRL::ComPtr<ID3D11Device> device;
+    Microsoft::WRL::ComPtr<ID3D11DeviceContext> context;
+    D3D_FEATURE_LEVEL featureLevel;
+    if (FAILED(D3D11CreateDevice(nullptr, D3D_DRIVER_TYPE_WARP, nullptr, 0, nullptr, 0, D3D11_SDK_VERSION,
+                                 &device, &featureLevel, &context))) {
+        GTEST_SKIP() << "WARP device creation not available in this environment.";
+    }
+    HWND hwnd = CreateWindowExA(0, "STATIC", "test", WS_POPUP, 0, 0, 1920, 1080, nullptr, nullptr,
+                                GetModuleHandle(nullptr), nullptr);
+    ASSERT_NE(hwnd, nullptr);
+
+    Config::Update([](ConfigData& c) {
+        c.overlay_layout.containers.clear();
+        OverlayLayout::ContainerConfig container;
+        container.id = "scaled";
+        container.x = 0.0f;
+        container.y = 0.0f;
+        container.w = 600.0f;
+        container.h = 400.0f;
+        container.widgets = {DashboardLayout::WidgetId::SessionStats};
+        c.overlay_layout.containers.push_back(container);
+    },
+                   true);
+
+    auto state = std::make_shared<SessionState>();
+    state->ui.showOverlay.store(true);
+    state->ui.dashboardLayoutEditMode.store(true);
+    RmlUiController controller(state, nullptr);
+    ASSERT_TRUE(controller.Initialize(hwnd, device.Get(), context.Get(), 1920, 1080, 1.0f));
+
+    const auto renderedSize = [&](float scale) {
+        ConfigData config = Config::Read();
+        config.ui_scale = scale;
+        controller.Update(config);
+        controller.Render();
+        auto* card = OverlayRoot(controller)->QuerySelector("[data-container='scaled']");
+        EXPECT_NE(card, nullptr) << "scale " << scale;
+        return card ? Rml::Vector2f(card->GetOffsetWidth(), card->GetOffsetHeight()) : Rml::Vector2f(0.0f, 0.0f);
+    };
+
+    // Height auto-fits the visible widgets outside edit mode; both the explicit
+    // width and the auto height must track the text size.
+    const Rml::Vector2f full = renderedSize(1.0f);
+    EXPECT_NEAR(full.x, 600.0f, 1.0f);
+    EXPECT_GT(full.y, 1.0f);
+
+    const Rml::Vector2f small = renderedSize(0.75f);
+    EXPECT_NEAR(small.x, 450.0f, 1.0f);
+    EXPECT_NEAR(small.y, full.y * 0.75f, 2.0f);
+
+    const Rml::Vector2f large = renderedSize(1.5f);
+    EXPECT_NEAR(large.x, 900.0f, 1.0f);
+    EXPECT_NEAR(large.y, full.y * 1.5f, 2.0f);
+    DestroyWindow(hwnd);
+}
+
+// A position saved at one text size must not park a card off screen at another.
+TEST_F(RmlUiControllerStateTest, OverlayCardStaysOnScreenAfterScaleIncrease) {
+    Microsoft::WRL::ComPtr<ID3D11Device> device;
+    Microsoft::WRL::ComPtr<ID3D11DeviceContext> context;
+    D3D_FEATURE_LEVEL featureLevel;
+    if (FAILED(D3D11CreateDevice(nullptr, D3D_DRIVER_TYPE_WARP, nullptr, 0, nullptr, 0, D3D11_SDK_VERSION,
+                                 &device, &featureLevel, &context))) {
+        GTEST_SKIP() << "WARP device creation not available in this environment.";
+    }
+    HWND hwnd = CreateWindowExA(0, "STATIC", "test", WS_POPUP, 0, 0, 1920, 1080, nullptr, nullptr,
+                                GetModuleHandle(nullptr), nullptr);
+    ASSERT_NE(hwnd, nullptr);
+
+    Config::Update([](ConfigData& c) {
+        c.overlay_layout.containers.clear();
+        OverlayLayout::ContainerConfig container;
+        container.id = "edge";
+        container.x = 1300.0f;
+        container.y = 900.0f;
+        container.w = 600.0f;
+        container.h = 160.0f;
+        container.widgets = {DashboardLayout::WidgetId::SessionStats};
+        c.overlay_layout.containers.push_back(container);
+    },
+                   true);
+
+    auto state = std::make_shared<SessionState>();
+    state->ui.showOverlay.store(true);
+    RmlUiController controller(state, nullptr);
+    ASSERT_TRUE(controller.Initialize(hwnd, device.Get(), context.Get(), 1920, 1080, 1.0f));
+
+    ConfigData config = Config::Read();
+    config.ui_scale = 1.5f;
+    controller.Update(config);
+    controller.Render();
+
+    auto* card = OverlayRoot(controller)->QuerySelector("[data-container='edge']");
+    ASSERT_NE(card, nullptr);
+    const Rml::Vector2f offset = card->GetAbsoluteOffset();
+    EXPECT_LE(offset.x + card->GetOffsetWidth(), 1920.0f);
+    EXPECT_LT(offset.y, 1080.0f);
+
+    DestroyWindow(hwnd);
+}
+
+// Picking a scale in the `<select>` writes the new value into the controller's
+// config and defers the rest of the work to avoid a use-after-free inside
+// WidgetDropDown. The deferred pass still has to push the new ratio into the
+// RmlUi context: when it did not, text rendered at the old scale while every
+// card position was computed for the new one, throwing cards off screen.
+TEST_F(RmlUiControllerStateTest, DeferredScaleChangeUpdatesContextRatio) {
+    Microsoft::WRL::ComPtr<ID3D11Device> device;
+    Microsoft::WRL::ComPtr<ID3D11DeviceContext> context;
+    D3D_FEATURE_LEVEL featureLevel;
+    if (FAILED(D3D11CreateDevice(nullptr, D3D_DRIVER_TYPE_WARP, nullptr, 0, nullptr, 0, D3D11_SDK_VERSION,
+                                 &device, &featureLevel, &context))) {
+        GTEST_SKIP() << "WARP device creation not available in this environment.";
+    }
+    HWND hwnd = CreateWindowExA(0, "STATIC", "test", WS_POPUP, 0, 0, 1920, 1080, nullptr, nullptr,
+                                GetModuleHandle(nullptr), nullptr);
+    ASSERT_NE(hwnd, nullptr);
+
+    auto state = std::make_shared<SessionState>();
+    state->ui.showMenu.store(true);
+    RmlUiController controller(state, nullptr);
+    ASSERT_TRUE(controller.Initialize(hwnd, device.Get(), context.Get(), 1920, 1080, 1.0f));
+
+    ConfigData config = Config::Read();
+    config.ui_scale = 1.0f;
+    controller.Update(config);
+    ASSERT_FLOAT_EQ(RmlContext(controller)->GetDensityIndependentPixelRatio(), 1.0f);
+
+    // Simulate the deferred `<select>` path: the new scale lands in config
+    // without anyone calling SetDpiScale.
+    Config::Update([](ConfigData& c) { c.ui_scale = 1.5f; }, true);
+    config = Config::Read();
+    controller.Update(config);
+    EXPECT_FLOAT_EQ(RmlContext(controller)->GetDensityIndependentPixelRatio(), 1.5f);
+
+    DestroyWindow(hwnd);
 }
 
 // Live telemetry must not replace the overlay DOM between mousedown and
