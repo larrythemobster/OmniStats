@@ -1427,7 +1427,6 @@ void RmlUiController::RebuildVisibleUi(bool force, bool configChanged) {
     // The toast is purely time-based and lives in its own leaf root, so expiring
     // it is safe during an interaction and must not be gated behind the hold.
     if (m_statusUntilMs && SteadyNowMs() >= m_statusUntilMs) {
-        m_statusUntilMs = 0;
         RebuildToast();
     }
 
@@ -3844,6 +3843,7 @@ void RmlUiController::RebuildSettings() {
 void RmlUiController::RebuildToast() {
     if (m_statusMessage.empty() || (m_statusUntilMs && SteadyNowMs() >= m_statusUntilMs)) {
         m_statusMessage.clear();
+        m_statusUntilMs = 0;
         SetRootRml("toast-root", "");
         return;
     }

@@ -165,9 +165,35 @@ class RmlUiControllerStateTest : public ::testing::Test {
     float GetConfigUiScale(const RmlUiController& controller) const {
         return controller.m_config.ui_scale;
     }
+    void SeedExpiredToast(RmlUiController& controller, std::string message = "Valid") {
+        controller.m_statusMessage = std::move(message);
+        controller.m_statusUntilMs = 1;
+    }
+    void RebuildVisibleUi(RmlUiController& controller) {
+        controller.RebuildVisibleUi(false, false);
+    }
+    bool HasToastMessage(const RmlUiController& controller) const {
+        return !controller.m_statusMessage.empty();
+    }
+    int64_t ToastDeadline(const RmlUiController& controller) const {
+        return controller.m_statusUntilMs;
+    }
 
     ConfigData original;
 };
+
+TEST_F(RmlUiControllerStateTest, ExpiredToastClearsInsteadOfBecomingPermanent) {
+    auto state = std::make_shared<SessionState>();
+    RmlUiController controller(state, nullptr);
+
+    SeedExpiredToast(controller);
+    ASSERT_TRUE(HasToastMessage(controller));
+
+    RebuildVisibleUi(controller);
+
+    EXPECT_FALSE(HasToastMessage(controller));
+    EXPECT_EQ(ToastDeadline(controller), 0);
+}
 
 TEST_F(RmlUiControllerStateTest, HeadlessControllerDoesNotClearForeignRmlInterfaces) {
     RmlSystemInterfaceWin32 sentinel;
