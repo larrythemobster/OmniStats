@@ -2410,7 +2410,7 @@ std::string RmlUiController::RenderPlayerRoster(int team, const char* label) {
     std::ostringstream out;
     const char* cls = team == 0 ? "blue" : "orange";
     out << "<div class='team-block'><div class='team-header'><div class='team-line " << cls << "'></div><div class='grow value'>" << label
-        << "</div><span class='badge " << cls << "'>" << players.size() << "</span></div>";
+        << "</div></div>";
     if (players.empty()) out << "<div class='muted'>Waiting for players...</div>";
     for (const auto* p : players) {
         const bool self = !m_snap.myPrimaryId.empty() && p->primaryId == m_snap.myPrimaryId;
