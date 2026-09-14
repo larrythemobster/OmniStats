@@ -413,6 +413,11 @@ namespace Config {
                 if (t.contains("muted")) Current.themeMuted = JsonToColor(t["muted"], Current.themeMuted);
                 if (t.contains("graph_line")) Current.themeGraphLine = JsonToColor(t["graph_line"], Current.themeGraphLine);
                 if (t.contains("graph_baseline")) Current.themeGraphBaseline = JsonToColor(t["graph_baseline"], Current.themeGraphBaseline);
+                if (t.contains("roster_card")) Current.themeRosterCard = JsonToColor(t["roster_card"], Current.themeRosterCard);
+                if (t.contains("roster_card_self")) Current.themeRosterCardSelf = JsonToColor(t["roster_card_self"], Current.themeRosterCardSelf);
+                if (t.contains("stat_box")) Current.themeStatBox = JsonToColor(t["stat_box"], Current.themeStatBox);
+                if (t.contains("match_row")) Current.themeMatchRow = JsonToColor(t["match_row"], Current.themeMatchRow);
+                if (t.contains("match_row_alt")) Current.themeMatchRowAlt = JsonToColor(t["match_row_alt"], Current.themeMatchRowAlt);
             }
 
             // Migration: if upgrading or first run, ensure theme background opacity is visible and safe.
@@ -658,6 +663,11 @@ namespace Config {
         j["theme"]["muted"] = ColorToJson(Current.themeMuted);
         j["theme"]["graph_line"] = ColorToJson(Current.themeGraphLine);
         j["theme"]["graph_baseline"] = ColorToJson(Current.themeGraphBaseline);
+        j["theme"]["roster_card"] = ColorToJson(Current.themeRosterCard);
+        j["theme"]["roster_card_self"] = ColorToJson(Current.themeRosterCardSelf);
+        j["theme"]["stat_box"] = ColorToJson(Current.themeStatBox);
+        j["theme"]["match_row"] = ColorToJson(Current.themeMatchRow);
+        j["theme"]["match_row_alt"] = ColorToJson(Current.themeMatchRowAlt);
 
         std::string configFile = GetConfigPath();
         std::string tempFile = configFile + ".tmp";

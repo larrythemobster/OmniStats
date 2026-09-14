@@ -107,17 +107,23 @@ struct ConfigData {
     ColorRGBA themeSettingsPanel = {0.048387110233306885f, 0.048387110233306885f, 0.048387110233306885f, 1.00f};
     // Dashboard top bar and graph panel: shades of black, kept independent of
     // the main background so both read as their own layer.
-    ColorRGBA themeTopbar = {0.050980392f, 0.050980392f, 0.050980392f, 1.00f};
-    ColorRGBA themeGraphPanel = {0.039215686f, 0.039215686f, 0.039215686f, 1.00f};
-    ColorRGBA themeText = {0.92f, 0.94f, 0.96f, 1.00f};
-    ColorRGBA themeAccent = {0.44470369815826416f, 0.10417655110359192f, 0.10417655110359192f, 1.00f};
+    ColorRGBA themeTopbar = {0.05098039284348488f, 0.05098039284348488f, 0.05098039284348488f, 1.00f};
+    ColorRGBA themeGraphPanel = {0.03921568766236305f, 0.03921568766236305f, 0.03921568766236305f, 1.00f};
+    ColorRGBA themeText = {0.9200000166893005f, 0.9399999976158142f, 0.9599999785423279f, 1.00f};
+    ColorRGBA themeAccent = {0.4646187424659729f, 0.0f, 0.0f, 1.00f};
     ColorRGBA themeWin = {0.09470447152853012f, 0.5524193644523621f, 0.006682485807687044f, 1.00f};
     ColorRGBA themeLoss = {1.00f, 0.012096762657165527f, 0.012096762657165527f, 1.00f};
     ColorRGBA themeDim = {1.00f, 1.00f, 1.00f, 1.00f};
-    ColorRGBA themeMuted = {0.65f, 0.70f, 0.75f, 1.00f};
+    ColorRGBA themeMuted = {0.6499999761581421f, 0.699999988079071f, 0.75f, 1.00f};
     ColorRGBA themeGraphLine = {0.20201940834522247f, 0.36447927355766296f, 0.7056452035903931f, 1.00f};
     ColorRGBA themeGraphBaseline = {0.913241446018219f, 0.9516128897666931f, 0.0f, 1.00f};
 
+    // Component background colors
+    ColorRGBA themeRosterCard = {0.05635613203048706f, 0.05635613203048706f, 0.05635613203048706f, 0.75f};
+    ColorRGBA themeRosterCardSelf = {0.054901961237192154f, 0.054901961237192154f, 0.054901961237192154f, 0.7490196228027344f};
+    ColorRGBA themeStatBox = {0.054901961237192154f, 0.054901961237192154f, 0.054901961237192154f, 0.7490196228027344f};
+    ColorRGBA themeMatchRow = {0.06927955150604248f, 0.06927955150604248f, 0.06927955150604248f, 0.7490196228027344f};
+    ColorRGBA themeMatchRowAlt = {0.05098039284348488f, 0.05098039284348488f, 0.05098039284348488f, 0.9843137264251709f};
     // Session Card Visibility Toggles
     bool show_session_record = true;
     bool show_session_goals = true;
@@ -193,8 +199,12 @@ struct ConfigData {
         themeMuted = defaults.themeMuted;
         themeGraphLine = defaults.themeGraphLine;
         themeGraphBaseline = defaults.themeGraphBaseline;
+        themeRosterCard = defaults.themeRosterCard;
+        themeRosterCardSelf = defaults.themeRosterCardSelf;
+        themeStatBox = defaults.themeStatBox;
+        themeMatchRow = defaults.themeMatchRow;
+        themeMatchRowAlt = defaults.themeMatchRowAlt;
     }
-
     void ResetLayouts() {
         const ConfigData defaults;
         dashboard_layout = defaults.dashboard_layout;

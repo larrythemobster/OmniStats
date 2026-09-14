@@ -552,6 +552,11 @@ namespace {
         if (key == "theme_panel") return &config.themeSettingsPanel;
         if (key == "theme_topbar") return &config.themeTopbar;
         if (key == "theme_graph_panel") return &config.themeGraphPanel;
+        if (key == "theme_roster_card") return &config.themeRosterCard;
+        if (key == "theme_roster_card_self") return &config.themeRosterCardSelf;
+        if (key == "theme_stat_box") return &config.themeStatBox;
+        if (key == "theme_match_row") return &config.themeMatchRow;
+        if (key == "theme_match_row_alt") return &config.themeMatchRowAlt;
         if (key == "theme_text") return &config.themeText;
         if (key == "theme_accent") return &config.themeAccent;
         if (key == "theme_win") return &config.themeWin;
@@ -568,6 +573,11 @@ namespace {
         if (key == "theme_panel") return &config.themeSettingsPanel;
         if (key == "theme_topbar") return &config.themeTopbar;
         if (key == "theme_graph_panel") return &config.themeGraphPanel;
+        if (key == "theme_roster_card") return &config.themeRosterCard;
+        if (key == "theme_roster_card_self") return &config.themeRosterCardSelf;
+        if (key == "theme_stat_box") return &config.themeStatBox;
+        if (key == "theme_match_row") return &config.themeMatchRow;
+        if (key == "theme_match_row_alt") return &config.themeMatchRowAlt;
         if (key == "theme_text") return &config.themeText;
         if (key == "theme_accent") return &config.themeAccent;
         if (key == "theme_win") return &config.themeWin;
@@ -584,6 +594,11 @@ namespace {
         if (key == "theme_panel") return "Settings panels";
         if (key == "theme_topbar") return "Top bar";
         if (key == "theme_graph_panel") return "Graph panel";
+        if (key == "theme_roster_card") return "Roster card";
+        if (key == "theme_roster_card_self") return "Roster card (you)";
+        if (key == "theme_stat_box") return "Stat boxes / K/D";
+        if (key == "theme_match_row") return "Previous games row";
+        if (key == "theme_match_row_alt") return "Previous games row (alt)";
         if (key == "theme_text") return "Text";
         if (key == "theme_accent") return "Accent";
         if (key == "theme_win") return "Win";
@@ -602,7 +617,6 @@ namespace {
         component = key[separator + 1];
         return component == 'r' || component == 'g' || component == 'b' || component == 'a';
     }
-
     bool SetThemeComponent(ConfigData& config, std::string_view key, const std::string& value) {
         std::string_view colorKey;
         char component = 0;
@@ -1466,6 +1480,15 @@ void RmlUiController::UpdateThemeProperties() {
     rule(".dashboard-widget.dragging", "border-color", accent);
     rule(".settings-nav button.active", "border-color", accent);
     rule(".settings-nav button.active", "background-color", accentDark);
+    rule(".player-row", "background-color", CssColor(m_config.themeRosterCard));
+    rule(".player-row.self", "background-color", CssColor(m_config.themeRosterCardSelf));
+    rule(".player-chip", "background-color", scaledColor(m_config.themeRosterCard, 1.3f, 0.85f));
+    rule(".stat-cell", "background-color", CssColor(m_config.themeStatBox));
+    rule(".mini-metric", "background-color", CssColor(m_config.themeStatBox));
+    rule(".match-data", "background-color", CssColor(m_config.themeMatchRow));
+    rule(".match-data.match-even", "background-color", CssColor(m_config.themeMatchRow));
+    rule(".match-data.match-odd", "background-color", CssColor(m_config.themeMatchRowAlt));
+    rule(".match-data:hover", "background-color", scaledColor(m_config.themeMatchRow, 1.35f, 0.85f));
     rule("button.primary, .button.primary", "background-color", accentMid);
     rule("button.primary, .button.primary", "border-color", accent);
     rule("button.version-update", "color", accent);
@@ -3756,6 +3779,11 @@ std::string RmlUiController::RenderSettingsAppearance() {
         << colorRow("theme_panel", "Settings panels", m_config.themeSettingsPanel)
         << colorRow("theme_topbar", "Top bar", m_config.themeTopbar)
         << colorRow("theme_graph_panel", "Graph panel", m_config.themeGraphPanel)
+        << colorRow("theme_roster_card", "Roster card", m_config.themeRosterCard)
+        << colorRow("theme_roster_card_self", "Roster card (you)", m_config.themeRosterCardSelf)
+        << colorRow("theme_stat_box", "Stat boxes / K/D", m_config.themeStatBox)
+        << colorRow("theme_match_row", "Previous games row", m_config.themeMatchRow)
+        << colorRow("theme_match_row_alt", "Previous games row (alt)", m_config.themeMatchRowAlt)
         << colorRow("theme_text", "Text", m_config.themeText)
         << colorRow("theme_accent", "Accent", m_config.themeAccent)
         << colorRow("theme_win", "Win", m_config.themeWin)
@@ -5079,9 +5107,10 @@ void RmlUiController::RefreshColorPickPreview(bool updateFieldGradient) {
 void RmlUiController::RefreshThemeEditorControls(std::string_view preserveHexKey) {
     if (!m_document || m_settingsPage != SettingsPage::Appearance) return;
 
-    constexpr std::array<const char*, 12> kThemeKeys = {
-        "theme_bg", "theme_panel", "theme_topbar", "theme_graph_panel", "theme_text",
-        "theme_accent", "theme_win", "theme_loss", "theme_dim", "theme_muted",
+    constexpr std::array<const char*, 17> kThemeKeys = {
+        "theme_bg", "theme_panel", "theme_topbar", "theme_graph_panel",
+        "theme_roster_card", "theme_roster_card_self", "theme_stat_box", "theme_match_row", "theme_match_row_alt",
+        "theme_text", "theme_accent", "theme_win", "theme_loss", "theme_dim", "theme_muted",
         "theme_graph", "theme_baseline"};
 
     for (const char* key : kThemeKeys) {
@@ -5101,14 +5130,14 @@ void RmlUiController::RefreshThemeEditorControls(std::string_view preserveHexKey
     if (!editing) return;
     const Hsv hsv = RgbToHsv(*editing);
     const float hue = hsv.s > 0.0f ? hsv.h : m_editColorHue;
-    const auto percent = [](float value) {
-        std::ostringstream text;
-        text << std::fixed << std::setprecision(2) << std::clamp(value, 0.0f, 1.0f) * 100.0f << '%';
-        return text.str();
-    };
     const auto channelByte = [](float value) {
         if (!std::isfinite(value)) return 0;
         return std::clamp(static_cast<int>(std::lround(value * 255.0f)), 0, 255);
+    };
+    const auto percent = [](float value) {
+        char text[24]{};
+        std::snprintf(text, sizeof(text), "%.2f%%", std::clamp(value, 0.0f, 1.0f) * 100.0f);
+        return std::string(text);
     };
 
     const int gradientHue = QuantizedPickerHue(hue);
