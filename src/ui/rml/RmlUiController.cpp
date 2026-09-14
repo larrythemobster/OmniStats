@@ -635,6 +635,14 @@ namespace {
         return ColorRGBA{r, g, b, std::clamp(alpha, 0.0f, 1.0f)};
     }
 
+    int QuantizedPickerHue(float hue) {
+        constexpr int kHueStep = 6;
+        int gradientHue = static_cast<int>(std::lround(hue / static_cast<float>(kHueStep))) * kHueStep;
+        gradientHue %= 360;
+        if (gradientHue < 0) gradientHue += 360;
+        return gradientHue;
+    }
+
     int EnabledLobbyRankColumns(const ConfigData& config) {
         int rankColumns = 0;
         rankColumns += config.show_lobby_rank_1v1 ? 1 : 0;
@@ -1117,6 +1125,9 @@ void RmlUiController::Update(const ConfigData& config, bool configChanged, uint6
             m_state, ExternalUpdaterLauncher::BackgroundUpdateCheckReason::SettingsOpened);
         UpdateInputCapture();
     } else if (m_lastShowMenu && !settingsOpen) {
+        // A range can be adjusted from the keyboard without producing a mouse-up.
+        // Do not discard an in-flight color edit when Settings is closed.
+        CommitColorPick();
         FinishBindCapture();
         m_showBallchasingToken = false;
         m_confirmReplayUploads = false;
@@ -3626,7 +3637,7 @@ std::string RmlUiController::RenderSettingsAppearance() {
            << "<button class='ghost compact' data-action='close-color-editor'>Close</button></div>"
            << "<div class='color-picker'>"
            << "<div id='theme-color-field' class='color-field' data-action='color-field' style='decorator: image(gen://sv?h="
-           << static_cast<int>(std::lround(hue / 2.0f)) * 2 << ");'>"
+           << QuantizedPickerHue(hue) << ");'>"
            << "<div id='theme-color-field-marker' class='color-field-marker' style='left:" << percent(hsv.s) << "%;top:" << percent(1.0f - hsv.v) << "%'></div>"
            << "</div>"
            << "<div id='theme-color-hue' class='color-hue' data-action='color-hue'>"
@@ -3907,9 +3918,16 @@ void RmlUiController::ProcessEvent(Rml::Event& event) {
         HandleChange(target, event);
     else if (type == "input")
         HandleInput(target);
-    else if (type == "blur" && Attribute(target, "data-setting") == "statsapi_path")
-        HandleChange(target, event);
-    else if (type == "mousedown")
+    else if (type == "blur") {
+        const std::string key = Attribute(target, "data-setting");
+        if (key == "statsapi_path") {
+            HandleChange(target, event);
+        } else {
+            std::string_view colorKey;
+            char component = 0;
+            if (ParseThemeComponentKey(key, colorKey, component)) CommitColorPick();
+        }
+    } else if (type == "mousedown")
         HandleMouseDown(target, event);
     else if (type == "mousemove")
         HandleMouseMove(event);
@@ -4079,6 +4097,7 @@ void RmlUiController::HandleClick(Rml::Element* target) {
     } else if (action == "edit-color") {
         const std::string key = Attribute(target, "data-color-key");
         m_editColorKey = ThemeColorForKey(m_config, key) ? key : std::string{};
+        m_colorPickerGradientHue = -1;
         RebuildSettings();
         if (auto* root = Root("settings-root")) {
             if (auto* el = root->QuerySelector("#active-color-editor")) {
@@ -4197,8 +4216,43 @@ void RmlUiController::HandleInput(Rml::Element* target) {
         std::string_view componentColorKey;
         char component = 0;
         if (ParseThemeComponentKey(key, componentColorKey, component)) {
-            Config::Update([&](ConfigData& c) { themeChanged = SetThemeComponent(c, key, value); });
-            if (!themeChanged) return;
+            if (componentColorKey != m_editColorKey) return;
+            // RGB/A sliders can emit an event for every pointer pixel. Stage the
+            // value in the controller copy and keep this path DOM-local; saving
+            // and rebuilding the theme stylesheet on every sample makes the
+            // slider thumb lag for the same reason as the SV picker.
+            if (!SetThemeComponent(m_config, key, value)) return;
+            m_colorPickDirty = true;
+            const ColorRGBA* stagedColor = ThemeColorForKey(m_config, componentColorKey);
+            if (!stagedColor) return;
+            const Hsv hsv = RgbToHsv(*stagedColor);
+            if (hsv.s > 0.0f) m_editColorHue = hsv.h;
+            RefreshColorPickPreview(component != 'a');
+
+            if (auto* label = m_document ? m_document->GetElementById((std::string("theme-color-") + component + "-value").c_str()) : nullptr) {
+                const ColorRGBA* color = ThemeColorForKey(m_config, componentColorKey);
+                float channel = 0.0f;
+                if (color) {
+                    switch (component) {
+                    case 'r':
+                        channel = color->r;
+                        break;
+                    case 'g':
+                        channel = color->g;
+                        break;
+                    case 'b':
+                        channel = color->b;
+                        break;
+                    case 'a':
+                        channel = color->a;
+                        break;
+                    default:
+                        break;
+                    }
+                }
+                SetElementText(label, std::to_string(std::clamp(static_cast<int>(std::lround(channel * 255.0f)), 0, 255)));
+            }
+            return;
         } else {
             ColorRGBA color;
             if (!parseColor(value, color)) return;
@@ -4811,7 +4865,9 @@ void RmlUiController::HandleMouseDown(Rml::Element* target, Rml::Event& event) {
 // Maps a pointer position inside the saturation/value field or hue strip onto the
 // color being edited. The picker rect is captured once on mousedown. The color is
 // previewed entirely in the persistent DOM while dragging, then committed once on
-// mouse-up; this avoids config churn and a full Settings rebuild for every sample.
+// mouse-up. In particular, do not rebuild the dynamic theme stylesheet here: this
+// function runs synchronously from WM_MOUSEMOVE, and stylesheet compilation/layout
+// on every pointer sample makes the picker visibly lag behind the cursor.
 void RmlUiController::ApplyColorPick(float mouseX, float mouseY) {
     ColorRGBA* current = ThemeColorForKey(m_config, m_editColorKey);
     if (!current) return;
@@ -4835,8 +4891,50 @@ void RmlUiController::ApplyColorPick(float mouseX, float mouseY) {
 
     *current = HsvToRgb(picked, current->a);
     m_colorPickDirty = true;
-    UpdateThemeProperties();
-    RefreshThemeEditorControls();
+    RefreshColorPickPreview(m_drag.kind == DragKind::ColorHue);
+}
+
+void RmlUiController::RefreshColorPickPreview(bool updateFieldGradient) {
+    if (!m_document || m_settingsPage != SettingsPage::Appearance) return;
+
+    const ColorRGBA* editing = ThemeColorForKey(m_config, m_editColorKey);
+    if (!editing) return;
+
+    const Hsv hsv = RgbToHsv(*editing);
+    const float hue = hsv.s > 0.0f ? hsv.h : m_editColorHue;
+    const auto percent = [](float value) {
+        char text[24]{};
+        std::snprintf(text, sizeof(text), "%.2f%%", std::clamp(value, 0.0f, 1.0f) * 100.0f);
+        return std::string(text);
+    };
+
+    // Updating the procedural SV image can require a texture lookup/upload. Six
+    // degree buckets are visually indistinguishable at this control size, while
+    // cutting a full hue sweep from hundreds of texture changes to at most 60.
+    if (updateFieldGradient) {
+        const int gradientHue = QuantizedPickerHue(hue);
+        if (gradientHue != m_colorPickerGradientHue) {
+            if (auto* field = m_document->GetElementById("theme-color-field"))
+                field->SetProperty("decorator", "image(gen://sv?h=" + std::to_string(gradientHue) + ")");
+            m_colorPickerGradientHue = gradientHue;
+        }
+    }
+
+    if (auto* marker = m_document->GetElementById("theme-color-field-marker")) {
+        marker->SetProperty("left", percent(hsv.s));
+        marker->SetProperty("top", percent(1.0f - hsv.v));
+    }
+    if (auto* marker = m_document->GetElementById("theme-color-hue-marker"))
+        marker->SetProperty("left", percent(hue / 360.0f));
+
+    const std::string css = CssColor(*editing);
+    if (auto* preview = m_document->GetElementById("theme-color-preview"))
+        preview->SetProperty("background-color", css);
+    if (auto* swatch = m_document->GetElementById((std::string("theme-swatch-") + m_editColorKey).c_str()))
+        swatch->SetProperty("background-color", css);
+    if (auto* element = m_document->GetElementById((std::string("theme-hex-") + m_editColorKey).c_str())) {
+        if (auto* control = dynamic_cast<Rml::ElementFormControl*>(element)) control->SetValue(css);
+    }
 }
 
 void RmlUiController::RefreshThemeEditorControls(std::string_view preserveHexKey) {
@@ -4874,8 +4972,10 @@ void RmlUiController::RefreshThemeEditorControls(std::string_view preserveHexKey
         return std::clamp(static_cast<int>(std::lround(value * 255.0f)), 0, 255);
     };
 
+    const int gradientHue = QuantizedPickerHue(hue);
     if (auto* field = m_document->GetElementById("theme-color-field"))
-        field->SetProperty("decorator", "image(gen://sv?h=" + std::to_string(static_cast<int>(std::lround(hue / 2.0f)) * 2) + ")");
+        field->SetProperty("decorator", "image(gen://sv?h=" + std::to_string(gradientHue) + ")");
+    m_colorPickerGradientHue = gradientHue;
     if (auto* marker = m_document->GetElementById("theme-color-field-marker")) {
         marker->SetProperty("left", percent(hsv.s));
         marker->SetProperty("top", percent(1.0f - hsv.v));
@@ -4911,6 +5011,10 @@ void RmlUiController::CommitColorPick() {
         if (ColorRGBA* target = ThemeColorForKey(c, key)) *target = color;
     });
     m_colorPickDirty = false;
+    // The picker itself stays lightweight while the mouse is down. Apply the
+    // selected color to the rest of the app once, after the drag has finished.
+    UpdateThemeProperties();
+    RefreshThemeEditorControls();
 }
 
 void RmlUiController::HandleMouseMove(Rml::Event& event) {
@@ -5103,6 +5207,11 @@ void RmlUiController::HandleMouseUp(Rml::Event& event) {
     const float mouseY = event.GetParameter<float>("mouse_y", 0.0f);
     if (m_drag.guideX) m_drag.guideX->SetProperty("display", "none");
     if (m_drag.guideY) m_drag.guideY->SetProperty("display", "none");
+
+    // Component sliders do not use our DragState, but they share the same
+    // staged color model. Commit them once when the pointer is released.
+    if (m_colorPickDirty && m_drag.kind != DragKind::ColorField && m_drag.kind != DragKind::ColorHue)
+        CommitColorPick();
 
     if (m_drag.kind == DragKind::SettingsMove) {
         // Position is intentionally session-local; reopening Settings keeps the

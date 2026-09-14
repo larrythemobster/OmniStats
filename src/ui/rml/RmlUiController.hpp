@@ -219,6 +219,7 @@ class RmlUiController final : public Rml::EventListener {
     void HandleInput(Rml::Element* target);
     void HandleMouseDown(Rml::Element* target, Rml::Event& event);
     void ApplyColorPick(float mouseX, float mouseY);
+    void RefreshColorPickPreview(bool updateFieldGradient);
     void RefreshThemeEditorControls(std::string_view preserveHexKey = {});
     void CommitColorPick();
     void HandleMouseMove(Rml::Event& event);
@@ -334,6 +335,9 @@ class RmlUiController final : public Rml::EventListener {
     // value through gray would otherwise lose the hue the user picked.
     float m_editColorHue = 0.0f;
     bool m_colorPickDirty = false;
+    // The SV texture only needs to change when the visible hue bucket changes.
+    // Avoid rebinding/regenerating a procedural texture for every mouse pixel.
+    int m_colorPickerGradientHue = -1;
     bool m_confirmReplayUploads = false;
     bool m_confirmDeleteHistory = false;
     bool m_showUpdatePrompt = false;
