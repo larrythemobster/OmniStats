@@ -362,6 +362,8 @@ div.value { display: block; }
     top: 0;
     width: 100%;
     height: 100%;
+    display: flex;
+    flex-direction: column;
     background-color: #0a0c10;
     border-radius: 10dp;
     border: 1dp #232a36;
@@ -374,6 +376,7 @@ div.value { display: block; }
 }
 .dashboard-topbar {
     height: 34dp;
+    flex-shrink: 0;
     padding: 3dp 10dp;
     background-color: #0d0d0d;
     border-bottom: 1dp #242424;
@@ -422,7 +425,7 @@ button.version-update .tooltip-bubble {
 .roster-footer { display: flex; flex-direction: row; justify-content: space-between; gap: 7dp; margin-top: 4dp; padding-top: 4dp; border-top: 1dp #252a3555; color: #9aa4b2; font-size: 11dp; }
 .dashboard-widget-title { display: flex; flex-direction: row; align-items: center; margin-bottom: 5dp; }
 .dashboard-widget-title .name { font-family: "Russo One"; font-size: 13dp; letter-spacing: 0.4dp; }
-.dashboard-content { display: block; width: 100%; padding: 6dp 8dp; box-sizing: border-box; }
+.dashboard-content { display: block; width: 100%; flex-grow: 1; min-height: 0; padding: 6dp 8dp; box-sizing: border-box; overflow-y: auto; }
 .dashboard-zone-top { display: block; width: 100%; margin-bottom: 6dp; box-sizing: border-box; }
 .dashboard-columns { display: flex; flex-direction: row; width: 100%; gap: 8dp; align-items: flex-start; box-sizing: border-box; }
 .dashboard-column { display: flex; flex-direction: column; flex-grow: 1; flex-shrink: 1; flex-basis: 0; min-width: 0; box-sizing: border-box; }
@@ -632,7 +635,7 @@ button.window-control.danger:hover .win-icon-close {
     color: #ffffff;
 }
 .widget-controls { margin-bottom: 7dp; }
-.compact-select { min-width: 122dp; height: 26dp; font-size: 12dp; }
+.compact-select { min-width: 145dp; height: 26dp; font-size: 12dp; }
 button:disabled { color: #606978; background-color: #161920; border-color: #242936; cursor: unavailable; }
 
 .modal-layer { pointer-events: none; }
@@ -1031,11 +1034,16 @@ scrollbarcorner { background-color: #0b0e13aa; }
 .toast.error { border-color: #7d3037; }
 .toast.success { border-color: #397d30; }
 
-@media (max-width: 850dp) {
+@media (max-width: 720dp) {
     .settings-window { width: 96%; height: 94%; }
     .settings-nav { width: 145dp; }
     .dashboard-columns { flex-direction: column; }
-    .dashboard-column { width: 100%; }
+    .dashboard-column {
+        width: 100%;
+        flex-grow: 0;
+        flex-shrink: 0;
+        flex-basis: auto;
+    }
 }
 
 /* Platform identity. Colors are applied by the theme pass from

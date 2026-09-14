@@ -1,6 +1,25 @@
 #pragma once
 #include <windows.h>
 
+// Keep second-monitor mode large enough for the two-column dashboard to remain
+// usable. Values are logical (96-DPI) pixels and are scaled for the monitor.
+inline constexpr int kSecondMonitorMinWidthDp = 800;
+inline constexpr int kSecondMonitorMinHeightDp = 500;
+
+inline SIZE GetSecondMonitorMinimumSize(float dpiScale) {
+    if (dpiScale < 0.5f) dpiScale = 1.0f;
+    SIZE size{};
+    size.cx = static_cast<LONG>(kSecondMonitorMinWidthDp * dpiScale + 0.5f);
+    size.cy = static_cast<LONG>(kSecondMonitorMinHeightDp * dpiScale + 0.5f);
+    return size;
+}
+
+inline void ClampSecondMonitorSize(int& width, int& height, float dpiScale) {
+    const SIZE minimum = GetSecondMonitorMinimumSize(dpiScale);
+    if (width < minimum.cx) width = minimum.cx;
+    if (height < minimum.cy) height = minimum.cy;
+}
+
 // Compute a centered rectangle of size (w,h) inside monitorRect
 inline RECT ComputeCenteredRect(const RECT& monitorRect, int w, int h) {
     RECT r;

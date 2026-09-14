@@ -151,7 +151,9 @@ LRESULT WINAPI WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                 static auto getDpiForWindow = user32 ? reinterpret_cast<GetDpiForWindowFn>(GetProcAddress(user32, "GetDpiForWindow")) : nullptr;
                 if (getDpiForWindow) dpiScale = static_cast<float>(getDpiForWindow(hWnd)) / 96.0f;
             }
-            mmi->ptMinTrackSize.x = static_cast<int>(637.0f * dpiScale);
+            const SIZE minimum = GetSecondMonitorMinimumSize(dpiScale);
+            mmi->ptMinTrackSize.x = minimum.cx;
+            mmi->ptMinTrackSize.y = minimum.cy;
             return 0;
         }
         break;
@@ -507,10 +509,14 @@ void Overlay::HandleDpiChanged(UINT dpi, const RECT* suggestedRect) {
     const bool keepSecondMonitorBounds = config.second_monitor_mode && m_hwnd &&
                                          MonitorFromWindow(m_hwnd, MONITOR_DEFAULTTONULL) != nullptr;
     if (suggestedRect && m_hwnd) {
+        int width = suggestedRect->right - suggestedRect->left;
+        int height = suggestedRect->bottom - suggestedRect->top;
+        if (config.second_monitor_mode) {
+            ClampSecondMonitorSize(width, height, m_dpiScale);
+        }
         SetWindowPos(m_hwnd, nullptr,
                      suggestedRect->left, suggestedRect->top,
-                     suggestedRect->right - suggestedRect->left,
-                     suggestedRect->bottom - suggestedRect->top,
+                     width, height,
                      SWP_NOZORDER | SWP_NOACTIVATE);
         if (config.second_monitor_mode) {
             SaveSecondMonitorWindowBounds();

@@ -1,5 +1,6 @@
 #include "OverlayWindow.hpp"
 #include "core/Config.hpp"
+#include "ui/WindowUtils.hpp"
 #include <dwmapi.h>
 #include <iostream>
 
@@ -157,10 +158,23 @@ void OverlayWindow::UpdatePosition(bool resetSecondMonitorPlacement) {
                 conf.second_monitor_x + conf.second_monitor_w,
                 conf.second_monitor_y + conf.second_monitor_h};
             if (MonitorFromRect(&savedRect, MONITOR_DEFAULTTONULL)) {
+                int restoredWidth = conf.second_monitor_w;
+                int restoredHeight = conf.second_monitor_h;
+                ClampSecondMonitorSize(restoredWidth, restoredHeight, m_dpiScale);
+
                 SetWindowPos(m_hwnd, nullptr,
                              conf.second_monitor_x, conf.second_monitor_y,
-                             conf.second_monitor_w, conf.second_monitor_h,
+                             restoredWidth, restoredHeight,
                              SWP_NOACTIVATE | SWP_NOZORDER);
+
+                // Persist the corrected size so an older config containing a
+                // too-small dashboard does not have to be repaired every launch.
+                if (restoredWidth != conf.second_monitor_w || restoredHeight != conf.second_monitor_h) {
+                    Config::Update([=](ConfigData& c) {
+                        c.second_monitor_w = restoredWidth;
+                        c.second_monitor_h = restoredHeight;
+                    });
+                }
                 return;
             }
         }

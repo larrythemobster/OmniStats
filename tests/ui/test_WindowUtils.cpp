@@ -79,3 +79,27 @@ TEST(WindowUtils, ShouldRaiseSecondMonitorWindow_SimulatedFocusLifecycle) {
     EXPECT_TRUE(ShouldRaiseSecondMonitorWindow(secondMonitorMode, isRLActive, wasRLActive, true));
     wasRLActive = isRLActive;
 }
+
+TEST(WindowUtils, SecondMonitorMinimumSize_ScalesWithDpi) {
+    SIZE normal = GetSecondMonitorMinimumSize(1.0f);
+    EXPECT_EQ(normal.cx, 800);
+    EXPECT_EQ(normal.cy, 500);
+
+    SIZE scaled = GetSecondMonitorMinimumSize(1.25f);
+    EXPECT_EQ(scaled.cx, 1000);
+    EXPECT_EQ(scaled.cy, 625);
+}
+
+TEST(WindowUtils, ClampSecondMonitorSize_RepairsUndersizedBounds) {
+    int width = 640;
+    int height = 360;
+    ClampSecondMonitorSize(width, height, 1.0f);
+    EXPECT_EQ(width, 800);
+    EXPECT_EQ(height, 500);
+
+    width = 1200;
+    height = 700;
+    ClampSecondMonitorSize(width, height, 1.0f);
+    EXPECT_EQ(width, 1200);
+    EXPECT_EQ(height, 700);
+}
