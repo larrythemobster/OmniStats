@@ -254,3 +254,73 @@ TEST_F(ConfigTest, InvalidMmrCategoriesUseSafeDefaults) {
     EXPECT_EQ(loaded.graph_mmr_category, "2v2");
     EXPECT_TRUE(loaded.graph_follow_current_playlist);
 }
+
+TEST_F(ConfigTest, ResetThemeColorsRestoresDefaultColors) {
+    ConfigData conf;
+    const ConfigData defaults;
+
+    conf.themeBg = {1.0f, 0.0f, 0.0f, 0.5f};
+    conf.themeSettingsPanel = {0.0f, 1.0f, 0.0f, 0.5f};
+    conf.themeTopbar = {0.0f, 0.0f, 1.0f, 0.5f};
+    conf.themeGraphPanel = {0.5f, 0.5f, 0.5f, 0.5f};
+    conf.themeText = {0.1f, 0.1f, 0.1f, 1.0f};
+    conf.themeAccent = {0.2f, 0.2f, 0.2f, 1.0f};
+    conf.themeWin = {0.3f, 0.3f, 0.3f, 1.0f};
+    conf.themeLoss = {0.4f, 0.4f, 0.4f, 1.0f};
+    conf.themeDim = {0.5f, 0.5f, 0.5f, 1.0f};
+    conf.themeMuted = {0.6f, 0.6f, 0.6f, 1.0f};
+    conf.themeGraphLine = {0.7f, 0.7f, 0.7f, 1.0f};
+    conf.themeGraphBaseline = {0.8f, 0.8f, 0.8f, 1.0f};
+
+    conf.ResetThemeColors();
+
+    EXPECT_EQ(conf.themeBg.r, defaults.themeBg.r);
+    EXPECT_EQ(conf.themeBg.g, defaults.themeBg.g);
+    EXPECT_EQ(conf.themeBg.b, defaults.themeBg.b);
+    EXPECT_EQ(conf.themeBg.a, defaults.themeBg.a);
+    EXPECT_EQ(conf.themeSettingsPanel.r, defaults.themeSettingsPanel.r);
+    EXPECT_EQ(conf.themeTopbar.r, defaults.themeTopbar.r);
+    EXPECT_EQ(conf.themeGraphPanel.r, defaults.themeGraphPanel.r);
+    EXPECT_EQ(conf.themeText.r, defaults.themeText.r);
+    EXPECT_EQ(conf.themeAccent.r, defaults.themeAccent.r);
+    EXPECT_EQ(conf.themeWin.r, defaults.themeWin.r);
+    EXPECT_EQ(conf.themeLoss.r, defaults.themeLoss.r);
+    EXPECT_EQ(conf.themeDim.r, defaults.themeDim.r);
+    EXPECT_EQ(conf.themeMuted.r, defaults.themeMuted.r);
+    EXPECT_EQ(conf.themeGraphLine.r, defaults.themeGraphLine.r);
+    EXPECT_EQ(conf.themeGraphBaseline.r, defaults.themeGraphBaseline.r);
+}
+
+TEST_F(ConfigTest, ResetLayoutsRestoresDefaultLayoutAndPlacement) {
+    ConfigData conf;
+    const ConfigData defaults;
+
+    conf.session_view_x = 999.0f;
+    conf.session_view_y = 888.0f;
+    conf.match_summary_x = 777.0f;
+    conf.match_summary_y = 666.0f;
+    conf.dashboard_layout.leftColumnWeight = 0.99f;
+    conf.overlay_layout.containers.clear();
+
+    conf.ResetLayouts();
+
+    EXPECT_EQ(conf.session_view_x, defaults.session_view_x);
+    EXPECT_EQ(conf.session_view_y, defaults.session_view_y);
+    EXPECT_EQ(conf.match_summary_x, defaults.match_summary_x);
+    EXPECT_EQ(conf.match_summary_y, defaults.match_summary_y);
+    EXPECT_EQ(conf.dashboard_layout.leftColumnWeight, defaults.dashboard_layout.leftColumnWeight);
+    EXPECT_EQ(conf.overlay_layout.containers.size(), defaults.overlay_layout.containers.size());
+}
+
+TEST_F(ConfigTest, ResetThemeAndLayoutRestoresBoth) {
+    ConfigData conf;
+    const ConfigData defaults;
+
+    conf.themeBg = {1.0f, 0.0f, 0.0f, 0.5f};
+    conf.session_view_x = 999.0f;
+
+    conf.ResetThemeAndLayout();
+
+    EXPECT_EQ(conf.themeBg.r, defaults.themeBg.r);
+    EXPECT_EQ(conf.session_view_x, defaults.session_view_x);
+}

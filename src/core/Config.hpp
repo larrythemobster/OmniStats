@@ -178,6 +178,37 @@ struct ConfigData {
 
     DashboardLayout::LayoutConfig dashboard_layout = DashboardLayout::DefaultLayout();
     OverlayLayout::LayoutConfig overlay_layout = OverlayLayout::DefaultOverlayLayout();
+
+    void ResetThemeColors() {
+        const ConfigData defaults;
+        themeBg = defaults.themeBg;
+        themeSettingsPanel = defaults.themeSettingsPanel;
+        themeTopbar = defaults.themeTopbar;
+        themeGraphPanel = defaults.themeGraphPanel;
+        themeText = defaults.themeText;
+        themeAccent = defaults.themeAccent;
+        themeWin = defaults.themeWin;
+        themeLoss = defaults.themeLoss;
+        themeDim = defaults.themeDim;
+        themeMuted = defaults.themeMuted;
+        themeGraphLine = defaults.themeGraphLine;
+        themeGraphBaseline = defaults.themeGraphBaseline;
+    }
+
+    void ResetLayouts() {
+        const ConfigData defaults;
+        dashboard_layout = defaults.dashboard_layout;
+        overlay_layout = defaults.overlay_layout;
+        session_view_x = defaults.session_view_x;
+        session_view_y = defaults.session_view_y;
+        match_summary_x = defaults.match_summary_x;
+        match_summary_y = defaults.match_summary_y;
+    }
+
+    void ResetThemeAndLayout() {
+        ResetThemeColors();
+        ResetLayouts();
+    }
 };
 
 #include <functional>

@@ -3503,7 +3503,10 @@ std::string RmlUiController::RenderSettingsCards() {
     std::ostringstream out;
     out << SectionStart("Overlay Layout")
         << ToggleControl("overlay_edit_mode", "Edit overlay layout", "Move and resize native overlay containers.", m_state && m_state->ui.dashboardLayoutEditMode.load())
-        << "<div class='row gap-sm' style='margin-top:8dp'>" << Button("reset-overlay", "Reset Overlay Layout", "ghost") << "</div>" << SectionEnd();
+        << "<div class='row wrap gap-sm' style='margin-top:8dp'>"
+        << Button("reset-overlay", "Reset Overlay Layout", "ghost")
+        << Button("reset-theme-and-layout", "Reset Theme & Layout to Default", "ghost")
+        << "</div>" << SectionEnd();
 
     out << SectionStart("Session Card")
         << ToggleControl("show_session_record", "Record", "", m_config.show_session_record)
@@ -3745,6 +3748,10 @@ std::string RmlUiController::RenderSettingsAppearance() {
         << "<option value='1.5'" << Selected(std::fabs(m_config.ui_scale - 1.5f) < .01f) << ">150%</option></select></div>"
         << "<div class='setting-help'>Changes text size throughout the dashboard and overlay.</div>" << SectionEnd();
     out << SectionStart("Colors")
+        << "<div class='row wrap gap-sm' style='margin-bottom:8dp'>"
+        << Button("reset-theme-colors", "Reset Colors to Default", "ghost")
+        << Button("reset-theme-and-layout", "Reset Theme & Layout to Default", "ghost")
+        << "</div>"
         << colorRow("theme_bg", "Overlay background", m_config.themeBg)
         << colorRow("theme_panel", "Settings panels", m_config.themeSettingsPanel)
         << colorRow("theme_topbar", "Top bar", m_config.themeTopbar)
@@ -4138,6 +4145,29 @@ void RmlUiController::HandleClick(Rml::Element* target) {
         RebuildOverlay();
         RebuildSettings();
         ShowToast("Overlay layout reset.");
+    } else if (action == "reset-theme-colors") {
+        Config::Update([](ConfigData& c) { c.ResetThemeColors(); });
+        m_config = Config::Read();
+        m_editColorKey.clear();
+        m_colorPickerGradientHue = -1;
+        m_colorPickDirty = false;
+        UpdateThemeProperties();
+        RefreshThemeEditorControls();
+        RebuildSettings();
+        RebuildVisibleUi(true, true);
+        ShowToast("Theme colors reset to default.");
+    } else if (action == "reset-theme-and-layout") {
+        Config::Update([](ConfigData& c) { c.ResetThemeAndLayout(); });
+        m_config = Config::Read();
+        m_editColorKey.clear();
+        m_colorPickerGradientHue = -1;
+        m_colorPickDirty = false;
+        UpdateThemeProperties();
+        RefreshThemeEditorControls();
+        RebuildOverlay();
+        RebuildSettings();
+        RebuildVisibleUi(true, true);
+        ShowToast("Theme and layout reset to default.");
     } else if (action == "graph-pan-older") {
         PanGraph(-1);
     } else if (action == "graph-pan-newer") {
