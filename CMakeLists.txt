@@ -166,6 +166,9 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
     ole32.lib
     dbghelp.lib
     bcrypt.lib
+    shell32.lib
+    uuid.lib
+    comdlg32.lib
 )
 
 if(MSVC)

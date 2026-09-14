@@ -1,4 +1,6 @@
 #include "ui/rml/RmlUiController.hpp"
+#include <shobjidl.h>
+#include <commdlg.h>
 
 #include <RmlUi/Core.h>
 #include <RmlUi/Core/Context.h>
@@ -42,6 +44,69 @@
 #include "ui/rml/RmlMmrGraphLines.hpp"
 
 namespace {
+    std::string PromptForDatabaseFile(HWND parentHwnd) {
+        std::string result;
+        HRESULT hr = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
+        const bool mustUninit = (hr == S_OK || hr == S_FALSE);
+
+        IFileOpenDialog* fileOpen = nullptr;
+        hr = CoCreateInstance(CLSID_FileOpenDialog, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&fileOpen));
+        if (SUCCEEDED(hr) && fileOpen) {
+            COMDLG_FILTERSPEC filters[] = {
+                {L"SQLite Database (*.db)", L"*.db"},
+                {L"All Files (*.*)", L"*.*"}};
+            fileOpen->SetFileTypes(static_cast<UINT>(std::size(filters)), filters);
+            fileOpen->SetDefaultExtension(L"db");
+            fileOpen->SetTitle(L"Select OmniStats Database to Merge");
+
+            FILEOPENDIALOGOPTIONS options{};
+            if (SUCCEEDED(fileOpen->GetOptions(&options))) {
+                fileOpen->SetOptions(options | FOS_FORCEFILESYSTEM | FOS_FILEMUSTEXIST | FOS_PATHMUSTEXIST);
+            }
+
+            hr = fileOpen->Show(parentHwnd);
+            if (SUCCEEDED(hr)) {
+                IShellItem* item = nullptr;
+                if (SUCCEEDED(fileOpen->GetResult(&item)) && item) {
+                    PWSTR filePath = nullptr;
+                    if (SUCCEEDED(item->GetDisplayName(SIGDN_FILESYSPATH, &filePath)) && filePath) {
+                        int len = WideCharToMultiByte(CP_UTF8, 0, filePath, -1, nullptr, 0, nullptr, nullptr);
+                        if (len > 0) {
+                            result.resize(static_cast<size_t>(len - 1));
+                            WideCharToMultiByte(CP_UTF8, 0, filePath, -1, result.data(), len, nullptr, nullptr);
+                        }
+                        CoTaskMemFree(filePath);
+                    }
+                    item->Release();
+                }
+            }
+            fileOpen->Release();
+        } else {
+            wchar_t szFile[MAX_PATH] = {0};
+            OPENFILENAMEW ofn{};
+            ofn.lStructSize = sizeof(ofn);
+            ofn.hwndOwner = parentHwnd;
+            ofn.lpstrFile = szFile;
+            ofn.nMaxFile = sizeof(szFile) / sizeof(wchar_t);
+            ofn.lpstrFilter = L"SQLite Database (*.db)\0*.db\0All Files (*.*)\0*.*\0";
+            ofn.nFilterIndex = 1;
+            ofn.lpstrTitle = L"Select OmniStats Database to Merge";
+            ofn.Flags = OFN_PATHMUSTEXIST | OFN_FILEMUSTEXIST | OFN_NOCHANGEDIR;
+            if (GetOpenFileNameW(&ofn)) {
+                int len = WideCharToMultiByte(CP_UTF8, 0, szFile, -1, nullptr, 0, nullptr, nullptr);
+                if (len > 0) {
+                    result.resize(static_cast<size_t>(len - 1));
+                    WideCharToMultiByte(CP_UTF8, 0, szFile, -1, result.data(), len, nullptr, nullptr);
+                }
+            }
+        }
+
+        if (mustUninit) {
+            CoUninitialize();
+        }
+        return result;
+    }
+
     int64_t SteadyNowMs() {
         return std::chrono::duration_cast<std::chrono::milliseconds>(
                    std::chrono::steady_clock::now().time_since_epoch())
@@ -3749,9 +3814,10 @@ std::string RmlUiController::RenderSettingsData() {
         << ToggleControl("crash_reports_enabled", "Upload crash reports", "Pending minidumps are sent on the next startup.", m_config.crash_reports_enabled)
         << SectionEnd();
     out << SectionStart("Local Data")
-        << "<div class='setting-help mono'>" << Escape(Storage::GetDataDirectory()) << "</div><div class='row gap-sm' style='margin-top:8dp'>"
-        << Button("open-data-folder", "Open Data Folder") << Button("export-data", "Export Local Data") << Button("delete-history", "Delete History & Identity", "danger") << "</div>"
-        << "<div class='setting-help' style='margin-top:8dp'>Deleting local history also clears the saved local account identity. Settings and service tokens are kept.</div>" << SectionEnd();
+        << "<div class='setting-help mono'>" << Escape(Storage::GetDataDirectory()) << "</div><div class='row wrap gap-sm' style='margin-top:8dp'>"
+        << Button("open-data-folder", "Open Data Folder") << Button("export-data", "Export Local Data") << Button("merge-database", "Merge Database") << Button("delete-history", "Delete History & Identity", "danger") << "</div>"
+        << "<div class='setting-help' style='margin-top:8dp'>Merge matches and history from an older omnistats.db file (such as a backup or from another PC) into your current database. Duplicates are automatically skipped.</div>"
+        << "<div class='setting-help' style='margin-top:4dp'>Deleting local history also clears the saved local account identity. Settings and service tokens are kept.</div>" << SectionEnd();
     return out.str();
 }
 
@@ -4129,6 +4195,49 @@ void RmlUiController::HandleClick(Rml::Element* target) {
                 ShellExecuteA(nullptr, "open", "explorer.exe", arg.c_str(), nullptr, SW_SHOWNORMAL);
             } else
                 ShowToast("Export failed: " + error, true);
+        }
+    } else if (action == "merge-database") {
+        if (!m_dbManager) {
+            ShowToast("Merge failed: database is unavailable.", true);
+        } else {
+            const std::string selectedPath = PromptForDatabaseFile(m_hwnd);
+            if (!selectedPath.empty()) {
+                const auto result = m_dbManager->MergeDatabase(selectedPath);
+                if (result.success) {
+                    if (result.matchesImported > 0) {
+                        ShowToast("Merged " + std::to_string(result.matchesImported) + " matches (" +
+                                  std::to_string(result.matchesSkipped) + " duplicates skipped).");
+                    } else {
+                        ShowToast("Merge complete: 0 new matches (" +
+                                  std::to_string(result.matchesSkipped) + " duplicates skipped).");
+                    }
+                    if (m_state) {
+                        {
+                            std::unique_lock lock(m_state->history.mutex);
+                            m_state->history.lifetimeMmrX.clear();
+                            m_state->history.lifetimeMmrY.clear();
+                            m_state->history.recentSavedMatches.clear();
+                            m_state->history.pendingRecentMatches.clear();
+                            m_state->history.recentSavedMatchesLoaded = false;
+                            m_state->history.version++;
+                        }
+                        {
+                            std::lock_guard lock(m_state->ui.dbStatsMutex);
+                            m_state->ui.cachedDbStats = {};
+                            m_state->ui.dbStatsDirty.store(true);
+                            m_state->ui.dbStatsVersion.fetch_add(1, std::memory_order_relaxed);
+                        }
+                    }
+                    m_lastDbFetchPrimaryId.clear();
+                    m_lastLifetimeHistoryPrimaryId.clear();
+                    m_lastRecentMatchHistoryPrimaryId.clear();
+                    RefreshAsyncData();
+                    RebuildSettings();
+                    RebuildVisibleUi(true);
+                } else {
+                    ShowToast("Merge failed: " + (result.error.empty() ? "unknown error." : result.error), true);
+                }
+            }
         }
     } else if (action == "delete-history") {
         m_confirmDeleteHistory = true;

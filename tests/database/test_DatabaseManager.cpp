@@ -479,3 +479,201 @@ TEST_F(DatabaseManagerTest, EarlyLossPersistsOnceBeforeFollowingWin) {
     EXPECT_FALSE(matches[1].win);
     EXPECT_TRUE(matches[2].win);
 }
+
+static void RemoveTestDbFiles(const std::string& base) {
+    std::error_code ec;
+    std::filesystem::remove(base, ec);
+    std::filesystem::remove(base + "-wal", ec);
+    std::filesystem::remove(base + "-shm", ec);
+}
+
+TEST_F(DatabaseManagerTest, MergeDatabaseRejectsInvalidOrMissingFile) {
+    auto resultEmpty = dbManager->MergeDatabase("");
+    EXPECT_FALSE(resultEmpty.success);
+    EXPECT_EQ(resultEmpty.error, "No database file selected.");
+
+    auto resultMissing = dbManager->MergeDatabase("non_existent_file_12345.db");
+    EXPECT_FALSE(resultMissing.success);
+    EXPECT_NE(resultMissing.error.find("does not exist"), std::string::npos);
+}
+
+TEST_F(DatabaseManagerTest, MergeDatabaseRejectsSelfMerge) {
+    std::string testPath = "test_self_merge.db";
+    RemoveTestDbFiles(testPath);
+
+    {
+        auto fileDb = std::make_shared<DatabaseManager>(sessionState);
+        ASSERT_TRUE(fileDb->Initialize(testPath));
+        auto result = fileDb->MergeDatabase(testPath);
+        EXPECT_FALSE(result.success);
+        EXPECT_EQ(result.error, "Cannot merge the active database into itself.");
+    }
+
+    RemoveTestDbFiles(testPath);
+}
+
+TEST_F(DatabaseManagerTest, MergeDatabaseImportsMatchesAndPlayers) {
+    std::string sourcePath = "test_source_merge.db";
+    RemoveTestDbFiles(sourcePath);
+
+    const std::string pid = "Steam|merge_user";
+    {
+        auto sourceDb = std::make_shared<DatabaseManager>(sessionState);
+        ASSERT_TRUE(sourceDb->Initialize(sourcePath));
+
+        MatchSaveSnapshot match1;
+        match1.arenaName = "DFH Stadium";
+        match1.matchGuid = "merge_guid_1";
+        match1.myTeam = 0;
+        match1.winnerTeam = 0;
+        match1.validResult = true;
+        match1.score[0] = 4;
+        match1.score[1] = 2;
+        match1.myPrimaryId = pid;
+        match1.playlistId = 10;
+        match1.gamemode = "1v1";
+        match1.roster[pid] = PlayerData{.primaryId = pid, .name = "Player1", .team = 0, .mmr = 1100};
+        match1.roster["Steam|opp1"] = PlayerData{.primaryId = "Steam|opp1", .name = "Opp1", .team = 1, .mmr = 1080};
+        sourceDb->SaveMatch(match1);
+
+        MatchSaveSnapshot match2;
+        match2.arenaName = "Mannfield";
+        match2.matchGuid = "merge_guid_2";
+        match2.myTeam = 0;
+        match2.winnerTeam = 1;
+        match2.validResult = true;
+        match2.score[0] = 1;
+        match2.score[1] = 3;
+        match2.myPrimaryId = pid;
+        match2.playlistId = 10;
+        match2.gamemode = "1v1";
+        match2.roster[pid] = PlayerData{.primaryId = pid, .name = "Player1", .team = 0, .mmr = 1090};
+        match2.roster["Steam|opp2"] = PlayerData{.primaryId = "Steam|opp2", .name = "Opp2", .team = 1, .mmr = 1110};
+        sourceDb->SaveMatch(match2);
+    }
+
+    int wins = 0, losses = 0, games = 0;
+    dbManager->GetGamemodeStats(pid, "1v1", wins, losses, games);
+    EXPECT_EQ(games, 0);
+
+    auto mergeResult = dbManager->MergeDatabase(sourcePath);
+    EXPECT_TRUE(mergeResult.success);
+    EXPECT_EQ(mergeResult.matchesImported, 2);
+    EXPECT_EQ(mergeResult.matchesSkipped, 0);
+    EXPECT_EQ(mergeResult.playersImported, 4);
+
+    dbManager->GetGamemodeStats(pid, "1v1", wins, losses, games);
+    EXPECT_EQ(games, 2);
+    EXPECT_EQ(wins, 1);
+    EXPECT_EQ(losses, 1);
+
+    std::vector<SessionMatchSummary> recent;
+    dbManager->GetRecentMatchHistory(pid, recent, 10);
+    EXPECT_EQ(recent.size(), 2u);
+    RemoveTestDbFiles(sourcePath);
+}
+
+TEST_F(DatabaseManagerTest, MergeDatabaseDeduplicatesMatches) {
+    std::string sourcePath = "test_source_dedup.db";
+    RemoveTestDbFiles(sourcePath);
+    const std::string pid = "Steam|dedup_user";
+    MatchSaveSnapshot match1;
+    match1.arenaName = "DFH Stadium";
+    match1.matchGuid = "shared_guid_1";
+    match1.myTeam = 0;
+    match1.winnerTeam = 0;
+    match1.validResult = true;
+    match1.score[0] = 3;
+    match1.score[1] = 0;
+    match1.myPrimaryId = pid;
+    match1.gamemode = "1v1";
+    match1.roster[pid] = PlayerData{.primaryId = pid, .name = "Player1", .team = 0, .mmr = 1000};
+
+    MatchSaveSnapshot match2;
+    match2.arenaName = "Utopia Coliseum";
+    match2.matchGuid = "new_guid_2";
+    match2.myTeam = 0;
+    match2.winnerTeam = 1;
+    match2.validResult = true;
+    match2.score[0] = 2;
+    match2.score[1] = 4;
+    match2.myPrimaryId = pid;
+    match2.gamemode = "1v1";
+    match2.roster[pid] = PlayerData{.primaryId = pid, .name = "Player1", .team = 0, .mmr = 990};
+
+    // Target already has match1
+    dbManager->SaveMatch(match1);
+
+    // Source has match1 AND match2
+    {
+        auto sourceDb = std::make_shared<DatabaseManager>(sessionState);
+        ASSERT_TRUE(sourceDb->Initialize(sourcePath));
+        sourceDb->SaveMatch(match1);
+        sourceDb->SaveMatch(match2);
+    }
+
+    auto firstMerge = dbManager->MergeDatabase(sourcePath);
+    EXPECT_TRUE(firstMerge.success);
+    EXPECT_EQ(firstMerge.matchesImported, 1);
+    EXPECT_EQ(firstMerge.matchesSkipped, 1);
+
+    // Merge again: both should be skipped as duplicates
+    auto secondMerge = dbManager->MergeDatabase(sourcePath);
+    EXPECT_TRUE(secondMerge.success);
+    EXPECT_EQ(secondMerge.matchesImported, 0);
+    EXPECT_EQ(secondMerge.matchesSkipped, 2);
+
+    RemoveTestDbFiles(sourcePath);
+}
+
+TEST_F(DatabaseManagerTest, MergeDatabaseHandlesLegacySchema) {
+    std::string legacyPath = "test_legacy_schema.db";
+    RemoveTestDbFiles(legacyPath);
+
+    // Create legacy sqlite database without playlist_id and mmr_estimated columns
+    sqlite3* rawDb = nullptr;
+    ASSERT_EQ(sqlite3_open(legacyPath.c_str(), &rawDb), SQLITE_OK);
+
+    const char* schema = R"(
+        CREATE TABLE Matches (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+            arena TEXT,
+            our_score INTEGER,
+            their_score INTEGER,
+            win BOOLEAN,
+            match_guid TEXT,
+            gamemode TEXT,
+            player_count INTEGER
+        );
+        CREATE TABLE MatchPlayers (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            match_id INTEGER,
+            primary_id TEXT,
+            name TEXT,
+            team INTEGER,
+            mmr INTEGER,
+            is_opponent BOOLEAN DEFAULT 0
+        );
+        INSERT INTO Matches (timestamp, arena, our_score, their_score, win, match_guid, gamemode, player_count)
+        VALUES ('2024-01-01 12:00:00', 'DFH Stadium', 5, 2, 1, 'legacy_guid_1', '1v1', 2);
+        INSERT INTO MatchPlayers (match_id, primary_id, name, team, mmr, is_opponent)
+        VALUES (1, 'Steam|legacy_user', 'LegacyPlayer', 0, 1200, 0);
+    )";
+
+    char* errMsg = nullptr;
+    ASSERT_EQ(sqlite3_exec(rawDb, schema, nullptr, nullptr, &errMsg), SQLITE_OK);
+    sqlite3_close(rawDb);
+
+    auto result = dbManager->MergeDatabase(legacyPath);
+    EXPECT_TRUE(result.success);
+    EXPECT_EQ(result.matchesImported, 1);
+    EXPECT_EQ(result.playersImported, 1);
+
+    int wins = 0, losses = 0, games = 0;
+    dbManager->GetGamemodeStats("Steam|legacy_user", "1v1", wins, losses, games);
+    EXPECT_EQ(games, 1);
+    EXPECT_EQ(wins, 1);
+
+    RemoveTestDbFiles(legacyPath);
+}

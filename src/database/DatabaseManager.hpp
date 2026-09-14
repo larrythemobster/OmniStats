@@ -15,6 +15,14 @@
 
 #include "core/MatchSaveSnapshot.hpp"
 
+struct DbMergeResult {
+    int matchesImported = 0;
+    int matchesSkipped = 0;
+    int playersImported = 0;
+    bool success = false;
+    std::string error;
+};
+
 class DatabaseManager {
   public:
     DatabaseManager(std::shared_ptr<SessionState> state);
@@ -39,6 +47,7 @@ class DatabaseManager {
     void AsyncRefreshDbStats(const std::string& primaryId);
     bool ExportLocalData(std::string& exportPath, std::string& error);
     bool DeleteLocalMatchHistory(std::string& error);
+    DbMergeResult MergeDatabase(const std::string& sourceDbPath);
 
     [[nodiscard]] bool SetSetting(const std::string& key, const std::string& value);
     void AsyncSetSetting(std::string key, std::string value);

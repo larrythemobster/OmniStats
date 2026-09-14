@@ -813,6 +813,268 @@ bool DatabaseManager::DeleteLocalMatchHistory(std::string& error) {
     return true;
 }
 
+DbMergeResult DatabaseManager::MergeDatabase(const std::string& sourceDbPath) {
+    DbMergeResult result;
+    if (sourceDbPath.empty()) {
+        result.error = "No database file selected.";
+        return result;
+    }
+
+    std::error_code ec;
+    fs::path srcPath(sourceDbPath);
+    if (!fs::exists(srcPath, ec) || !fs::is_regular_file(srcPath, ec)) {
+        result.error = "Selected file does not exist or is not a regular file.";
+        return result;
+    }
+
+    std::lock_guard<std::mutex> lock(m_dbMutex);
+    if (!m_db) {
+        result.error = "Target database is not open.";
+        return result;
+    }
+
+    if (!m_dbPath.empty()) {
+        fs::path targetPath(m_dbPath);
+        if (fs::equivalent(srcPath, targetPath, ec)) {
+            result.error = "Cannot merge the active database into itself.";
+            return result;
+        }
+    }
+
+    sqlite3* srcDb = nullptr;
+    int rc = sqlite3_open_v2(srcPath.string().c_str(), &srcDb, SQLITE_OPEN_READONLY, nullptr);
+    if (rc != SQLITE_OK || !srcDb) {
+        result.error = "Failed to open source database: " + std::string(srcDb ? sqlite3_errmsg(srcDb) : "unknown error");
+        if (srcDb) sqlite3_close(srcDb);
+        return result;
+    }
+
+    auto tableExists = [](sqlite3* db, const char* name) -> bool {
+        const char* sql = "SELECT 1 FROM sqlite_master WHERE type='table' AND name = ? LIMIT 1;";
+        sqlite3_stmt* stmt = nullptr;
+        if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK) return false;
+        sqlite3_bind_text(stmt, 1, name, -1, SQLITE_STATIC);
+        bool found = (sqlite3_step(stmt) == SQLITE_ROW);
+        sqlite3_finalize(stmt);
+        return found;
+    };
+
+    if (!tableExists(srcDb, "Matches")) {
+        result.error = "Selected file is not an OmniStats database (missing Matches table).";
+        sqlite3_close(srcDb);
+        return result;
+    }
+
+    if (!tableExists(srcDb, "MatchPlayers")) {
+        result.error = "Selected file is not an OmniStats database (missing MatchPlayers table).";
+        sqlite3_close(srcDb);
+        return result;
+    }
+
+    const bool srcHasPlaylistId = SqliteTableHasColumn(srcDb, "Matches", "playlist_id");
+    const bool srcHasMmrEstimated = SqliteTableHasColumn(srcDb, "MatchPlayers", "mmr_estimated");
+    const bool srcHasIsOpponent = SqliteTableHasColumn(srcDb, "MatchPlayers", "is_opponent");
+
+    char* errMsg = nullptr;
+    if (sqlite3_exec(m_db, "BEGIN IMMEDIATE;", nullptr, nullptr, &errMsg) != SQLITE_OK) {
+        result.error = errMsg ? errMsg : "Failed to begin transaction on target database.";
+        if (errMsg) sqlite3_free(errMsg);
+        sqlite3_close(srcDb);
+        return result;
+    }
+
+    const char* checkGuidSql = "SELECT id FROM Matches WHERE match_guid = ? AND match_guid != '' LIMIT 1;";
+    sqlite3_stmt* checkGuidStmt = nullptr;
+    const char* checkFallbackSql = "SELECT id FROM Matches WHERE timestamp = ? AND arena = ? AND our_score = ? AND their_score = ? AND win = ? LIMIT 1;";
+    sqlite3_stmt* checkFallbackStmt = nullptr;
+
+    const char* insertMatchSql =
+        "INSERT INTO Matches (timestamp, arena, our_score, their_score, win, match_guid, playlist_id, gamemode, player_count) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);";
+    sqlite3_stmt* insertMatchStmt = nullptr;
+
+    const char* insertPlayerSql =
+        "INSERT INTO MatchPlayers (match_id, primary_id, name, team, mmr, mmr_estimated, is_opponent) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?);";
+    sqlite3_stmt* insertPlayerStmt = nullptr;
+
+    if (sqlite3_prepare_v2(m_db, checkGuidSql, -1, &checkGuidStmt, nullptr) != SQLITE_OK ||
+        sqlite3_prepare_v2(m_db, checkFallbackSql, -1, &checkFallbackStmt, nullptr) != SQLITE_OK ||
+        sqlite3_prepare_v2(m_db, insertMatchSql, -1, &insertMatchStmt, nullptr) != SQLITE_OK ||
+        sqlite3_prepare_v2(m_db, insertPlayerSql, -1, &insertPlayerStmt, nullptr) != SQLITE_OK) {
+        result.error = "Failed to prepare target database statements.";
+        if (checkGuidStmt) sqlite3_finalize(checkGuidStmt);
+        if (checkFallbackStmt) sqlite3_finalize(checkFallbackStmt);
+        if (insertMatchStmt) sqlite3_finalize(insertMatchStmt);
+        if (insertPlayerStmt) sqlite3_finalize(insertPlayerStmt);
+        sqlite3_exec(m_db, "ROLLBACK;", nullptr, nullptr, nullptr);
+        sqlite3_close(srcDb);
+        return result;
+    }
+
+    std::string selectMatchesSql = "SELECT id, timestamp, arena, our_score, their_score, win, match_guid, ";
+    selectMatchesSql += srcHasPlaylistId ? "playlist_id, " : "NULL, ";
+    selectMatchesSql += "gamemode, player_count FROM Matches ORDER BY id ASC;";
+
+    sqlite3_stmt* selectMatchesStmt = nullptr;
+    if (sqlite3_prepare_v2(srcDb, selectMatchesSql.c_str(), -1, &selectMatchesStmt, nullptr) != SQLITE_OK) {
+        result.error = "Failed to read matches from source database: " + std::string(sqlite3_errmsg(srcDb));
+        sqlite3_finalize(checkGuidStmt);
+        sqlite3_finalize(checkFallbackStmt);
+        sqlite3_finalize(insertMatchStmt);
+        sqlite3_finalize(insertPlayerStmt);
+        sqlite3_exec(m_db, "ROLLBACK;", nullptr, nullptr, nullptr);
+        sqlite3_close(srcDb);
+        return result;
+    }
+
+    std::string selectPlayersSql = "SELECT primary_id, name, team, mmr, ";
+    selectPlayersSql += srcHasMmrEstimated ? "mmr_estimated, " : "0, ";
+    selectPlayersSql += srcHasIsOpponent ? "is_opponent " : "0 ";
+    selectPlayersSql += "FROM MatchPlayers WHERE match_id = ? ORDER BY id ASC;";
+
+    sqlite3_stmt* selectPlayersStmt = nullptr;
+    if (sqlite3_prepare_v2(srcDb, selectPlayersSql.c_str(), -1, &selectPlayersStmt, nullptr) != SQLITE_OK) {
+        result.error = "Failed to prepare player read statement from source database: " + std::string(sqlite3_errmsg(srcDb));
+        sqlite3_finalize(selectMatchesStmt);
+        sqlite3_finalize(checkGuidStmt);
+        sqlite3_finalize(checkFallbackStmt);
+        sqlite3_finalize(insertMatchStmt);
+        sqlite3_finalize(insertPlayerStmt);
+        sqlite3_exec(m_db, "ROLLBACK;", nullptr, nullptr, nullptr);
+        sqlite3_close(srcDb);
+        return result;
+    }
+
+    bool loopOk = true;
+    while (sqlite3_step(selectMatchesStmt) == SQLITE_ROW) {
+        int64_t oldMatchId = sqlite3_column_int64(selectMatchesStmt, 0);
+        std::string timestamp = SqlColumnText(selectMatchesStmt, 1);
+        std::string arena = SqlColumnText(selectMatchesStmt, 2);
+        int ourScore = sqlite3_column_int(selectMatchesStmt, 3);
+        int theirScore = sqlite3_column_int(selectMatchesStmt, 4);
+        int win = sqlite3_column_int(selectMatchesStmt, 5);
+        std::string matchGuid = SqlColumnText(selectMatchesStmt, 6);
+        bool playlistNull = (sqlite3_column_type(selectMatchesStmt, 7) == SQLITE_NULL);
+        int playlistId = playlistNull ? 0 : sqlite3_column_int(selectMatchesStmt, 7);
+        std::string gamemode = SqlColumnText(selectMatchesStmt, 8);
+        int playerCount = sqlite3_column_int(selectMatchesStmt, 9);
+
+        if (arena.empty()) {
+            result.matchesSkipped++;
+            continue;
+        }
+
+        bool isDuplicate = false;
+        if (!matchGuid.empty()) {
+            sqlite3_reset(checkGuidStmt);
+            sqlite3_clear_bindings(checkGuidStmt);
+            sqlite3_bind_text(checkGuidStmt, 1, matchGuid.c_str(), -1, SQLITE_STATIC);
+            if (sqlite3_step(checkGuidStmt) == SQLITE_ROW) {
+                isDuplicate = true;
+            }
+        }
+
+        if (!isDuplicate && !timestamp.empty()) {
+            sqlite3_reset(checkFallbackStmt);
+            sqlite3_clear_bindings(checkFallbackStmt);
+            sqlite3_bind_text(checkFallbackStmt, 1, timestamp.c_str(), -1, SQLITE_STATIC);
+            sqlite3_bind_text(checkFallbackStmt, 2, arena.c_str(), -1, SQLITE_STATIC);
+            sqlite3_bind_int(checkFallbackStmt, 3, ourScore);
+            sqlite3_bind_int(checkFallbackStmt, 4, theirScore);
+            sqlite3_bind_int(checkFallbackStmt, 5, win);
+            if (sqlite3_step(checkFallbackStmt) == SQLITE_ROW) {
+                isDuplicate = true;
+            }
+        }
+
+        if (isDuplicate) {
+            result.matchesSkipped++;
+            continue;
+        }
+
+        sqlite3_reset(insertMatchStmt);
+        sqlite3_clear_bindings(insertMatchStmt);
+        sqlite3_bind_text(insertMatchStmt, 1, timestamp.c_str(), -1, SQLITE_STATIC);
+        sqlite3_bind_text(insertMatchStmt, 2, arena.c_str(), -1, SQLITE_STATIC);
+        sqlite3_bind_int(insertMatchStmt, 3, ourScore);
+        sqlite3_bind_int(insertMatchStmt, 4, theirScore);
+        sqlite3_bind_int(insertMatchStmt, 5, win);
+        sqlite3_bind_text(insertMatchStmt, 6, matchGuid.c_str(), -1, SQLITE_STATIC);
+        if (playlistNull) {
+            sqlite3_bind_null(insertMatchStmt, 7);
+        } else {
+            sqlite3_bind_int(insertMatchStmt, 7, playlistId);
+        }
+        sqlite3_bind_text(insertMatchStmt, 8, gamemode.c_str(), -1, SQLITE_STATIC);
+        sqlite3_bind_int(insertMatchStmt, 9, playerCount);
+
+        if (sqlite3_step(insertMatchStmt) != SQLITE_DONE) {
+            result.error = "Failed to insert match into target database: " + std::string(sqlite3_errmsg(m_db));
+            loopOk = false;
+            break;
+        }
+
+        sqlite3_int64 newMatchId = sqlite3_last_insert_rowid(m_db);
+        result.matchesImported++;
+
+        sqlite3_reset(selectPlayersStmt);
+        sqlite3_clear_bindings(selectPlayersStmt);
+        sqlite3_bind_int64(selectPlayersStmt, 1, oldMatchId);
+
+        while (sqlite3_step(selectPlayersStmt) == SQLITE_ROW) {
+            std::string primaryId = SqlColumnText(selectPlayersStmt, 0);
+            std::string name = SqlColumnText(selectPlayersStmt, 1);
+            int team = sqlite3_column_int(selectPlayersStmt, 2);
+            int mmr = sqlite3_column_int(selectPlayersStmt, 3);
+            int mmrEstimated = sqlite3_column_int(selectPlayersStmt, 4);
+            int isOpponent = sqlite3_column_int(selectPlayersStmt, 5);
+
+            sqlite3_reset(insertPlayerStmt);
+            sqlite3_clear_bindings(insertPlayerStmt);
+            sqlite3_bind_int64(insertPlayerStmt, 1, newMatchId);
+            sqlite3_bind_text(insertPlayerStmt, 2, primaryId.c_str(), -1, SQLITE_STATIC);
+            sqlite3_bind_text(insertPlayerStmt, 3, name.c_str(), -1, SQLITE_STATIC);
+            sqlite3_bind_int(insertPlayerStmt, 4, team);
+            sqlite3_bind_int(insertPlayerStmt, 5, mmr);
+            sqlite3_bind_int(insertPlayerStmt, 6, mmrEstimated);
+            sqlite3_bind_int(insertPlayerStmt, 7, isOpponent);
+
+            if (sqlite3_step(insertPlayerStmt) != SQLITE_DONE) {
+                result.error = "Failed to insert player into target database: " + std::string(sqlite3_errmsg(m_db));
+                loopOk = false;
+                break;
+            }
+            result.playersImported++;
+        }
+
+        if (!loopOk) break;
+    }
+
+    sqlite3_finalize(selectPlayersStmt);
+    sqlite3_finalize(selectMatchesStmt);
+    sqlite3_finalize(checkGuidStmt);
+    sqlite3_finalize(checkFallbackStmt);
+    sqlite3_finalize(insertMatchStmt);
+    sqlite3_finalize(insertPlayerStmt);
+    sqlite3_close(srcDb);
+
+    if (!loopOk) {
+        sqlite3_exec(m_db, "ROLLBACK;", nullptr, nullptr, nullptr);
+        return result;
+    }
+
+    if (sqlite3_exec(m_db, "COMMIT;", nullptr, nullptr, &errMsg) != SQLITE_OK) {
+        result.error = errMsg ? errMsg : "Failed to commit merge transaction.";
+        if (errMsg) sqlite3_free(errMsg);
+        sqlite3_exec(m_db, "ROLLBACK;", nullptr, nullptr, nullptr);
+        return result;
+    }
+
+    result.success = true;
+    return result;
+}
+
 void DatabaseManager::GetOpponentRecord(const std::string& primaryId, const std::string& opponentId, int& wins, int& losses) {
     std::lock_guard<std::mutex> lock(m_dbMutex);
     wins = 0;
