@@ -1239,7 +1239,9 @@ bool MMRFetcher::TrySatisfyLocalRosterRequest(const std::string& primaryId) {
     player.playlists = cached.playlists;
     player.playlistTiers = cached.playlistTiers;
     player.playlistMatches = cached.playlistMatches;
-    player.totalWins = cached.totalWins;
+    if (cached.totalWins >= 0) {
+        player.totalWins = cached.totalWins;
+    }
     player.mmr = cached.bestMmr;
     player.rankTier = cached.bestTier;
     player.fetched = true;
@@ -1301,7 +1303,9 @@ void MMRFetcher::StoreLocalProfileCache(
     m_localProfileCache.playlists = playlists;
     m_localProfileCache.playlistTiers = playlistTiers;
     m_localProfileCache.playlistMatches = playlistMatches;
-    m_localProfileCache.totalWins = totalWins;
+    if (totalWins >= 0) {
+        m_localProfileCache.totalWins = totalWins;
+    }
 }
 
 void MMRFetcher::Enqueue(const std::string& primaryId, const std::string& name) {
@@ -1917,7 +1921,13 @@ CustomApiFetchResult MMRFetcher::FetchProfileFromCustomApi(const MMRRequest& req
     profile.playlistMMRs = std::move(playlistMMRs);
     profile.playlistTiers = std::move(playlistTiers);
     profile.playlistMatches = std::move(playlistMatches);
-    profile.totalWins = -1;
+    int totalWins = -1;
+    if (matchedPlayer->contains("wins") && (*matchedPlayer)["wins"].is_number_integer()) {
+        totalWins = (*matchedPlayer)["wins"].get<int>();
+    } else if (matchedPlayer->contains("total_wins") && (*matchedPlayer)["total_wins"].is_number_integer()) {
+        totalWins = (*matchedPlayer)["total_wins"].get<int>();
+    }
+    profile.totalWins = totalWins;
     profile.rankVerificationSource = "ServerA";
 
     const bool requeued = PublishProfileResult(req, profile);
