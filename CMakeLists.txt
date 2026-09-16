@@ -3,6 +3,19 @@ cmake_minimum_required(VERSION 3.22)
 # Force vcpkg to build statically-linked libraries (must be set BEFORE project())
 set(VCPKG_TARGET_TRIPLET "x64-windows-static" CACHE STRING "Vcpkg target triplet" FORCE)
 
+# Use the project-local RmlUi overlay so font rasterization is deterministic.
+# Preserve any caller-provided overlays while ensuring our patched RmlUi port
+# takes precedence. This must be configured before project() loads vcpkg.
+set(_OMNISTATS_VCPKG_OVERLAY "${CMAKE_CURRENT_SOURCE_DIR}/vcpkg-overlay-ports")
+set(_OMNISTATS_VCPKG_OVERLAYS "${_OMNISTATS_VCPKG_OVERLAY}")
+if(VCPKG_OVERLAY_PORTS)
+    list(APPEND _OMNISTATS_VCPKG_OVERLAYS ${VCPKG_OVERLAY_PORTS})
+endif()
+list(REMOVE_DUPLICATES _OMNISTATS_VCPKG_OVERLAYS)
+set(VCPKG_OVERLAY_PORTS "${_OMNISTATS_VCPKG_OVERLAYS}" CACHE STRING "Vcpkg overlay ports" FORCE)
+unset(_OMNISTATS_VCPKG_OVERLAY)
+unset(_OMNISTATS_VCPKG_OVERLAYS)
+
 # Read version from vcpkg.json (Single Source of Truth)
 file(READ "${CMAKE_CURRENT_SOURCE_DIR}/vcpkg.json" VCPKG_JSON_CONTENT)
 string(JSON OMNISTATS_VERSION GET "${VCPKG_JSON_CONTENT}" "version")
