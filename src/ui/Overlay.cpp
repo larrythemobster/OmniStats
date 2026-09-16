@@ -2,6 +2,8 @@
 
 #include <chrono>
 #include <dwmapi.h>
+#define SDL_MAIN_HANDLED
+#include <SDL2/SDL.h>
 #include <iomanip>
 #include <iostream>
 #include <string>
@@ -256,6 +258,12 @@ void Overlay::RunLoop() {
             if (msg.message == WM_QUIT) done = true;
         }
         if (done) break;
+
+        if (SDL_WasInit(SDL_INIT_GAMECONTROLLER | SDL_INIT_JOYSTICK) != 0) {
+            SDL_Event event;
+            while (SDL_PollEvent(&event)) {
+            }
+        }
 
         const uint64_t configRevision = Config::Revision();
         if (configRevision != lastConfigRevision) {

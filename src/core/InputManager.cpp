@@ -225,6 +225,7 @@ void InputManager::Start() {
     RefreshConfigCache();
 
     SDL_SetMainReady();
+    SDL_SetHint(SDL_HINT_JOYSTICK_ALLOW_BACKGROUND_EVENTS, "1");
     SDL_Init(SDL_INIT_GAMECONTROLLER | SDL_INIT_JOYSTICK);
 
     m_keyboardThread = std::jthread(&InputManager::KeyboardThreadLoop, this);
@@ -590,12 +591,18 @@ LRESULT CALLBACK InputManager::LowLevelKeyboardProc(int nCode, WPARAM wParam,
 void InputManager::GamepadThreadLoop() {
     SDL_GameController* controller = nullptr;
     SDL_Joystick* fallbackJoystick = nullptr;
-    auto lastScan = std::chrono::steady_clock::now();
+    auto lastScan = std::chrono::steady_clock::now() - std::chrono::seconds(2);
     int lastLoggedDeviceCount = -1;
 
     bool prevControllerStates[MAX_TRACKED_BUTTONS] = {false};
     bool prevRawControllerStates[256] = {false};
     bool prevFallbackStates[256] = {false};
+
+    auto resetPreviousStates = [&]() {
+        std::fill_n(prevControllerStates, MAX_TRACKED_BUTTONS, false);
+        std::fill_n(prevRawControllerStates, 256, false);
+        std::fill_n(prevFallbackStates, 256, false);
+    };
 
     auto updateDebugInfo = [&](const char* name, bool isGameController, bool connected) {
         auto* self = g_instance.load(std::memory_order_acquire);
@@ -660,6 +667,8 @@ void InputManager::GamepadThreadLoop() {
                 if (!SDL_GameControllerGetAttached(controller)) {
                     SDL_GameControllerClose(controller);
                     controller = nullptr;
+                    resetPreviousStates();
+                    lastScan = now - std::chrono::seconds(2);
                     updateDebugInfo("", false, false);
                 } else {
                     SDL_GameControllerUpdate();
@@ -766,6 +775,8 @@ void InputManager::GamepadThreadLoop() {
                 if (!SDL_JoystickGetAttached(fallbackJoystick)) {
                     SDL_JoystickClose(fallbackJoystick);
                     fallbackJoystick = nullptr;
+                    resetPreviousStates();
+                    lastScan = now - std::chrono::seconds(2);
                     updateDebugInfo("", false, false);
                 } else {
                     SDL_JoystickUpdate();
