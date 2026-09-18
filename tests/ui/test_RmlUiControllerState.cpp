@@ -354,6 +354,34 @@ TEST_F(RmlUiControllerStateTest, LobbyRanksKeepsEnabledPlaylistColumnHeaders) {
     EXPECT_EQ(html.find(">Hoops</div>"), std::string::npos);
 }
 
+TEST_F(RmlUiControllerStateTest, RosterBestUsesUnderlyingPlaylistMatchCountWhenSyntheticBestIsMissing) {
+    auto state = std::make_shared<SessionState>();
+    {
+        std::unique_lock lock(state->game.mutex);
+        PlayerData player;
+        player.primaryId = "Epic|test1";
+        player.name = "TestPlayer";
+        player.team = 0;
+        player.mmr = 1250;
+        player.rankTier = "Diamond II Div III";
+        player.playlists["2v2"] = 1250;
+        player.playlistTiers["2v2"] = "Diamond II Div III";
+        player.playlistMatches["2v2"] = 45;
+        player.fetched = true;
+        state->game.roster[player.primaryId] = player;
+        state->game.version.fetch_add(1);
+    }
+
+    RmlUiController controller(state, nullptr);
+    controller.Update(Config::Read());
+
+    const std::string rosterHtml = RenderRoster(controller);
+    EXPECT_NE(rosterHtml.find("<span class='chip'>45 matches</span>"), std::string::npos);
+
+    const std::string lobbyHtml = RenderLobbyRanks(controller);
+    EXPECT_NE(lobbyHtml.find("<span class='lobby-rank-matches'>(45)</span>"), std::string::npos);
+}
+
 TEST_F(RmlUiControllerStateTest, LobbyRanksCalculatesRanksPerPlaylistForUnrankedPlacementPlayers) {
     auto state = std::make_shared<SessionState>();
     {

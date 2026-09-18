@@ -2451,7 +2451,12 @@ std::string RmlUiController::RenderPlayerRoster(int team, const char* label) {
         std::string platform;
         if (const auto pos = p->primaryId.find('|'); pos != std::string::npos) platform = p->primaryId.substr(0, pos);
         const auto color = Format::RankColor(tier);
-        const auto matchesIt = p->playlistMatches.find(category == "best" ? "best" : rankSource);
+
+        const std::string matchSource = category == "best" && rankSource != "best" ? rankSource : category;
+        auto matchesIt = p->playlistMatches.find(matchSource);
+        if (matchesIt == p->playlistMatches.end() && category == "best") {
+            matchesIt = p->playlistMatches.find("best");
+        }
         const int matchCount = matchesIt != p->playlistMatches.end() ? matchesIt->second : 0;
 
         out << "<div class='player-row" << (self ? " self" : "") << "' data-live-player='" << Escape(p->primaryId) << "'>";
