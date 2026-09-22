@@ -5,6 +5,8 @@
 #include <algorithm>
 #include <vector>
 #include <windows.h>
+#include <tlhelp32.h>
+#include <psapi.h>
 #include "nlohmann/json.hpp"
 
 namespace StatsApiConfig {
@@ -62,8 +64,173 @@ namespace StatsApiConfig {
         }
         return "";
     }
+    static HWND FindRocketLeagueWindow() {
+        HWND rlHwnd = ::FindWindowW(L"LaunchUnrealUWindowsClient", nullptr);
+        if (!rlHwnd) rlHwnd = ::FindWindowW(nullptr, L"Rocket League (64-bit, DX11)");
+        if (!rlHwnd) rlHwnd = ::FindWindowW(nullptr, L"Rocket League (32-bit, DX11)");
+        if (!rlHwnd) rlHwnd = ::FindWindowW(nullptr, L"Rocket League");
+        return rlHwnd;
+    }
+
+    bool IsRocketLeagueRunning() {
+        HANDLE hSnap = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+        if (hSnap != INVALID_HANDLE_VALUE) {
+            PROCESSENTRY32W pe32;
+            pe32.dwSize = sizeof(pe32);
+            if (Process32FirstW(hSnap, &pe32)) {
+                do {
+                    if (_wcsicmp(pe32.szExeFile, L"RocketLeague.exe") == 0) {
+                        CloseHandle(hSnap);
+                        return true;
+                    }
+                } while (Process32NextW(hSnap, &pe32));
+            }
+            CloseHandle(hSnap);
+        }
+
+        return FindRocketLeagueWindow() != nullptr;
+    }
+
+    std::string FindConfigPathFromExecutable(const std::filesystem::path& exePath) {
+        if (exePath.empty()) {
+            return "";
+        }
+
+        std::error_code ec;
+        std::filesystem::path current;
+        try {
+            current = exePath.parent_path();
+        } catch (...) {
+            return "";
+        }
+
+        std::filesystem::path candidate;
+
+        for (int i = 0; i < 5 && !current.empty(); ++i) {
+            std::filesystem::path iniPath = current / "TAGame" / "Config" / "DefaultStatsAPI.ini";
+            if (std::filesystem::exists(iniPath, ec) && !std::filesystem::is_directory(iniPath, ec)) {
+                return iniPath.string();
+            }
+
+            if (candidate.empty()) {
+                std::filesystem::path configDir = current / "TAGame" / "Config";
+                if (std::filesystem::is_directory(configDir, ec)) {
+                    candidate = iniPath;
+                } else {
+                    std::filesystem::path tagameDir = current / "TAGame";
+                    if (std::filesystem::is_directory(tagameDir, ec)) {
+                        candidate = iniPath;
+                    }
+                }
+            }
+
+            std::filesystem::path parent = current.parent_path();
+            if (parent == current) {
+                break;
+            }
+            current = parent;
+        }
+
+        if (!candidate.empty()) {
+            return candidate.string();
+        }
+
+        return "";
+    }
+
+    static std::string QueryProcessPath(DWORD pid) {
+        HANDLE hProc = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid);
+        if (!hProc) {
+            hProc = OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, FALSE, pid);
+        }
+        if (!hProc) {
+            return "";
+        }
+
+        wchar_t pathBuf[MAX_PATH * 4] = {0};
+        DWORD size = static_cast<DWORD>(std::size(pathBuf));
+        if (!QueryFullProcessImageNameW(hProc, 0, pathBuf, &size) || size == 0) {
+            size = GetModuleFileNameExW(hProc, NULL, pathBuf, static_cast<DWORD>(std::size(pathBuf)));
+        }
+        CloseHandle(hProc);
+
+        if (size > 0 && pathBuf[0] != L'\0') {
+            std::error_code ec;
+            std::filesystem::path p(pathBuf);
+            if (std::filesystem::exists(p, ec)) {
+                return p.string();
+            }
+        }
+        return "";
+    }
+
+    std::string DetectConfigPathFromRunningProcess() {
+        std::string candidatePath;
+
+        // 1. Enumerate processes via Toolhelp snapshot
+        HANDLE hSnap = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+        if (hSnap != INVALID_HANDLE_VALUE) {
+            PROCESSENTRY32W pe32;
+            pe32.dwSize = sizeof(pe32);
+            if (Process32FirstW(hSnap, &pe32)) {
+                do {
+                    if (_wcsicmp(pe32.szExeFile, L"RocketLeague.exe") == 0) {
+                        std::string exePath = QueryProcessPath(pe32.th32ProcessID);
+                        if (!exePath.empty()) {
+                            std::string found = FindConfigPathFromExecutable(exePath);
+                            if (!found.empty()) {
+                                std::error_code ec;
+                                if (std::filesystem::exists(found, ec)) {
+                                    CloseHandle(hSnap);
+                                    return found;
+                                }
+                                if (candidatePath.empty()) {
+                                    candidatePath = found;
+                                }
+                            }
+                        }
+                    }
+                } while (Process32NextW(hSnap, &pe32));
+            }
+            CloseHandle(hSnap);
+        }
+
+        // 2. Fallback: Window lookup
+        HWND rlHwnd = FindRocketLeagueWindow();
+        if (rlHwnd) {
+            DWORD pid = 0;
+            GetWindowThreadProcessId(rlHwnd, &pid);
+            if (pid != 0) {
+                std::string exePath = QueryProcessPath(pid);
+                if (!exePath.empty()) {
+                    std::string found = FindConfigPathFromExecutable(exePath);
+                    if (!found.empty()) {
+                        std::error_code ec;
+                        if (std::filesystem::exists(found, ec)) {
+                            return found;
+                        }
+                        if (candidatePath.empty()) {
+                            candidatePath = found;
+                        }
+                    }
+                }
+            }
+        }
+
+        if (!candidatePath.empty()) {
+            return candidatePath;
+        }
+
+        return "";
+    }
 
     std::string DetectConfigPath() {
+        // 0. Try currently running Rocket League process first
+        std::string runningPath = DetectConfigPathFromRunningProcess();
+        if (!runningPath.empty()) {
+            return runningPath;
+        }
+
         // 1. Try Steam Uninstall Registry Key
         std::string steamInstall = GetUninstallInstallLocation("252950");
         if (!steamInstall.empty()) {
@@ -188,7 +355,7 @@ namespace StatsApiConfig {
         CheckResult result;
         result.path = filePath;
         result.expectedPort = expectedPort;
-
+        result.rlRunning = IsRocketLeagueRunning();
         if (filePath.empty()) {
             result.status = Status::NotFound;
             result.message = "Stats API config file path is empty.";
@@ -245,13 +412,6 @@ namespace StatsApiConfig {
             }
         }
         file.close();
-
-        // Check if Rocket League window exists
-        HWND rlHwnd = ::FindWindowA("LaunchUnrealUWindowsClient", nullptr);
-        if (!rlHwnd) rlHwnd = ::FindWindowA(nullptr, "Rocket League (64-bit, DX11)");
-        if (!rlHwnd) rlHwnd = ::FindWindowA(nullptr, "Rocket League (32-bit, DX11)");
-        if (!rlHwnd) rlHwnd = ::FindWindowA(nullptr, "Rocket League");
-        result.rlRunning = (rlHwnd != nullptr);
 
         if (!hasPacketSendRate) {
             result.status = Status::MissingPacketSendRate;

@@ -1,6 +1,6 @@
 #pragma once
+#include <filesystem>
 #include <string>
-
 namespace StatsApiConfig {
 
     enum class Status {
@@ -27,6 +27,9 @@ namespace StatsApiConfig {
 
     std::string GetStatusMessage(Status status);
     std::string DetectConfigPath();
+    std::string DetectConfigPathFromRunningProcess();
+    std::string FindConfigPathFromExecutable(const std::filesystem::path& exePath);
+    bool IsRocketLeagueRunning();
     CheckResult VerifyConfig(const std::string& filePath, int expectedPort);
 
 } // namespace StatsApiConfig

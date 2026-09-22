@@ -230,7 +230,7 @@ class RmlUiController final : public Rml::EventListener {
     void ClearBind(BindCaptureTarget target);
     void MoveDashboardWidget(DashboardLayout::WidgetId widget, DashboardLayout::Zone zone, int order = -1);
     void DeleteLocalHistory();
-    void CheckStatsApi(bool repair);
+    void CheckStatsApi(bool repair, bool showToast = true);
     void ShowToast(std::string message, bool error = false);
 
     static std::string Escape(std::string_view text);

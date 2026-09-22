@@ -1202,6 +1202,7 @@ void RmlUiController::Update(const ConfigData& config, bool configChanged, uint6
     if (!m_lastShowMenu && settingsOpen) {
         ExternalUpdaterLauncher::StartBackgroundUpdateCheck(
             m_state, ExternalUpdaterLauncher::BackgroundUpdateCheckReason::SettingsOpened);
+        CheckStatsApi(false, false);
         UpdateInputCapture();
     } else if (m_lastShowMenu && !settingsOpen) {
         // A range can be adjusted from the keyboard without producing a mouse-up.
@@ -5676,7 +5677,7 @@ void RmlUiController::DeleteLocalHistory() {
     ShowToast("Deleted local history and identity.");
 }
 
-void RmlUiController::CheckStatsApi(bool repair) {
+void RmlUiController::CheckStatsApi(bool repair, bool showToast) {
     if (!m_state) return;
     StatsApiConfig::CheckResult oldResult;
     {
@@ -5684,7 +5685,10 @@ void RmlUiController::CheckStatsApi(bool repair) {
         oldResult = m_state->ui.statsApiResult;
     }
     std::string path = m_config.rocket_league_stats_api_config_path;
-    if (path.empty()) path = oldResult.path.empty() ? StatsApiConfig::DetectConfigPath() : oldResult.path;
+    if (path.empty()) {
+        path = StatsApiConfig::DetectConfigPath();
+        if (path.empty()) path = oldResult.path;
+    }
     bool repaired = true;
     if (repair && !path.empty()) repaired = ExternalUpdaterLauncher::RepairStatsApiConfig(path, m_config.port);
     auto result = StatsApiConfig::VerifyConfig(path, m_config.port);
@@ -5696,5 +5700,7 @@ void RmlUiController::CheckStatsApi(bool repair) {
         m_state->ui.statsApiResult = result;
     }
     m_state->ui.statsApiChecked.store(true);
-    ShowToast(StatsApiConfig::GetStatusMessage(result.status), result.status != StatsApiConfig::Status::Valid);
+    if (showToast) {
+        ShowToast(StatsApiConfig::GetStatusMessage(result.status), result.status != StatsApiConfig::Status::Valid);
+    }
 }

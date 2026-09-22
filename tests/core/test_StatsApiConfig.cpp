@@ -180,3 +180,105 @@ TEST_F(StatsApiConfigTest, FixConfigStrictValidationErrors) {
     exitCode = UpdaterStatsApiRepair::FixConfigStrictHeadless(missingSubdir.string(), 49123);
     EXPECT_EQ(exitCode, 2);
 }
+
+TEST_F(StatsApiConfigTest, FindConfigPathFromExecutable_Standard64Bit) {
+    auto gameRoot = tempDir / "RocketLeague";
+    auto exePath = gameRoot / "Binaries" / "Win64" / "RocketLeague.exe";
+    auto configPath = gameRoot / "TAGame" / "Config" / "DefaultStatsAPI.ini";
+
+    std::filesystem::create_directories(exePath.parent_path());
+    std::filesystem::create_directories(configPath.parent_path());
+    {
+        std::ofstream exeFile(exePath);
+        exeFile << "dummy_exe";
+        std::ofstream configFile(configPath);
+        configFile << "[StatsAPI]\nPacketSendRate=30\nPort=49123\n";
+    }
+
+    std::string detected = StatsApiConfig::FindConfigPathFromExecutable(exePath);
+    EXPECT_EQ(detected, configPath.string());
+}
+
+TEST_F(StatsApiConfigTest, FindConfigPathFromExecutable_Legacy32Bit) {
+    auto gameRoot = tempDir / "RocketLeague32";
+    auto exePath = gameRoot / "Binaries" / "Win32" / "RocketLeague.exe";
+    auto configPath = gameRoot / "TAGame" / "Config" / "DefaultStatsAPI.ini";
+
+    std::filesystem::create_directories(exePath.parent_path());
+    std::filesystem::create_directories(configPath.parent_path());
+    {
+        std::ofstream exeFile(exePath);
+        exeFile << "dummy_exe";
+        std::ofstream configFile(configPath);
+        configFile << "[StatsAPI]\nPacketSendRate=30\nPort=49123\n";
+    }
+
+    std::string detected = StatsApiConfig::FindConfigPathFromExecutable(exePath);
+    EXPECT_EQ(detected, configPath.string());
+}
+
+TEST_F(StatsApiConfigTest, FindConfigPathFromExecutable_MultipleInstallsDisambiguation) {
+    auto steamRoot = tempDir / "SteamInstall" / "steamapps" / "common" / "rocketleague";
+    auto steamExe = steamRoot / "Binaries" / "Win64" / "RocketLeague.exe";
+    auto steamConfig = steamRoot / "TAGame" / "Config" / "DefaultStatsAPI.ini";
+
+    auto epicRoot = tempDir / "EpicInstall" / "rocketleague";
+    auto epicExe = epicRoot / "Binaries" / "Win64" / "RocketLeague.exe";
+    auto epicConfig = epicRoot / "TAGame" / "Config" / "DefaultStatsAPI.ini";
+
+    std::filesystem::create_directories(steamExe.parent_path());
+    std::filesystem::create_directories(steamConfig.parent_path());
+    std::filesystem::create_directories(epicExe.parent_path());
+    std::filesystem::create_directories(epicConfig.parent_path());
+
+    {
+        std::ofstream(steamExe) << "steam_exe";
+        std::ofstream(steamConfig) << "[StatsAPI]\nPacketSendRate=30\nPort=49123\n";
+        std::ofstream(epicExe) << "epic_exe";
+        std::ofstream(epicConfig) << "[StatsAPI]\nPacketSendRate=30\nPort=49123\n";
+    }
+
+    // When Steam instance runs, it must return the Steam config path
+    EXPECT_EQ(StatsApiConfig::FindConfigPathFromExecutable(steamExe), steamConfig.string());
+    // When Epic instance runs, it must return the Epic config path
+    EXPECT_EQ(StatsApiConfig::FindConfigPathFromExecutable(epicExe), epicConfig.string());
+}
+
+TEST_F(StatsApiConfigTest, FindConfigPathFromExecutable_CandidateDirectoryWhenFileMissing) {
+    auto gameRoot = tempDir / "RocketLeagueMissingIni";
+    auto exePath = gameRoot / "Binaries" / "Win64" / "RocketLeague.exe";
+    auto expectedConfig = gameRoot / "TAGame" / "Config" / "DefaultStatsAPI.ini";
+
+    std::filesystem::create_directories(exePath.parent_path());
+    std::filesystem::create_directories(expectedConfig.parent_path());
+    {
+        std::ofstream exeFile(exePath);
+        exeFile << "dummy_exe";
+    }
+
+    // File doesn't exist yet, but TAGame/Config folder does exist
+    EXPECT_FALSE(std::filesystem::exists(expectedConfig));
+    std::string detected = StatsApiConfig::FindConfigPathFromExecutable(exePath);
+    EXPECT_EQ(detected, expectedConfig.string());
+}
+
+TEST_F(StatsApiConfigTest, FindConfigPathFromExecutable_EmptyOrInvalidPath) {
+    EXPECT_TRUE(StatsApiConfig::FindConfigPathFromExecutable("").empty());
+
+    auto nonGameExe = tempDir / "OtherApp" / "bin" / "app.exe";
+    std::filesystem::create_directories(nonGameExe.parent_path());
+    {
+        std::ofstream f(nonGameExe);
+        f << "other";
+    }
+    EXPECT_TRUE(StatsApiConfig::FindConfigPathFromExecutable(nonGameExe).empty());
+}
+
+TEST_F(StatsApiConfigTest, RunningProcessDetectionSafeExecution) {
+    // Safe execution without crash
+    std::string runningPath = StatsApiConfig::DetectConfigPathFromRunningProcess();
+    (void)runningPath;
+
+    bool running = StatsApiConfig::IsRocketLeagueRunning();
+    (void)running;
+}
