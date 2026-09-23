@@ -92,18 +92,16 @@ std::string RmlUiController::RenderSettingsCards() {
     }
     out << SectionEnd();
 
-    out << SectionStart("Card Details")
-        << "<div class='setting-row'><div class='setting-info'><div class='setting-name'>Previous games to show</div></div><select data-setting='previous_games_limit'" << (!m_config.show_previous_games_summary ? " disabled='disabled'" : "") << ">";
+    std::vector<SelectOption> gameCounts;
     for (int count : {10, 20, 30, 40, 50})
-        out << "<option value='" << count << "'" << Selected(m_config.previous_games_limit == count) << ">" << count << "</option>";
-    out << "</select></div>"
+        gameCounts.push_back({std::to_string(count), std::to_string(count)});
+    out << SectionStart("Card Details")
+        << SelectRow("previous_games_limit", "Previous games to show", "", gameCounts, std::to_string(m_config.previous_games_limit), !m_config.show_previous_games_summary)
         << ToggleControl("show_longest_loss_streak", "Show longest loss streak", "", m_config.show_longest_loss_streak, !m_config.show_streaks_stats)
         << ToggleControl("show_gamemode_record_1v1", "1v1 breakdown", "", m_config.show_gamemode_record_1v1, !m_config.show_gamemode_breakdown)
         << ToggleControl("show_gamemode_record_2v2", "2v2 breakdown", "", m_config.show_gamemode_record_2v2, !m_config.show_gamemode_breakdown)
         << ToggleControl("show_gamemode_record_3v3", "3v3 breakdown", "", m_config.show_gamemode_record_3v3, !m_config.show_gamemode_breakdown)
-        << "<div class='setting-row'><div class='setting-info'><div class='setting-name'>Gamemode breakdown scope</div></div><select data-setting='gamemode_breakdown_scope'" << (!m_config.show_gamemode_breakdown ? " disabled='disabled'" : "") << ">"
-        << "<option value='current_session'" << Selected(m_config.gamemode_breakdown_scope == "current_session") << ">Current Session</option>"
-        << "<option value='all_time'" << Selected(m_config.gamemode_breakdown_scope == "all_time") << ">All-Time</option>"
-        << "</select></div>" << SectionEnd();
+        << SelectRow("gamemode_breakdown_scope", "Gamemode breakdown scope", "", GamemodeScopeOptions(), GamemodeScopeValue(m_config), !m_config.show_gamemode_breakdown)
+        << SectionEnd();
     return out.str();
 }

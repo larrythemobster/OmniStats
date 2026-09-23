@@ -70,8 +70,14 @@ std::string RmlUiController::RenderSettingsGeneral() {
         << ToggleControl("enable_auto_updates", "Automatically install updates", "Installs updates automatically on the next launch. OmniStats always checks for updates at startup, periodically while running, and when Settings is opened.", m_config.enable_auto_updates)
         << SectionEnd();
 
-    out << SectionStart("Player Identity") << "<div class='setting-row'><div class='setting-info'><div class='setting-name'>Local account</div><div class='setting-help'>Used for lifetime history before telemetry identifies you.</div></div><select data-setting='identity'>";
-    out << "<option value=''" << Selected(m_config.last_primary_id.empty()) << ">Auto-detect</option>";
+    out << SectionStart("Player Identity")
+        << SelectRow("identity", "Local account", "Used for lifetime history before telemetry identifies you.", IdentityOptions(), m_config.last_primary_id)
+        << SectionEnd();
+    return out.str();
+}
+
+std::vector<SelectOption> RmlUiController::IdentityOptions() const {
+    std::vector<SelectOption> options = {{"", "Auto-detect"}};
     std::set<std::string> seen;
     const auto selectableIdentity = [&](const std::string& id) {
         return !id.empty() && (id.rfind("Unknown|", 0) != 0 || id == m_config.last_primary_id);
@@ -83,8 +89,7 @@ std::string RmlUiController::RenderSettingsGeneral() {
     for (const auto& id : seen) {
         std::string label = id;
         if (auto it = m_snap.roster.find(id); it != m_snap.roster.end() && !it->second.name.empty()) label = it->second.name + " · " + id;
-        out << "<option value='" << Escape(id) << "'" << Selected(m_config.last_primary_id == id) << ">" << Escape(label) << "</option>";
+        options.push_back({id, std::move(label)});
     }
-    out << "</select></div>" << SectionEnd();
-    return out.str();
+    return options;
 }

@@ -65,8 +65,8 @@ std::string RmlUiController::RenderSettingsIntegrations() {
     if (m_config.ballchasing_token.empty()) out << "<div class='setting-help loss'>An API token is required before replay uploads can succeed.</div>";
     out
         << ToggleControl("auto_upload_replays", "Auto-upload new replays", "Uploads saved replay files using the selected privacy level.", m_config.auto_upload_replays)
-        << "<div class='setting-row'><div class='setting-info'><div class='setting-name'>Upload visibility</div></div><select data-setting='ballchasing_visibility'>"
-        << "<option value='private'" << Selected(m_config.ballchasing_visibility == "private") << ">private</option><option value='unlisted'" << Selected(m_config.ballchasing_visibility == "unlisted") << ">unlisted</option><option value='public'" << Selected(m_config.ballchasing_visibility == "public") << ">public</option></select></div>" << SectionEnd();
+        << SelectRow("ballchasing_visibility", "Upload visibility", "", {{"private", "private"}, {"unlisted", "unlisted"}, {"public", "public"}}, m_config.ballchasing_visibility)
+        << SectionEnd();
     out << SectionStart("Replay Saving")
         << ToggleControl("auto_save_replays", "Auto-save replays", "EAC-friendly: triggers your configured Rocket League save-replay key.", m_config.auto_save_replays);
     if (m_config.auto_save_replays) {

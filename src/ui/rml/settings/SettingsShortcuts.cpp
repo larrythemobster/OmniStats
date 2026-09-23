@@ -52,7 +52,7 @@ std::string RmlUiController::RenderSettingsShortcuts() {
     auto keyRow = [&](const char* label, BindCaptureTarget target, int key, bool canClear = true) {
         std::ostringstream html;
         const bool active = m_bindCaptureTarget == target;
-        html << "<div class='setting-row'><div class='setting-info'><div class='setting-name'>" << label << "</div></div><div class='row gap-xs'>"
+        html << "<div class='setting-row'><div class='setting-info'><div class='setting-name'>" << Escape(label) << "</div></div><div class='row gap-xs'>"
              << "<button data-action='capture-bind' data-bind='" << bindTarget(target) << "'>" << (active ? "Press a key..." : Escape(GetKeyDisplayName(key))) << "</button>";
         if (active || canClear) html << "<button class='ghost' data-action='" << (active ? "cancel-bind" : "clear-bind") << "' data-bind='" << bindTarget(target) << "'>" << (active ? "Cancel" : "Clear") << "</button>";
         html << "</div></div>";
@@ -64,8 +64,8 @@ std::string RmlUiController::RenderSettingsShortcuts() {
     auto padRow = [&](const char* label, BindCaptureTarget target, int value, bool raw, int rawValue) {
         std::ostringstream html;
         const bool active = m_bindCaptureTarget == target;
-        html << "<div class='setting-row'><div class='setting-info'><div class='setting-name'>" << label << "</div></div><div class='row gap-xs'>"
-             << "<button data-action='capture-bind' data-bind='" << bindTarget(target) << "'>" << (active ? "Press a button..." : padName(value, raw, rawValue)) << "</button>"
+        html << "<div class='setting-row'><div class='setting-info'><div class='setting-name'>" << Escape(label) << "</div></div><div class='row gap-xs'>"
+             << "<button data-action='capture-bind' data-bind='" << bindTarget(target) << "'>" << (active ? "Press a button..." : Escape(padName(value, raw, rawValue))) << "</button>"
              << "<button class='ghost' data-action='" << (active ? "cancel-bind" : "clear-bind") << "' data-bind='" << bindTarget(target) << "'>" << (active ? "Cancel" : "Clear") << "</button></div></div>";
         return html.str();
     };

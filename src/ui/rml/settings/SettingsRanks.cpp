@@ -48,26 +48,18 @@
 using namespace RmlUiDetail;
 
 std::string RmlUiController::RenderSettingsRanks() {
-    auto categorySelect = [&](const char* key, MmrCategory current, bool includeBest) {
-        std::ostringstream html;
-        html << "<select data-setting='" << key << "'>";
-        for (auto c : MmrCategories(includeBest, m_config.show_extra_playlists)) {
-            if (!includeBest && c == MmrCategory::Best) continue;
-            html << "<option value='" << Escape(MmrCategoryToString(c)) << "'" << Selected(current == c) << ">" << Escape(MmrLabel(c)) << "</option>";
-        }
-        html << "</select>";
-        return html.str();
-    };
+    const std::string rosterCategory = MmrCategoryToString(StringToMmrCategory(m_config.mmr_category));
+    const std::string graphCategory = MmrCategoryToString(StringToMmrCategory(m_config.graph_mmr_category));
     std::ostringstream out;
     out << SectionStart("Player Ranks")
-        << "<div class='setting-row'><div class='setting-info'><div class='setting-name'>Player MMR category</div><div class='setting-help'>Rank displayed beside live lobby players.</div></div>" << categorySelect("mmr_category", StringToMmrCategory(m_config.mmr_category), true) << "</div>"
+        << SelectRow("mmr_category", "Player MMR category", "Rank displayed beside live lobby players.", MmrCategoryOptions(true, m_config.show_extra_playlists), rosterCategory)
         << ToggleControl("auto_switch_mmr_category", "Automatically follow current playlist", "", m_config.auto_switch_mmr_category)
         << ToggleControl("show_extra_playlists", "Show extra playlists", "Hoops, Rumble, Dropshot, Snow Day, and Heatseeker.", m_config.show_extra_playlists)
         << SectionEnd();
 
     out << SectionStart("Personal MMR Graph")
         << ToggleControl("graph_follow_current_playlist", "Follow current playlist", "", m_config.graph_follow_current_playlist)
-        << "<div class='setting-row'><div class='setting-info'><div class='setting-name'>Default graph category</div></div>" << categorySelect("graph_mmr_category", StringToMmrCategory(m_config.graph_mmr_category), false) << "</div>"
+        << SelectRow("graph_mmr_category", "Default graph category", "", MmrCategoryOptions(false, m_config.show_extra_playlists), graphCategory)
         << SectionEnd();
 
     out << SectionStart("Your Ranks");

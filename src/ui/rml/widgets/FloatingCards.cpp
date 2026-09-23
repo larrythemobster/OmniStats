@@ -114,22 +114,12 @@ std::string RmlUiController::RenderMatchSummary() {
     if (s.fastestGoalTime > 0) fun.push_back({"Fastest goal", Format::PairFastest(s.fastestGoalTime, s.fastestGoalTimeSelf)});
     if (s.ownGoals > 0) fun.push_back({"Own goals", Format::PairCount(s.ownGoals, s.ownGoalsSelf)});
 
-    auto renderRows = [](const char* title, const auto& rows) {
-        std::ostringstream html;
-        if (rows.empty()) return html.str();
-        html << "<div class='stat-section-title' style='margin-top:7dp'>" << title << "</div><div class='stat-grid cols-2 compact-stats'>";
-        for (const auto& [name, value] : rows)
-            html << "<div class='stat-cell'><div class='label'>" << name << "</div><div class='value mono'>" << value << "</div></div>";
-        html << "</div>";
-        return html.str();
-    };
-
     std::ostringstream out;
     out << "<div class='card match-summary" << FloatingCardClass() << "' data-action='floating-card-drag' data-card='match-summary'"
         << FloatingCardStyle(m_config.match_summary_x, m_config.match_summary_y, 420.0f)
         << "><div class='row'><div class='grow value " << resultClass << "' style='font-size:20dp'>" << result << "</div>"
         << "<div class='value mono' style='font-size:20dp'>" << myScore << '-' << theirScore << "</div></div>";
-    out << renderRows("PLAY", play) << renderRows("FUN", fun) << "</div>";
+    out << StatGrid("PLAY", play) << StatGrid("FUN", fun) << "</div>";
     return out.str();
 }
 

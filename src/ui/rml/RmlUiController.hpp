@@ -20,6 +20,7 @@
 #include "core/StatsScope.hpp"
 #include "ui/rml/RmlFileInterface.hpp"
 #include "ui/rml/RmlRenderInterfaceD3D11.hpp"
+#include "ui/rml/RmlUiHelpers.hpp"
 #include "ui/rml/RmlSystemInterfaceWin32.hpp"
 
 class DatabaseManager;
@@ -213,6 +214,7 @@ class RmlUiController final : public Rml::EventListener {
     std::string RenderSettingsIntegrations();
     std::string RenderSettingsData();
     std::string RenderSettingsTroubleshooting();
+    std::vector<RmlUiDetail::SelectOption> IdentityOptions() const;
 
     void HandleClick(Rml::Element* target);
     void HandleChange(Rml::Element* target, Rml::Event& event);
@@ -233,11 +235,7 @@ class RmlUiController final : public Rml::EventListener {
     void CheckStatsApi(bool repair, bool showToast = true);
     void ShowToast(std::string message, bool error = false);
 
-    static std::string Escape(std::string_view text);
     static std::string CssColor(const ColorRGBA& color);
-    static std::string BoolAttr(bool value);
-    static std::string Checked(bool value);
-    static std::string Selected(bool value);
     static std::string FormatNumber(float value, int precision = 0);
     static std::string FormatRecord(int wins, int losses);
     static std::string FormatClock(int64_t unixSeconds);

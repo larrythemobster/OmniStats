@@ -1193,84 +1193,6 @@ void RmlUiController::RefreshLiveUi(bool force, bool allowStructural) {
     }
 }
 
-std::string RmlUiController::Escape(std::string_view text) {
-    std::string out;
-    out.reserve(text.size() + 16);
-
-    const auto appendAscii = [&out](unsigned char c) {
-        switch (c) {
-        case '&':
-            out += "&amp;";
-            break;
-        case '<':
-            out += "&lt;";
-            break;
-        case '>':
-            out += "&gt;";
-            break;
-        case '\"':
-            out += "&quot;";
-            break;
-        case '\'':
-            out += "&#39;";
-            break;
-        default:
-            out.push_back(static_cast<char>(c));
-            break;
-        }
-    };
-    const auto isContinuation = [](unsigned char c) { return (c & 0xC0u) == 0x80u; };
-    const auto appendReplacement = [&out]() { out += "\xEF\xBF\xBD"; };
-
-    for (size_t i = 0; i < text.size();) {
-        const auto lead = static_cast<unsigned char>(text[i]);
-        if (lead < 0x80u) {
-            appendAscii(lead);
-            ++i;
-            continue;
-        }
-
-        size_t length = 0;
-        bool valid = false;
-        if (lead >= 0xC2u && lead <= 0xDFu) {
-            length = 2;
-            valid = i + length <= text.size() &&
-                    isContinuation(static_cast<unsigned char>(text[i + 1]));
-        } else if (lead >= 0xE0u && lead <= 0xEFu) {
-            length = 3;
-            if (i + length <= text.size()) {
-                const auto b1 = static_cast<unsigned char>(text[i + 1]);
-                const auto b2 = static_cast<unsigned char>(text[i + 2]);
-                const bool secondValid =
-                    (lead == 0xE0u) ? (b1 >= 0xA0u && b1 <= 0xBFu) : (lead == 0xEDu) ? (b1 >= 0x80u && b1 <= 0x9Fu)
-                                                                                     : isContinuation(b1);
-                valid = secondValid && isContinuation(b2);
-            }
-        } else if (lead >= 0xF0u && lead <= 0xF4u) {
-            length = 4;
-            if (i + length <= text.size()) {
-                const auto b1 = static_cast<unsigned char>(text[i + 1]);
-                const auto b2 = static_cast<unsigned char>(text[i + 2]);
-                const auto b3 = static_cast<unsigned char>(text[i + 3]);
-                const bool secondValid =
-                    (lead == 0xF0u) ? (b1 >= 0x90u && b1 <= 0xBFu) : (lead == 0xF4u) ? (b1 >= 0x80u && b1 <= 0x8Fu)
-                                                                                     : isContinuation(b1);
-                valid = secondValid && isContinuation(b2) && isContinuation(b3);
-            }
-        }
-
-        if (!valid) {
-            appendReplacement();
-            ++i;
-            continue;
-        }
-
-        out.append(text.substr(i, length));
-        i += length;
-    }
-    return out;
-}
-
 std::string RmlUiController::CssColor(const ColorRGBA& color) {
     auto byte = [](float v) {
         if (!std::isfinite(v)) return 0;
@@ -1279,18 +1201,6 @@ std::string RmlUiController::CssColor(const ColorRGBA& color) {
     char buffer[10]{};
     std::snprintf(buffer, sizeof(buffer), "#%02X%02X%02X%02X", byte(color.r), byte(color.g), byte(color.b), byte(color.a));
     return buffer;
-}
-
-std::string RmlUiController::BoolAttr(bool value) {
-    return value ? "true" : "false";
-}
-
-std::string RmlUiController::Checked(bool value) {
-    return value ? " checked='checked'" : "";
-}
-
-std::string RmlUiController::Selected(bool value) {
-    return value ? " selected='selected'" : "";
 }
 
 std::string RmlUiController::FormatNumber(float value, int precision) {

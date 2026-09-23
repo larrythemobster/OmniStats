@@ -18,6 +18,7 @@
 #include "core/Storage.hpp"
 #include "database/DatabaseManager.hpp"
 #include "ui/rml/RmlUiController.hpp"
+#include "ui/rml/RmlUiHelpers.hpp"
 #include "network/ExternalUpdaterLauncher.hpp"
 
 class RmlUiControllerStateTest : public ::testing::Test {
@@ -47,7 +48,7 @@ class RmlUiControllerStateTest : public ::testing::Test {
         return controller.m_dpiScale;
     }
     std::string EscapeText(std::string_view text) const {
-        return RmlUiController::Escape(text);
+        return RmlUiDetail::Escape(text);
     }
     std::string RenderGraph(RmlUiController& controller) {
         return controller.RenderMmrGraph();

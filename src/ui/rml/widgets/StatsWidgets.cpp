@@ -181,16 +181,6 @@ std::string RmlUiController::RenderSessionStats(bool compact, bool includeStreak
         return out.str();
     }
 
-    auto renderRows = [](const char* title, const std::vector<std::pair<std::string, std::string>>& rows) {
-        std::ostringstream html;
-        html << "<div class='stat-section-title' style='margin-top:7dp'>" << title << "</div><div class='stat-grid cols-2 compact-stats'>";
-        for (const auto& [name, value] : rows) {
-            html << "<div class='stat-cell'><div class='label'>" << name << "</div><div class='value mono'>" << value << "</div></div>";
-        }
-        html << "</div>";
-        return html.str();
-    };
-
     std::vector<std::pair<std::string, std::string>> summary = {
         {"Record", FormatRecord(stats.wins, stats.losses)},
         {"Goals", std::to_string(stats.goals)},
@@ -218,13 +208,13 @@ std::string RmlUiController::RenderSessionStats(bool compact, bool includeStreak
     std::ostringstream out;
     out << "<div class='stat-grid cols-2 compact-stats'>";
     for (const auto& [name, value] : summary) {
-        std::string cls;
-        if (name == "MMR change") cls = mmr > 0 ? " win" : mmr < 0 ? " loss"
-                                                                   : "";
-        out << "<div class='stat-cell'><div class='label'>" << name << "</div><div class='value mono" << cls << "'>" << value << "</div></div>";
+        const char* cls = name != "MMR change" ? "" : mmr > 0 ? "win"
+                                                  : mmr < 0   ? "loss"
+                                                              : "";
+        out << StatCell(name, value, cls);
     }
     out << "</div><div class='setting-help' style='margin-top:8dp'>Left = lobby total · Right = you</div>";
-    out << renderRows("PLAY", play) << renderRows("FUN", fun);
+    out << StatGrid("PLAY", play) << StatGrid("FUN", fun);
     return out.str();
 }
 

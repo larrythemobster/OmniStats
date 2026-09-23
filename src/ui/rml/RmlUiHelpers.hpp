@@ -84,10 +84,25 @@ namespace RmlUiDetail {
     int DivisionColorResourceIndex(const std::string& tier);
     int PlaylistResourceIndex(const std::string& playlist);
 
-    std::string ToggleControl(const std::string& key, const std::string& label, const std::string& help, bool checked, bool disabled = false);
-    std::string SectionStart(const std::string& title);
+    struct SelectOption {
+        std::string value;
+        std::string label;
+    };
+
+    // Every helper below escapes the text it is given; callers pass plain text,
+    // never markup.
+    std::string Escape(std::string_view text);
+    std::string ToggleControl(std::string_view key, std::string_view label, std::string_view help, bool checked, bool disabled = false);
+    std::string SelectControl(std::string_view key, const std::vector<SelectOption>& options, std::string_view current, const char* klass = "", bool disabled = false);
+    std::string SelectRow(std::string_view key, std::string_view label, std::string_view help, const std::vector<SelectOption>& options, std::string_view current, bool disabled = false);
+    std::vector<SelectOption> MmrCategoryOptions(bool includeBest, bool extras);
+    std::vector<SelectOption> GamemodeScopeOptions();
+    std::string GamemodeScopeValue(const ConfigData& config);
+    std::string StatCell(std::string_view label, std::string_view value, std::string_view valueClass = {});
+    std::string StatGrid(std::string_view title, const std::vector<std::pair<std::string, std::string>>& rows);
+    std::string SectionStart(std::string_view title);
     std::string SectionEnd();
-    std::string Button(const std::string& action, const std::string& label, const char* klass = "");
+    std::string Button(std::string_view action, std::string_view label, const char* klass = "");
 
     ColorRGBA* ThemeColorForKey(ConfigData& config, std::string_view key);
     const ColorRGBA* ThemeColorForKey(const ConfigData& config, std::string_view key);

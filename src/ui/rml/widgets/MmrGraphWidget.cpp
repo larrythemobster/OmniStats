@@ -93,8 +93,8 @@ std::string RmlUiController::RenderMmrGraph(bool showCategoryBadge) {
     header << "<div class='grow'></div>";
     if (total > kVisibleMatches) {
         header << "<div class='graph-zoom'>"
-               << Button("graph-pan-older", "&#8592;", "ghost zoom-step")
-               << Button("graph-pan-newer", "&#8594;", "ghost zoom-step")
+               << Button("graph-pan-older", "\xE2\x86\x90", "ghost zoom-step")
+               << Button("graph-pan-newer", "\xE2\x86\x92", "ghost zoom-step")
                << "</div>";
     }
     header << "</div>";

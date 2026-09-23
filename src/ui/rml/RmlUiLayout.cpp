@@ -48,15 +48,8 @@
 using namespace RmlUiDetail;
 
 std::string RmlUiController::RenderWidget(DashboardLayout::WidgetId id, bool dashboard) {
-    auto categorySelect = [&](const char* key, MmrCategory current, bool includeBest) {
-        std::ostringstream html;
-        html << "<select class='compact-select' data-setting='" << key << "'>";
-        for (auto category : MmrCategories(includeBest, m_config.show_extra_playlists)) {
-            html << "<option value='" << Escape(MmrCategoryToString(category)) << "'" << Selected(current == category) << ">"
-                 << Escape(MmrLabel(category)) << "</option>";
-        }
-        html << "</select>";
-        return html.str();
+    const auto controlRow = [](const char* label, const std::string& select) {
+        return std::string("<div class='row widget-controls'><span class='label grow'>") + label + "</span>" + select + "</div>";
     };
 
     switch (id) {
@@ -64,8 +57,7 @@ std::string RmlUiController::RenderWidget(DashboardLayout::WidgetId id, bool das
         const auto rosterCategory = m_state ? m_state->ui.rosterMmrCategory.load() : MmrCategory::Best;
         std::ostringstream html;
         if (dashboard) {
-            html << "<div class='row widget-controls'><span class='label grow'>Rank view</span>"
-                 << categorySelect("mmr_category", rosterCategory, true) << "</div>";
+            html << controlRow("Rank view", SelectControl("mmr_category", MmrCategoryOptions(true, m_config.show_extra_playlists), MmrCategoryToString(rosterCategory), "compact-select"));
         } else {
             const std::string categoryName = MmrLabel(rosterCategory);
             const std::string playlistImage = PlaylistImageForName(MmrCategoryToString(rosterCategory));
@@ -90,8 +82,8 @@ std::string RmlUiController::RenderWidget(DashboardLayout::WidgetId id, bool das
     case DashboardLayout::WidgetId::MmrGraph: {
         std::string controls;
         if (dashboard) {
-            controls = "<div class='row widget-controls'><span class='label grow'>Playlist</span>" +
-                       categorySelect("graph_mmr_category", m_state ? m_state->ui.graphMmrCategory.load() : MmrCategory::TwoVTwo, false) + "</div>";
+            const auto graphCategory = m_state ? m_state->ui.graphMmrCategory.load() : MmrCategory::TwoVTwo;
+            controls = controlRow("Playlist", SelectControl("graph_mmr_category", MmrCategoryOptions(false, m_config.show_extra_playlists), MmrCategoryToString(graphCategory), "compact-select"));
         }
         return controls + RenderMmrGraph();
     }
@@ -100,13 +92,7 @@ std::string RmlUiController::RenderWidget(DashboardLayout::WidgetId id, bool das
     case DashboardLayout::WidgetId::GamemodeBreakdown: {
         std::string controls;
         if (dashboard) {
-            controls = "<div class='row widget-controls'><span class='label grow'>Scope</span>"
-                       "<select class='compact-select' data-setting='gamemode_breakdown_scope'>"
-                       "<option value='current_session'" +
-                       Selected(m_config.gamemode_breakdown_scope != "all_time") + ">Current Session</option>"
-                                                                                   "<option value='all_time'" +
-                       Selected(m_config.gamemode_breakdown_scope == "all_time") + ">All-Time</option>"
-                                                                                   "</select></div>";
+            controls = controlRow("Scope", SelectControl("gamemode_breakdown_scope", GamemodeScopeOptions(), GamemodeScopeValue(m_config), "compact-select"));
         }
         return controls + RenderGamemodeBreakdown(ScopeFromConfigString(m_config.gamemode_breakdown_scope));
     }

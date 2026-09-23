@@ -497,28 +497,171 @@ namespace RmlUiDetail {
         return -1;
     }
 
-    std::string ToggleControl(const std::string& key, const std::string& label, const std::string& help, bool checked, bool disabled) {
-        std::ostringstream out;
-        out << "<div class='setting-row'><div class='setting-info'><div class='setting-name'>" << label << "</div>";
-        if (!help.empty()) out << "<div class='setting-help'>" << help << "</div>";
-        out << "</div><div class='toggle-switch'><input type='checkbox' class='checkbox' data-setting='" << key << "' " << (checked ? "checked='checked' " : "") << (disabled ? "disabled='disabled' " : "") << "/><span class='toggle-thumb'></span></div></div>";
-        return out.str();
+    std::string Escape(std::string_view text) {
+        std::string out;
+        out.reserve(text.size() + 16);
+
+        const auto appendAscii = [&out](unsigned char c) {
+            switch (c) {
+            case '&':
+                out += "&amp;";
+                break;
+            case '<':
+                out += "&lt;";
+                break;
+            case '>':
+                out += "&gt;";
+                break;
+            case '\"':
+                out += "&quot;";
+                break;
+            case '\'':
+                out += "&#39;";
+                break;
+            default:
+                out.push_back(static_cast<char>(c));
+                break;
+            }
+        };
+        const auto isContinuation = [](unsigned char c) { return (c & 0xC0u) == 0x80u; };
+        const auto appendReplacement = [&out]() { out += "\xEF\xBF\xBD"; };
+
+        for (size_t i = 0; i < text.size();) {
+            const auto lead = static_cast<unsigned char>(text[i]);
+            if (lead < 0x80u) {
+                appendAscii(lead);
+                ++i;
+                continue;
+            }
+
+            size_t length = 0;
+            bool valid = false;
+            if (lead >= 0xC2u && lead <= 0xDFu) {
+                length = 2;
+                valid = i + length <= text.size() &&
+                        isContinuation(static_cast<unsigned char>(text[i + 1]));
+            } else if (lead >= 0xE0u && lead <= 0xEFu) {
+                length = 3;
+                if (i + length <= text.size()) {
+                    const auto b1 = static_cast<unsigned char>(text[i + 1]);
+                    const auto b2 = static_cast<unsigned char>(text[i + 2]);
+                    const bool secondValid =
+                        (lead == 0xE0u) ? (b1 >= 0xA0u && b1 <= 0xBFu) : (lead == 0xEDu) ? (b1 >= 0x80u && b1 <= 0x9Fu)
+                                                                                         : isContinuation(b1);
+                    valid = secondValid && isContinuation(b2);
+                }
+            } else if (lead >= 0xF0u && lead <= 0xF4u) {
+                length = 4;
+                if (i + length <= text.size()) {
+                    const auto b1 = static_cast<unsigned char>(text[i + 1]);
+                    const auto b2 = static_cast<unsigned char>(text[i + 2]);
+                    const auto b3 = static_cast<unsigned char>(text[i + 3]);
+                    const bool secondValid =
+                        (lead == 0xF0u) ? (b1 >= 0x90u && b1 <= 0xBFu) : (lead == 0xF4u) ? (b1 >= 0x80u && b1 <= 0x8Fu)
+                                                                                         : isContinuation(b1);
+                    valid = secondValid && isContinuation(b2) && isContinuation(b3);
+                }
+            }
+
+            if (!valid) {
+                appendReplacement();
+                ++i;
+                continue;
+            }
+
+            out.append(text.substr(i, length));
+            i += length;
+        }
+        return out;
     }
 
-    std::string SectionStart(const std::string& title) {
-        return "<div class='setting-section'><div class='setting-title'>" + title + "</div>";
+    std::string ToggleControl(std::string_view key, std::string_view label, std::string_view help, bool checked, bool disabled) {
+        std::string out = "<div class='setting-row'><div class='setting-info'><div class='setting-name'>" + Escape(label) + "</div>";
+        if (!help.empty()) out += "<div class='setting-help'>" + Escape(help) + "</div>";
+        out += "</div><div class='toggle-switch'><input type='checkbox' class='checkbox' data-setting='" + Escape(key) + "' ";
+        if (checked) out += "checked='checked' ";
+        if (disabled) out += "disabled='disabled' ";
+        out += "/><span class='toggle-thumb'></span></div></div>";
+        return out;
+    }
+
+    std::string SelectControl(std::string_view key, const std::vector<SelectOption>& options, std::string_view current, const char* klass, bool disabled) {
+        std::string out = "<select";
+        if (klass && *klass) {
+            out += " class='";
+            out += klass;
+            out += '\'';
+        }
+        out += " data-setting='" + Escape(key) + '\'';
+        if (disabled) out += " disabled='disabled'";
+        out += '>';
+        for (const auto& option : options) {
+            out += "<option value='" + Escape(option.value) + '\'';
+            if (option.value == current) out += " selected='selected'";
+            out += '>' + Escape(option.label) + "</option>";
+        }
+        out += "</select>";
+        return out;
+    }
+
+    std::string SelectRow(std::string_view key, std::string_view label, std::string_view help, const std::vector<SelectOption>& options, std::string_view current, bool disabled) {
+        std::string out = "<div class='setting-row'><div class='setting-info'><div class='setting-name'>" + Escape(label) + "</div>";
+        if (!help.empty()) out += "<div class='setting-help'>" + Escape(help) + "</div>";
+        out += "</div>" + SelectControl(key, options, current, "", disabled) + "</div>";
+        return out;
+    }
+
+    std::vector<SelectOption> MmrCategoryOptions(bool includeBest, bool extras) {
+        std::vector<SelectOption> options;
+        for (auto category : MmrCategories(includeBest, extras))
+            options.push_back({MmrCategoryToString(category), MmrLabel(category)});
+        return options;
+    }
+
+    std::vector<SelectOption> GamemodeScopeOptions() {
+        return {{"current_session", "Current Session"}, {"all_time", "All-Time"}};
+    }
+
+    std::string GamemodeScopeValue(const ConfigData& config) {
+        return config.gamemode_breakdown_scope == "all_time" ? "all_time" : "current_session";
+    }
+
+    std::string StatCell(std::string_view label, std::string_view value, std::string_view valueClass) {
+        std::string out = "<div class='stat-cell'><div class='label'>" + Escape(label) + "</div><div class='value mono";
+        if (!valueClass.empty()) {
+            out += ' ';
+            out += valueClass;
+        }
+        out += "'>" + Escape(value) + "</div></div>";
+        return out;
+    }
+
+    std::string StatGrid(std::string_view title, const std::vector<std::pair<std::string, std::string>>& rows) {
+        if (rows.empty()) return {};
+        std::string out = "<div class='stat-section-title' style='margin-top:7dp'>" + Escape(title) + "</div><div class='stat-grid cols-2 compact-stats'>";
+        for (const auto& [label, value] : rows)
+            out += StatCell(label, value);
+        out += "</div>";
+        return out;
+    }
+
+    std::string SectionStart(std::string_view title) {
+        return "<div class='setting-section'><div class='setting-title'>" + Escape(title) + "</div>";
     }
 
     std::string SectionEnd() {
         return "</div>";
     }
 
-    std::string Button(const std::string& action, const std::string& label, const char* klass) {
-        std::ostringstream out;
-        out << "<button data-action='" << action << "'";
-        if (klass && *klass) out << " class='" << klass << "'";
-        out << ">" << label << "</button>";
-        return out.str();
+    std::string Button(std::string_view action, std::string_view label, const char* klass) {
+        std::string out = "<button data-action='" + Escape(action) + '\'';
+        if (klass && *klass) {
+            out += " class='";
+            out += klass;
+            out += '\'';
+        }
+        out += '>' + Escape(label) + "</button>";
+        return out;
     }
 
     ColorRGBA* ThemeColorForKey(ConfigData& config, std::string_view key) {

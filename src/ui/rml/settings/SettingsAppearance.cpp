@@ -105,18 +105,24 @@ std::string RmlUiController::RenderSettingsAppearance() {
         return html.str();
     };
 
+    struct ScaleChoice {
+        float scale;
+        const char* value;
+        const char* label;
+    };
+    static constexpr ScaleChoice kScales[] = {
+        {0.75f, "0.75", "75%"}, {0.8f, "0.8", "80%"}, {0.85f, "0.85", "85%"}, {0.9f, "0.9", "90%"}, {0.95f, "0.95", "95%"}, {1.0f, "1.0", "100%"}, {1.1f, "1.1", "110%"}, {1.25f, "1.25", "125%"}, {1.5f, "1.5", "150%"}};
+    std::vector<SelectOption> scales;
+    std::string currentScale;
+    for (const auto& choice : kScales) {
+        scales.push_back({choice.value, choice.label});
+        if (std::fabs(m_config.ui_scale - choice.scale) < .01f) currentScale = choice.value;
+    }
+
     std::ostringstream out;
-    out << SectionStart("Scale") << "<div class='setting-row'><div class='setting-info'><div class='setting-name'>App-wide text size</div></div><select data-setting='ui_scale'>"
-        << "<option value='0.75'" << Selected(std::fabs(m_config.ui_scale - 0.75f) < .01f) << ">75%</option>"
-        << "<option value='0.8'" << Selected(std::fabs(m_config.ui_scale - 0.8f) < .01f) << ">80%</option>"
-        << "<option value='0.85'" << Selected(std::fabs(m_config.ui_scale - 0.85f) < .01f) << ">85%</option>"
-        << "<option value='0.9'" << Selected(std::fabs(m_config.ui_scale - 0.9f) < .01f) << ">90%</option>"
-        << "<option value='0.95'" << Selected(std::fabs(m_config.ui_scale - 0.95f) < .01f) << ">95%</option>"
-        << "<option value='1.0'" << Selected(std::fabs(m_config.ui_scale - 1.0f) < .01f) << ">100%</option>"
-        << "<option value='1.1'" << Selected(std::fabs(m_config.ui_scale - 1.1f) < .01f) << ">110%</option>"
-        << "<option value='1.25'" << Selected(std::fabs(m_config.ui_scale - 1.25f) < .01f) << ">125%</option>"
-        << "<option value='1.5'" << Selected(std::fabs(m_config.ui_scale - 1.5f) < .01f) << ">150%</option></select></div>"
-        << "<div class='setting-help'>Changes text size throughout the dashboard and overlay.</div>" << SectionEnd();
+    out << SectionStart("Scale")
+        << SelectRow("ui_scale", "App-wide text size", "Changes text size throughout the dashboard and overlay.", scales, currentScale)
+        << SectionEnd();
     out << SectionStart("Colors")
         << "<div class='row wrap gap-sm' style='margin-bottom:8dp'>"
         << Button("reset-theme-colors", "Reset Colors to Default", "ghost")
@@ -142,8 +148,8 @@ std::string RmlUiController::RenderSettingsAppearance() {
         << SectionEnd();
 
     out << SectionStart("Units & Formatting")
-        << "<div class='setting-row'><div class='setting-info'><div class='setting-name'>Speed units</div></div><select data-setting='speed_units'><option value='metric'" << Selected(!m_config.imperial_units) << ">Kilometers per hour</option><option value='imperial'" << Selected(m_config.imperial_units) << ">Miles per hour</option></select></div>"
-        << "<div class='setting-row'><div class='setting-info'><div class='setting-name'>Crossbar hit display</div></div><select data-setting='crossbar_display_mode'><option value='raw'" << Selected(m_config.crossbar_display_mode == "raw") << ">Raw Force (UU/s)</option><option value='speed'" << Selected(m_config.crossbar_display_mode == "speed") << ">Speed (MPH/KPH)</option></select></div>"
+        << SelectRow("speed_units", "Speed units", "", {{"metric", "Kilometers per hour"}, {"imperial", "Miles per hour"}}, m_config.imperial_units ? "imperial" : "metric")
+        << SelectRow("crossbar_display_mode", "Crossbar hit display", "", {{"raw", "Raw Force (UU/s)"}, {"speed", "Speed (MPH/KPH)"}}, m_config.crossbar_display_mode)
         << ToggleControl("use_roman_numerals", "Use Roman numerals", "I, II, III in rank labels.", m_config.use_roman_numerals)
         << SectionEnd();
     return out.str();
