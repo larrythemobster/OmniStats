@@ -138,7 +138,7 @@ std::string RmlUiController::RenderPlayerRoster(int team, const char* label) {
         }
         const int matchCount = matchesIt != p->playlistMatches.end() ? matchesIt->second : 0;
 
-        out << "<div class='player-row" << (self ? " self" : "") << "' data-live-player='" << Escape(p->primaryId) << "'>";
+        out << "<div class='player-row" << (self ? " self" : "") << "'>";
         if (m_config.use_rank_icons) {
             const std::string rankTooltip = p->fetched || mmr > 0 ? Format::RankTier(tier, m_config.use_roman_numerals) : "Fetching rank...";
             out << "<div class='player-crest'>" << RenderRankBadge(tier, p->fetched || mmr > 0, rankTooltip) << "</div>";
@@ -168,11 +168,10 @@ std::string RmlUiController::RenderPlayerRoster(int team, const char* label) {
 
         if (mmr > 0 && matchCount > 0) out << "<span class='chip'>" << matchCount << (matchCount == 1 ? " match" : " matches") << "</span>";
         if (m_config.show_account_wins_overlay && p->totalWins >= 0) out << "<span class='chip'>" << p->totalWins << " wins</span>";
-        const bool hasLiveStats = p->goals || p->saves || p->shots || p->assists || p->demos;
-        out << "<span class='chip player-live-stats' data-live-player-stats='" << Escape(p->primaryId) << "'";
-        if (!hasLiveStats) out << " style='display:none'";
-        out << ">G" << p->goals << " S" << p->saves << " A" << p->assists
-            << " Sh" << p->shots << " D" << p->demos << "</span>";
+        // The chip binds to a stable per-player slot so telemetry updates only its text.
+        const size_t slot = m_liveModel.PlayerSlot(p->primaryId);
+        m_liveModel.SetPlayer(slot, ComputeLivePlayerStat(*p));
+        out << "<span class='chip' data-if='players[" << slot << "].visible'>{{players[" << slot << "].text}}</span>";
         out << "</div></div>";
 
         // Trailing status column, one state per player: yourself, a player with

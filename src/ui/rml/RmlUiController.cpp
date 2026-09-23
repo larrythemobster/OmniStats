@@ -140,6 +140,10 @@ bool RmlUiController::Initialize(HWND hwnd, ID3D11Device* device, ID3D11DeviceCo
         Shutdown();
         return false;
     }
+    if (!m_liveModel.Create(m_context)) {
+        Shutdown();
+        return false;
+    }
 
     // Resolve `dp` lengths and font sizes against the target monitor from the
     // first document layout instead of loading once at RmlUi's default 1.0
@@ -193,6 +197,7 @@ void RmlUiController::Shutdown() {
         m_context->RemoveEventListener("blur", this, true);
         m_context = nullptr;
         m_document = nullptr;
+        m_liveModel.Reset();
     }
     m_baseStyleSheet.reset();
     if (m_rmlInitialized) {
@@ -434,7 +439,6 @@ Rml::Element* RmlUiController::Root(const char* id) const {
 
 void RmlUiController::SetElementRml(Rml::Element* element, const std::string& rml, bool replayPointer) {
     if (!element) return;
-    m_liveElementCacheDirty = true;
     const bool prev = m_rebuildingUi;
     m_rebuildingUi = true;
     m_systemInterface.BeginCursorUpdate();
@@ -448,8 +452,8 @@ void RmlUiController::SetElementRml(Rml::Element* element, const std::string& rm
 
 void RmlUiController::SetElementText(Rml::Element* element, const std::string& text) {
     if (!element) return;
-    // Live values are rendered as a single text node. Updating that node avoids
-    // reparsing RML and replacing child DOM/geometry for every telemetry value.
+    // Updating the single text node avoids reparsing RML and replacing child
+    // DOM/geometry for a value-only change.
     if (element->GetNumChildren() == 1) {
         if (auto* textElement = dynamic_cast<Rml::ElementText*>(element->GetFirstChild())) {
             textElement->SetText(text);
@@ -465,32 +469,6 @@ void RmlUiController::SetRootRml(const char* id, const std::string& rml) {
     // work is intentionally not performed here; telemetry/data refreshes update
     // persistent child elements instead of recreating the large root tree.
     SetElementRml(Root(id), rml, true);
-}
-
-void RmlUiController::RebuildLiveElementCache() {
-    m_liveValueElements.clear();
-    m_playerLiveStatElements.clear();
-    auto* app = Root("app");
-    if (!app) {
-        m_liveElementCacheDirty = false;
-        return;
-    }
-
-    Rml::ElementList liveValues;
-    app->GetElementsByClassName(liveValues, "live-value");
-    for (Rml::Element* element : liveValues) {
-        const std::string key = Attribute(element, "data-live-value");
-        if (!key.empty()) m_liveValueElements[key].push_back(element);
-    }
-
-    Rml::ElementList playerStats;
-    app->GetElementsByClassName(playerStats, "player-live-stats");
-    for (Rml::Element* element : playerStats) {
-        const std::string id = Attribute(element, "data-live-player-stats");
-        if (!id.empty()) m_playerLiveStatElements[id].push_back(element);
-    }
-
-    m_liveElementCacheDirty = false;
 }
 
 void RmlUiController::SnapshotState() {
@@ -1080,104 +1058,11 @@ void RmlUiController::RefreshLiveUi(bool force, bool allowStructural) {
     }
 
     if (leafGameChanged || primeStructure) {
-        const bool primeOnly = primeStructure;
-        const auto& match = m_snap.currentMatch;
-        const auto& sessionStats = m_snap.sessionTotals;
-        const int sessionMmr = static_cast<int>(std::lround(sessionStats.totalMmrChange));
-        const float gp = sessionStats.teamGoals > 0
-                             ? 100.0f * static_cast<float>(sessionStats.goalParticipations) / static_cast<float>(sessionStats.teamGoals)
-                             : 0.0f;
-        const auto demos = CalculateSessionDemolitionCounts(m_snap.sessionTotals, m_snap.currentMatch, m_snap.matchFinalized);
-
-        if (m_liveElementCacheDirty) RebuildLiveElementCache();
-        const auto updateLiveValue = [&](std::string_view key, std::string value) {
-            // Keep one persistent value per leaf instead of allocating a temporary
-            // unordered_map plus prefixed cache key for every telemetry refresh.
-            auto cacheIt = m_lastLiveValues.find(key);
-            if (primeOnly || cacheIt == m_lastLiveValues.end()) {
-                if (cacheIt == m_lastLiveValues.end())
-                    m_lastLiveValues.emplace(std::string(key), std::move(value));
-                else
-                    cacheIt->second = std::move(value);
-                return;
-            }
-            if (!force && cacheIt->second == value) return;
-            cacheIt->second = value;
-
-            auto elementIt = m_liveValueElements.find(key);
-            if (elementIt == m_liveValueElements.end()) return;
-            for (Rml::Element* element : elementIt->second) {
-                SetElementText(element, value);
-                if (key == "session-mmr") {
-                    element->SetClass("win", sessionMmr > 0);
-                    element->SetClass("loss", sessionMmr < 0);
-                } else if (key == "demo-game-kd") {
-                    const char* cls = DemoKdClass(match.demosSelf, match.demoedSelf);
-                    element->SetClass("win", std::strcmp(cls, "win") == 0);
-                    element->SetClass("loss", std::strcmp(cls, "loss") == 0);
-                    element->SetClass("muted", std::strcmp(cls, "muted") == 0);
-                } else if (key == "demo-session-kd") {
-                    const char* cls = DemoKdClass(demos.demos, demos.demoed);
-                    element->SetClass("win", std::strcmp(cls, "win") == 0);
-                    element->SetClass("loss", std::strcmp(cls, "loss") == 0);
-                    element->SetClass("muted", std::strcmp(cls, "muted") == 0);
-                }
-            }
-        };
-
-        updateLiveValue("match-saves", Format::PairCount(match.saves, match.savesSelf));
-        updateLiveValue("match-shots", Format::PairCount(match.shots, match.shotsSelf));
-        updateLiveValue("match-assists", Format::PairCount(match.assists, match.assistsSelf));
-        updateLiveValue("match-demos", Format::PairCount(match.demos, match.demosSelf));
-        updateLiveValue("match-demoed", std::to_string(match.demoedSelf));
-        updateLiveValue("match-crossbars", Format::PairCount(match.crossbars, match.crossbarsSelf));
-        updateLiveValue("match-max-goal-speed", Format::PairSpeed(match.maxGoalSpeed, match.maxGoalSpeedSelf, true, " kph", m_config.imperial_units));
-        updateLiveValue("match-max-ball-speed", Format::PairSpeed(match.maxBallSpeed, match.maxBallSpeedSelf, true, " kph", m_config.imperial_units));
-        updateLiveValue("match-hardest-crossbar", m_config.crossbar_display_mode == "speed"
-                                                      ? Format::PairSpeed(match.maxImpactForce * 0.036f, match.maxImpactForceSelf * 0.036f, true, " kph", m_config.imperial_units)
-                                                      : Format::PairSpeed(match.maxImpactForce, match.maxImpactForceSelf, true, "", false));
-        updateLiveValue("match-fastest-goal", Format::PairFastest(match.fastestGoalTime, match.fastestGoalTimeSelf));
-        updateLiveValue("match-own-goals", Format::PairCount(match.ownGoals, match.ownGoalsSelf));
-        updateLiveValue("session-record", FormatRecord(sessionStats.wins, sessionStats.losses));
-        updateLiveValue("session-goals", std::to_string(sessionStats.goals));
-        updateLiveValue("session-saves", std::to_string(sessionStats.saves));
-        updateLiveValue("session-assists", std::to_string(sessionStats.assists));
-        updateLiveValue("session-demos", std::to_string(sessionStats.demos));
-        updateLiveValue("session-boost", std::to_string(CalculateSessionBoostPickedUp(m_snap.sessionTotals, m_snap.currentMatch, m_snap.matchFinalized)));
-        updateLiveValue("session-goal-participation", sessionStats.teamGoals > 0 ? FormatNumber(gp, 0) + "%" : "--");
-        updateLiveValue("session-mmr", (sessionMmr >= 0 ? "+" : "") + std::to_string(sessionMmr));
-        updateLiveValue("session-net", std::to_string(sessionStats.wins - sessionStats.losses));
-        updateLiveValue("demo-game-count", std::to_string(match.demosSelf) + "-" + std::to_string(match.demoedSelf));
-        updateLiveValue("demo-game-kd", FormatDemoKd(match.demosSelf, match.demoedSelf));
-        updateLiveValue("demo-session-count", std::to_string(demos.demos) + "-" + std::to_string(demos.demoed));
-        updateLiveValue("demo-session-kd", FormatDemoKd(demos.demos, demos.demoed));
-        updateLiveValue("roster-arena", m_snap.arenaName.empty() ? (m_snap.inMatch ? "Active match" : "No active match connected") : m_snap.arenaName);
-        updateLiveValue("dashboard-status", m_snap.inMatch ? ("ACTIVE MATCH · " + m_snap.arenaName) : "WAITING IN LOBBY");
-
-        // Player rows stay allocated for the life of the roster membership.
-        // Only the in-match stat chip changes at telemetry frequency.
-        for (const auto& [id, p] : m_snap.roster) {
-            auto elementIt = m_playerLiveStatElements.find(id);
-            if (elementIt == m_playerLiveStatElements.end()) continue;
-            const PlayerLiveStatState state{p.goals, p.saves, p.assists, p.shots, p.demos,
-                                            p.goals || p.saves || p.shots || p.assists || p.demos};
-            auto cacheIt = m_lastPlayerLiveStats.find(id);
-            if (primeOnly || cacheIt == m_lastPlayerLiveStats.end()) {
-                m_lastPlayerLiveStats[id] = state;
-                continue;
-            }
-            if (!force && cacheIt->second == state) continue;
-            cacheIt->second = state;
-
-            // Only format the chip after one of its raw counters actually changed.
-            const std::string value = "G" + std::to_string(state.goals) + " S" + std::to_string(state.saves) +
-                                      " A" + std::to_string(state.assists) + " Sh" + std::to_string(state.shots) +
-                                      " D" + std::to_string(state.demos);
-            for (Rml::Element* element : elementIt->second) {
-                SetElementText(element, value);
-                element->SetProperty("display", state.visible ? "inline-block" : "none");
-            }
-        }
+        // Bound text views re-evaluate only for the variables marked dirty here.
+        bool changed = m_liveModel.SetValues(ComputeLiveValues(m_snap, m_config));
+        for (const auto& [id, player] : m_snap.roster)
+            changed |= m_liveModel.SetPlayer(m_liveModel.PlayerSlot(id), ComputeLivePlayerStat(player));
+        if (changed) m_renderDirty = true;
     }
 
     if (leafGameChanged || primeStructure) m_lastLeafGameVersion = m_lastGameVersion;
@@ -1201,27 +1086,6 @@ std::string RmlUiController::CssColor(const ColorRGBA& color) {
     char buffer[10]{};
     std::snprintf(buffer, sizeof(buffer), "#%02X%02X%02X%02X", byte(color.r), byte(color.g), byte(color.b), byte(color.a));
     return buffer;
-}
-
-std::string RmlUiController::FormatNumber(float value, int precision) {
-    std::ostringstream out;
-    out << std::fixed << std::setprecision(precision) << value;
-    return out.str();
-}
-
-std::string RmlUiController::FormatRecord(int wins, int losses) {
-    return std::to_string(wins) + "-" + std::to_string(losses);
-}
-
-std::string RmlUiController::FormatClock(int64_t unixSeconds) {
-    if (unixSeconds <= 0) return "--";
-    int64_t now = static_cast<int64_t>(std::time(nullptr));
-    int64_t diff = now - unixSeconds;
-    if (diff < 0) diff = 0;
-    if (diff < 60) return "now";
-    if (diff < 3600) return std::to_string(diff / 60) + "m ago";
-    if (diff < 86400) return std::to_string(diff / 3600) + "h ago";
-    return std::to_string(diff / 86400) + "d ago";
 }
 
 std::string RmlUiController::FormatDemoKd(int demos, int demoed) {

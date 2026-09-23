@@ -64,7 +64,7 @@ std::string RmlUiController::RenderWidget(DashboardLayout::WidgetId id, bool das
             html << "<div class='roster-header'><div class='row'><div class='brand-mini grow'>OMNISTATS</div><div class='row gap-xs'>";
             if (m_config.use_rank_icons && !playlistImage.empty()) html << "<img class='playlist-icon' src='" << playlistImage << "'/>";
             html << "<span class='badge'>MMR · " << Escape(categoryName) << "</span></div></div>"
-                 << "<div class='label live-value' data-live-value='roster-arena'>" << Escape(m_snap.arenaName.empty() ? (m_snap.inMatch ? "Active match" : "No active match connected") : m_snap.arenaName) << "</div></div>";
+                 << "<div class='label'>{{roster_arena}}</div></div>";
         }
         html << RenderPlayerRoster(0, "BLUE") << RenderPlayerRoster(1, "ORANGE");
         if (!dashboard) {
@@ -389,7 +389,7 @@ void RmlUiController::RebuildDashboard() {
             << "<span class='version-update-icon'>&#8635;</span>"
             << "<span class='tooltip-bubble'>" << Escape(updateTooltip) << "</span></button>";
     }
-    out << "</div><div id='dashboard-match-status' class='match-status live-value' data-live-value='dashboard-status'>" << (m_snap.inMatch ? ("ACTIVE MATCH · " + Escape(m_snap.arenaName)) : "WAITING IN LOBBY") << "</div></div>"
+    out << "</div><div id='dashboard-match-status' class='match-status'>{{dashboard_status}}</div></div>"
         << "<div class='topbar-actions'>"
         << Button("dashboard-edit", editMode ? "Done Editing" : "Edit Layout", editMode ? "primary compact" : "ghost compact")
         << Button("open-settings", "Settings", "ghost compact")

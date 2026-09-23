@@ -3,7 +3,7 @@
     <title>OmniStats</title>
     <link type="text/rcss" href="res://omnistats.rcss" />
 </head>
-<body id="app">
+<body id="app" data-model="live">
     <div id="overlay-root" class="overlay-root"></div>
     <div id="dashboard-root" class="dashboard-root"></div>
     <div id="settings-root" class="modal-layer"></div>

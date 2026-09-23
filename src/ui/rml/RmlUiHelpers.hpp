@@ -92,6 +92,9 @@ namespace RmlUiDetail {
     // Every helper below escapes the text it is given; callers pass plain text,
     // never markup.
     std::string Escape(std::string_view text);
+    std::string FormatNumber(float value, int precision = 0);
+    std::string FormatRecord(int wins, int losses);
+    std::string FormatClock(int64_t unixSeconds);
     std::string ToggleControl(std::string_view key, std::string_view label, std::string_view help, bool checked, bool disabled = false);
     std::string SelectControl(std::string_view key, const std::vector<SelectOption>& options, std::string_view current, const char* klass = "", bool disabled = false);
     std::string SelectRow(std::string_view key, std::string_view label, std::string_view help, const std::vector<SelectOption>& options, std::string_view current, bool disabled = false);

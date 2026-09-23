@@ -47,39 +47,43 @@
 
 using namespace RmlUiDetail;
 
+namespace {
+    // Maps a live-model tone variable (-1, 0, +1) onto the loss/muted/win classes.
+    std::string ToneClasses(std::string_view toneVariable, bool mutedWhenNeutral) {
+        std::string out = " data-class-win='" + std::string(toneVariable) + " == 1' data-class-loss='" + std::string(toneVariable) + " == -1'";
+        if (mutedWhenNeutral) out += " data-class-muted='" + std::string(toneVariable) + " == 0'";
+        return out;
+    }
+
+    // A metric row whose value is the live-model variable `variable`.
+    std::string BoundMetricRow(std::string_view label, std::string_view variable, std::string_view toneVariable = {}) {
+        std::string out = "<div class='metric-row'><div class='metric-label'>" + Escape(label) + "</div><div class='metric-value mono'";
+        if (!toneVariable.empty()) out += ToneClasses(toneVariable, false);
+        out += ">{{" + std::string(variable) + "}}</div></div>";
+        return out;
+    }
+
+    std::string BoundKdMetric(const char* label, const char* countVariable, const char* kdVariable, const char* toneVariable) {
+        return std::string("<div class='mini-metric'><div class='label'>") + label + "</div><div class='value mono'><span>{{" + countVariable +
+               "}}</span> <span class='demo-kd' style='margin-left:6dp'" + ToneClasses(toneVariable, true) + ">{{" + kdVariable + "}}</span></div></div>";
+    }
+}
+
 std::string RmlUiController::RenderLiveMatchStats() {
     const auto& s = m_snap.currentMatch;
-    struct Row {
-        const char* label;
-        const char* key;
-        std::string value;
-    };
-    std::vector<Row> play = {
-        {"Saves", "match-saves", Format::PairCount(s.saves, s.savesSelf)},
-        {"Shots", "match-shots", Format::PairCount(s.shots, s.shotsSelf)},
-        {"Assists", "match-assists", Format::PairCount(s.assists, s.assistsSelf)},
-        {"Demos", "match-demos", Format::PairCount(s.demos, s.demosSelf)},
-        {"Crossbars", "match-crossbars", Format::PairCount(s.crossbars, s.crossbarsSelf)}};
-    if (s.demoedSelf > 0) play.insert(play.end() - 1, {"Demoed", "match-demoed", std::to_string(s.demoedSelf)});
-    std::vector<Row> fun = {
-        {"Max goal speed", "match-max-goal-speed", Format::PairSpeed(s.maxGoalSpeed, s.maxGoalSpeedSelf, true, " kph", m_config.imperial_units)},
-        {"Max ball speed", "match-max-ball-speed", Format::PairSpeed(s.maxBallSpeed, s.maxBallSpeedSelf, true, " kph", m_config.imperial_units)},
-        {"Hardest crossbar", "match-hardest-crossbar", m_config.crossbar_display_mode == "speed" ? Format::PairSpeed(s.maxImpactForce * 0.036f, s.maxImpactForceSelf * 0.036f, true, " kph", m_config.imperial_units) : Format::PairSpeed(s.maxImpactForce, s.maxImpactForceSelf, true, "", false)},
-        {"Fastest goal", "match-fastest-goal", Format::PairFastest(s.fastestGoalTime, s.fastestGoalTimeSelf)}};
-    if (s.ownGoals > 0) fun.push_back({"Own goals", "match-own-goals", Format::PairCount(s.ownGoals, s.ownGoalsSelf)});
+    std::string play = "<div class='metric-list'>" + BoundMetricRow("Saves", "match_saves") + BoundMetricRow("Shots", "match_shots") +
+                       BoundMetricRow("Assists", "match_assists") + BoundMetricRow("Demos", "match_demos");
+    if (s.demoedSelf > 0) play += BoundMetricRow("Demoed", "match_demoed");
+    play += BoundMetricRow("Crossbars", "match_crossbars") + "</div>";
 
-    auto list = [](const auto& rows) {
-        std::ostringstream html;
-        html << "<div class='metric-list'>";
-        for (const auto& row : rows) {
-            html << "<div class='metric-row'><div class='metric-label'>" << row.label
-                 << "</div><div class='metric-value mono live-value' data-live-value='" << row.key << "'>" << row.value << "</div></div>";
-        }
-        html << "</div>";
-        return html.str();
-    };
-    return "<div class='stat-section-title'>PLAY</div>" + list(play) +
-           "<div class='stat-section-title' style='margin-top:7dp'>FUN</div>" + list(fun);
+    std::string fun = "<div class='metric-list'>" + BoundMetricRow("Max goal speed", "match_max_goal_speed") +
+                      BoundMetricRow("Max ball speed", "match_max_ball_speed") + BoundMetricRow("Hardest crossbar", "match_hardest_crossbar") +
+                      BoundMetricRow("Fastest goal", "match_fastest_goal");
+    if (s.ownGoals > 0) fun += BoundMetricRow("Own goals", "match_own_goals");
+    fun += "</div>";
+
+    return "<div class='stat-section-title'>PLAY</div>" + play +
+           "<div class='stat-section-title' style='margin-top:7dp'>FUN</div>" + fun;
 }
 
 std::string RmlUiController::RenderStreaksStats() {
@@ -152,33 +156,18 @@ std::string RmlUiController::RenderSessionStats(bool compact, bool includeStreak
     const float gp = stats.teamGoals > 0 ? 100.0f * static_cast<float>(stats.goalParticipations) / static_cast<float>(stats.teamGoals) : 0.0f;
 
     if (compact) {
-        struct Row {
-            const char* name;
-            const char* key;
-            std::string value;
-        };
-        std::vector<Row> rows;
-        if (m_config.show_session_record) rows.push_back({"Record", "session-record", FormatRecord(stats.wins, stats.losses)});
-        if (m_config.show_session_goals) rows.push_back({"Goals", "session-goals", std::to_string(stats.goals)});
-        if (m_config.show_session_saves) rows.push_back({"Saves", "session-saves", std::to_string(stats.saves)});
-        if (m_config.show_session_assists) rows.push_back({"Assists", "session-assists", std::to_string(stats.assists)});
-        if (m_config.show_session_demos) rows.push_back({"Demos", "session-demos", std::to_string(stats.demos)});
-        if (m_config.show_session_boost) rows.push_back({"Boost", "session-boost", std::to_string(CalculateSessionBoostPickedUp(m_snap.sessionTotals, m_snap.currentMatch, m_snap.matchFinalized))});
-        if (m_config.show_session_goal_participation) rows.push_back({"Goal participation", "session-goal-participation", stats.teamGoals > 0 ? FormatNumber(gp, 0) + "%" : "--"});
-        if (m_config.show_session_mmr_change) rows.push_back({"MMR", "session-mmr", (mmr >= 0 ? "+" : "") + std::to_string(mmr)});
-        if (includeStreak && m_config.show_streaks_stats) rows.push_back({"Session", "session-net", std::to_string(stats.wins - stats.losses)});
-
-        std::ostringstream out;
-        out << "<div class='metric-list'>";
-        for (const auto& row : rows) {
-            std::string cls;
-            if (std::string_view(row.name) == "MMR") cls = mmr > 0 ? " win" : mmr < 0 ? " loss"
-                                                                                      : "";
-            out << "<div class='metric-row'><div class='metric-label'>" << row.name
-                << "</div><div class='metric-value mono live-value" << cls << "' data-live-value='" << row.key << "'>" << row.value << "</div></div>";
-        }
-        out << "</div>";
-        return out.str();
+        std::string out = "<div class='metric-list'>";
+        if (m_config.show_session_record) out += BoundMetricRow("Record", "session_record");
+        if (m_config.show_session_goals) out += BoundMetricRow("Goals", "session_goals");
+        if (m_config.show_session_saves) out += BoundMetricRow("Saves", "session_saves");
+        if (m_config.show_session_assists) out += BoundMetricRow("Assists", "session_assists");
+        if (m_config.show_session_demos) out += BoundMetricRow("Demos", "session_demos");
+        if (m_config.show_session_boost) out += BoundMetricRow("Boost", "session_boost");
+        if (m_config.show_session_goal_participation) out += BoundMetricRow("Goal participation", "session_goal_participation");
+        if (m_config.show_session_mmr_change) out += BoundMetricRow("MMR", "session_mmr", "session_mmr_tone");
+        if (includeStreak && m_config.show_streaks_stats) out += BoundMetricRow("Session", "session_net");
+        out += "</div>";
+        return out;
     }
 
     std::vector<std::pair<std::string, std::string>> summary = {
@@ -219,14 +208,6 @@ std::string RmlUiController::RenderSessionStats(bool compact, bool includeStreak
 }
 
 std::string RmlUiController::RenderDemoTracker() {
-    const auto session = CalculateSessionDemolitionCounts(m_snap.sessionTotals, m_snap.currentMatch, m_snap.matchFinalized);
-    const char* gameKdClass = DemoKdClass(m_snap.currentMatch.demosSelf, m_snap.currentMatch.demoedSelf);
-    const char* sessionKdClass = DemoKdClass(session.demos, session.demoed);
-    std::ostringstream out;
-    out << "<div class='metric-pair'>"
-        << "<div class='mini-metric'><div class='label'>GAME K/D</div><div class='value mono'><span class='live-value' data-live-value='demo-game-count'>" << m_snap.currentMatch.demosSelf << '-' << m_snap.currentMatch.demoedSelf
-        << "</span> <span class='demo-kd live-value " << gameKdClass << "' style='margin-left:6dp' data-live-value='demo-game-kd'>" << FormatDemoKd(m_snap.currentMatch.demosSelf, m_snap.currentMatch.demoedSelf) << "</span></div></div>"
-        << "<div class='mini-metric'><div class='label'>SESSION K/D</div><div class='value mono'><span class='live-value' data-live-value='demo-session-count'>" << session.demos << '-' << session.demoed
-        << "</span> <span class='demo-kd live-value " << sessionKdClass << "' style='margin-left:6dp' data-live-value='demo-session-kd'>" << FormatDemoKd(session.demos, session.demoed) << "</span></div></div></div>";
-    return out.str();
+    return "<div class='metric-pair'>" + BoundKdMetric("GAME K/D", "demo_game_count", "demo_game_kd", "demo_game_tone") +
+           BoundKdMetric("SESSION K/D", "demo_session_count", "demo_session_kd", "demo_session_tone") + "</div>";
 }

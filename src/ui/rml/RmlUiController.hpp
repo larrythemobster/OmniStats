@@ -21,6 +21,7 @@
 #include "ui/rml/RmlFileInterface.hpp"
 #include "ui/rml/RmlRenderInterfaceD3D11.hpp"
 #include "ui/rml/RmlUiHelpers.hpp"
+#include "ui/rml/RmlLiveModel.hpp"
 #include "ui/rml/RmlSystemInterfaceWin32.hpp"
 
 class DatabaseManager;
@@ -128,26 +129,6 @@ class RmlUiController final : public Rml::EventListener {
                           ColorField,
                           ColorHue };
 
-    struct TransparentStringHash {
-        using is_transparent = void;
-        size_t operator()(std::string_view value) const noexcept {
-            return std::hash<std::string_view>{}(value);
-        }
-        size_t operator()(const std::string& value) const noexcept {
-            return (*this)(std::string_view(value));
-        }
-    };
-
-    struct PlayerLiveStatState {
-        int goals = 0;
-        int saves = 0;
-        int assists = 0;
-        int shots = 0;
-        int demos = 0;
-        bool visible = false;
-        bool operator==(const PlayerLiveStatState&) const = default;
-    };
-
     struct DragSnapRect {
         float x = 0.0f;
         float y = 0.0f;
@@ -181,7 +162,6 @@ class RmlUiController final : public Rml::EventListener {
     void UpdateThemeProperties();
     void RebuildVisibleUi(bool force = false, bool configChanged = false);
     void RefreshLiveUi(bool force = false, bool allowStructural = true);
-    void RebuildLiveElementCache();
     void SetElementRml(Rml::Element* element, const std::string& rml, bool replayPointer = false);
     void SetElementText(Rml::Element* element, const std::string& text);
     void RebuildOverlay();
@@ -236,9 +216,6 @@ class RmlUiController final : public Rml::EventListener {
     void ShowToast(std::string message, bool error = false);
 
     static std::string CssColor(const ColorRGBA& color);
-    static std::string FormatNumber(float value, int precision = 0);
-    static std::string FormatRecord(int wins, int losses);
-    static std::string FormatClock(int64_t unixSeconds);
     static bool ValidateStatsApiPath(std::string input, std::string& normalized, std::string& error);
     static const char* SettingsPageName(SettingsPage page);
     static const char* ZoneName(DashboardLayout::Zone zone);
@@ -305,9 +282,7 @@ class RmlUiController final : public Rml::EventListener {
     uint64_t m_lastSettingsRosterGameVersion = std::numeric_limits<uint64_t>::max();
     SettingsPage m_lastSettingsRosterPage = SettingsPage::General;
     std::unordered_map<std::string, std::string> m_lastLiveWidgetRml;
-    std::unordered_map<std::string, std::vector<Rml::Element*>, TransparentStringHash, std::equal_to<>> m_liveValueElements;
-    std::unordered_map<std::string, std::vector<Rml::Element*>> m_playerLiveStatElements;
-    bool m_liveElementCacheDirty = true;
+    RmlLiveModel m_liveModel;
     bool m_liveDomNeedsPrime = true;
     uint64_t m_lastRosterStructureHash = 0;
     bool m_hasRosterStructureHash = false;
@@ -316,8 +291,6 @@ class RmlUiController final : public Rml::EventListener {
     std::string m_lastSessionViewRml;
     uint64_t m_lastGamemodeBreakdownHash = 0;
     bool m_hasGamemodeBreakdownHash = false;
-    std::unordered_map<std::string, std::string, TransparentStringHash, std::equal_to<>> m_lastLiveValues;
-    std::unordered_map<std::string, PlayerLiveStatState> m_lastPlayerLiveStats;
 
     std::string m_lastDbFetchPrimaryId;
     std::string m_lastLifetimeHistoryPrimaryId;

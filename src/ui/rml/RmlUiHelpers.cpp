@@ -575,6 +575,27 @@ namespace RmlUiDetail {
         return out;
     }
 
+    std::string FormatNumber(float value, int precision) {
+        std::ostringstream out;
+        out << std::fixed << std::setprecision(precision) << value;
+        return out.str();
+    }
+
+    std::string FormatRecord(int wins, int losses) {
+        return std::to_string(wins) + "-" + std::to_string(losses);
+    }
+
+    std::string FormatClock(int64_t unixSeconds) {
+        if (unixSeconds <= 0) return "--";
+        int64_t now = static_cast<int64_t>(std::time(nullptr));
+        int64_t diff = now - unixSeconds;
+        if (diff < 0) diff = 0;
+        if (diff < 60) return "now";
+        if (diff < 3600) return std::to_string(diff / 60) + "m ago";
+        if (diff < 86400) return std::to_string(diff / 3600) + "h ago";
+        return std::to_string(diff / 86400) + "d ago";
+    }
+
     std::string ToggleControl(std::string_view key, std::string_view label, std::string_view help, bool checked, bool disabled) {
         std::string out = "<div class='setting-row'><div class='setting-info'><div class='setting-name'>" + Escape(label) + "</div>";
         if (!help.empty()) out += "<div class='setting-help'>" + Escape(help) + "</div>";

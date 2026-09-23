@@ -910,8 +910,10 @@ TEST_F(RmlUiControllerStateTest, CompactSessionKeepsLegacySignedZeroMmrChange) {
 
     RmlUiController controller(state, nullptr);
     controller.Update(config);
-    const std::string html = RenderCompactSession(controller);
-    EXPECT_NE(html.find("data-live-value='session-mmr'>+0</div>"), std::string::npos);
+    const LiveValues live = ComputeLiveValues(Snapshot(controller), config);
+    EXPECT_EQ(live.session_mmr, "+0");
+    EXPECT_EQ(live.session_mmr_tone, 0);
+    EXPECT_NE(RenderCompactSession(controller).find("{{session_mmr}}"), std::string::npos);
 }
 
 TEST_F(RmlUiControllerStateTest, CompactSessionUsesFinalizedDemoTotalsOnly) {
@@ -929,9 +931,61 @@ TEST_F(RmlUiControllerStateTest, CompactSessionUsesFinalizedDemoTotalsOnly) {
     RmlUiController controller(state, nullptr);
     controller.Update(config);
 
-    const std::string html = RenderCompactSession(controller);
-    EXPECT_NE(html.find("data-live-value='session-demos'>3</div>"), std::string::npos);
-    EXPECT_EQ(html.find("data-live-value='session-demos'>5</div>"), std::string::npos);
+    const LiveValues live = ComputeLiveValues(Snapshot(controller), config);
+    EXPECT_EQ(live.session_demos, "3");
+    EXPECT_EQ(live.demo_session_count, "5-0");
+}
+
+TEST_F(RmlUiControllerStateTest, TelemetryUpdatesBoundTextWithoutRebuildingWidgets) {
+    Microsoft::WRL::ComPtr<ID3D11Device> device;
+    Microsoft::WRL::ComPtr<ID3D11DeviceContext> context;
+    D3D_FEATURE_LEVEL featureLevel;
+    if (FAILED(D3D11CreateDevice(nullptr, D3D_DRIVER_TYPE_WARP, nullptr, 0, nullptr, 0, D3D11_SDK_VERSION,
+                                 &device, &featureLevel, &context))) {
+        GTEST_SKIP() << "WARP not available.";
+    }
+    Config::Update([](ConfigData& c) {
+        c.second_monitor_mode = true;
+        c.show_demo_tracker_overlay = true;
+        c.dashboard_layout = DashboardLayout::DefaultLayout();
+        for (auto& widget : c.dashboard_layout.widgets)
+            if (widget.id == DashboardLayout::WidgetId::DemoTracker) widget.zone = DashboardLayout::Zone::Right;
+    },
+                   true);
+    auto state = std::make_shared<SessionState>();
+    {
+        std::unique_lock lock(state->game.mutex);
+        state->game.currentMatch.demosSelf = 2;
+        state->game.currentMatch.demoedSelf = 1;
+        state->game.version.fetch_add(1);
+    }
+    RmlUiController controller(state, nullptr);
+    ASSERT_TRUE(controller.Initialize(nullptr, device.Get(), context.Get(), 1200, 900, 1.0f));
+    controller.Update(Config::Read(), false);
+    controller.Render();
+
+    const auto kdElement = [&]() -> Rml::Element* {
+        Rml::ElementList elements;
+        Document(controller)->QuerySelectorAll(elements, "[data-widget='demos'] .demo-kd");
+        return elements.empty() ? nullptr : elements.front();
+    };
+    Rml::Element* before = kdElement();
+    ASSERT_NE(before, nullptr);
+    EXPECT_EQ(before->GetInnerRML(), "2.00");
+    EXPECT_TRUE(before->IsClassSet("win"));
+
+    {
+        std::unique_lock lock(state->game.mutex);
+        state->game.currentMatch.demoedSelf = 4;
+        state->game.version.fetch_add(1);
+    }
+    controller.Update(Config::Read(), false);
+    controller.Render();
+
+    EXPECT_EQ(kdElement(), before);
+    EXPECT_EQ(before->GetInnerRML(), "0.50");
+    EXPECT_TRUE(before->IsClassSet("loss"));
+    EXPECT_FALSE(before->IsClassSet("win"));
 }
 
 TEST_F(RmlUiControllerStateTest, LiveTelemetryDoesNotInvalidateOpenSettingsDom) {
@@ -1512,24 +1566,26 @@ TEST_F(RmlUiControllerStateTest, DemoTrackerFormatsKdClassesAndSpacing) {
     EXPECT_STREQ(RmlUiController::DemoKdClass(4, 4), "muted");
     EXPECT_STREQ(RmlUiController::DemoKdClass(1, 0), "muted");
 
-    // 2. Check initial rendering for 0-0 has loss class and 6dp margin spacing
+    // 2. A 0-0 game reads as a losing K/D.
     auto state = std::make_shared<SessionState>();
     RmlUiController controller(state, nullptr);
-    controller.Update(Config::Read());
-    std::string html = RenderDemoTracker(controller);
-    EXPECT_NE(html.find("data-live-value='demo-game-count'>0-0</span>"), std::string::npos);
-    EXPECT_NE(html.find("class='demo-kd live-value loss'"), std::string::npos);
-    EXPECT_NE(html.find("style='margin-left:6dp'"), std::string::npos);
+    const ConfigData config = Config::Read();
+    controller.Update(config);
+    LiveValues live = ComputeLiveValues(Snapshot(controller), config);
+    EXPECT_EQ(live.demo_game_count, "0-0");
+    EXPECT_EQ(live.demo_game_tone, -1);
+    EXPECT_NE(RenderDemoTracker(controller).find("style='margin-left:6dp'"), std::string::npos);
 
-    // 3. Update state with 13-4 and verify win class
+    // 3. 13-4 formats with two decimals and reads as winning.
     {
         std::unique_lock lock(state->game.mutex);
         state->game.currentMatch.demosSelf = 13;
         state->game.currentMatch.demoedSelf = 4;
         state->game.version.fetch_add(1);
     }
-    controller.Update(Config::Read());
-    html = RenderDemoTracker(controller);
-    EXPECT_NE(html.find("data-live-value='demo-game-count'>13-4</span>"), std::string::npos);
-    EXPECT_NE(html.find("class='demo-kd live-value win' style='margin-left:6dp' data-live-value='demo-game-kd'>3.25</span>"), std::string::npos);
+    controller.Update(config);
+    live = ComputeLiveValues(Snapshot(controller), config);
+    EXPECT_EQ(live.demo_game_count, "13-4");
+    EXPECT_EQ(live.demo_game_kd, "3.25");
+    EXPECT_EQ(live.demo_game_tone, 1);
 }
