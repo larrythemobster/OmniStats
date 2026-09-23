@@ -56,6 +56,9 @@ namespace RmlUiDetail {
     float SanitizedScale(float value, float fallback = 1.0f);
     float SanitizedUiScale(float value);
     std::string ToLower(std::string value);
+    // Directory holding editable RML/RCSS for hot reload: OMNISTATS_RML_DIR when
+    // set, otherwise the source tree in Debug builds, otherwise empty (disabled).
+    std::string RmlDevDirectory();
 
     void HashAppend(uint64_t& hash, std::string_view value);
     void HashAppend(uint64_t& hash, uint64_t value);

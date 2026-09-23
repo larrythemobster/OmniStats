@@ -123,6 +123,17 @@ namespace RmlUiDetail {
         return std::clamp(value, 0.5f, 2.0f);
     }
 
+    std::string RmlDevDirectory() {
+        char buffer[MAX_PATH]{};
+        const DWORD length = GetEnvironmentVariableA("OMNISTATS_RML_DIR", buffer, MAX_PATH);
+        if (length > 0 && length < MAX_PATH) return std::string(buffer, length);
+#ifdef OMNISTATS_RML_DEV_DIR
+        return OMNISTATS_RML_DEV_DIR;
+#else
+        return {};
+#endif
+    }
+
     std::string ToLower(std::string value) {
         std::transform(value.begin(), value.end(), value.begin(), [](unsigned char c) {
             return static_cast<char>(std::tolower(c));

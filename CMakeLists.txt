@@ -152,6 +152,8 @@ target_include_directories(${PROJECT_NAME} PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/
 target_compile_definitions(${PROJECT_NAME} PRIVATE
     OMNISTATS_ENABLE_LOW_LEVEL_HOOK=$<BOOL:${OMNISTATS_ENABLE_LOW_LEVEL_HOOK}>
     OMNISTATS_VERSION="${OMNISTATS_VERSION}"
+    # Debug builds read RML/RCSS from the source tree; Ctrl+Shift+R reloads them.
+    $<$<CONFIG:Debug>:OMNISTATS_RML_DEV_DIR="${CMAKE_CURRENT_SOURCE_DIR}/resources/rml">
 )
 
 # Application dependencies

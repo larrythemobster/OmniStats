@@ -156,21 +156,14 @@ bool RmlUiController::Initialize(HWND hwnd, ID3D11Device* device, ID3D11DeviceCo
         return false;
     }
 
+    m_fileInterface.SetOverrideDirectory(RmlDevDirectory());
     m_document = m_context->LoadDocument("res://main.rml");
     if (!m_document) {
         Shutdown();
         return false;
     }
     m_document->Show();
-
-    // Keep an immutable copy of the document's packaged RCSS. Theme changes are
-    // layered on top as a stylesheet, so newly created DOM automatically gets
-    // the current colors without rescanning every matching element after each
-    // SetInnerRML call.
-    if (const auto* packagedStyle = m_document->GetStyleSheetContainer()) {
-        if (auto emptyStyle = Rml::Factory::InstanceStyleSheetString("#__omnistats_theme_base__ { color: inherit; }"))
-            m_baseStyleSheet = packagedStyle->CombineStyleSheetContainer(*emptyStyle);
-    }
+    CaptureBaseStyleSheet();
 
     for (const char* event : {"click", "change", "input", "mousedown", "mousemove", "mouseup"}) {
         m_context->AddEventListener(event, this);
@@ -251,6 +244,12 @@ bool RmlUiController::ProcessWindowMessage(HWND hwnd, UINT message, WPARAM wPara
     // Losing the button (focus change or capture loss) never delivers `mouseup`,
     // so release the rebuild hold here or live updates would stay frozen.
     if (message == WM_KILLFOCUS || message == WM_CAPTURECHANGED || message == WM_LBUTTONUP) m_pointerPressed = false;
+    // Ctrl+Shift+R reloads RML/RCSS from the development resource directory.
+    if (message == WM_KEYDOWN && wParam == 'R' && !m_fileInterface.OverrideDirectory().empty() &&
+        (GetKeyState(VK_CONTROL) & 0x8000) != 0 && (GetKeyState(VK_SHIFT) & 0x8000) != 0) {
+        ReloadUiResources();
+        return true;
+    }
     const bool handled = RmlInputWin32::ProcessWindowMessage(m_context, hwnd, message, wParam, lParam);
     // Hover/focus/scroll state can change RmlUi pseudo-classes without touching
     // application data, so any input consumed by RmlUi requests a new frame.

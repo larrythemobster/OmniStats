@@ -47,6 +47,31 @@
 
 using namespace RmlUiDetail;
 
+// Keeps an immutable copy of the document's packaged RCSS. Theme changes are
+// layered on top as a stylesheet, so newly created DOM automatically gets the
+// current colors without rescanning every matching element after each
+// SetInnerRML call.
+void RmlUiController::CaptureBaseStyleSheet() {
+    m_baseStyleSheet.reset();
+    if (!m_document) return;
+    if (const auto* packagedStyle = m_document->GetStyleSheetContainer()) {
+        if (auto emptyStyle = Rml::Factory::InstanceStyleSheetString("#__omnistats_theme_base__ { color: inherit; }"))
+            m_baseStyleSheet = packagedStyle->CombineStyleSheetContainer(*emptyStyle);
+    }
+}
+
+void RmlUiController::ReloadUiResources() {
+    if (!m_document) return;
+    Rml::Factory::ClearStyleSheetCache();
+    Rml::Factory::ClearTemplateCache();
+    m_document->ReloadStyleSheet();
+    CaptureBaseStyleSheet();
+    UpdateThemeProperties();
+    RebuildVisibleUi(true, true);
+    if (m_state && m_state->ui.showMenu.load()) RebuildSettings();
+    ShowToast("Reloaded UI resources from " + m_fileInterface.OverrideDirectory());
+}
+
 void RmlUiController::UpdateThemeProperties() {
     if (!m_document || !m_baseStyleSheet) return;
 

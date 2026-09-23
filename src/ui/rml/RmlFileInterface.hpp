@@ -15,6 +15,15 @@ class RmlFileInterface final : public Rml::FileInterface {
     size_t Tell(Rml::FileHandle file) override;
     size_t Length(Rml::FileHandle file) override;
 
+    // When set, res:// documents and stylesheets are read from this directory
+    // before the embedded copies, so edits on disk show up on reload.
+    void SetOverrideDirectory(std::string directory) {
+        m_overrideDirectory = std::move(directory);
+    }
+    const std::string& OverrideDirectory() const {
+        return m_overrideDirectory;
+    }
+
   private:
     struct Handle {
         enum class Kind { Disk,
@@ -27,4 +36,7 @@ class RmlFileInterface final : public Rml::FileInterface {
 
     static bool IsResourcePath(const std::string& path);
     static std::string ResourceNameForPath(const std::string& path);
+    Handle* OpenDisk(const std::string& path) const;
+
+    std::string m_overrideDirectory;
 };

@@ -160,6 +160,8 @@ class RmlUiController final : public Rml::EventListener {
     void RefreshAsyncData();
     void UpdateInputCapture();
     void UpdateThemeProperties();
+    void CaptureBaseStyleSheet();
+    void ReloadUiResources();
     void RebuildVisibleUi(bool force = false, bool configChanged = false);
     void RefreshLiveUi(bool force = false, bool allowStructural = true);
     void SetElementRml(Rml::Element* element, const std::string& rml, bool replayPointer = false);

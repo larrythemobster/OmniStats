@@ -24,18 +24,35 @@ std::string RmlFileInterface::ResourceNameForPath(const std::string& rawPath) {
     const std::string path = NormalizeResourcePath(rawPath);
     if (path == "main.rml") return "RML_MAIN";
     if (path == "omnistats.rcss") return "RML_STYLE";
+    if (path == "onboarding.rml") return "RML_ONBOARDING";
+    if (path == "insights.rml") return "RML_INSIGHTS";
     return {};
+}
+
+RmlFileInterface::Handle* RmlFileInterface::OpenDisk(const std::string& path) const {
+    FILE* file = nullptr;
+#ifdef _MSC_VER
+    fopen_s(&file, path.c_str(), "rb");
+#else
+    file = std::fopen(path.c_str(), "rb");
+#endif
+    if (!file) return nullptr;
+    auto* handle = new Handle();
+    handle->kind = Handle::Kind::Disk;
+    handle->disk = file;
+    return handle;
 }
 
 Rml::FileHandle RmlFileInterface::Open(const Rml::String& rmlPath) {
     const std::string path = rmlPath;
-    auto* handle = new Handle();
 
     if (IsResourcePath(path)) {
         const std::string resourceName = ResourceNameForPath(path);
-        if (resourceName.empty()) {
-            delete handle;
-            return 0;
+        if (resourceName.empty()) return 0;
+
+        if (!m_overrideDirectory.empty()) {
+            if (Handle* handle = OpenDisk(m_overrideDirectory + "/" + NormalizeResourcePath(path)))
+                return reinterpret_cast<Rml::FileHandle>(handle);
         }
 
         HMODULE module = GetModuleHandleW(nullptr);
@@ -46,6 +63,7 @@ Rml::FileHandle RmlFileInterface::Open(const Rml::String& rmlPath) {
                 const DWORD resourceSize = SizeofResource(module, resource);
                 const void* bytes = LockResource(loaded);
                 if (bytes && resourceSize > 0) {
+                    auto* handle = new Handle();
                     handle->kind = Handle::Kind::Memory;
                     handle->memory = static_cast<const unsigned char*>(bytes);
                     handle->size = static_cast<size_t>(resourceSize);
@@ -62,34 +80,12 @@ Rml::FileHandle RmlFileInterface::Open(const Rml::String& rmlPath) {
         candidates.push_back(std::string(OMNISTATS_SOURCE_DIR) + "/" + relPath);
 #endif
         for (const auto& candidate : candidates) {
-            FILE* f = nullptr;
-#ifdef _MSC_VER
-            fopen_s(&f, candidate.c_str(), "rb");
-#else
-            f = std::fopen(candidate.c_str(), "rb");
-#endif
-            if (f) {
-                handle->kind = Handle::Kind::Disk;
-                handle->disk = f;
-                return reinterpret_cast<Rml::FileHandle>(handle);
-            }
+            if (Handle* handle = OpenDisk(candidate)) return reinterpret_cast<Rml::FileHandle>(handle);
         }
-        delete handle;
         return 0;
     }
 
-    FILE* file = nullptr;
-#ifdef _MSC_VER
-    fopen_s(&file, path.c_str(), "rb");
-#else
-    file = std::fopen(path.c_str(), "rb");
-#endif
-    if (!file) {
-        delete handle;
-        return 0;
-    }
-    handle->kind = Handle::Kind::Disk;
-    handle->disk = file;
+    Handle* handle = OpenDisk(path);
     return reinterpret_cast<Rml::FileHandle>(handle);
 }
 
