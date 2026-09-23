@@ -25,7 +25,10 @@ namespace {
 }
 
 bool RmlUiController::WantsAttention() const {
-    return m_insightsVisible || m_onboardingVisible;
+    // A recap captured when Rocket League closed is only opened by Update(),
+    // and the host skips Update() while the window is hidden, so the pending
+    // flag itself has to keep the window drawn.
+    return m_insightsVisible || m_onboardingVisible || (m_state && m_state->ui.showSessionRecap.load());
 }
 
 void RmlUiController::OpenInsights() {
@@ -50,7 +53,14 @@ void RmlUiController::CloseViewDocuments() {
 
 void RmlUiController::ShowInsights(InsightsView::Tab tab, bool endedSession) {
     if (!m_insightsDoc) return;
-    m_insightsShowsEndedSession = endedSession;
+    // After a reset the live session is empty; the session that just ended is
+    // the useful recap.
+    bool showEnded = endedSession;
+    if (!showEnded && m_state && m_snap.sessionTotals.wins + m_snap.sessionTotals.losses == 0) {
+        std::shared_lock lock(m_state->game.mutex);
+        showEnded = m_state->game.lastSessionRecap.valid;
+    }
+    m_insightsShowsEndedSession = showEnded;
     m_insights.SetTab(tab);
     RefreshInsights(true);
     if (!m_insightsVisible) {

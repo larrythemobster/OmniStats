@@ -199,6 +199,9 @@ class RmlUiControllerStateTest : public ::testing::Test {
     void ShowRecap(RmlUiController& controller) {
         controller.ShowInsights(InsightsView::Tab::Recap, false);
     }
+    bool InsightsShowEndedSession(const RmlUiController& controller) const {
+        return controller.m_insightsShowsEndedSession;
+    }
 
     ConfigData original;
 };
@@ -1657,6 +1660,48 @@ TEST_F(RmlUiControllerStateTest, FirstRunWizardShowsUntilFinished) {
 
     EXPECT_TRUE(Config::Read().onboarding_completed);
     EXPECT_FALSE(controller.WantsAttention());
+}
+
+// Closing Rocket League hides the overlay, and the host stops calling Update()
+// while hidden. The pending recap must keep the window drawn, or the recap
+// is never opened.
+TEST_F(RmlUiControllerStateTest, PendingSessionRecapKeepsOverlayDrawn) {
+    auto state = std::make_shared<SessionState>();
+    RmlUiController controller(state, nullptr);
+    EXPECT_FALSE(controller.WantsAttention());
+    state->ui.showSessionRecap.store(true);
+    EXPECT_TRUE(controller.WantsAttention());
+}
+
+TEST_F(RmlUiControllerStateTest, InsightsButtonShowsEndedSessionAfterReset) {
+    WarpDevice warp;
+    if (!warp.Create(1280, 800)) GTEST_SKIP() << "WARP not available.";
+    auto state = std::make_shared<SessionState>();
+    {
+        std::unique_lock lock(state->game.mutex);
+        state->game.lastSessionRecap.valid = true;
+        state->game.lastSessionRecap.totals.wins = 4;
+        state->game.lastSessionRecap.totals.losses = 2;
+        state->game.version.fetch_add(1);
+    }
+    RmlUiController controller(state, nullptr);
+    ASSERT_TRUE(controller.Initialize(nullptr, warp.device.Get(), warp.context.Get(), 1280, 800, 1.0f));
+    controller.Update(Config::Read(), false);
+    controller.OpenInsights();
+    EXPECT_TRUE(InsightsShowEndedSession(controller));
+
+    // With games in the live session, the button shows the live session.
+    controller.Shutdown();
+    {
+        std::unique_lock lock(state->game.mutex);
+        state->game.sessionTotals.wins = 1;
+        state->game.version.fetch_add(1);
+    }
+    RmlUiController live(state, nullptr);
+    ASSERT_TRUE(live.Initialize(nullptr, warp.device.Get(), warp.context.Get(), 1280, 800, 1.0f));
+    live.Update(Config::Read(), false);
+    live.OpenInsights();
+    EXPECT_FALSE(InsightsShowEndedSession(live));
 }
 
 TEST_F(RmlUiControllerStateTest, RecapCardRendersAndCapturesToPng) {
