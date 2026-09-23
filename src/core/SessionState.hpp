@@ -10,6 +10,7 @@
 #include <memory>
 #include <cstdint>
 #include <cstddef>
+#include "core/Insights.hpp"
 #include "core/StatsApiConfig.hpp"
 
 // Data for individual players in the current lobby
@@ -210,6 +211,25 @@ struct CachedDbStats {
     std::map<std::string, GamemodeStat> gamemodes;
 };
 
+// Session totals captured when a session ends (Rocket League closed with
+// reset_session_on_close) so the recap can still be shown after the reset.
+struct SessionRecap {
+    bool valid = false;
+    int64_t endedAtUnix = 0;
+    SessionTotals totals;
+    std::map<std::string, GamemodeStat> gamemodes;
+};
+
+// Database aggregates behind the Insights window, loaded on demand.
+struct InsightsState {
+    mutable std::mutex mutex;
+    std::atomic<uint64_t> version{0};
+    bool loaded = false;
+    std::string primaryId;
+    std::vector<PersonRecord> people;
+    std::vector<MatchOutcome> outcomes;
+};
+
 // Decomposed state sections
 struct UIState {
     // Visibility & UI Flags controlled by InputManager/Overlay Settings
@@ -229,6 +249,8 @@ struct UIState {
     // Auto match summary popup
     std::atomic<bool> showMatchSummary{false};
     std::atomic<int64_t> matchSummaryStartMs{0};
+    // Set when a finished session was captured into game.lastSessionRecap.
+    std::atomic<bool> showSessionRecap{false};
 
     // Dashboard layout edit mode
     std::atomic<bool> dashboardLayoutEditMode{false};
@@ -321,6 +343,7 @@ struct GameState {
     // reads this instead of the mutable live roster.
     std::unordered_map<std::string, LocalPreMatchMmrSnapshot> preMatchMmrByGuid;
     bool matchFinalized = false;
+    SessionRecap lastSessionRecap;
 };
 
 struct HistoryState {
@@ -357,6 +380,7 @@ class SessionState : public std::enable_shared_from_this<SessionState> {
     UIState ui;
     GameState game;
     HistoryState history;
+    InsightsState insights;
 
     void resetMatch(const std::string& newArena, const std::string& newArenaAsset = "");
     void clearActiveMatchOnDisconnect();

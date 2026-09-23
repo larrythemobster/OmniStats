@@ -73,10 +73,12 @@ struct ConfigData {
     bool imperial_units = false;
     bool run_on_startup = false;
     bool reset_session_on_close = true;
+    bool show_session_recap_on_close = true;
     std::string client_uuid = "";
     std::string privacy_policy_accepted_version = "";
     std::string terms_accepted_version = "";
     std::string privacy_accepted_at = "";
+    bool onboarding_completed = false;
 
     std::string position = "top-right";
     bool show_running_indicator = true;

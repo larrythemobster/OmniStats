@@ -677,3 +677,42 @@ TEST_F(DatabaseManagerTest, MergeDatabaseHandlesLegacySchema) {
 
     RemoveTestDbFiles(legacyPath);
 }
+
+TEST_F(DatabaseManagerTest, PeopleRecordsCountOnlySharedMatchesAndUseLatestName) {
+    const std::string me = "Steam|me";
+    auto saveMatch = [&](const std::string& guid, bool win, const std::string& owner, const std::string& mateName) {
+        MatchSaveSnapshot snap;
+        snap.arenaName = "DFH Stadium";
+        snap.matchGuid = guid;
+        snap.myTeam = 0;
+        snap.winnerTeam = win ? 0 : 1;
+        snap.validResult = true;
+        snap.myPrimaryId = owner;
+        snap.roster[owner] = PlayerData{.primaryId = owner, .name = "Owner", .team = 0, .mmr = 1000};
+        snap.roster["Steam|mate"] = PlayerData{.primaryId = "Steam|mate", .name = mateName, .team = 0, .mmr = 1000};
+        snap.roster["Steam|rival"] = PlayerData{.primaryId = "Steam|rival", .name = "Rival", .team = 1, .mmr = 1000};
+        snap.roster["Unknown|bot"] = PlayerData{.primaryId = "Unknown|bot", .name = "Bot", .team = 1, .mmr = 0};
+        dbManager->SaveMatch(snap);
+    };
+    saveMatch("people-1", true, me, "OldName");
+    saveMatch("people-2", false, me, "NewName");
+    saveMatch("people-3", true, "Steam|someone-else", "Elsewhere");
+    sqlite3_exec(dbManager->GetRawDb(), "UPDATE Matches SET timestamp = datetime('now', '-2 hours') WHERE match_guid = 'people-1';", nullptr, nullptr, nullptr);
+
+    std::vector<PersonRecord> people;
+    dbManager->GetPeopleRecords(me, people);
+
+    ASSERT_EQ(people.size(), 2u);
+    const auto find = [&](const std::string& id) {
+        return *std::find_if(people.begin(), people.end(), [&](const PersonRecord& p) { return p.primaryId == id; });
+    };
+    const PersonRecord mate = find("Steam|mate");
+    EXPECT_EQ(mate.name, "NewName");
+    EXPECT_EQ(mate.winsWith, 1);
+    EXPECT_EQ(mate.lossesWith, 1);
+    EXPECT_EQ(mate.GamesAgainst(), 0);
+    const PersonRecord rival = find("Steam|rival");
+    EXPECT_EQ(rival.winsAgainst, 1);
+    EXPECT_EQ(rival.lossesAgainst, 1);
+    EXPECT_EQ(rival.GamesWith(), 0);
+}

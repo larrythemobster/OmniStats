@@ -291,11 +291,18 @@ namespace Config {
             if (j.contains("debug_logging")) Current.debug_logging = j["debug_logging"];
             if (j.contains("run_on_startup")) Current.run_on_startup = j["run_on_startup"];
             if (j.contains("reset_session_on_close")) Current.reset_session_on_close = j["reset_session_on_close"];
+            if (j.contains("show_session_recap_on_close")) Current.show_session_recap_on_close = j["show_session_recap_on_close"];
             if (j.contains("imperial_units")) Current.imperial_units = j["imperial_units"];
             if (j.contains("client_uuid")) Current.client_uuid = j["client_uuid"];
             if (j.contains("privacy_policy_accepted_version")) Current.privacy_policy_accepted_version = j["privacy_policy_accepted_version"];
             if (j.contains("terms_accepted_version")) Current.terms_accepted_version = j["terms_accepted_version"];
             if (j.contains("privacy_accepted_at")) Current.privacy_accepted_at = j["privacy_accepted_at"];
+            // Installs that accepted the privacy notice before onboarding existed
+            // already went through the old first-run prompts.
+            if (j.contains("onboarding_completed"))
+                Current.onboarding_completed = j["onboarding_completed"];
+            else
+                Current.onboarding_completed = !Current.privacy_policy_accepted_version.empty();
             if (j.contains("position")) Current.position = j["position"];
             if (j.contains("show_running_indicator")) Current.show_running_indicator = j["show_running_indicator"];
             if (j.contains("use_roman_numerals")) Current.use_roman_numerals = j["use_roman_numerals"];
@@ -543,11 +550,13 @@ namespace Config {
         j["debug_logging"] = Current.debug_logging;
         j["run_on_startup"] = Current.run_on_startup;
         j["reset_session_on_close"] = Current.reset_session_on_close;
+        j["show_session_recap_on_close"] = Current.show_session_recap_on_close;
         j["imperial_units"] = Current.imperial_units;
         j["client_uuid"] = Current.client_uuid;
         j["privacy_policy_accepted_version"] = Current.privacy_policy_accepted_version;
         j["terms_accepted_version"] = Current.terms_accepted_version;
         j["privacy_accepted_at"] = Current.privacy_accepted_at;
+        j["onboarding_completed"] = Current.onboarding_completed;
         j["position"] = Current.position;
         j["show_running_indicator"] = Current.show_running_indicator;
         j["use_roman_numerals"] = Current.use_roman_numerals;

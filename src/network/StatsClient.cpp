@@ -3,6 +3,7 @@
 #include "database/DatabaseManager.hpp"
 #include "network/DiscordManager.hpp"
 #include "network/MMRFetcher.hpp"
+#include <ctime>
 #include <iostream>
 
 static void ConfigureFromSavedIdentity(std::shared_ptr<SessionState> state,
@@ -109,8 +110,13 @@ void StatsClient::RunLoop() {
             {
                 std::unique_lock<std::shared_mutex> lock(m_state->game.mutex);
                 if (resetSessionAfterDisconnect) {
-                    m_state->game.sessionTotals = SessionTotals();
-                    m_state->game.sessionGamemodes.clear();
+                    auto& game = m_state->game;
+                    if (game.sessionTotals.wins + game.sessionTotals.losses > 0) {
+                        game.lastSessionRecap = {true, static_cast<int64_t>(std::time(nullptr)), game.sessionTotals, game.sessionGamemodes};
+                        if (conf.show_session_recap_on_close) m_state->ui.showSessionRecap.store(true);
+                    }
+                    game.sessionTotals = SessionTotals();
+                    game.sessionGamemodes.clear();
                 }
                 // A reconnect starts with no trustworthy active-match telemetry.
                 // Clear all per-match classification/observation state so a frame

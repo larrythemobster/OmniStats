@@ -94,6 +94,24 @@ static std::string FormatMatchHistoryMode(const std::string& gamemode, int playe
     return FormatPlaylistName(playerCount);
 }
 
+// Human-readable playlist for a Matches row. Rows with Game.PlaylistId use the
+// authoritative metadata; legacy rows fall back to gamemode/player count.
+static std::string DescribeMatchPlaylist(sqlite3_stmt* stmt, int gamemodeColumn, int playerCountColumn, int playlistIdColumn, bool& ranked) {
+    if (sqlite3_column_type(stmt, playlistIdColumn) != SQLITE_NULL) {
+        const int playlistId = sqlite3_column_int(stmt, playlistIdColumn);
+        if (const auto* info = PlaylistMetadata::Find(playlistId)) {
+            ranked = info->playlistClass == PlaylistMetadata::PlaylistClass::Ranked ||
+                     info->playlistClass == PlaylistMetadata::PlaylistClass::Tournament;
+            return info->playlistClass == PlaylistMetadata::PlaylistClass::Casual ? "Casual" : info->displayName;
+        }
+        ranked = false;
+        return "Unknown Playlist (" + std::to_string(playlistId) + ")";
+    }
+    const std::string gamemode = SqlColumnText(stmt, gamemodeColumn);
+    ranked = gamemode != "casual";
+    return FormatMatchHistoryMode(gamemode, sqlite3_column_int(stmt, playerCountColumn));
+}
+
 DatabaseManager::DatabaseManager(std::shared_ptr<SessionState> state)
     : m_state(state) {
     s_test_async_get_lifetime_calls.store(0);
@@ -609,31 +627,8 @@ void DatabaseManager::GetRecentMatchHistory(const std::string& primaryId, std::v
     sqlite3_bind_int(stmt, 2, limit);
 
     while (sqlite3_step(stmt) == SQLITE_ROW) {
-        const std::string gamemode = SqlColumnText(stmt, 3);
-        const int playerCount = sqlite3_column_int(stmt, 4);
-
         SessionMatchSummary summary;
-        if (sqlite3_column_type(stmt, 8) != SQLITE_NULL) {
-            const int playlistId = sqlite3_column_int(stmt, 8);
-            if (const auto* info = PlaylistMetadata::Find(playlistId)) {
-                summary.ranked =
-                    info->playlistClass == PlaylistMetadata::PlaylistClass::Ranked ||
-                    info->playlistClass == PlaylistMetadata::PlaylistClass::Tournament;
-                summary.mode =
-                    info->playlistClass == PlaylistMetadata::PlaylistClass::Casual
-                        ? "Casual"
-                        : info->displayName;
-            } else {
-                summary.ranked = false;
-                summary.mode =
-                    "Unknown Playlist (" + std::to_string(playlistId) + ")";
-            }
-        } else {
-            // Legacy row: playlist truth was not persisted, so retain the old
-            // inference path for compatibility.
-            summary.ranked = gamemode != "casual";
-            summary.mode = FormatMatchHistoryMode(gamemode, playerCount);
-        }
+        summary.mode = DescribeMatchPlaylist(stmt, 3, 4, 8, summary.ranked);
         summary.matchGuid = SqlColumnText(stmt, 7);
         summary.ourScore = sqlite3_column_int(stmt, 0);
         summary.theirScore = sqlite3_column_int(stmt, 1);
@@ -680,6 +675,78 @@ void DatabaseManager::GetPlayerEncounterRecord(const std::string& primaryId, int
         lossesAgainst = sqlite3_column_int(stmt, 3);
     }
 
+    sqlite3_finalize(stmt);
+}
+
+void DatabaseManager::GetPeopleRecords(const std::string& primaryId, std::vector<PersonRecord>& outPeople) {
+    std::lock_guard<std::mutex> lock(m_dbMutex);
+    outPeople.clear();
+    if (!m_db || primaryId.empty()) return;
+
+    // Everyone who shared a saved match with the local account. The bare
+    // MatchPlayers.name column takes its value from the row that supplied
+    // MAX(timestamp), so each person shows the most recent name they used.
+    const char* sql = R"(
+        SELECT MatchPlayers.primary_id,
+               MatchPlayers.name,
+               SUM(CASE WHEN Matches.win = 1 AND MatchPlayers.is_opponent = 0 THEN 1 ELSE 0 END),
+               SUM(CASE WHEN Matches.win = 0 AND MatchPlayers.is_opponent = 0 THEN 1 ELSE 0 END),
+               SUM(CASE WHEN Matches.win = 1 AND MatchPlayers.is_opponent = 1 THEN 1 ELSE 0 END),
+               SUM(CASE WHEN Matches.win = 0 AND MatchPlayers.is_opponent = 1 THEN 1 ELSE 0 END),
+               MAX(strftime('%s', Matches.timestamp))
+        FROM MatchPlayers
+        JOIN Matches ON MatchPlayers.match_id = Matches.id
+        WHERE MatchPlayers.primary_id != ?1
+          AND MatchPlayers.primary_id NOT LIKE 'Unknown|%'
+          AND Matches.id IN (SELECT match_id FROM MatchPlayers WHERE primary_id = ?1)
+        GROUP BY MatchPlayers.primary_id
+        ORDER BY COUNT(*) DESC
+        LIMIT 500;
+    )";
+
+    sqlite3_stmt* stmt = nullptr;
+    if (sqlite3_prepare_v2(m_db, sql, -1, &stmt, nullptr) != SQLITE_OK) return;
+    sqlite3_bind_text(stmt, 1, primaryId.c_str(), -1, SQLITE_TRANSIENT);
+    while (sqlite3_step(stmt) == SQLITE_ROW) {
+        PersonRecord person;
+        person.primaryId = SqlColumnText(stmt, 0);
+        person.name = SqlColumnText(stmt, 1);
+        person.winsWith = sqlite3_column_int(stmt, 2);
+        person.lossesWith = sqlite3_column_int(stmt, 3);
+        person.winsAgainst = sqlite3_column_int(stmt, 4);
+        person.lossesAgainst = sqlite3_column_int(stmt, 5);
+        person.lastSeenUnix = sqlite3_column_int64(stmt, 6);
+        outPeople.push_back(std::move(person));
+    }
+    sqlite3_finalize(stmt);
+}
+
+void DatabaseManager::GetMatchOutcomes(const std::string& primaryId, std::vector<MatchOutcome>& outMatches) {
+    std::lock_guard<std::mutex> lock(m_dbMutex);
+    outMatches.clear();
+    if (!m_db || primaryId.empty()) return;
+
+    const char* sql = R"(
+        SELECT strftime('%s', Matches.timestamp),
+               CAST(strftime('%H', Matches.timestamp, 'localtime') AS INTEGER),
+               Matches.win, Matches.gamemode, Matches.player_count, Matches.playlist_id
+        FROM Matches
+        JOIN MatchPlayers ON MatchPlayers.match_id = Matches.id AND MatchPlayers.primary_id = ?
+        ORDER BY Matches.timestamp ASC, Matches.id ASC;
+    )";
+
+    sqlite3_stmt* stmt = nullptr;
+    if (sqlite3_prepare_v2(m_db, sql, -1, &stmt, nullptr) != SQLITE_OK) return;
+    sqlite3_bind_text(stmt, 1, primaryId.c_str(), -1, SQLITE_TRANSIENT);
+    while (sqlite3_step(stmt) == SQLITE_ROW) {
+        MatchOutcome outcome;
+        outcome.endedAtUnix = sqlite3_column_int64(stmt, 0);
+        outcome.localHour = sqlite3_column_int(stmt, 1);
+        outcome.win = sqlite3_column_int(stmt, 2) != 0;
+        bool ranked = false;
+        outcome.playlist = DescribeMatchPlaylist(stmt, 3, 4, 5, ranked);
+        outMatches.push_back(std::move(outcome));
+    }
     sqlite3_finalize(stmt);
 }
 
@@ -1405,6 +1472,24 @@ void DatabaseManager::AsyncGetPlayerEncounterRecord(const std::string& primaryId
         }
     },
                        DbJobPriority::Coalescable, "encounter:" + pid);
+}
+
+void DatabaseManager::AsyncLoadInsights(const std::string& primaryId) {
+    std::string pid = primaryId;
+    (void)EnqueueDbJob([this, pid]() {
+        std::vector<PersonRecord> people;
+        std::vector<MatchOutcome> outcomes;
+        GetPeopleRecords(pid, people);
+        GetMatchOutcomes(pid, outcomes);
+        if (!m_state) return;
+        std::lock_guard<std::mutex> lock(m_state->insights.mutex);
+        m_state->insights.primaryId = pid;
+        m_state->insights.people = std::move(people);
+        m_state->insights.outcomes = std::move(outcomes);
+        m_state->insights.loaded = true;
+        m_state->insights.version.fetch_add(1, std::memory_order_relaxed);
+    },
+                       DbJobPriority::Coalescable, "insights:" + pid);
 }
 
 void DatabaseManager::AsyncSaveMatch(MatchSaveSnapshot snapshot) {

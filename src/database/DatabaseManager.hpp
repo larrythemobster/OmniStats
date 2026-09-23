@@ -40,6 +40,10 @@ class DatabaseManager {
     void AsyncGetRecentMatchHistory(const std::string& primaryId, int limit = kPreviousGamesDefaultLimit);
     void GetPlayerEncounterRecord(const std::string& primaryId, int& winsWith, int& lossesWith, int& winsAgainst, int& lossesAgainst);
     void AsyncGetPlayerEncounterRecord(const std::string& primaryId);
+    void GetPeopleRecords(const std::string& primaryId, std::vector<PersonRecord>& outPeople);
+    void GetMatchOutcomes(const std::string& primaryId, std::vector<MatchOutcome>& outMatches);
+    // Loads people and match outcomes for the Insights window into state->insights.
+    void AsyncLoadInsights(const std::string& primaryId);
     void GetOpponentRecord(const std::string& primaryId, const std::string& opponentId, int& wins, int& losses);
     void GetGamemodeStats(const std::string& primaryId, const std::string& gamemode, int& wins, int& losses, int& gamesPlayed);
     void GetStreakStats(const std::string& primaryId, int& outCurWin, int& outCurLoss, int& outLongestWin, int& outLongestLoss);
