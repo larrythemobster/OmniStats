@@ -391,6 +391,7 @@ void RmlUiController::RebuildDashboard() {
     }
     out << "</div><div id='dashboard-match-status' class='match-status'>{{dashboard_status}}</div></div>"
         << "<div class='topbar-actions'>"
+        << Button("insights-open", "Insights", "ghost compact")
         << Button("dashboard-edit", editMode ? "Done Editing" : "Edit Layout", editMode ? "primary compact" : "ghost compact")
         << Button("open-settings", "Settings", "ghost compact")
         << "<button class='window-control' data-action='window-minimize'><span class='win-icon-min'></span></button>"

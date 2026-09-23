@@ -1,0 +1,109 @@
+<rml>
+<head>
+    <title>OmniStats Insights</title>
+    <link type="text/rcss" href="res://omnistats.rcss" />
+</head>
+<body id="app" class="view-document" data-model="insights">
+    <div class="view-backdrop">
+        <div class="view-window">
+            <div class="view-header row">
+                <div class="grow">
+                    <div class="brand-title">Insights</div>
+                    <div class="label">{{subtitle}}</div>
+                </div>
+                <button class="ghost compact" data-action="insights-close">Close</button>
+            </div>
+            <div class="view-tabs row">
+                <button class="tab-button" data-action="insights-tab" data-tab="recap" data-class-active="tab == 'recap'">Session recap</button>
+                <button class="tab-button" data-action="insights-tab" data-tab="people" data-class-active="tab == 'people'">People</button>
+                <button class="tab-button" data-action="insights-tab" data-tab="trends" data-class-active="tab == 'trends'">Trends</button>
+            </div>
+
+            <div class="view-body" data-if="tab == 'recap'">
+                <div id="recap-card" class="recap-card">
+                    <div class="row">
+                        <div class="grow">
+                            <div class="recap-kicker">{{recap_title}}</div>
+                            <div class="recap-date">{{recap_date}}</div>
+                        </div>
+                        <div class="recap-brand">OmniStats</div>
+                    </div>
+                    <div class="recap-hero row" data-if="recap_has_games">
+                        <div class="recap-record"><span class="win">{{recap_wins}}</span><span class="recap-dash">-</span><span class="loss">{{recap_losses}}</span></div>
+                        <div class="recap-hero-stat">
+                            <div class="recap-hero-value">{{recap_rate}}</div>
+                            <div class="label">win rate</div>
+                        </div>
+                        <div class="recap-hero-stat">
+                            <div class="recap-hero-value" data-class-win="recap_mmr_tone == 1" data-class-loss="recap_mmr_tone == -1">{{recap_mmr}}</div>
+                            <div class="label">MMR change</div>
+                        </div>
+                    </div>
+                    <div class="stat-grid cols-3 recap-stats" data-if="recap_has_games">
+                        <div class="stat-cell" data-for="stat : recap_stats">
+                            <div class="label">{{stat.label}}</div>
+                            <div class="value mono">{{stat.value}}</div>
+                        </div>
+                    </div>
+                    <div class="recap-modes" data-if="recap_modes.size > 0">
+                        <div class="recap-mode-row" data-for="mode : recap_modes">
+                            <div class="grow value">{{mode.name}}</div>
+                            <div class="mono recap-mode-record">{{mode.record}}</div>
+                            <div class="mono recap-mode-mmr" data-class-win="mode.tone == 1" data-class-loss="mode.tone == -1">{{mode.mmr}}</div>
+                        </div>
+                    </div>
+                    <div class="muted recap-empty" data-if="!recap_has_games">No games this session yet. Play a match and the recap fills in here.</div>
+                </div>
+                <div class="row gap-sm view-actions" data-if="recap_has_games">
+                    <button class="primary" data-action="recap-export">Save as PNG</button>
+                    <div class="label grow">Saves to Pictures\OmniStats so you can drop it into Discord.</div>
+                </div>
+            </div>
+
+            <div class="view-body" data-if="tab == 'people'">
+                <div class="row gap-sm view-filters">
+                    <button class="tab-button pill" data-action="people-filter" data-filter="teammates" data-class-active="people_filter == 'teammates'">Teammates</button>
+                    <button class="tab-button pill" data-action="people-filter" data-filter="rivals" data-class-active="people_filter == 'rivals'">Opponents</button>
+                </div>
+                <div class="people-table" data-if="people.size > 0">
+                    <div class="people-row header">
+                        <div class="people-name"><div>Player</div></div>
+                        <div class="people-cell">Games</div>
+                        <div class="people-cell">Record</div>
+                        <div class="people-cell">Win rate</div>
+                        <div class="people-cell wide">Last played</div>
+                    </div>
+                    <div class="people-row" data-for="person : people">
+                        <div class="people-name">
+                            <span class="value">{{person.name}}</span>
+                            <span class="label people-platform">{{person.platform}}</span>
+                        </div>
+                        <div class="people-cell mono">{{person.games}}</div>
+                        <div class="people-cell mono">{{person.record}}</div>
+                        <div class="people-cell mono" data-class-win="person.tone == 1" data-class-loss="person.tone == -1">{{person.rate}}</div>
+                        <div class="people-cell wide label">{{person.last_seen}}</div>
+                    </div>
+                </div>
+                <div class="muted view-empty" data-if="people.size == 0">{{people_empty}}</div>
+            </div>
+
+            <div class="view-body" data-if="tab == 'trends'">
+                <div class="callout" data-if="tilt_message != ''">{{tilt_message}}</div>
+                <div class="label trends-summary">{{trends_summary}}</div>
+                <div class="trend-section" data-for="section : trend_sections">
+                    <div class="stat-section-title">{{section.title}}</div>
+                    <div class="trend-row" data-for="row : section.rows">
+                        <div class="trend-label">{{row.label}}</div>
+                        <div class="trend-track">
+                            <div class="trend-bar" data-style-width="row.width" data-class-win="row.tone == 1" data-class-loss="row.tone == -1"></div>
+                        </div>
+                        <div class="trend-rate mono">{{row.rate}}</div>
+                        <div class="trend-games label">{{row.games}}</div>
+                    </div>
+                </div>
+                <div class="muted view-empty" data-if="trend_sections.size == 0">{{trends_empty}}</div>
+            </div>
+        </div>
+    </div>
+</body>
+</rml>

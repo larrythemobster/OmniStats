@@ -122,7 +122,7 @@ LRESULT WINAPI WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                     if (pt.y >= height - borderSize) return HTBOTTOM;
                 }
                 const int titleBarHeight = static_cast<int>(34.0f * overlay->m_dpiScale);
-                const int controlsWidth = static_cast<int>(270.0f * overlay->m_dpiScale);
+                const int controlsWidth = static_cast<int>(350.0f * overlay->m_dpiScale);
                 if (pt.y >= 0 && pt.y <= titleBarHeight) {
                     if (pt.x >= width - controlsWidth) return HTCLIENT;
                     return HTCAPTION;
@@ -140,6 +140,10 @@ LRESULT WINAPI WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
             overlay->UpdateWindowStyle();
             overlay->UpdateWindowPosition();
         }
+        return 0;
+
+    case WM_OPEN_INSIGHTS:
+        if (overlay && overlay->m_rmlUi) overlay->m_rmlUi->OpenInsights();
         return 0;
 
     case WM_GETMINMAXINFO:
@@ -334,6 +338,9 @@ void Overlay::RunLoop() {
         if (m_frameConfig.require_rl_focus) {
             shouldDraw = m_frameConfig.second_monitor_mode ? cachedRlHwnd != nullptr : isRLActive;
         }
+        // First-run setup, the post-session recap and Insights must be visible
+        // even when Rocket League is not running or focused.
+        if (!shouldDraw && m_rmlUi->WantsAttention()) shouldDraw = true;
         if (!shouldDraw) {
             if (IsWindowVisible(m_hwnd)) ShowWindow(m_hwnd, SW_HIDE);
             wasRLActive = false;

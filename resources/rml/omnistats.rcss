@@ -1086,3 +1086,136 @@ scrollbarcorner { background-color: #0b0e13aa; }
 .debug-label { width: 135dp; color: #9da6b3; }
 .debug-value { flex-grow: 1; color: #eef1f5; font-family: "JetBrains Mono"; }
 .privacy-dialog { width: 520dp; max-width: 92%; }
+
+/* Insights and onboarding documents. Each is its own RML document stacked
+   above main.rml; the backdrop blocks input to the UI underneath. */
+body.view-document { pointer-events: none; }
+.view-backdrop {
+    position: absolute;
+    left: 0; top: 0; width: 100%; height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background-color: #000000a0;
+    pointer-events: auto;
+}
+.view-window {
+    display: flex;
+    flex-direction: column;
+    width: 760dp;
+    max-width: 94%;
+    height: 640dp;
+    max-height: 92%;
+    background-color: #0c0f14fa;
+    border: 1dp #2a313d;
+    border-radius: 12dp;
+    overflow: hidden;
+}
+.view-header {
+    flex-shrink: 0;
+    min-height: 58dp;
+    padding: 11dp 16dp;
+    background-color: #11151c;
+    border-bottom: 1dp #272d38;
+}
+.view-header .brand-title { font-size: 17dp; }
+.view-header .label { font-size: 12dp; margin-top: 2dp; }
+.view-tabs { flex-shrink: 0; gap: 4dp; padding: 8dp 16dp 0 16dp; border-bottom: 1dp #20252f; }
+.tab-button {
+    min-height: 32dp;
+    padding: 6dp 12dp;
+    border: 0;
+    border-bottom: 2dp transparent;
+    border-radius: 0;
+    background-color: transparent;
+    color: #939dab;
+    font-size: 13dp;
+    font-weight: 600;
+}
+.tab-button:hover { color: #eef1f5; background-color: transparent; }
+.tab-button.active { color: #eef1f5; border-bottom-color: #eef1f5; }
+.tab-button.pill { border: 1dp #2b303d; border-radius: 14dp; min-height: 28dp; padding: 4dp 12dp; }
+.tab-button.pill.active { border-color: #eef1f5; background-color: #1b2029; }
+.view-body { display: block; flex-grow: 1; min-height: 0; padding: 14dp 16dp; overflow-y: auto; }
+.view-actions { margin-top: 12dp; align-items: center; }
+.view-filters { margin-bottom: 10dp; }
+.view-empty { display: block; padding: 24dp 0; text-align: center; }
+.callout {
+    display: block;
+    margin-bottom: 12dp;
+    padding: 10dp 12dp;
+    border-left: 3dp #ffb454;
+    border-radius: 4dp;
+    background-color: #1c1912;
+    color: #eef1f5;
+    font-size: 12dp;
+    line-height: 1.4;
+}
+
+.recap-card {
+    display: block;
+    padding: 16dp 18dp;
+    background-color: #11151c;
+    border: 1dp #272d38;
+    border-radius: 10dp;
+}
+.recap-kicker { display: block; font-family: "Russo One"; font-size: 12dp; letter-spacing: 1dp; color: #9da6b3; }
+.recap-date { display: block; margin-top: 2dp; font-size: 12dp; color: #707987; }
+.recap-brand { display: block; font-family: "Russo One"; font-size: 13dp; color: #707987; }
+.recap-hero { gap: 32dp; align-items: flex-end; margin: 14dp 0 16dp 0; }
+.recap-record { font-family: "Russo One"; font-size: 44dp; line-height: 1; }
+.recap-dash { color: #707987; margin: 0 6dp; }
+.recap-hero-stat { display: flex; flex-direction: column; }
+.recap-hero-value { display: block; font-family: "JetBrains Mono"; font-size: 22dp; font-weight: 700; line-height: 1.1; }
+.recap-stats { margin-bottom: 12dp; }
+.recap-modes { display: block; border-top: 1dp #252a35; padding-top: 6dp; }
+.recap-mode-row { display: flex; flex-direction: row; align-items: center; min-height: 26dp; font-size: 12dp; }
+.recap-mode-record { width: 70dp; text-align: right; }
+.recap-mode-mmr { width: 70dp; text-align: right; }
+.recap-empty { display: block; padding: 18dp 0; }
+
+.people-table { display: block; border: 1dp #2c3240; border-radius: 6dp; overflow: hidden; }
+.people-row { display: flex; flex-direction: row; align-items: center; min-height: 32dp; padding: 3dp 10dp; border-top: 1dp #252a3555; font-size: 12dp; }
+.people-row:first-child { border-top: 0; }
+.people-row.header { min-height: 26dp; background-color: #10131a; color: #9da6b3; font-size: 10dp; font-weight: 700; letter-spacing: 0.3dp; }
+.people-name { display: flex; flex-direction: column; flex-grow: 1; min-width: 0; }
+.people-platform { font-size: 10dp; }
+.people-cell { width: 70dp; flex-shrink: 0; text-align: right; }
+.people-cell.wide { width: 100dp; }
+
+.trends-summary { display: block; margin-bottom: 12dp; }
+.trend-section { display: block; margin-bottom: 14dp; }
+.trend-row { display: flex; flex-direction: row; align-items: center; min-height: 24dp; gap: 10dp; font-size: 12dp; }
+.trend-label { width: 160dp; flex-shrink: 0; color: #c3cad6; }
+.trend-track { flex-grow: 1; height: 8dp; border-radius: 4dp; background-color: #1b2029; }
+.trend-bar { display: block; height: 8dp; border-radius: 4dp; background-color: #9da6b3; }
+.trend-bar.win { background-color: #43d926; }
+.trend-bar.loss { background-color: #ff3030; }
+.trend-rate { width: 44dp; flex-shrink: 0; text-align: right; }
+.trend-games { width: 72dp; flex-shrink: 0; text-align: right; }
+
+.wizard-window { width: 640dp; height: 520dp; }
+.wizard-progress { flex-shrink: 0; gap: 6dp; padding: 12dp 16dp 0 16dp; }
+.wizard-step { flex-grow: 1; height: 4dp; border-radius: 2dp; background-color: #252a34; }
+.wizard-step.done { background-color: #eef1f5; }
+.wizard-lead { display: block; margin-bottom: 14dp; font-size: 13dp; line-height: 1.45; color: #c3cad6; }
+.wizard-footer { flex-shrink: 0; gap: 8dp; padding: 10dp 16dp; border-top: 1dp #272d38; background-color: #10141a; }
+.status-card { display: block; padding: 12dp 14dp; border: 1dp #2b303d; border-radius: 8dp; background-color: #11151c; }
+.status-card.ok { border-color: #43d92666; }
+.status-card.bad { border-color: #ff303066; }
+.status-dot { width: 10dp; height: 10dp; margin-right: 8dp; border-radius: 5dp; background-color: #9da6b3; }
+.status-card.ok .status-dot { background-color: #43d926; }
+.status-card.bad .status-dot { background-color: #ff3030; }
+.status-path { display: block; margin-top: 6dp; font-size: 11dp; }
+.choice-card {
+    display: block;
+    min-height: 120dp;
+    padding: 14dp;
+    border: 1dp #2b303d;
+    border-radius: 8dp;
+    background-color: #11151c;
+    cursor: pointer;
+}
+.choice-card:hover { border-color: #485164; }
+.choice-card.selected { border: 2dp #eef1f5; background-color: #171c25; }
+.choice-title { display: block; margin-bottom: 6dp; font-size: 14dp; font-weight: 700; }

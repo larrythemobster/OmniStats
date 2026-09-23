@@ -115,43 +115,16 @@ static bool EnsureRequiredPrivacyAcceptance() {
     if (acceptedCurrent) {
         return true;
     }
-    const bool firstAcceptance = conf.privacy_policy_accepted_version.empty() || conf.terms_accepted_version.empty();
     if (!ShowRequiredPrivacyDialog()) {
         return false;
     }
-    bool enableMmrTracking = conf.enable_mmr_tracking;
-    bool enableDiscordRpc = conf.discord_rpc_enabled;
-    bool enableCrashReports = conf.crash_reports_enabled;
-
-    if (firstAcceptance) {
-        int mmr = MessageBoxA(
-            NULL,
-            "Enable live MMR tracking with Tracker Network?\n\nThis sends lobby player names and platform identifiers to Tracker Network to retrieve public rank information. The integration is optional and may stop working if the third-party service changes.",
-            "Optional Tracker Rank Lookup",
-            MB_YESNO | MB_ICONQUESTION | MB_DEFBUTTON2 | MB_SETFOREGROUND);
-        enableMmrTracking = (mmr == IDYES);
-
-        int discord = MessageBoxA(
-            NULL,
-            "Enable Discord Rich Presence?\n\nThis shares your current match/session status with your local Discord client for display on your Discord profile.",
-            "Optional Discord Rich Presence",
-            MB_YESNO | MB_ICONQUESTION | MB_DEFBUTTON2 | MB_SETFOREGROUND);
-        enableDiscordRpc = (discord == IDYES);
-        int crashReports = MessageBoxA(
-            NULL,
-            "Enable automatic crash report uploads?\n\nIf enabled, OmniStats uploads pending Windows minidump files on next startup to help diagnose native crashes. Minidumps may contain sensitive process memory, so leave this off unless you are comfortable sending them.",
-            "Optional Crash Reports",
-            MB_YESNO | MB_ICONWARNING | MB_DEFBUTTON2 | MB_SETFOREGROUND);
-        enableCrashReports = (crashReports == IDYES);
-    }
+    // Optional integrations (Tracker, Discord, crash reports) are offered by the
+    // in-app first-run wizard, which runs until onboarding_completed is set.
     std::string acceptedAt = std::to_string(std::time(nullptr));
     Config::Update([&](ConfigData& c) {
         c.privacy_policy_accepted_version = Config::CurrentPrivacyPolicyVersion;
         c.terms_accepted_version = Config::CurrentTermsVersion;
         c.privacy_accepted_at = acceptedAt;
-        c.enable_mmr_tracking = enableMmrTracking;
-        c.discord_rpc_enabled = enableDiscordRpc;
-        c.crash_reports_enabled = enableCrashReports;
     },
                    false);
     Config::Save();
@@ -244,7 +217,9 @@ int main(int argc, char* argv[]) {
         apiPath = StatsApiConfig::DetectConfigPath();
     }
     StatsApiConfig::CheckResult checkRes = StatsApiConfig::VerifyConfig(apiPath, startupConf.port);
-    if (startupConf.check_stats_api_config_on_startup && checkRes.status != StatsApiConfig::Status::Valid) {
+    // Until the first-run wizard is finished it owns the Stats API fix.
+    if (startupConf.check_stats_api_config_on_startup && startupConf.onboarding_completed &&
+        checkRes.status != StatsApiConfig::Status::Valid) {
         std::wstring title = L"OmniStats Stats API Setup";
         std::wstring text = L"Rocket League Stats API is disabled or misconfigured. OmniStats needs PacketSendRate=30 and Port=49123 to read live game data. Fix it now?";
         if (checkRes.rlRunning) {

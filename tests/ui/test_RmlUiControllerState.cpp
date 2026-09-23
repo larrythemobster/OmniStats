@@ -8,6 +8,7 @@
 
 #include <algorithm>
 #include <filesystem>
+#include <fstream>
 #include <memory>
 #include <limits>
 #include <mutex>
@@ -18,6 +19,7 @@
 #include "core/Storage.hpp"
 #include "database/DatabaseManager.hpp"
 #include "ui/rml/RmlUiController.hpp"
+#include "ui/rml/RmlCapture.hpp"
 #include "ui/rml/RmlUiHelpers.hpp"
 #include "network/ExternalUpdaterLauncher.hpp"
 
@@ -32,6 +34,7 @@ class RmlUiControllerStateTest : public ::testing::Test {
             c.show_running_indicator = false;
             c.second_monitor_mode = false;
             c.ballchasing_token.clear();
+            c.onboarding_completed = true;
         },
                        true);
     }
@@ -180,6 +183,21 @@ class RmlUiControllerStateTest : public ::testing::Test {
     }
     int64_t ToastDeadline(const RmlUiController& controller) const {
         return controller.m_statusUntilMs;
+    }
+    Rml::ElementDocument* OnboardingDocument(RmlUiController& controller) {
+        return controller.m_onboardingDoc;
+    }
+    Rml::ElementDocument* InsightsDocument(RmlUiController& controller) {
+        return controller.m_insightsDoc;
+    }
+    void Click(RmlUiController& controller, Rml::Element* element) {
+        controller.HandleClick(element);
+    }
+    void ReloadUi(RmlUiController& controller) {
+        controller.ReloadUiResources();
+    }
+    void ShowRecap(RmlUiController& controller) {
+        controller.ShowInsights(InsightsView::Tab::Recap, false);
     }
 
     ConfigData original;
@@ -1588,4 +1606,116 @@ TEST_F(RmlUiControllerStateTest, DemoTrackerFormatsKdClassesAndSpacing) {
     EXPECT_EQ(live.demo_game_count, "13-4");
     EXPECT_EQ(live.demo_game_kd, "3.25");
     EXPECT_EQ(live.demo_game_tone, 1);
+}
+
+namespace {
+    struct WarpDevice {
+        Microsoft::WRL::ComPtr<ID3D11Device> device;
+        Microsoft::WRL::ComPtr<ID3D11DeviceContext> context;
+        Microsoft::WRL::ComPtr<ID3D11RenderTargetView> target;
+
+        bool Create(UINT width, UINT height) {
+            D3D_FEATURE_LEVEL level;
+            if (FAILED(D3D11CreateDevice(nullptr, D3D_DRIVER_TYPE_WARP, nullptr, 0, nullptr, 0, D3D11_SDK_VERSION, &device, &level, &context)))
+                return false;
+            D3D11_TEXTURE2D_DESC desc{};
+            desc.Width = width;
+            desc.Height = height;
+            desc.MipLevels = 1;
+            desc.ArraySize = 1;
+            desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+            desc.SampleDesc = {1, 0};
+            desc.BindFlags = D3D11_BIND_RENDER_TARGET;
+            Microsoft::WRL::ComPtr<ID3D11Texture2D> texture;
+            if (FAILED(device->CreateTexture2D(&desc, nullptr, &texture))) return false;
+            if (FAILED(device->CreateRenderTargetView(texture.Get(), nullptr, &target))) return false;
+            const float clear[4] = {0.0f, 0.0f, 0.0f, 1.0f};
+            context->OMSetRenderTargets(1, target.GetAddressOf(), nullptr);
+            context->ClearRenderTargetView(target.Get(), clear);
+            return true;
+        }
+    };
+}
+
+TEST_F(RmlUiControllerStateTest, FirstRunWizardShowsUntilFinished) {
+    WarpDevice warp;
+    if (!warp.Create(1280, 800)) GTEST_SKIP() << "WARP not available.";
+    Config::Update([](ConfigData& c) { c.onboarding_completed = false; }, true);
+
+    auto state = std::make_shared<SessionState>();
+    RmlUiController controller(state, nullptr);
+    ASSERT_TRUE(controller.Initialize(nullptr, warp.device.Get(), warp.context.Get(), 1280, 800, 1.0f));
+    controller.Update(Config::Read(), false);
+    controller.Render();
+    EXPECT_TRUE(controller.WantsAttention());
+    EXPECT_TRUE(controller.WantsInteraction());
+
+    Rml::ElementList buttons;
+    OnboardingDocument(controller)->QuerySelectorAll(buttons, "[data-action='onboarding-finish']");
+    ASSERT_FALSE(buttons.empty());
+    Click(controller, buttons.front());
+
+    EXPECT_TRUE(Config::Read().onboarding_completed);
+    EXPECT_FALSE(controller.WantsAttention());
+}
+
+TEST_F(RmlUiControllerStateTest, RecapCardRendersAndCapturesToPng) {
+    WarpDevice warp;
+    if (!warp.Create(1280, 800)) GTEST_SKIP() << "WARP not available.";
+    auto state = std::make_shared<SessionState>();
+    {
+        std::unique_lock lock(state->game.mutex);
+        state->game.sessionTotals.wins = 3;
+        state->game.sessionTotals.losses = 1;
+        state->game.sessionTotals.goals = 5;
+        state->game.sessionGamemodes["2v2"] = {3, 1, 4};
+        state->game.version.fetch_add(1);
+    }
+    RmlUiController controller(state, nullptr);
+    ASSERT_TRUE(controller.Initialize(nullptr, warp.device.Get(), warp.context.Get(), 1280, 800, 1.0f));
+    controller.Update(Config::Read(), false);
+    ShowRecap(controller);
+    controller.Render();
+
+    Rml::Element* card = InsightsDocument(controller)->GetElementById("recap-card");
+    ASSERT_NE(card, nullptr);
+    const Rml::Vector2f offset = card->GetAbsoluteOffset(Rml::BoxArea::Border);
+    const Rml::Vector2f size = card->GetBox().GetSize(Rml::BoxArea::Border);
+    ASSERT_GT(size.x, 300.0f);
+    ASSERT_GT(size.y, 100.0f);
+
+    const std::filesystem::path path = std::filesystem::temp_directory_path() / "omnistats_recap_test.png";
+    std::filesystem::remove(path);
+    std::string error;
+    ASSERT_TRUE(RmlCapture::SaveBoundRenderTargetRegion(warp.context.Get(), static_cast<int>(offset.x), static_cast<int>(offset.y),
+                                                        static_cast<int>(size.x), static_cast<int>(size.y), path.wstring(), error))
+        << error;
+    EXPECT_GT(std::filesystem::file_size(path), 1024u);
+    std::filesystem::remove(path);
+}
+
+TEST_F(RmlUiControllerStateTest, HotReloadAppliesEditedStylesheet) {
+    WarpDevice warp;
+    if (!warp.Create(800, 600)) GTEST_SKIP() << "WARP not available.";
+    const std::filesystem::path source = std::filesystem::path(OMNISTATS_SOURCE_DIR) / "resources" / "rml";
+    const std::filesystem::path dev = std::filesystem::temp_directory_path() / "omnistats_rml_dev";
+    std::filesystem::remove_all(dev);
+    std::filesystem::copy(source, dev);
+    SetEnvironmentVariableA("OMNISTATS_RML_DIR", dev.string().c_str());
+
+    auto state = std::make_shared<SessionState>();
+    {
+        RmlUiController controller(state, nullptr);
+        ASSERT_TRUE(controller.Initialize(nullptr, warp.device.Get(), warp.context.Get(), 800, 600, 1.0f));
+        controller.Update(Config::Read(), false);
+        controller.Render();
+        EXPECT_FLOAT_EQ(Document(controller)->GetProperty<float>("opacity"), 1.0f);
+
+        std::ofstream(dev / "omnistats.rcss", std::ios::app) << "\nbody { opacity: 0.5; }\n";
+        ReloadUi(controller);
+        controller.Render();
+        EXPECT_FLOAT_EQ(Document(controller)->GetProperty<float>("opacity"), 0.5f);
+    }
+    SetEnvironmentVariableA("OMNISTATS_RML_DIR", nullptr);
+    std::filesystem::remove_all(dev);
 }

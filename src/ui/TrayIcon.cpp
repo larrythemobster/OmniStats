@@ -38,6 +38,7 @@ HICON LoadAppIcon(int width, int height) {
 #define WM_TRAYICON (WM_APP + 2)
 #define ID_TRAY_EXIT 1001
 #define ID_TRAY_TOGGLE_MODE 1002
+#define ID_TRAY_INSIGHTS 1003
 TrayIcon::TrayIcon(HWND mainHwnd) : m_mainHwnd(mainHwnd) {}
 
 TrayIcon::~TrayIcon() {
@@ -229,6 +230,7 @@ void TrayIcon::ThreadFunc() {
                 if (conf.second_monitor_mode) modeFlags |= MF_CHECKED;
                 std::wstring menuText = conf.second_monitor_mode ? L"Second Monitor Dashboard: On" : L"Second Monitor Dashboard: Off";
                 AppendMenuW(hMenu, modeFlags, ID_TRAY_TOGGLE_MODE, menuText.c_str());
+                AppendMenuW(hMenu, MF_STRING, ID_TRAY_INSIGHTS, L"Insights");
                 AppendMenuW(hMenu, MF_SEPARATOR, 0, nullptr);
                 AppendMenuW(hMenu, MF_STRING, ID_TRAY_EXIT, L"Exit");
 
@@ -256,6 +258,8 @@ void TrayIcon::ThreadFunc() {
                             std::cout << "[Tray] Failed to post toggle message. Error=" << GetLastError() << "\n";
                         }
                     }
+                } else if (cmd == ID_TRAY_INSIGHTS) {
+                    if (self && self->m_mainHwnd) PostMessageW(self->m_mainHwnd, WM_OPEN_INSIGHTS, 0, 0);
                 }
             }
             return 0;

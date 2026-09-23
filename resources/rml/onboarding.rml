@@ -1,0 +1,94 @@
+<rml>
+<head>
+    <title>Welcome to OmniStats</title>
+    <link type="text/rcss" href="res://omnistats.rcss" />
+</head>
+<body id="app" class="view-document" data-model="onboarding">
+    <div class="view-backdrop">
+        <div class="view-window wizard-window">
+            <div class="view-header row">
+                <div class="grow">
+                    <div class="brand-title">Welcome to OmniStats</div>
+                    <div class="label">Step {{step + 1}} of 4 · {{step_title}}</div>
+                </div>
+                <button class="ghost compact" data-action="onboarding-finish">Skip setup</button>
+            </div>
+            <div class="wizard-progress row">
+                <div class="wizard-step" data-class-done="step >= 0"></div>
+                <div class="wizard-step" data-class-done="step >= 1"></div>
+                <div class="wizard-step" data-class-done="step >= 2"></div>
+                <div class="wizard-step" data-class-done="step >= 3"></div>
+            </div>
+
+            <div class="view-body" data-if="step == 0">
+                <div class="wizard-lead">OmniStats reads live match data from Rocket League's local Stats API. It needs to be switched on once.</div>
+                <div class="status-card" data-class-ok="stats_ok" data-class-bad="!stats_ok">
+                    <div class="row">
+                        <div class="status-dot"></div>
+                        <div class="grow value">{{stats_status}}</div>
+                    </div>
+                    <div class="label mono status-path">{{stats_path}}</div>
+                    <div class="setting-help loss" data-if="stats_message != ''">{{stats_message}}</div>
+                    <div class="setting-help" data-if="show_restart_hint">Restart Rocket League after fixing the config.</div>
+                </div>
+                <div class="row gap-sm view-actions">
+                    <button class="primary" data-if="stats_can_fix" data-action="onboarding-statsapi-fix">Fix it for me</button>
+                    <button data-action="onboarding-statsapi-check">Check again</button>
+                </div>
+            </div>
+
+            <div class="view-body" data-if="step == 1">
+                <div class="wizard-lead">Where should OmniStats show your stats? You can switch any time from Settings or the tray icon.</div>
+                <div class="row gap-md">
+                    <div class="choice-card grow" data-action="onboarding-layout" data-mode="overlay" data-class-selected="!second_monitor">
+                        <div class="choice-title">In-game overlay</div>
+                        <div class="setting-help">A transparent layer on top of Rocket League. Press Tab to show your roster and ranks mid-match.</div>
+                    </div>
+                    <div class="choice-card grow" data-action="onboarding-layout" data-mode="dashboard" data-class-selected="second_monitor">
+                        <div class="choice-title">Second-monitor dashboard</div>
+                        <div class="setting-help">A normal window with every card laid out at once. Best if you have a spare screen.</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="view-body" data-if="step == 2">
+                <div class="wizard-lead">These are optional and off by default. Each one sends data somewhere else, so turn on only what you want.</div>
+                <div class="setting-row">
+                    <div class="setting-info">
+                        <div class="setting-name">Live ranks from Tracker Network</div>
+                        <div class="setting-help">Sends lobby player names and platform IDs to Tracker Network to look up public ranks.</div>
+                    </div>
+                    <div class="toggle-switch"><input type="checkbox" class="checkbox" data-setting="enable_mmr_tracking" data-checked="mmr_tracking" /><span class="toggle-thumb"></span></div>
+                </div>
+                <div class="setting-row">
+                    <div class="setting-info">
+                        <div class="setting-name">Discord Rich Presence</div>
+                        <div class="setting-help">Shows your current match on your Discord profile. Takes effect after a restart.</div>
+                    </div>
+                    <div class="toggle-switch"><input type="checkbox" class="checkbox" data-setting="discord_rpc_enabled" data-checked="discord" /><span class="toggle-thumb"></span></div>
+                </div>
+                <div class="setting-row">
+                    <div class="setting-info">
+                        <div class="setting-name">Crash reports</div>
+                        <div class="setting-help">Uploads crash dumps on the next start. Dumps can contain process memory.</div>
+                    </div>
+                    <div class="toggle-switch"><input type="checkbox" class="checkbox" data-setting="crash_reports_enabled" data-checked="crash_reports" /><span class="toggle-thumb"></span></div>
+                </div>
+            </div>
+
+            <div class="view-body" data-if="step == 3">
+                <div class="wizard-lead">OmniStats tracks history per Rocket League account. Leave this on auto-detect and it picks you up in your first match.</div>
+                <div id="onboarding-identity"></div>
+                <div class="setting-help">{{identity_hint}}</div>
+            </div>
+
+            <div class="wizard-footer row">
+                <button class="ghost" data-if="step > 0" data-action="onboarding-back">Back</button>
+                <div class="grow"></div>
+                <button class="primary" data-if="step != 3" data-action="onboarding-next">Next</button>
+                <button class="primary" data-if="step == 3" data-action="onboarding-finish">Finish</button>
+            </div>
+        </div>
+    </div>
+</body>
+</rml>

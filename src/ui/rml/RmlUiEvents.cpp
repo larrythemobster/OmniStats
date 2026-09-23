@@ -89,6 +89,7 @@ void RmlUiController::HandleClick(Rml::Element* target) {
     }
     if (!actionTarget || action.empty()) return;
     target = actionTarget;
+    if (HandleViewAction(action, target)) return;
 
     if (action == "overlay-add-widget") {
         const auto widget = WidgetFromDom(Attribute(target, "data-widget"));
@@ -537,6 +538,8 @@ void RmlUiController::HandleChange(Rml::Element* target, Rml::Event& event) {
             c.show_running_indicator = checked;
         else if (key == "reset_session_on_close")
             c.reset_session_on_close = checked;
+        else if (key == "show_session_recap_on_close")
+            c.show_session_recap_on_close = checked;
         else if (key == "run_on_startup")
             c.run_on_startup = checked;
         else if (key == "enable_auto_updates")

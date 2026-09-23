@@ -184,6 +184,7 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
     shell32.lib
     uuid.lib
     comdlg32.lib
+    windowscodecs.lib
 )
 
 if(MSVC)
@@ -288,6 +289,8 @@ if(BUILD_TESTING)
         bcrypt.lib
         ole32.lib
         uuid.lib
+        windowscodecs.lib
+        shell32.lib
     )
 
     if(MSVC)

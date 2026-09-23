@@ -22,6 +22,8 @@
 #include "ui/rml/RmlRenderInterfaceD3D11.hpp"
 #include "ui/rml/RmlUiHelpers.hpp"
 #include "ui/rml/RmlLiveModel.hpp"
+#include "ui/rml/views/InsightsView.hpp"
+#include "ui/rml/views/OnboardingView.hpp"
 #include "ui/rml/RmlSystemInterfaceWin32.hpp"
 
 class DatabaseManager;
@@ -82,6 +84,10 @@ class RmlUiController final : public Rml::EventListener {
     bool ShouldRender() const;
     void RequestRender();
     bool WantsInteraction() const;
+    // Insights and onboarding are modal documents that must be seen even when
+    // the overlay would otherwise hide (Rocket League not focused or closed).
+    bool WantsAttention() const;
+    void OpenInsights();
 
     void ProcessEvent(Rml::Event& event) override;
     static const char* DemoKdClass(int demos, int demoed);
@@ -230,6 +236,18 @@ class RmlUiController final : public Rml::EventListener {
     std::string ControlValue(Rml::Element* target) const;
     bool EventChecked(Rml::Event& event, Rml::Element* target) const;
 
+    // Insights and onboarding documents (RmlUiViews.cpp).
+    void LoadViewDocuments();
+    void CloseViewDocuments();
+    void ShowInsights(InsightsView::Tab tab, bool endedSession);
+    void HideInsights();
+    void RefreshInsights(bool force);
+    void ExportRecapPng();
+    void ShowOnboarding();
+    void FinishOnboarding();
+    void RefreshOnboarding();
+    bool HandleViewAction(const std::string& action, Rml::Element* target);
+
     std::shared_ptr<SessionState> m_state;
     std::shared_ptr<DatabaseManager> m_dbManager;
     HWND m_hwnd = nullptr;
@@ -251,6 +269,20 @@ class RmlUiController final : public Rml::EventListener {
     std::vector<std::vector<unsigned char>> m_fontBlobs;
     bool m_rmlInterfacesInstalled = false;
     std::unique_ptr<Rml::ElementInstancer> m_graphLineInstancer;
+    ID3D11DeviceContext* m_d3dContext = nullptr;
+    InsightsView m_insights;
+    OnboardingView m_onboarding;
+    Rml::ElementDocument* m_insightsDoc = nullptr;
+    Rml::ElementDocument* m_onboardingDoc = nullptr;
+    bool m_insightsVisible = false;
+    bool m_onboardingVisible = false;
+    // True while the recap tab shows a session captured when it ended rather
+    // than the live one.
+    bool m_insightsShowsEndedSession = false;
+    uint64_t m_lastInsightsVersion = std::numeric_limits<uint64_t>::max();
+    uint64_t m_lastRecapGameVersion = std::numeric_limits<uint64_t>::max();
+    std::string m_lastOnboardingIdentityRml;
+    bool m_recapCapturePending = false;
 
     ConfigData m_config;
     RmlRenderSnapshot m_snap;

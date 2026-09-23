@@ -66,6 +66,10 @@ void RmlUiController::ReloadUiResources() {
     Rml::Factory::ClearTemplateCache();
     m_document->ReloadStyleSheet();
     CaptureBaseStyleSheet();
+    // View documents hold their markup in RML, so reload them whole.
+    CloseViewDocuments();
+    LoadViewDocuments();
+    if (m_onboardingVisible) RefreshOnboarding();
     UpdateThemeProperties();
     RebuildVisibleUi(true, true);
     if (m_state && m_state->ui.showMenu.load()) RebuildSettings();
@@ -213,7 +217,10 @@ void RmlUiController::UpdateThemeProperties() {
     if (!themeStyle) return;
     auto combined = m_baseStyleSheet->CombineStyleSheetContainer(*themeStyle);
     if (combined) {
-        m_document->SetStyleSheetContainer(std::move(combined));
+        // The view documents link the same packaged RCSS, so one combined
+        // sheet serves all of them.
+        for (Rml::ElementDocument* document : {m_document, m_insightsDoc, m_onboardingDoc})
+            if (document) document->SetStyleSheetContainer(combined);
         m_renderDirty = true;
     }
 }

@@ -122,7 +122,7 @@ void RmlUiController::RebuildSettings() {
         const auto page = static_cast<SettingsPage>(i);
         out << "<button class='" << (page == m_settingsPage ? "active" : "") << "' data-action='settings-page' data-page='" << i << "'>" << SettingsPageName(page) << "</button>";
     }
-    out << "</div><div class='settings-page' data-page='" << static_cast<int>(m_settingsPage) << "'>" << content.str() << "</div></div><div class='settings-footer'>" << Button("help-discord", "Help / Discord", "ghost") << Button("close-settings", "Done", "primary") << "</div></div>";
+    out << "</div><div class='settings-page' data-page='" << static_cast<int>(m_settingsPage) << "'>" << content.str() << "</div></div><div class='settings-footer'>" << Button("insights-open", "Insights", "ghost") << Button("help-discord", "Help / Discord", "ghost") << Button("close-settings", "Done", "primary") << "</div></div>";
 
     if (m_confirmReplayUploads) {
         out << "<div class='confirm-backdrop'><div class='card privacy-dialog'><div class='card-title'>Replay Upload Privacy Warning</div>"

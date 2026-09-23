@@ -122,6 +122,7 @@ bool RmlUiController::Initialize(HWND hwnd, ID3D11Device* device, ID3D11DeviceCo
     m_systemInterface.SetWindow(hwnd);
 
     if (!m_renderInterface.Initialize(device, context, m_width, m_height)) return false;
+    m_d3dContext = context;
     Rml::SetSystemInterface(&m_systemInterface);
     Rml::SetRenderInterface(&m_renderInterface);
     Rml::SetFileInterface(&m_fileInterface);
@@ -140,7 +141,7 @@ bool RmlUiController::Initialize(HWND hwnd, ID3D11Device* device, ID3D11DeviceCo
         Shutdown();
         return false;
     }
-    if (!m_liveModel.Create(m_context)) {
+    if (!m_liveModel.Create(m_context) || !m_insights.Create(m_context) || !m_onboarding.Create(m_context)) {
         Shutdown();
         return false;
     }
@@ -164,6 +165,7 @@ bool RmlUiController::Initialize(HWND hwnd, ID3D11Device* device, ID3D11DeviceCo
     }
     m_document->Show();
     CaptureBaseStyleSheet();
+    LoadViewDocuments();
 
     for (const char* event : {"click", "change", "input", "mousedown", "mousemove", "mouseup"}) {
         m_context->AddEventListener(event, this);
@@ -179,6 +181,7 @@ bool RmlUiController::Initialize(HWND hwnd, ID3D11Device* device, ID3D11DeviceCo
         SetRootRml("overlay-root", "");
     }
     RebuildVisibleUi(true);
+    if (!m_config.onboarding_completed) ShowOnboarding();
     return true;
 }
 
@@ -190,7 +193,13 @@ void RmlUiController::Shutdown() {
         m_context->RemoveEventListener("blur", this, true);
         m_context = nullptr;
         m_document = nullptr;
+        m_insightsDoc = nullptr;
+        m_onboardingDoc = nullptr;
+        m_insightsVisible = false;
+        m_onboardingVisible = false;
         m_liveModel.Reset();
+        m_insights.Reset();
+        m_onboarding.Reset();
     }
     m_baseStyleSheet.reset();
     if (m_rmlInitialized) {
@@ -212,6 +221,7 @@ void RmlUiController::Shutdown() {
     // Rml::Shutdown(), then release it after the factory has torn down.
     m_graphLineInstancer.reset();
     m_renderInterface.Shutdown();
+    m_d3dContext = nullptr;
     m_systemInterface.SetWindow(nullptr);
     m_hwnd = nullptr;
 }
@@ -248,6 +258,10 @@ bool RmlUiController::ProcessWindowMessage(HWND hwnd, UINT message, WPARAM wPara
     if (message == WM_KEYDOWN && wParam == 'R' && !m_fileInterface.OverrideDirectory().empty() &&
         (GetKeyState(VK_CONTROL) & 0x8000) != 0 && (GetKeyState(VK_SHIFT) & 0x8000) != 0) {
         ReloadUiResources();
+        return true;
+    }
+    if (message == WM_KEYDOWN && wParam == VK_ESCAPE && m_insightsVisible && !m_onboardingVisible) {
+        HideInsights();
         return true;
     }
     const bool handled = RmlInputWin32::ProcessWindowMessage(m_context, hwnd, message, wParam, lParam);
@@ -289,6 +303,7 @@ void RmlUiController::Render() {
     m_renderInterface.BeginFrame();
     m_context->Render();
     m_renderInterface.EndFrame();
+    if (m_recapCapturePending) ExportRecapPng();
     m_renderDirty = false;
 }
 
@@ -313,7 +328,7 @@ bool RmlUiController::WantsInteraction() const {
     // mouse input must continue through to Rocket League. Second-monitor mode
     // is a normal interactive window. RmlUi hover state must not override this.
     return m_state->ui.showMenu.load() || m_state->ui.dashboardLayoutEditMode.load() ||
-           m_config.second_monitor_mode || m_drag.kind != DragKind::None;
+           m_config.second_monitor_mode || m_drag.kind != DragKind::None || WantsAttention();
 }
 
 void RmlUiController::Update(const ConfigData& config, bool configChanged, uint64_t configRevision) {
@@ -430,6 +445,10 @@ void RmlUiController::Update(const ConfigData& config, bool configChanged, uint6
     }
 
     RebuildVisibleUi(false, configChanged && !localConfigEcho);
+
+    if (m_state && m_state->ui.showSessionRecap.exchange(false)) ShowInsights(InsightsView::Tab::Recap, true);
+    if (m_insightsVisible) RefreshInsights(false);
+    if (m_onboardingVisible) RefreshOnboarding();
 }
 
 Rml::Element* RmlUiController::Root(const char* id) const {
