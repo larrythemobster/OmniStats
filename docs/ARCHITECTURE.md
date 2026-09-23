@@ -21,12 +21,17 @@ The UI remains native C++ and keeps the existing DirectX 11 renderer/window infr
 - `src/ui/Overlay.*`: host lifecycle, frame pacing, focus gating, transparent/click-through overlay behavior, second-monitor desktop-window behavior, DPI/resizing, device-loss recovery, tray integration, and Win32 message routing.
 - `src/ui/D3D11Device.*`: DirectX 11 device, context, swap chain, render target, resize, and Present handling.
 - `src/ui/OverlayWindow.*`: native window creation, persisted bounds, monitor placement, and style changes.
-- `src/ui/rml/RmlUiController.*`: persistent RmlUi document/controller, application-state snapshots, settings bindings, dashboard editing, overlay editing, graph markup, notifications, and native actions.
+- `src/ui/rml/RmlUiController.*`: persistent RmlUi document/controller, application-state snapshots, and the invalidation logic that decides when a widget or Settings page is rebuilt. Member definitions are split by concern: `widgets/*.cpp` (roster, lobby ranks, stats cards, MMR graph, previous games, floating cards), `settings/*.cpp` (one file per Settings page plus the window shell), `RmlUiLayout.cpp` (overlay containers and dashboard zones), `RmlUiEvents.cpp` and `RmlUiPointer.cpp` (input and drag handling), `RmlUiTheme.cpp` (theme stylesheet, color picker, hot reload), and `RmlUiViews.cpp` (Insights and first-run wizard).
+- `src/ui/rml/RmlUiHelpers.*`: stateless markup helpers. `ToggleControl`, `SelectControl`, `SelectRow`, `StatCell`, `Button`, and `SectionStart` escape every string they receive, so callers pass plain text.
+- `src/ui/rml/RmlLiveModel.*`: the `live` RmlUi data model. Widgets bind telemetry values with `{{match_saves}}`-style text and `data-class-win` tone expressions; a telemetry tick marks only changed variables dirty, so no widget DOM is rebuilt for a counter change.
+- `src/ui/rml/views/*` with `resources/rml/insights.rml` and `onboarding.rml`: RML templates for the Insights window (session recap, people, trends) and the first-run wizard. Their static structure lives in the RML; the view classes own the `insights` and `onboarding` data models and format rows for `data-for` lists.
+- `src/ui/rml/RmlCapture.*`: reads a region of the bound D3D11 render target back to the CPU and writes a PNG through WIC. Used by the recap card's Save as PNG.
 - `src/ui/rml/RmlRenderInterfaceD3D11.*`: compact native RmlUi 6 render interface using the existing D3D11 device/context. It supports compiled geometry, per-draw textures, premultiplied-alpha blending, scissoring, and transforms without the legacy compatibility adapter.
 - `src/ui/rml/RmlSystemInterfaceWin32.*`: timers, cursors, clipboard, path handling, and IME positioning.
 - `src/ui/rml/RmlInputWin32.*`: Win32 mouse, wheel, keyboard, and Unicode text input translation.
 - `src/ui/rml/RmlFileInterface.*`: embedded RML/RCSS resources with a disk fallback for unpacked runs.
-- `resources/rml/`: the reusable RML/RCSS design system and persistent document shell.
+- `resources/rml/`: the reusable RCSS design system, the persistent `main.rml` shell, and the templated view documents. `RmlFileInterface` can read these from a development folder instead of the embedded copies; see [Building](BUILDING.md#editing-the-ui-without-rebuilding).
+- `src/core/Insights.*`: pure aggregation for the Insights window (trend buckets, sittings split on two-hour gaps, tilt detection, people ranking). `DatabaseManager::AsyncLoadInsights` supplies the raw rows.
 - `resources/fonts/`: the bundled Inter (UI), JetBrains Mono (numeric), and Russo One (display) faces. They are embedded as RCDATA and registered by `RmlUiController::LoadBundledFonts` with an explicit family and weight; Segoe UI and MS Gothic are registered as fallback faces for glyphs the bundled faces lack.
 - `src/core/DashboardLayoutConfig.*` and `src/core/OverlayLayoutConfig.*`: renderer-independent persisted layout formats. Existing user layouts remain the source of truth.
 
@@ -34,8 +39,8 @@ Core telemetry, storage, networking, updater, replay, and integration code does 
 
 ## Ownership boundaries
 
-- `src/core`: configuration, session state, pure reduction logic, input, storage paths, persisted layout configuration, and shared value types.
-- `src/network`: local telemetry input, required startup diagnostics, Tracker rank lookup, updater support, and other external services.
+- `src/core`: configuration, session state, pure reduction logic, input, storage paths, persisted layout configuration, and shared value types. `TelemetryReducer` is split into event dispatch (`TelemetryReducer.cpp`), `UpdateState` handling, stat feed events, match-end validation, and finalization, with shared helpers in `TelemetryReducerDetail`.
+- `src/network`: local telemetry input, required startup diagnostics, Tracker rank lookup, updater support, and other external services. `MMRFetcher` is split into HTTP transport, profile parsing and rank tables, the request queue and rate limiting, and post-match reconciliation, with tuning constants in `MMRFetcherDetail`.
 - `src/database`: SQLite ownership and asynchronous persistence.
 - `src/ui`: Win32/D3D11 host plus RmlUi presentation and native UI bindings.
 - `src/updater`: the separate updater process, dependency repair, download, checksum verification, and process replacement.
@@ -43,7 +48,9 @@ Core telemetry, storage, networking, updater, replay, and integration code does 
 
 ## UI update model
 
-RmlUi documents are kept alive instead of being recreated each frame. `RmlUiController` compares session/history versions and relevant UI/config state, refreshes only the affected roots, and caches RmlUi/D3D resources through the normal document/render-interface lifetime. Fast telemetry remains in `SessionState`; it is not serialized into an intermediate browser-style state blob.
+RmlUi documents are kept alive instead of being recreated each frame. `RmlUiController` compares session/history versions and relevant UI/config state, refreshes only the affected roots, and caches RmlUi/D3D resources through the normal document/render-interface lifetime. Fast telemetry remains in `SessionState`; it is not serialized into an intermediate browser-style state blob. Counter and speed values reach the DOM through the `live` data model, so a telemetry tick updates bound text nodes and never rebuilds a widget.
+
+On first run (`onboarding_completed` unset) the wizard replaces the old startup message boxes for the Stats API fix and the optional integrations. When `reset_session_on_close` resets a session with at least one game, `StatsClient` stores the totals in `GameState::lastSessionRecap` and Insights opens on the recap. While the wizard or Insights is open, the overlay window stays drawn and interactive even if Rocket League is closed or unfocused.
 
 The editable dashboard and transparent overlay keep separate persisted layouts. Dashboard drag/drop updates `DashboardLayoutConfig`; overlay move/resize/widget docking updates `OverlayLayoutConfig`. Settings controls write through `Config::Update` and continue using the existing persistence and side-effect paths.
 

@@ -34,6 +34,17 @@ ctest --preset windows-release --output-on-failure
 Remove-Item Env:\OMNISTATS_RUN_NETWORK_TESTS
 ```
 
+## Editing the UI without rebuilding
+
+Release builds embed `resources/rml/*.rml` and `omnistats.rcss`. To iterate on them, point OmniStats at a folder of editable copies and press **Ctrl+Shift+R** in the OmniStats window to reload:
+
+```powershell
+$env:OMNISTATS_RML_DIR = "$PWD\resources\rml"
+.\out\windows-release\Release\OmniStats.exe
+```
+
+Debug builds read from the source tree automatically. The hotkey reloads the stylesheet, reapplies the theme colors, and reloads the Insights and first-run documents. Widget markup built in C++ still needs a rebuild.
+
 ## Useful CMake options
 
 | Option | Default | Purpose |
