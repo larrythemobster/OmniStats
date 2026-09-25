@@ -87,6 +87,7 @@ bool InsightsView::Create(Rml::Context* context) {
         mode.RegisterMember("record", &RecapModeRow::record);
         mode.RegisterMember("mmr", &RecapModeRow::mmr);
         mode.RegisterMember("tone", &RecapModeRow::tone);
+        mode.RegisterMember("win_width", &RecapModeRow::win_width);
     }
     constructor.RegisterArray<std::vector<RecapModeRow>>();
     if (auto person = constructor.RegisterStruct<PersonRow>()) {
@@ -122,6 +123,8 @@ bool InsightsView::Create(Rml::Context* context) {
     constructor.Bind("recap_rate", &m_recapRate);
     constructor.Bind("recap_mmr", &m_recapMmr);
     constructor.Bind("recap_mmr_tone", &m_recapMmrTone);
+    constructor.Bind("recap_games", &m_recapGames);
+    constructor.Bind("recap_win_width", &m_recapWinWidth);
     constructor.Bind("recap_has_games", &m_recapHasGames);
     constructor.Bind("recap_stats", &m_recapStats);
     constructor.Bind("recap_modes", &m_recapModes);
@@ -170,12 +173,19 @@ std::vector<RecapModeRow> InsightsView::BuildRecapModes(const SessionRecap& reca
 
     std::vector<RecapModeRow> rows;
     for (const auto& key : keys) {
+        const auto games = recap.gamemodes.find(key);
+        const auto change = recap.totals.mmrChangeByPlaylist.find(key);
+        const bool played = games != recap.gamemodes.end() && games->second.wins + games->second.losses > 0;
+        if (!played && (change == recap.totals.mmrChangeByPlaylist.end() || change->second == 0)) continue;
         RecapModeRow row;
         row.name = MmrLabel(StringToMmrCategory(key));
-        if (auto it = recap.gamemodes.find(key); it != recap.gamemodes.end())
+        if (auto it = recap.gamemodes.find(key); it != recap.gamemodes.end()) {
             row.record = FormatRecord(it->second.wins, it->second.losses);
-        else
+            const int played = it->second.wins + it->second.losses;
+            if (played > 0) row.win_width = Percent(static_cast<float>(it->second.wins) / static_cast<float>(played));
+        } else {
             row.record = "-";
+        }
         if (auto it = recap.totals.mmrChangeByPlaylist.find(key); it != recap.totals.mmrChangeByPlaylist.end()) {
             row.mmr = SignedNumber(it->second);
             row.tone = Tone(it->second);
@@ -192,12 +202,14 @@ void InsightsView::SetRecap(const SessionRecap& recap, bool currentSession) {
     const int games = totals.wins + totals.losses;
     const int mmr = static_cast<int>(std::lround(totals.totalMmrChange));
 
-    m_recapTitle = currentSession ? "CURRENT SESSION" : "SESSION RECAP";
+    m_recapTitle = currentSession ? "Current session" : "Session recap";
     m_recapDate = currentSession ? LocalDate(static_cast<int64_t>(std::time(nullptr)))
                                  : "Ended " + LocalDate(recap.endedAtUnix);
     m_recapWins = std::to_string(totals.wins);
     m_recapLosses = std::to_string(totals.losses);
     m_recapRate = games > 0 ? Percent(static_cast<float>(totals.wins) / static_cast<float>(games)) : "-";
+    m_recapWinWidth = games > 0 ? m_recapRate : "0%";
+    m_recapGames = std::to_string(games) + (games == 1 ? " game" : " games");
     m_recapMmr = SignedNumber(mmr);
     m_recapMmrTone = Tone(mmr);
     m_recapHasGames = games > 0;
@@ -216,7 +228,7 @@ void InsightsView::SetRecap(const SessionRecap& recap, bool currentSession) {
     m_recapModes = BuildRecapModes(recap);
 
     for (const char* name : {"recap_title", "recap_date", "recap_wins", "recap_losses", "recap_rate", "recap_mmr",
-                             "recap_mmr_tone", "recap_has_games", "recap_stats", "recap_modes"})
+                             "recap_mmr_tone", "recap_has_games", "recap_stats", "recap_modes", "recap_games", "recap_win_width"})
         Dirty(name);
 }
 

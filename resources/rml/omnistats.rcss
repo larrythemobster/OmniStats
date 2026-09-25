@@ -1106,8 +1106,8 @@ body.view-document { pointer-events: none; }
     max-width: 94%;
     height: 640dp;
     max-height: 92%;
-    background-color: #0f0f0ffa;
-    border: 1dp #303030;
+    background-color: #0c0c0cfa;
+    border: 1dp #eef1f51a;
     border-radius: 12dp;
     overflow: hidden;
 }
@@ -1115,12 +1115,13 @@ body.view-document { pointer-events: none; }
     flex-shrink: 0;
     min-height: 58dp;
     padding: 11dp 16dp;
-    background-color: #151515;
-    border-bottom: 1dp #2d2d2d;
+    background-color: #0d0d0d;
+    border-bottom: 1dp #eef1f517;
+    border-radius: 11dp 11dp 0 0;
 }
 .view-header .brand-title { font-size: 17dp; }
 .view-header .label { font-size: 12dp; margin-top: 2dp; }
-.view-tabs { flex-shrink: 0; gap: 4dp; padding: 8dp 16dp 0 16dp; border-bottom: 1dp #252525; }
+.view-tabs { flex-shrink: 0; gap: 4dp; padding: 8dp 16dp 0 16dp; border-bottom: 1dp #eef1f517; }
 .tab-button {
     min-height: 32dp;
     padding: 6dp 12dp;
@@ -1134,8 +1135,8 @@ body.view-document { pointer-events: none; }
 }
 .tab-button:hover { color: #eef1f5; background-color: transparent; }
 .tab-button.active { color: #eef1f5; border-bottom-color: #eef1f5; }
-.tab-button.pill { border: 1dp #303030; border-radius: 14dp; min-height: 28dp; padding: 4dp 12dp; }
-.tab-button.pill.active { border-color: #eef1f5; background-color: #202020; }
+.tab-button.pill { border: 1dp #eef1f51f; border-radius: 14dp; min-height: 28dp; padding: 4dp 12dp; }
+.tab-button.pill.active { border-color: #eef1f5; background-color: #eef1f50f; }
 .view-body { display: block; flex-grow: 1; min-height: 0; padding: 14dp 16dp; overflow-y: auto; }
 .view-actions { margin-top: 12dp; align-items: center; }
 .view-filters { margin-bottom: 10dp; }
@@ -1144,9 +1145,9 @@ body.view-document { pointer-events: none; }
     display: block;
     margin-bottom: 12dp;
     padding: 10dp 12dp;
-    border-left: 3dp #ffb454;
-    border-radius: 4dp;
-    background-color: #1c1912;
+    border: 1dp #ffb45466;
+    border-radius: 6dp;
+    background-color: #ffb45414;
     color: #eef1f5;
     font-size: 12dp;
     line-height: 1.4;
@@ -1154,30 +1155,54 @@ body.view-document { pointer-events: none; }
 
 .recap-card {
     display: block;
-    padding: 16dp 18dp;
-    background-color: #151515;
-    border: 1dp #2d2d2d;
+    background-color: #0d0d0d;
+    border: 1dp #eef1f51a;
     border-radius: 10dp;
+    border-top: 3dp #760000;
+    overflow: hidden;
 }
-.recap-kicker { display: block; font-family: "Russo One"; font-size: 12dp; letter-spacing: 1dp; color: #9da6b3; }
-.recap-date { display: block; margin-top: 2dp; font-size: 12dp; color: #707987; }
-.recap-brand { display: block; font-family: "Russo One"; font-size: 13dp; color: #707987; }
-.recap-hero { gap: 32dp; align-items: flex-end; margin: 14dp 0 16dp 0; }
-.recap-record { font-family: "Russo One"; font-size: 44dp; line-height: 1; }
-.recap-dash { color: #707987; margin: 0 6dp; }
-.recap-hero-stat { display: flex; flex-direction: column; }
-.recap-hero-value { display: block; font-family: "JetBrains Mono"; font-size: 22dp; font-weight: 700; line-height: 1.1; }
-.recap-stats { margin-bottom: 12dp; }
-.recap-modes { display: block; border-top: 1dp #2a2a2a; padding-top: 6dp; }
-.recap-mode-row { display: flex; flex-direction: row; align-items: center; min-height: 26dp; font-size: 12dp; }
-.recap-mode-record { width: 70dp; text-align: right; }
-.recap-mode-mmr { width: 70dp; text-align: right; }
-.recap-empty { display: block; padding: 18dp 0; }
+.recap-inner { display: block; padding: 18dp 22dp 14dp 22dp; }
+.recap-head { align-items: flex-start; }
+.recap-title { display: block; font-family: "Russo One"; font-size: 17dp; line-height: 1.1; color: #eef1f5; }
+.recap-date { display: block; margin-top: 4dp; font-size: 12dp; color: #a6b3bf; }
+.recap-brand { display: block; font-family: "Russo One"; font-size: 13dp; color: #a6b3bf; }
+.recap-hero { align-items: flex-end; gap: 22dp; margin: 22dp 0 12dp 0; }
+.recap-record { display: block; font-family: "Russo One"; font-size: 56dp; line-height: 1; }
+.recap-dash { color: #a6b3bf; margin: 0 10dp; }
+.recap-games { display: block; margin-top: 6dp; font-size: 12dp; color: #a6b3bf; }
+.recap-hero-stat { display: flex; flex-direction: column; align-items: flex-end; min-width: 92dp; }
+.recap-hero-value { display: block; font-family: "JetBrains Mono"; font-size: 28dp; font-weight: 700; line-height: 1.05; color: #eef1f5; }
+.recap-hero-label { display: block; margin-top: 4dp; font-size: 11dp; color: #a6b3bf; }
+.recap-hero-divider { width: 1dp; height: 44dp; background-color: #eef1f517; }
+.recap-bar { display: block; height: 6dp; border-radius: 3dp; background-color: #ff0303; overflow: hidden; }
+.recap-bar-fill { display: block; width: 0; height: 100%; background-color: #188d02; }
+.recap-strip {
+    display: flex;
+    flex-direction: row;
+    margin-top: 18dp;
+    border-radius: 8dp;
+    background-color: #0e0e0ebf;
+    border: 1dp #eef1f512;
+}
+.recap-strip-cell { display: flex; flex-direction: column; align-items: center; flex: 1 1 0; padding: 12dp 4dp 11dp 4dp; border-left: 1dp #eef1f512; }
+.recap-strip-cell:first-child { border-left: 0; }
+.recap-strip-value { display: block; font-family: "JetBrains Mono"; font-size: 20dp; font-weight: 700; line-height: 1.1; color: #eef1f5; }
+.recap-strip-label { display: block; margin-top: 4dp; font-size: 11dp; color: #a6b3bf; text-align: center; }
+.recap-modes { display: block; margin-top: 18dp; }
+.recap-section-title { display: block; margin-bottom: 6dp; font-size: 11dp; font-weight: 700; color: #a6b3bf; }
+.recap-mode-row { display: flex; flex-direction: row; align-items: center; gap: 14dp; min-height: 30dp; border-top: 1dp #eef1f50f; font-size: 13dp; }
+.recap-mode-name { width: 96dp; flex-shrink: 0; font-weight: 700; color: #eef1f5; }
+.recap-mode-track { flex-grow: 1; height: 4dp; border-radius: 2dp; background-color: #ff0303; overflow: hidden; }
+.recap-mode-track.empty { background-color: #eef1f51a; }
+.recap-mode-record { width: 52dp; flex-shrink: 0; text-align: right; font-family: "JetBrains Mono"; color: #eef1f5; }
+.recap-mode-mmr { width: 52dp; flex-shrink: 0; text-align: right; font-family: "JetBrains Mono"; font-weight: 700; color: #a6b3bf; }
+.recap-empty { display: block; padding: 28dp 0 18dp 0; color: #a6b3bf; }
+.recap-foot { display: block; margin-top: 16dp; font-size: 11dp; color: #a6b3bf99; text-align: right; }
 
-.people-table { display: block; border: 1dp #323232; border-radius: 6dp; overflow: hidden; }
-.people-row { display: flex; flex-direction: row; align-items: center; min-height: 32dp; padding: 3dp 10dp; border-top: 1dp #2a2a2a55; font-size: 12dp; }
+.people-table { display: block; border: 1dp #eef1f51a; border-radius: 6dp; overflow: hidden; }
+.people-row { display: flex; flex-direction: row; align-items: center; min-height: 32dp; padding: 3dp 10dp; border-top: 1dp #eef1f50f; font-size: 12dp; }
 .people-row:first-child { border-top: 0; }
-.people-row.header { min-height: 26dp; background-color: #131313; color: #9da6b3; font-size: 10dp; font-weight: 700; letter-spacing: 0.3dp; }
+.people-row.header { min-height: 26dp; background-color: #eef1f508; color: #9da6b3; font-size: 10dp; font-weight: 700; letter-spacing: 0.3dp; }
 .people-name { display: flex; flex-direction: column; flex-grow: 1; min-width: 0; }
 .people-platform { font-size: 10dp; }
 .people-cell { width: 70dp; flex-shrink: 0; text-align: right; }
@@ -1187,7 +1212,7 @@ body.view-document { pointer-events: none; }
 .trend-section { display: block; margin-bottom: 14dp; }
 .trend-row { display: flex; flex-direction: row; align-items: center; min-height: 24dp; gap: 10dp; font-size: 12dp; }
 .trend-label { width: 160dp; flex-shrink: 0; color: #c3cad6; }
-.trend-track { flex-grow: 1; height: 8dp; border-radius: 4dp; background-color: #202020; }
+.trend-track { flex-grow: 1; height: 8dp; border-radius: 4dp; background-color: #eef1f512; }
 .trend-bar { display: block; height: 8dp; border-radius: 4dp; background-color: #9da6b3; }
 .trend-bar.win { background-color: #43d926; }
 .trend-bar.loss { background-color: #ff3030; }

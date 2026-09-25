@@ -26,6 +26,7 @@ struct RecapModeRow {
     Rml::String name;
     Rml::String record;
     Rml::String mmr;
+    Rml::String win_width;
     int tone = 0;
 };
 
@@ -103,6 +104,8 @@ class InsightsView {
     Rml::String m_recapLosses;
     Rml::String m_recapRate;
     Rml::String m_recapMmr;
+    Rml::String m_recapGames;
+    Rml::String m_recapWinWidth;
     int m_recapMmrTone = 0;
     bool m_recapHasGames = false;
     std::vector<RecapStatRow> m_recapStats;

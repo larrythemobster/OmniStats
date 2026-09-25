@@ -21,38 +21,50 @@
 
             <div class="view-body" data-if="tab == 'recap'">
                 <div id="recap-card" class="recap-card">
-                    <div class="row">
-                        <div class="grow">
-                            <div class="recap-kicker">{{recap_title}}</div>
-                            <div class="recap-date">{{recap_date}}</div>
+                    <div class="recap-inner">
+                        <div class="recap-head row">
+                            <div class="grow">
+                                <div class="recap-title">{{recap_title}}</div>
+                                <div class="recap-date">{{recap_date}}</div>
+                            </div>
+                            <div class="recap-brand">OmniStats</div>
                         </div>
-                        <div class="recap-brand">OmniStats</div>
+                        <div data-if="recap_has_games">
+                            <div class="recap-hero row">
+                                <div class="grow">
+                                    <div class="recap-record"><span class="win">{{recap_wins}}</span><span class="recap-dash">-</span><span class="loss">{{recap_losses}}</span></div>
+                                    <div class="recap-games">{{recap_games}}</div>
+                                </div>
+                                <div class="recap-hero-stat">
+                                    <div class="recap-hero-value">{{recap_rate}}</div>
+                                    <div class="recap-hero-label">Win rate</div>
+                                </div>
+                                <div class="recap-hero-divider"></div>
+                                <div class="recap-hero-stat">
+                                    <div class="recap-hero-value" data-class-win="recap_mmr_tone == 1" data-class-loss="recap_mmr_tone == -1">{{recap_mmr}}</div>
+                                    <div class="recap-hero-label">MMR change</div>
+                                </div>
+                            </div>
+                            <div class="recap-bar"><div class="recap-bar-fill" data-style-width="recap_win_width"></div></div>
+                            <div class="recap-strip">
+                                <div class="recap-strip-cell" data-for="stat : recap_stats">
+                                    <div class="recap-strip-value">{{stat.value}}</div>
+                                    <div class="recap-strip-label">{{stat.label}}</div>
+                                </div>
+                            </div>
+                            <div class="recap-modes" data-if="recap_modes.size > 0">
+                                <div class="recap-section-title">By playlist</div>
+                                <div class="recap-mode-row" data-for="mode : recap_modes">
+                                    <div class="recap-mode-name">{{mode.name}}</div>
+                                    <div class="recap-mode-track" data-class-empty="mode.win_width == ''"><div class="recap-bar-fill" data-style-width="mode.win_width"></div></div>
+                                    <div class="recap-mode-record">{{mode.record}}</div>
+                                    <div class="recap-mode-mmr" data-class-win="mode.tone == 1" data-class-loss="mode.tone == -1">{{mode.mmr}}</div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="recap-empty" data-if="!recap_has_games">No games this session yet. Play a match and the recap fills in here.</div>
+                        <div class="recap-foot">omnistats.org</div>
                     </div>
-                    <div class="recap-hero row" data-if="recap_has_games">
-                        <div class="recap-record"><span class="win">{{recap_wins}}</span><span class="recap-dash">-</span><span class="loss">{{recap_losses}}</span></div>
-                        <div class="recap-hero-stat">
-                            <div class="recap-hero-value">{{recap_rate}}</div>
-                            <div class="label">win rate</div>
-                        </div>
-                        <div class="recap-hero-stat">
-                            <div class="recap-hero-value" data-class-win="recap_mmr_tone == 1" data-class-loss="recap_mmr_tone == -1">{{recap_mmr}}</div>
-                            <div class="label">MMR change</div>
-                        </div>
-                    </div>
-                    <div class="stat-grid cols-3 recap-stats" data-if="recap_has_games">
-                        <div class="stat-cell" data-for="stat : recap_stats">
-                            <div class="label">{{stat.label}}</div>
-                            <div class="value mono">{{stat.value}}</div>
-                        </div>
-                    </div>
-                    <div class="recap-modes" data-if="recap_modes.size > 0">
-                        <div class="recap-mode-row" data-for="mode : recap_modes">
-                            <div class="grow value">{{mode.name}}</div>
-                            <div class="mono recap-mode-record">{{mode.record}}</div>
-                            <div class="mono recap-mode-mmr" data-class-win="mode.tone == 1" data-class-loss="mode.tone == -1">{{mode.mmr}}</div>
-                        </div>
-                    </div>
-                    <div class="muted recap-empty" data-if="!recap_has_games">No games this session yet. Play a match and the recap fills in here.</div>
                 </div>
                 <div class="row gap-sm view-actions" data-if="recap_has_games">
                     <button class="primary" data-action="recap-export">Save as PNG</button>

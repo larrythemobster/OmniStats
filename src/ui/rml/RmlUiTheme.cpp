@@ -189,6 +189,45 @@ void RmlUiController::UpdateThemeProperties() {
     rule("scrollbarvertical sliderbar:active, scrollbarhorizontal sliderbar:active", "background-color", accent);
     rule("select selectbox option:checked", "background-color", accentDark);
 
+    const std::string line = scaledColor(m_config.themeText, 1.0f, 0.10f);
+    const std::string lineSoft = scaledColor(m_config.themeText, 1.0f, 0.06f);
+    const std::string accentBright = scaledColor(m_config.themeAccent, 1.6f, 1.0f);
+    rule(".view-window", "background-color", panel);
+    rule(".view-window", "border-color", line);
+    rule(".view-header", "background-color", scaledColor(m_config.themeSettingsPanel, 1.08f, 1.0f));
+    rule(".view-header", "border-bottom-color", line);
+    rule(".view-tabs", "border-bottom-color", line);
+    rule(".tab-button", "color", muted);
+    rule(".tab-button:hover, .tab-button.active", "color", text);
+    rule(".tab-button.active", "border-bottom-color", accentBright);
+    rule(".tab-button.pill", "border-color", line);
+    rule(".tab-button.pill.active", "border-color", accentBright);
+    rule(".tab-button.pill.active", "background-color", accentDark);
+    rule(".recap-card", "background-color", scaledColor(m_config.themeBg, 1.0f, 1.0f));
+    rule(".recap-card", "border-color", line);
+    rule(".recap-card", "border-top-color", accent);
+    for (const char* selector : {".recap-title", ".recap-hero-value", ".recap-strip-value", ".recap-mode-name", ".recap-mode-record"})
+        rule(selector, "color", text);
+    for (const char* selector : {".recap-date", ".recap-brand", ".recap-dash", ".recap-games", ".recap-hero-label", ".recap-strip-label",
+                                 ".recap-section-title", ".recap-mode-mmr", ".recap-empty"})
+        rule(selector, "color", muted);
+    rule(".recap-foot", "color", scaledColor(m_config.themeMuted, 1.0f, 0.6f));
+    rule(".recap-hero-divider", "background-color", line);
+    rule(".recap-bar, .recap-mode-track", "background-color", scaledColor(m_config.themeLoss, 1.0f, 0.85f));
+    rule(".recap-mode-track.empty", "background-color", line);
+    rule(".recap-bar-fill", "background-color", win);
+    rule(".recap-strip", "background-color", CssColor(m_config.themeStatBox));
+    rule(".recap-strip", "border-color", lineSoft);
+    rule(".recap-strip-cell", "border-left-color", lineSoft);
+    rule(".recap-mode-row", "border-top-color", lineSoft);
+    rule(".people-table", "border-color", line);
+    rule(".people-row", "border-top-color", lineSoft);
+    rule(".people-row.header", "background-color", scaledColor(m_config.themeText, 1.0f, 0.03f));
+    rule(".trend-track", "background-color", lineSoft);
+    rule(".trend-bar", "background-color", muted);
+    rule(".trend-bar.win", "background-color", win);
+    rule(".trend-bar.loss", "background-color", loss);
+
     for (const char* selector : {".win", ".badge.win", ".match-win", ".match-win .match-mode", ".match-win .match-time"})
         rule(selector, "color", win);
     for (const char* selector : {".loss", ".badge.loss", ".match-loss", ".match-loss .match-mode", ".match-loss .match-time"})
