@@ -127,7 +127,8 @@ void RmlUiController::ExportRecapPng() {
     const std::wstring path = RmlCapture::NewPicturePath(L"OmniStats-recap");
     std::string error;
     if (!RmlCapture::SaveBoundRenderTargetRegion(m_d3dContext, static_cast<int>(std::floor(offset.x)), static_cast<int>(std::floor(offset.y)),
-                                                 static_cast<int>(std::ceil(size.x)), static_cast<int>(std::ceil(size.y)), path, error)) {
+                                                 static_cast<int>(std::ceil(size.x)), static_cast<int>(std::ceil(size.y)),
+                                                 card->GetComputedValues().border_top_left_radius(), path, error)) {
         ShowToast("Could not save the recap: " + error, true);
         return;
     }

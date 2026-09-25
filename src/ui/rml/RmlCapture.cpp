@@ -6,6 +6,7 @@
 #include <wrl/client.h>
 
 #include <algorithm>
+#include <cmath>
 #include <ctime>
 #include <filesystem>
 #include <vector>
@@ -57,7 +58,7 @@ namespace {
 
 namespace RmlCapture {
     bool SaveBoundRenderTargetRegion(ID3D11DeviceContext* context, int x, int y, int width, int height,
-                                     const std::wstring& path, std::string& error) {
+                                     float cornerRadius, const std::wstring& path, std::string& error) {
         if (!context) {
             error = "No render context.";
             return false;
@@ -132,6 +133,16 @@ namespace RmlCapture {
         const UINT outHeight = stagingDesc.Height;
         std::vector<unsigned char> pixels(static_cast<size_t>(outWidth) * outHeight * 4);
         const bool rgba = IsRgba(desc.Format);
+        const float radius = std::clamp(cornerRadius, 0.0f, static_cast<float>(std::min(outWidth, outHeight)) * 0.5f);
+        const auto coverage = [&](UINT col, UINT row) {
+            if (radius <= 0.0f) return 1.0f;
+            const float px = static_cast<float>(col) + 0.5f;
+            const float py = static_cast<float>(row) + 0.5f;
+            const float cx = std::clamp(px, radius, static_cast<float>(outWidth) - radius);
+            const float cy = std::clamp(py, radius, static_cast<float>(outHeight) - radius);
+            const float distance = std::hypot(px - cx, py - cy);
+            return std::clamp(radius - distance + 0.5f, 0.0f, 1.0f);
+        };
         for (UINT row = 0; row < outHeight; ++row) {
             const auto* src = static_cast<const unsigned char*>(mapped.pData) + static_cast<size_t>(row) * mapped.RowPitch;
             unsigned char* dst = pixels.data() + static_cast<size_t>(row) * outWidth * 4;
@@ -143,7 +154,7 @@ namespace RmlCapture {
                 dst[0] = straight(rgba ? src[2] : src[0]);
                 dst[1] = straight(src[1]);
                 dst[2] = straight(rgba ? src[0] : src[2]);
-                dst[3] = alpha;
+                dst[3] = static_cast<unsigned char>(std::lround(alpha * coverage(col, row)));
             }
         }
         context->Unmap(staging.Get(), 0);

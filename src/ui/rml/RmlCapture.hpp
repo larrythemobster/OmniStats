@@ -10,7 +10,7 @@ namespace RmlCapture {
     // partially transparent pixels (rounded corners over a transparent
     // overlay) are converted back to straight alpha.
     bool SaveBoundRenderTargetRegion(ID3D11DeviceContext* context, int x, int y, int width, int height,
-                                     const std::wstring& path, std::string& error);
+                                     float cornerRadius, const std::wstring& path, std::string& error);
 
     // %USERPROFILE%\Pictures\OmniStats\<prefix>-YYYYMMDD-HHMMSS.png, creating the folder.
     std::wstring NewPicturePath(const wchar_t* prefix);

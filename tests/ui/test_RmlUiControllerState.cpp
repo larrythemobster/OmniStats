@@ -1,9 +1,11 @@
 #include <gtest/gtest.h>
 #include <RmlUi/Core/Core.h>
+#include <RmlUi/Core/ComputedValues.h>
 #include <RmlUi/Core/Context.h>
 #include <RmlUi/Core/Element.h>
 #include <RmlUi/Core/ElementDocument.h>
 #include <d3d11.h>
+#include <wincodec.h>
 #include <wrl/client.h>
 
 #include <algorithm>
@@ -13,6 +15,7 @@
 #include <limits>
 #include <mutex>
 #include <shared_mutex>
+#include <vector>
 
 #include "core/Config.hpp"
 #include "core/SessionState.hpp"
@@ -22,6 +25,30 @@
 #include "ui/rml/RmlCapture.hpp"
 #include "ui/rml/RmlUiHelpers.hpp"
 #include "network/ExternalUpdaterLauncher.hpp"
+
+namespace {
+    std::vector<unsigned char> DecodePngBgra(const std::filesystem::path& path, UINT& width, UINT& height) {
+        using Microsoft::WRL::ComPtr;
+        std::vector<unsigned char> pixels;
+        const HRESULT init = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
+        {
+            ComPtr<IWICImagingFactory> factory;
+            ComPtr<IWICBitmapDecoder> decoder;
+            ComPtr<IWICBitmapFrameDecode> frame;
+            ComPtr<IWICFormatConverter> converter;
+            if (SUCCEEDED(CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&factory))) &&
+                SUCCEEDED(factory->CreateDecoderFromFilename(path.c_str(), nullptr, GENERIC_READ, WICDecodeMetadataCacheOnDemand, &decoder)) &&
+                SUCCEEDED(decoder->GetFrame(0, &frame)) && SUCCEEDED(factory->CreateFormatConverter(&converter)) &&
+                SUCCEEDED(converter->Initialize(frame.Get(), GUID_WICPixelFormat32bppBGRA, WICBitmapDitherTypeNone, nullptr, 0.0, WICBitmapPaletteTypeCustom)) &&
+                SUCCEEDED(converter->GetSize(&width, &height))) {
+                pixels.resize(static_cast<size_t>(width) * height * 4);
+                if (FAILED(converter->CopyPixels(nullptr, width * 4, static_cast<UINT>(pixels.size()), pixels.data()))) pixels.clear();
+            }
+        }
+        if (init == S_OK || init == S_FALSE) CoUninitialize();
+        return pixels;
+    }
+}
 
 class RmlUiControllerStateTest : public ::testing::Test {
   protected:
@@ -1733,9 +1760,19 @@ TEST_F(RmlUiControllerStateTest, RecapCardRendersAndCapturesToPng) {
     std::filesystem::remove(path);
     std::string error;
     ASSERT_TRUE(RmlCapture::SaveBoundRenderTargetRegion(warp.context.Get(), static_cast<int>(offset.x), static_cast<int>(offset.y),
-                                                        static_cast<int>(size.x), static_cast<int>(size.y), path.wstring(), error))
+                                                        static_cast<int>(size.x), static_cast<int>(size.y),
+                                                        card->GetComputedValues().border_top_left_radius(), path.wstring(), error))
         << error;
     EXPECT_GT(std::filesystem::file_size(path), 1024u);
+    UINT width = 0, height = 0;
+    const std::vector<unsigned char> png = DecodePngBgra(path, width, height);
+    ASSERT_FALSE(png.empty());
+    const auto alphaAt = [&](UINT x, UINT y) { return png[(static_cast<size_t>(y) * width + x) * 4 + 3]; };
+    EXPECT_EQ(alphaAt(0, 0), 0);
+    EXPECT_EQ(alphaAt(width - 1, 0), 0);
+    EXPECT_EQ(alphaAt(0, height - 1), 0);
+    EXPECT_EQ(alphaAt(width - 1, height - 1), 0);
+    EXPECT_EQ(alphaAt(width / 2, height / 2), 255);
     std::filesystem::remove(path);
 }
 
