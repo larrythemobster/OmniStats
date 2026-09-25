@@ -1,5 +1,6 @@
 #include "StatsClient.hpp"
 #include "core/Config.hpp"
+#include "core/StatsApiConfig.hpp"
 #include "database/DatabaseManager.hpp"
 #include "network/DiscordManager.hpp"
 #include "network/MMRFetcher.hpp"
@@ -95,11 +96,11 @@ void StatsClient::RunLoop() {
 
             ConfigData conf = Config::Read();
             bool resetSessionAfterDisconnect = false;
-            // Reset at exactly 5 (approx 15 seconds) to avoid doing it continuously
-            if (conf.reset_session_on_close && !m_resetAfterDisconnect && m_disconnectCount >= 5) {
+            if (conf.reset_session_on_close && !m_resetAfterDisconnect &&
+                (m_disconnectCount >= 5 || !StatsApiConfig::IsRocketLeagueRunning())) {
                 m_resetAfterDisconnect = true;
                 resetSessionAfterDisconnect = true;
-                std::cout << "[StatsClient] Game closed (multiple disconnects). Resetting session stats.\n";
+                std::cout << "[StatsClient] Game closed. Resetting session stats.\n";
             }
 
             {
