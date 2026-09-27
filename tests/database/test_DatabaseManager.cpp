@@ -480,6 +480,79 @@ TEST_F(DatabaseManagerTest, EarlyLossPersistsOnceBeforeFollowingWin) {
     EXPECT_TRUE(matches[2].win);
 }
 
+TEST_F(DatabaseManagerTest, PendingDestroyedMatchCountsInStreakAndConfirmationReplacesResult) {
+    const std::string pid = "Steam|pending-streak-player";
+    const int64_t baseTimeMs = 1'800'000'000'000;
+    auto makeMatch = [&](const std::string& guid, bool win, int64_t endedAtUnixMs) {
+        MatchSaveSnapshot snap;
+        snap.arenaName = "DFH Stadium";
+        snap.matchGuid = guid;
+        snap.playlistId = 11;
+        snap.myTeam = 1;
+        snap.winnerTeam = win ? 1 : 0;
+        snap.validResult = true;
+        snap.score[0] = win ? 0 : 4;
+        snap.score[1] = win ? 4 : 0;
+        snap.myPrimaryId = pid;
+        snap.endedAtUnixMs = endedAtUnixMs;
+        snap.roster[pid] = PlayerData{.primaryId = pid, .name = "Player", .team = 1, .mmr = 1015};
+        return snap;
+    };
+    auto streak = [&]() {
+        int currentWins = 0, currentLosses = 0, longestWins = 0, longestLosses = 0;
+        dbManager->GetStreakStats(pid, currentWins, currentLosses, longestWins, longestLosses);
+        return currentWins > 0 ? currentWins : -currentLosses;
+    };
+
+    dbManager->SaveMatch(makeMatch("pending-win", true, baseTimeMs + 1000));
+    dbManager->SaveMatch(makeMatch("pending-loss-1", false, baseTimeMs + 2000));
+    MatchSaveSnapshot provisional = makeMatch("pending-destroyed", false, baseTimeMs + 3000);
+    provisional.resultPending = true;
+    dbManager->SaveMatch(provisional);
+    EXPECT_EQ(streak(), -2);
+
+    dbManager->SaveMatch(provisional);
+    std::vector<SessionMatchSummary> matches;
+    dbManager->GetRecentMatchHistory(pid, matches, 10);
+    ASSERT_EQ(matches.size(), 3u);
+
+    dbManager->SaveMatch(makeMatch("pending-destroyed", true, baseTimeMs + 3000));
+    EXPECT_EQ(streak(), 1);
+    dbManager->GetRecentMatchHistory(pid, matches, 10);
+    ASSERT_EQ(matches.size(), 3u);
+    EXPECT_EQ(matches[0].matchGuid, "pending-destroyed");
+    EXPECT_TRUE(matches[0].win);
+    EXPECT_EQ(matches[0].ourScore, 4);
+
+    dbManager->SaveMatch(makeMatch("pending-destroyed", false, baseTimeMs + 3000));
+    EXPECT_EQ(streak(), 1);
+}
+
+TEST_F(DatabaseManagerTest, VoidConfirmationRemovesPendingDestroyedMatch) {
+    const std::string pid = "Steam|pending-void-player";
+    MatchSaveSnapshot snap;
+    snap.arenaName = "DFH Stadium";
+    snap.matchGuid = "pending-void";
+    snap.playlistId = 11;
+    snap.myTeam = 0;
+    snap.winnerTeam = 0;
+    snap.validResult = true;
+    snap.resultPending = true;
+    snap.score[0] = 3;
+    snap.myPrimaryId = pid;
+    snap.roster[pid] = PlayerData{.primaryId = pid, .name = "Player", .team = 0, .mmr = 1000};
+    dbManager->SaveMatch(snap);
+
+    snap.resultPending = false;
+    snap.validResult = false;
+    snap.voidReason = "non_live_replay";
+    dbManager->SaveMatch(snap);
+
+    std::vector<SessionMatchSummary> matches;
+    dbManager->GetRecentMatchHistory(pid, matches, 10);
+    EXPECT_TRUE(matches.empty());
+}
+
 static void RemoveTestDbFiles(const std::string& base) {
     std::error_code ec;
     std::filesystem::remove(base, ec);

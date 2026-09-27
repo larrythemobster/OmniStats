@@ -78,6 +78,7 @@ class DatabaseManager {
 
     [[nodiscard]] bool EnqueueDbJob(std::function<void()> job, DbJobPriority priority = DbJobPriority::Normal, std::string coalesceKey = "");
     bool CreateTables();
+    void ResolvePendingMatchLocked(sqlite3_int64 matchId, const MatchSaveSnapshot& snapshot);
 
     std::shared_ptr<SessionState> m_state;
     sqlite3* m_db = nullptr;

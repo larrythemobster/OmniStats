@@ -1278,6 +1278,10 @@ TEST(TelemetryReducerMatchValidation, DestroyedCompetitiveMatchAppearsInHistoryW
     EXPECT_TRUE(summary.win);
     EXPECT_GT(summary.endedAtUnix, 0);
     EXPECT_FALSE(effects.saveMatch);
+    ASSERT_TRUE(effects.provisionalSaveSnapshot.has_value());
+    EXPECT_TRUE(effects.provisionalSaveSnapshot->resultPending);
+    EXPECT_EQ(effects.provisionalSaveSnapshot->matchGuid, "pending-history-guid");
+    EXPECT_EQ(effects.provisionalSaveSnapshot->winnerTeam, effects.provisionalSaveSnapshot->myTeam);
     EXPECT_EQ(state->game.sessionTotals.wins, 0);
     EXPECT_EQ(state->game.sessionTotals.losses, 0);
 }

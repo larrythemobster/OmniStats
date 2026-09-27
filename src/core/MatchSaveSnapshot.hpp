@@ -26,4 +26,5 @@ struct MatchSaveSnapshot {
     // post-match Tracker reconciliation owns this row.
     bool localMmrNeedsReconciliation = false;
     int64_t endedAtUnixMs = 0;
+    bool resultPending = false;
 };

@@ -57,5 +57,6 @@ struct SideEffects {
     bool saveMatch = false;
     nlohmann::json matchRecord;
     MatchSaveSnapshot saveSnapshot;
+    std::optional<MatchSaveSnapshot> provisionalSaveSnapshot;
     int replayKeyToPress = -1;
 };

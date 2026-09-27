@@ -265,6 +265,26 @@ void TelemetryReducer::FinalizeCapturedMatchLocked(
           {"max_ball_speed", currentMatch.maxGoalSpeedSelf}}},
         {"timestamp", match.endedAtUnixMs / 1000}};
 
+    MatchSaveSnapshot snapshot =
+        BuildMatchSaveSnapshot(match, winnerTeam, decision);
+    snapshot.roster = std::move(match.roster);
+    snapshot.localMmrNeedsReconciliation =
+        hasLocalRefresh && m_cachedConf.enable_mmr_tracking;
+
+    effects.saveMatch = true;
+    effects.matchRecord = std::move(matchRecord);
+    effects.saveSnapshot = std::move(snapshot);
+
+    if (isCurrentMatch) {
+        effects.pushDiscord = true;
+        effects.discordSnapshot = BuildDiscordSnapshotLocked();
+    }
+}
+
+MatchSaveSnapshot TelemetryReducer::BuildMatchSaveSnapshot(
+    const CapturedMatch& match,
+    int winnerTeam,
+    const MatchEndDecision& decision) {
     MatchSaveSnapshot snapshot;
     snapshot.arenaName = match.arenaName;
     snapshot.arenaAsset = match.arenaAsset;
@@ -284,21 +304,10 @@ void TelemetryReducer::FinalizeCapturedMatchLocked(
                    ? match.legacyMaxPlayersSeen
                    : match.legacyMaxTeamPlayersSeen[0] +
                          match.legacyMaxTeamPlayersSeen[1]);
-    snapshot.roster = std::move(match.roster);
     snapshot.rosterMmrCategory = match.rosterMmrCategory;
     snapshot.myPrimaryId = match.myPrimaryId;
-    snapshot.localMmrNeedsReconciliation =
-        hasLocalRefresh && m_cachedConf.enable_mmr_tracking;
     snapshot.endedAtUnixMs = match.endedAtUnixMs;
-
-    effects.saveMatch = true;
-    effects.matchRecord = std::move(matchRecord);
-    effects.saveSnapshot = std::move(snapshot);
-
-    if (isCurrentMatch) {
-        effects.pushDiscord = true;
-        effects.discordSnapshot = BuildDiscordSnapshotLocked();
-    }
+    return snapshot;
 }
 
 void TelemetryReducer::HandleMatchDestroyed(
@@ -519,6 +528,27 @@ void TelemetryReducer::HandleMatchDestroyed(
                                 kPreviousGamesMaxLimit);
                         }
                         m_state->history.version++;
+                    }
+                }
+
+                if ((match.myTeam == 0 || match.myTeam == 1) &&
+                    (match.localPlayerDisappeared ||
+                     match.score[0] != match.score[1])) {
+                    const bool provisionalWin =
+                        !match.localPlayerDisappeared &&
+                        match.score[match.myTeam] > match.score[1 - match.myTeam];
+                    const int provisionalWinner =
+                        provisionalWin ? match.myTeam : 1 - match.myTeam;
+                    const MatchEndDecision decision =
+                        ClassifyMatchEndLocked(match, provisionalWinner);
+                    if (decision.shouldPersist) {
+                        MatchSaveSnapshot provisional =
+                            BuildMatchSaveSnapshot(match, provisionalWinner, decision);
+                        provisional.roster = match.roster;
+                        provisional.localMmrNeedsReconciliation =
+                            m_cachedConf.enable_mmr_tracking;
+                        provisional.resultPending = true;
+                        effects.provisionalSaveSnapshot = std::move(provisional);
                     }
                 }
 

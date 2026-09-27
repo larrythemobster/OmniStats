@@ -81,6 +81,9 @@ void SideEffectExecutor::Execute(SideEffects&& effects,
         },
                 true);
     }
+    if (effects.provisionalSaveSnapshot && dbManager) {
+        dbManager->AsyncSaveMatch(std::move(*effects.provisionalSaveSnapshot));
+    }
 
     if (effects.resolvedDestroyedMatch && mmrFetcher) {
         mmrFetcher->ResolvePendingDestroyedMatch(

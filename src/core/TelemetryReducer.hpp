@@ -94,6 +94,10 @@ class TelemetryReducer {
     };
 
     MatchEndDecision ClassifyMatchEndLocked(const CapturedMatch& match, int winnerTeam) const;
+    // Roster is left empty; callers move or copy it in.
+    static MatchSaveSnapshot BuildMatchSaveSnapshot(const CapturedMatch& match,
+                                                    int winnerTeam,
+                                                    const MatchEndDecision& decision);
     static int LegacyExpectedTeamSizeForMode(const std::string& mode);
 
     std::shared_ptr<SessionState> m_state;

@@ -282,6 +282,19 @@ bool DatabaseManager::CreateTables() {
         }
     }
 
+    if (!SqliteTableHasColumn(m_db, "Matches", "result_pending")) {
+        rc = sqlite3_exec(
+            m_db,
+            "ALTER TABLE Matches ADD COLUMN result_pending BOOLEAN DEFAULT 0;",
+            nullptr, nullptr, &errMsg);
+        if (rc != SQLITE_OK) {
+            std::cerr << "Error migrating Matches.result_pending: "
+                      << (errMsg ? errMsg : "unknown") << "\n";
+            if (errMsg) sqlite3_free(errMsg);
+            return false;
+        }
+    }
+
     const char* createIndexes = R"(
         CREATE INDEX IF NOT EXISTS idx_matchplayers_primary_id ON MatchPlayers(primary_id);
         CREATE INDEX IF NOT EXISTS idx_matchplayers_match_id ON MatchPlayers(match_id);
@@ -300,20 +313,13 @@ void DatabaseManager::SaveMatch(const MatchSaveSnapshot& snapshot) {
 
     if (snapshot.arenaName.empty()) return;
 
-    if (!snapshot.validResult) {
-        std::cout << "[Database] Skipping void match"
-                  << (snapshot.voidReason.empty() ? "" : ": " + snapshot.voidReason)
-                  << "\n";
-        return;
-    }
-
-    if (snapshot.myTeam != 0 && snapshot.myTeam != 1) return;
-    if (snapshot.winnerTeam != 0 && snapshot.winnerTeam != 1) return;
-
+    sqlite3_int64 pendingMatchId = 0;
     if (!snapshot.matchGuid.empty()) {
         sqlite3_stmt* duplicateCheck = nullptr;
         const char* duplicateSql =
-            "SELECT 1 FROM Matches WHERE match_guid = ? LIMIT 1;";
+            "SELECT id, COALESCE(result_pending, 0) FROM Matches "
+            "WHERE match_guid = ? ORDER BY id DESC LIMIT 1;";
+        bool alreadySaved = false;
         if (sqlite3_prepare_v2(
                 m_db,
                 duplicateSql,
@@ -326,18 +332,38 @@ void DatabaseManager::SaveMatch(const MatchSaveSnapshot& snapshot) {
                 snapshot.matchGuid.c_str(),
                 -1,
                 SQLITE_TRANSIENT);
-            const bool alreadySaved =
-                sqlite3_step(duplicateCheck) == SQLITE_ROW;
-            sqlite3_finalize(duplicateCheck);
-            if (alreadySaved) {
-                std::cout
-                    << "[Database] Skipping duplicate match GUID.\n";
-                return;
+            if (sqlite3_step(duplicateCheck) == SQLITE_ROW) {
+                alreadySaved = true;
+                if (sqlite3_column_int(duplicateCheck, 1) != 0) {
+                    pendingMatchId = sqlite3_column_int64(duplicateCheck, 0);
+                }
             }
+            sqlite3_finalize(duplicateCheck);
         } else if (duplicateCheck) {
             sqlite3_finalize(duplicateCheck);
         }
+        if (alreadySaved &&
+            (pendingMatchId == 0 || snapshot.resultPending)) {
+            std::cout
+                << "[Database] Skipping duplicate match GUID.\n";
+            return;
+        }
     }
+
+    if (pendingMatchId != 0) {
+        ResolvePendingMatchLocked(pendingMatchId, snapshot);
+        return;
+    }
+
+    if (!snapshot.validResult) {
+        std::cout << "[Database] Skipping void match"
+                  << (snapshot.voidReason.empty() ? "" : ": " + snapshot.voidReason)
+                  << "\n";
+        return;
+    }
+
+    if (snapshot.myTeam != 0 && snapshot.myTeam != 1) return;
+    if (snapshot.winnerTeam != 0 && snapshot.winnerTeam != 1) return;
 
     bool win = (snapshot.winnerTeam == snapshot.myTeam);
 
@@ -386,8 +412,8 @@ void DatabaseManager::SaveMatch(const MatchSaveSnapshot& snapshot) {
     }
 
     std::string sqlMatches =
-        "INSERT INTO Matches (arena, our_score, their_score, win, match_guid, playlist_id, gamemode, player_count, timestamp) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, COALESCE(strftime('%Y-%m-%d %H:%M:%f', NULLIF(?, 0) / 1000.0, 'unixepoch'), CURRENT_TIMESTAMP));";
+        "INSERT INTO Matches (arena, our_score, their_score, win, match_guid, playlist_id, gamemode, player_count, timestamp, result_pending) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, COALESCE(strftime('%Y-%m-%d %H:%M:%f', NULLIF(?, 0) / 1000.0, 'unixepoch'), CURRENT_TIMESTAMP), ?);";
     sqlite3_stmt* stmtMatches;
 
     if (sqlite3_prepare_v2(m_db, sqlMatches.c_str(), -1, &stmtMatches, nullptr) != SQLITE_OK) {
@@ -410,6 +436,7 @@ void DatabaseManager::SaveMatch(const MatchSaveSnapshot& snapshot) {
     sqlite3_bind_int(stmtMatches, 8, playerCount);
     sqlite3_bind_int64(
         stmtMatches, 9, snapshot.endedAtUnixMs);
+    sqlite3_bind_int(stmtMatches, 10, snapshot.resultPending ? 1 : 0);
 
     bool ok = true;
     if (sqlite3_step(stmtMatches) != SQLITE_DONE) {
@@ -477,6 +504,61 @@ void DatabaseManager::SaveMatch(const MatchSaveSnapshot& snapshot) {
     }
 
     std::cout << "Match saved to database. ID: " << matchId << " Gamemode: " << gamemode << "\n";
+}
+
+void DatabaseManager::ResolvePendingMatchLocked(sqlite3_int64 matchId, const MatchSaveSnapshot& snapshot) {
+    const bool validResult =
+        snapshot.validResult &&
+        (snapshot.myTeam == 0 || snapshot.myTeam == 1) &&
+        (snapshot.winnerTeam == 0 || snapshot.winnerTeam == 1);
+
+    if (!validResult) {
+        sqlite3_stmt* stmt = nullptr;
+        bool ok = sqlite3_exec(m_db, "BEGIN IMMEDIATE;", nullptr, nullptr, nullptr) == SQLITE_OK;
+        for (const char* sql : {"DELETE FROM MatchPlayers WHERE match_id = ?;",
+                                "DELETE FROM Matches WHERE id = ?;"}) {
+            if (!ok) break;
+            ok = sqlite3_prepare_v2(m_db, sql, -1, &stmt, nullptr) == SQLITE_OK;
+            if (ok) {
+                sqlite3_bind_int64(stmt, 1, matchId);
+                ok = sqlite3_step(stmt) == SQLITE_DONE;
+            }
+            sqlite3_finalize(stmt);
+            stmt = nullptr;
+        }
+        if (!ok || sqlite3_exec(m_db, "COMMIT;", nullptr, nullptr, nullptr) != SQLITE_OK) {
+            sqlite3_exec(m_db, "ROLLBACK;", nullptr, nullptr, nullptr);
+            std::cerr << "[Database] Failed to remove voided pending match.\n";
+            return;
+        }
+        std::cout << "[Database] Removed pending match voided on confirmation. ID: " << matchId
+                  << (snapshot.voidReason.empty() ? "" : ", reason=" + snapshot.voidReason) << "\n";
+        return;
+    }
+
+    const bool win = snapshot.winnerTeam == snapshot.myTeam;
+    const int ourScore = snapshot.myTeam == 1 ? snapshot.score[1] : snapshot.score[0];
+    const int theirScore = snapshot.myTeam == 1 ? snapshot.score[0] : snapshot.score[1];
+
+    sqlite3_stmt* stmt = nullptr;
+    const char* sql =
+        "UPDATE Matches SET win = ?, our_score = ?, their_score = ?, result_pending = 0 WHERE id = ?;";
+    if (sqlite3_prepare_v2(m_db, sql, -1, &stmt, nullptr) != SQLITE_OK) {
+        std::cerr << "[Database] Failed to prepare pending match confirmation.\n";
+        return;
+    }
+    sqlite3_bind_int(stmt, 1, win ? 1 : 0);
+    sqlite3_bind_int(stmt, 2, ourScore);
+    sqlite3_bind_int(stmt, 3, theirScore);
+    sqlite3_bind_int64(stmt, 4, matchId);
+    const bool ok = sqlite3_step(stmt) == SQLITE_DONE;
+    sqlite3_finalize(stmt);
+    if (!ok) {
+        std::cerr << "[Database] Failed to confirm pending match.\n";
+        return;
+    }
+    std::cout << "Pending match confirmed in database. ID: " << matchId
+              << " Result: " << (win ? "win" : "loss") << "\n";
 }
 
 bool DatabaseManager::UpdateMatchPlayerMmr(const std::string& matchGuid, const std::string& primaryId, int mmr, bool estimated) {
