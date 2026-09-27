@@ -252,6 +252,8 @@ void RmlUiController::UpdateThemeProperties() {
     rule(".graph-point.estimated", "background-color", std::string("transparent"));
     rule(".graph-point.estimated", "border-color", text);
 
+    css << FontOverrideCss();
+
     auto themeStyle = Rml::Factory::InstanceStyleSheetString(css.str());
     if (!themeStyle) return;
     auto combined = m_baseStyleSheet->CombineStyleSheetContainer(*themeStyle);

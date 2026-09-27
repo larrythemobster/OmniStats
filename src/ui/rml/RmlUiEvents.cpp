@@ -226,6 +226,12 @@ void RmlUiController::HandleClick(Rml::Element* target) {
         RebuildSettings();
         RebuildVisibleUi(true, true);
         ShowToast("Theme colors reset to default.");
+    } else if (action == "reset-fonts") {
+        Config::Update([](ConfigData& c) { c.ResetFonts(); });
+        m_config = Config::Read();
+        UpdateThemeProperties();
+        RebuildSettings();
+        ShowToast("Fonts reset to default.");
     } else if (action == "reset-theme-and-layout") {
         Config::Update([](ConfigData& c) { c.ResetThemeAndLayout(); });
         m_config = Config::Read();
@@ -633,6 +639,12 @@ void RmlUiController::HandleChange(Rml::Element* target, Rml::Event& event) {
             c.graph_mmr_category = value;
         else if (key == "ui_scale")
             c.ui_scale = SanitizedUiScale(std::strtof(value.c_str(), nullptr));
+        else if (key == "font_ui")
+            c.font_ui = value;
+        else if (key == "font_mono")
+            c.font_mono = value;
+        else if (key == "font_display")
+            c.font_display = value;
         else if (key == "speed_units")
             c.imperial_units = value == "imperial";
         else if (key == "crossbar_display_mode")

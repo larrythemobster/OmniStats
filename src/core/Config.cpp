@@ -398,6 +398,9 @@ namespace Config {
             if (j.contains("second_monitor_w")) Current.second_monitor_w = j["second_monitor_w"];
             if (j.contains("second_monitor_h")) Current.second_monitor_h = j["second_monitor_h"];
             if (j.contains("ui_scale")) Current.ui_scale = j["ui_scale"];
+            if (j.contains("font_ui") && j["font_ui"].is_string()) Current.font_ui = j["font_ui"];
+            if (j.contains("font_mono") && j["font_mono"].is_string()) Current.font_mono = j["font_mono"];
+            if (j.contains("font_display") && j["font_display"].is_string()) Current.font_display = j["font_display"];
             if (j.contains("session_view_x")) Current.session_view_x = j["session_view_x"];
             if (j.contains("session_view_y")) Current.session_view_y = j["session_view_y"];
             if (j.contains("match_summary_x")) Current.match_summary_x = j["match_summary_x"];
@@ -616,6 +619,9 @@ namespace Config {
         j["second_monitor_w"] = Current.second_monitor_w;
         j["second_monitor_h"] = Current.second_monitor_h;
         j["ui_scale"] = Current.ui_scale;
+        j["font_ui"] = Current.font_ui;
+        j["font_mono"] = Current.font_mono;
+        j["font_display"] = Current.font_display;
         j["session_view_x"] = Current.session_view_x;
         j["session_view_y"] = Current.session_view_y;
         j["match_summary_x"] = Current.match_summary_x;

@@ -56,63 +56,6 @@ RmlUiController::~RmlUiController() {
     Shutdown();
 }
 
-// OmniStats ships its own typefaces so the client matches the web brand and does
-// not inherit whatever Segoe UI revision a machine happens to have. Faces are
-// registered with an explicit family and weight: static Inter/JetBrains Mono files
-// name themselves "Inter SemiBold" and friends, which would otherwise register as
-// separate families.
-bool RmlUiController::LoadBundledFonts() {
-    struct BundledFont {
-        const char* resource;
-        const char* file;
-        const char* family;
-        int weight;
-        bool required;
-    };
-    static constexpr BundledFont kFonts[] = {
-        {"FONT_UI_REGULAR", "Inter-Regular.ttf", "Inter", 400, true},
-        {"FONT_UI_SEMIBOLD", "Inter-SemiBold.ttf", "Inter", 600, false},
-        {"FONT_UI_BOLD", "Inter-Bold.ttf", "Inter", 700, false},
-        {"FONT_MONO_REGULAR", "JetBrainsMono-Regular.ttf", "JetBrains Mono", 400, false},
-        {"FONT_MONO_BOLD", "JetBrainsMono-Bold.ttf", "JetBrains Mono", 700, false},
-        {"FONT_DISPLAY_REGULAR", "RussoOne-Regular.ttf", "Russo One", 400, false},
-    };
-
-    m_fontBlobs.clear();
-    for (const auto& font : kFonts) {
-        // Packaged builds carry the faces as RCDATA; test and unpacked builds have
-        // no application resources, so fall back to the source tree like
-        // RmlFileInterface does for RML/RCSS.
-        Rml::Span<const Rml::byte> data = EmbeddedResource(font.resource);
-        if (data.empty()) {
-            auto blob = ReadFontFile(font.file);
-            if (!blob.empty()) {
-                m_fontBlobs.push_back(std::move(blob));
-                const auto& stored = m_fontBlobs.back();
-                data = {stored.data(), stored.size()};
-            }
-        }
-        const bool loaded = !data.empty() &&
-                            Rml::LoadFontFace(data, font.family, Rml::Style::FontStyle::Normal,
-                                              static_cast<Rml::Style::FontWeight>(font.weight));
-        if (loaded) continue;
-        if (font.required) {
-            std::cerr << "[RmlUi] Failed to load font " << font.file
-                      << "; refusing to start with an unreadable UI.\n";
-            return false;
-        }
-        std::cerr << "[RmlUi] Warning: failed to load font " << font.file << ".\n";
-    }
-
-    // Player names are arbitrary user data. Inter covers Latin/Greek/Cyrillic, so
-    // register system faces as fallbacks for everything else instead of drawing
-    // missing-glyph boxes.
-    for (const char* fallback : {"C:/Windows/Fonts/segoeui.ttf", "C:/Windows/Fonts/msgothic.ttc"})
-        Rml::LoadFontFace(fallback, true);
-
-    return true;
-}
-
 bool RmlUiController::Initialize(HWND hwnd, ID3D11Device* device, ID3D11DeviceContext* context, int width, int height, float dpiScale) {
     Shutdown();
     m_hwnd = hwnd;
@@ -360,7 +303,8 @@ void RmlUiController::Update(const ConfigData& config, bool configChanged, uint6
                        !sameColor(config.themeDim, m_config.themeDim) ||
                        !sameColor(config.themeMuted, m_config.themeMuted) ||
                        !sameColor(config.themeGraphLine, m_config.themeGraphLine) ||
-                       !sameColor(config.themeGraphBaseline, m_config.themeGraphBaseline);
+                       !sameColor(config.themeGraphBaseline, m_config.themeGraphBaseline) ||
+                       FontsDifferFromApplied(config);
 
         const auto activeDragKind = m_drag.kind;
         const std::string draggingId = m_drag.containerId;

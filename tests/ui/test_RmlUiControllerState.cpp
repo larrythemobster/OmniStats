@@ -4,6 +4,7 @@
 #include <RmlUi/Core/Context.h>
 #include <RmlUi/Core/Element.h>
 #include <RmlUi/Core/ElementDocument.h>
+#include <RmlUi/Core/StringUtilities.h>
 #include <d3d11.h>
 #include <wincodec.h>
 #include <wrl/client.h>
@@ -1368,6 +1369,68 @@ TEST_F(RmlUiControllerStateTest, DeferredScaleChangeUpdatesContextRatio) {
     config = Config::Read();
     controller.Update(config);
     EXPECT_FLOAT_EQ(RmlContext(controller)->GetDensityIndependentPixelRatio(), 1.5f);
+
+    DestroyWindow(hwnd);
+}
+
+// Each font role must restyle only its own text, including the UI-font header
+// cells nested over mono columns, and a font that is not installed must fall
+// back to the packaged default instead of rendering nothing.
+TEST_F(RmlUiControllerStateTest, FontRolesApplyIndependentlyAndFallBack) {
+    Microsoft::WRL::ComPtr<ID3D11Device> device;
+    Microsoft::WRL::ComPtr<ID3D11DeviceContext> context;
+    D3D_FEATURE_LEVEL featureLevel;
+    if (FAILED(D3D11CreateDevice(nullptr, D3D_DRIVER_TYPE_WARP, nullptr, 0, nullptr, 0, D3D11_SDK_VERSION,
+                                 &device, &featureLevel, &context))) {
+        GTEST_SKIP() << "WARP D3D11 device unavailable";
+    }
+    HWND hwnd = CreateWindowExA(0, "STATIC", "test", WS_POPUP, 0, 0, 1280, 720, nullptr, nullptr,
+                                GetModuleHandle(nullptr), nullptr);
+    ASSERT_NE(hwnd, nullptr);
+
+    Config::Update([](ConfigData& c) { c.ResetFonts(); }, true);
+    auto state = std::make_shared<SessionState>();
+    RmlUiController controller(state, nullptr);
+    ASSERT_TRUE(controller.Initialize(hwnd, device.Get(), context.Get(), 1280, 720, 1.0f));
+
+    Rml::Element* probe = Document(controller)->AppendChild(Document(controller)->CreateElement("div"));
+    probe->SetInnerRML("<div id='fp-body'>a</div><div id='fp-mono' class='mono'>1</div>"
+                       "<div class='match-header'><div id='fp-header' class='match-score'>b</div></div>"
+                       "<div id='fp-title' class='card-title'>c</div>");
+    auto family = [&](const char* id) {
+        RmlContext(controller)->Update();
+        Rml::Element* element = Document(controller)->GetElementById(id);
+        return element ? Rml::StringUtilities::ToLower(element->GetComputedValues().font_family()) : std::string("<missing>");
+    };
+    auto apply = [&](std::string ui, std::string mono, std::string display) {
+        Config::Update([&](ConfigData& c) {
+            c.font_ui = ui;
+            c.font_mono = mono;
+            c.font_display = display;
+        },
+                       true);
+        controller.Update(Config::Read());
+    };
+
+    EXPECT_EQ(family("fp-body"), "inter");
+    EXPECT_EQ(family("fp-mono"), "jetbrains mono");
+    EXPECT_EQ(family("fp-header"), "inter");
+    EXPECT_EQ(family("fp-title"), "russo one");
+
+    apply("", "Russo One", "");
+    EXPECT_EQ(family("fp-body"), "inter");
+    EXPECT_EQ(family("fp-mono"), "russo one");
+    EXPECT_EQ(family("fp-header"), "inter");
+    EXPECT_EQ(family("fp-title"), "russo one");
+
+    apply("Arial", "", "JetBrains Mono");
+    EXPECT_EQ(family("fp-body"), "omnistats-system arial");
+    EXPECT_EQ(family("fp-mono"), "jetbrains mono");
+    EXPECT_EQ(family("fp-header"), "omnistats-system arial");
+    EXPECT_EQ(family("fp-title"), "jetbrains mono");
+
+    apply("No Such Font OmniStats", "", "");
+    EXPECT_EQ(family("fp-body"), "inter");
 
     DestroyWindow(hwnd);
 }

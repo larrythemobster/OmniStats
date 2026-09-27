@@ -173,6 +173,11 @@ struct ConfigData {
     int second_monitor_h = 768;
 
     float ui_scale = 1.0f;
+    // Font family per text role; empty keeps the bundled default (Inter,
+    // JetBrains Mono, Russo One). Values are bundled or installed family names.
+    std::string font_ui;
+    std::string font_mono;
+    std::string font_display;
 
     // Overlay cards that are not part of overlay_layout: the F8 session view and
     // the post-match summary. -1 keeps the legacy centered placement.
@@ -216,9 +221,15 @@ struct ConfigData {
         match_summary_x = defaults.match_summary_x;
         match_summary_y = defaults.match_summary_y;
     }
+    void ResetFonts() {
+        font_ui.clear();
+        font_mono.clear();
+        font_display.clear();
+    }
 
     void ResetThemeAndLayout() {
         ResetThemeColors();
+        ResetFonts();
         ResetLayouts();
     }
 };

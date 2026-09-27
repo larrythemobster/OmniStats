@@ -119,9 +119,31 @@ std::string RmlUiController::RenderSettingsAppearance() {
         if (std::fabs(m_config.ui_scale - choice.scale) < .01f) currentScale = choice.value;
     }
 
+    auto fontOptions = [&](const std::string& current) {
+        static constexpr const char* kBundled[] = {"Inter", "JetBrains Mono", "Russo One"};
+        std::vector<SelectOption> options;
+        options.push_back({"", "Default"});
+        for (const char* family : kBundled)
+            options.push_back({family, std::string(family) + " (bundled)"});
+        bool currentListed = current.empty() || std::any_of(std::begin(kBundled), std::end(kBundled), [&](const char* family) { return current == family; });
+        for (const auto& family : SystemFontFamilies()) {
+            if (std::any_of(std::begin(kBundled), std::end(kBundled), [&](const char* bundled) { return family == bundled; })) continue;
+            currentListed |= family == current;
+            options.push_back({family, family});
+        }
+        if (!currentListed) options.push_back({current, current + " (not installed)"});
+        return options;
+    };
+
     std::ostringstream out;
     out << SectionStart("Scale")
         << SelectRow("ui_scale", "App-wide text size", "Changes text size throughout the dashboard and overlay.", scales, currentScale)
+        << SectionEnd();
+    out << SectionStart("Fonts")
+        << "<div class='row wrap gap-sm' style='margin-bottom:8dp'>" << Button("reset-fonts", "Reset Fonts to Default", "ghost") << "</div>"
+        << SelectRow("font_ui", "Text", "Labels, names, and body text. Default: Inter.", fontOptions(m_config.font_ui), m_config.font_ui)
+        << SelectRow("font_mono", "Numbers", "MMR, scores, graph labels, and stat values. Default: JetBrains Mono.", fontOptions(m_config.font_mono), m_config.font_mono)
+        << SelectRow("font_display", "Titles", "Card titles, the app name, and recap headlines. Default: Russo One.", fontOptions(m_config.font_display), m_config.font_display)
         << SectionEnd();
     out << SectionStart("Colors")
         << "<div class='row wrap gap-sm' style='margin-bottom:8dp'>"

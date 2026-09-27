@@ -163,6 +163,14 @@ class RmlUiController final : public Rml::EventListener {
 
     void SnapshotState();
     bool LoadBundledFonts();
+    // Rml family name to render `choice` with: bundled families as-is, installed
+    // families loaded once under a private alias, or `defaultFamily` when the
+    // choice is empty or cannot be loaded.
+    std::string ResolveFontFamily(const std::string& choice, std::string_view defaultFamily);
+    // font-family overrides for the configured roles; empty when all are default.
+    std::string FontOverrideCss();
+    const std::vector<std::string>& SystemFontFamilies();
+    bool FontsDifferFromApplied(const ConfigData& config) const;
     void RefreshAsyncData();
     void UpdateInputCapture();
     void UpdateThemeProperties();
@@ -267,6 +275,14 @@ class RmlUiController final : public Rml::EventListener {
     // Faces loaded from disk must outlive Rml::Shutdown; RCDATA-backed faces
     // point into the module image and need no storage.
     std::vector<std::vector<unsigned char>> m_fontBlobs;
+    // Installed family name -> registered Rml alias; empty when loading failed.
+    std::map<std::string, std::string> m_systemFontAliases;
+    std::vector<std::string> m_systemFontFamilies;
+    bool m_systemFontFamiliesLoaded = false;
+    // Font choices behind the stylesheet currently applied to the documents.
+    std::string m_appliedFontUi;
+    std::string m_appliedFontMono;
+    std::string m_appliedFontDisplay;
     bool m_rmlInterfacesInstalled = false;
     std::unique_ptr<Rml::ElementInstancer> m_graphLineInstancer;
     ID3D11DeviceContext* m_d3dContext = nullptr;
