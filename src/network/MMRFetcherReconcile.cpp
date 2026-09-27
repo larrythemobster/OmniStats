@@ -595,7 +595,36 @@ bool MMRFetcher::ReconcileTrackerResponse(const MMRRequest& req, int fetchedMmr,
             m_postMatchRecordsByGuid.erase(pendingGuids[index]);
         }
         pendingGuids.erase(pendingGuids.begin(), pendingGuids.begin() + static_cast<std::ptrdiff_t>(coveredCount));
-        if (pendingGuids.empty()) m_pendingPostMatchesByPlaylist.erase(pendingIt);
+        const bool allPendingCovered = pendingGuids.empty();
+        if (allPendingCovered) m_pendingPostMatchesByPlaylist.erase(pendingIt);
+
+        // The live match's snapshot may predate this confirmation.
+        if (allPendingCovered && fetchedMatches >= 0 &&
+            m_state->game.inMatch && !m_state->game.matchFinalized) {
+            for (auto& [snapshotGuid, snapshot] : m_state->game.preMatchMmrByGuid) {
+                if (m_postMatchRecordsByGuid.count(snapshotGuid) > 0 ||
+                    m_completedPostMatchGuids.count(snapshotGuid) > 0) {
+                    continue;
+                }
+                const auto matchesIt = snapshot.playlistMatches.find(req.playlist);
+                if (matchesIt == snapshot.playlistMatches.end() ||
+                    matchesIt->second < 0 ||
+                    matchesIt->second >= fetchedMatches) {
+                    continue;
+                }
+                const auto mmrIt = snapshot.playlistMmrs.find(req.playlist);
+                std::cout
+                    << "[MMRFetcher] Refreshed in-progress pre-match snapshot: matchGuid="
+                    << PrivacyLog::Sensitive(snapshotGuid, "match GUID")
+                    << ", playlist=" << req.playlist
+                    << ", matches=" << matchesIt->second << "->" << fetchedMatches
+                    << ", mmr="
+                    << (mmrIt != snapshot.playlistMmrs.end() ? mmrIt->second : 0)
+                    << "->" << fetchedMmr << ".\n";
+                matchesIt->second = fetchedMatches;
+                snapshot.playlistMmrs[req.playlist] = fetchedMmr;
+            }
+        }
 
         if (!projection.empty()) {
             m_state->game.sessionTotals.mmrChangeByPlaylist[req.playlist] =

@@ -1065,6 +1065,49 @@ TEST_F(MMRFetcherTest, ImpossibleLowMmrPathDoesNotInferDestroyedLoss) {
             "low-mmr-unknown"));
 }
 
+TEST_F(MMRFetcherTest, ConfirmationDuringNextMatchRefreshesItsPreMatchBaseline) {
+    std::vector<std::pair<std::string, bool>> confirmations;
+    fetcher->SetDestroyedMatchConfirmationCallback(
+        [&](const std::string& matchGuid, bool won) {
+            confirmations.emplace_back(matchGuid, won);
+        });
+    EnqueueDestroyedMatch("previous-loss", 1015, 46, "2v2", {1, 2});
+    sessionState->game.inMatch = true;
+    sessionState->game.matchGuid = "next-win";
+    sessionState->game.preMatchMmrByGuid["next-win"] =
+        LocalPreMatchMmrSnapshot{
+            .playlistMmrs = {{"2v2", 1015}},
+            .playlistMatches = {{"2v2", 46}}};
+
+    fetcher->ProcessPostMatchResponseForTests("previous-loss", 1005, 47);
+
+    ASSERT_EQ(confirmations.size(), 1u);
+    EXPECT_FALSE(confirmations[0].second);
+    const auto& snapshot = sessionState->game.preMatchMmrByGuid.at("next-win");
+    EXPECT_EQ(snapshot.playlistMmrs.at("2v2"), 1005);
+    EXPECT_EQ(snapshot.playlistMatches.at("2v2"), 47);
+
+    sessionState->game.inMatch = false;
+    PendingDestroyedMatchMmrRefresh next;
+    next.matchGuid = "next-win";
+    next.primaryId = "Steam|123";
+    next.name = "Player";
+    next.playlist = "2v2";
+    next.localTeam = 1;
+    next.score = {0, 4};
+    next.previousMmr = snapshot.playlistMmrs.at("2v2");
+    next.previousMatches = snapshot.playlistMatches.at("2v2");
+    next.previousMmrIsPlaylistSpecific = true;
+    next.validCompetitiveMatch = true;
+    fetcher->EnqueuePendingDestroyedMatch(next);
+
+    fetcher->ProcessPostMatchResponseForTests("next-win", 1014, 48);
+
+    ASSERT_EQ(confirmations.size(), 2u);
+    EXPECT_EQ(confirmations[1].first, "next-win");
+    EXPECT_TRUE(confirmations[1].second);
+}
+
 TEST(SessionMmrAggregationTest, SumsOnlyTrackedCompetitivePlaylists) {
     SessionState state;
     state.game.sessionTotals.mmrChangeByPlaylist = {
