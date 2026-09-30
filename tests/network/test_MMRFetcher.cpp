@@ -1066,6 +1066,7 @@ TEST_F(MMRFetcherTest, ImpossibleLowMmrPathDoesNotInferDestroyedLoss) {
 }
 
 TEST_F(MMRFetcherTest, ConfirmationDuringNextMatchRefreshesItsPreMatchBaseline) {
+    sessionState->game.myPrimaryId = "Steam|123";
     std::vector<std::pair<std::string, bool>> confirmations;
     fetcher->SetDestroyedMatchConfirmationCallback(
         [&](const std::string& matchGuid, bool won) {
@@ -1561,4 +1562,62 @@ TEST_F(MMRFetcherTest, CustomApiUpdatesLocalPlayerHistoryAndCache) {
         ASSERT_FALSE(sessionState->history.playlistHistoryY["2v2"].empty());
         EXPECT_EQ(static_cast<int>(sessionState->history.playlistHistoryY["2v2"].back()), 1250);
     }
+}
+
+TEST_F(MMRFetcherTest, SwitchingAccountsKeepsEachSessionGraphOnItsOwnRating) {
+    const std::string firstId = "Epic|first_account|0";
+    const std::string secondId = "Epic|second_account|0";
+    Config::Update([](ConfigData& config) {
+        config.custom_api_enabled = true;
+        config.custom_api_key = "oms_test_account_key";
+    },
+                   false);
+    g_mock_custom_api_response_code = 200;
+
+    auto fetch = [&](const std::string& primaryId, const std::string& accountId, int mmr, int matches) {
+        g_mock_custom_api_response =
+            R"({"players":[{"account_id":")" + accountId +
+            R"(","skills":[{"playlist":11,"mmr":)" + std::to_string(mmr) +
+            R"(,"tier":14,"division":2,"matches_played":)" + std::to_string(matches) +
+            R"(}]}]})";
+        MMRRequest req;
+        req.primaryId = primaryId;
+        req.reason = MMRRequestReason::Roster;
+        return fetcher->FetchProfileFromCustomApiForTests(req);
+    };
+
+    sessionState->game.myPrimaryId = firstId;
+    ASSERT_EQ(fetch(firstId, "first_account", 1425, 63), CustomApiFetchResult::SuccessFinished);
+    fetcher->EnqueuePostMatch(firstId, "First", "first-loss", "2v2", 1425, 63, true, false);
+    fetcher->ProcessPostMatchResponseForTests("first-loss", 1416, 64);
+
+    sessionState->game.myPrimaryId = secondId;
+    {
+        std::unique_lock lock(sessionState->history.mutex);
+        sessionState->history.SelectMmrOwner(secondId);
+        EXPECT_TRUE(sessionState->history.playlistHistoryY.empty());
+    }
+    ASSERT_EQ(fetch(secondId, "second_account", 1379, 22), CustomApiFetchResult::SuccessFinished);
+    fetcher->EnqueuePostMatch(firstId, "First", "late-loss", "2v2", 1416, 64, true, false);
+    fetcher->ProcessPostMatchResponseForTests("late-loss", 1407, 65);
+    {
+        std::shared_lock lock(sessionState->history.mutex);
+        EXPECT_EQ(sessionState->history.playlistHistoryY.at("2v2"), (std::vector<float>{1379.0f}));
+    }
+
+    sessionState->game.myPrimaryId = firstId;
+    {
+        std::unique_lock lock(sessionState->history.mutex);
+        sessionState->history.SelectMmrOwner(firstId);
+        EXPECT_EQ(sessionState->history.playlistHistoryY.at("2v2"),
+                  (std::vector<float>{1425.0f, 1416.0f, 1407.0f}));
+    }
+    ASSERT_EQ(fetch(firstId, "first_account", 1407, 65), CustomApiFetchResult::SuccessFinished);
+
+    std::shared_lock lock(sessionState->history.mutex);
+    EXPECT_EQ(sessionState->history.playlistHistoryY.at("2v2"),
+              (std::vector<float>{1425.0f, 1416.0f, 1407.0f}));
+    ASSERT_EQ(sessionState->history.playlistMatchPoints.at("2v2").size(), 2u);
+    EXPECT_EQ(sessionState->history.playlistMatchPoints.at("2v2")[0].mmr, 1416);
+    EXPECT_EQ(sessionState->history.playlistMatchPoints.at("2v2")[1].mmr, 1407);
 }

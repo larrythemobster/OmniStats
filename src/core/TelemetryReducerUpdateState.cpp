@@ -503,6 +503,10 @@ void TelemetryReducer::HandleUpdateState(const nlohmann::json& data, SideEffects
                     std::string newId = *std::min_element(currentCandidates.begin(), currentCandidates.end());
                     if (newId != mySavedId) {
                         m_state->game.myPrimaryId = newId;
+                        {
+                            std::unique_lock<std::shared_mutex> historyLock(m_state->history.mutex);
+                            m_state->history.SelectMmrOwner(newId);
+                        }
                         // Try to pick up team info from the current players array
                         for (const auto& p : data["Players"]) {
                             if (p.contains("PrimaryId") && p["PrimaryId"].is_string() && p["PrimaryId"].get<std::string>() == newId) {
@@ -565,6 +569,10 @@ void TelemetryReducer::HandleUpdateState(const nlohmann::json& data, SideEffects
                     if (m_identityCandidates.size() == 1) {
                         std::string identifiedId = *m_identityCandidates.begin();
                         m_state->game.myPrimaryId = identifiedId;
+                        {
+                            std::unique_lock<std::shared_mutex> historyLock(m_state->history.mutex);
+                            m_state->history.SelectMmrOwner(identifiedId);
+                        }
                         for (const auto& p : data["Players"]) {
                             if (p.contains("PrimaryId") && p["PrimaryId"].is_string() && p["PrimaryId"].get<std::string>() == identifiedId) {
                                 if (p.contains("TeamNum") && p["TeamNum"].is_number_integer())

@@ -348,6 +348,15 @@ struct GameState {
     SessionRecap lastSessionRecap;
 };
 
+struct AccountMmrHistory {
+    std::vector<float> mmrHistoryY;
+    std::vector<float> mmrHistoryX;
+    std::map<std::string, std::vector<float>> playlistHistoryY;
+    std::map<std::string, std::vector<SessionMmrPoint>> playlistMatchPoints;
+    std::map<std::string, int> playlistInitialMmr;
+    int initialMmr = -1;
+};
+
 struct HistoryState {
     std::shared_mutex mutex;
     std::atomic<uint64_t> version{1};
@@ -360,6 +369,9 @@ struct HistoryState {
     // float projection consumed by the existing graph widget.
     std::map<std::string, std::vector<SessionMmrPoint>> playlistMatchPoints;
     std::map<std::string, int> playlistInitialMmr;
+    std::string mmrOwnerPrimaryId;
+    std::map<std::string, AccountMmrHistory> inactiveMmrHistories;
+    void SelectMmrOwner(const std::string& primaryId);
 
     // Lifetime MMR history for graphing
     std::vector<float> lifetimeMmrY;

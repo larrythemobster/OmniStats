@@ -25,6 +25,12 @@ TEST(TelemetryReducerIdentity, AutoSwitchesWhenSavedIdMissing) {
         std::unique_lock<std::shared_mutex> lk(state->game.mutex);
         state->game.myPrimaryId = "Steam|12345";
     }
+    {
+        std::unique_lock<std::shared_mutex> lk(state->history.mutex);
+        state->history.SelectMmrOwner("Steam|12345");
+        state->history.playlistInitialMmr["2v2"] = 1424;
+        state->history.playlistHistoryY["2v2"] = {1424.0f, 1425.0f};
+    }
 
     // Build a Players array where the saved id is NOT present but a local PC feed exists
     nlohmann::json data;
@@ -54,6 +60,20 @@ TEST(TelemetryReducerIdentity, AutoSwitchesWhenSavedIdMissing) {
     EXPECT_EQ(effects.lifetimePrimaryId, "Epic|98765");
     EXPECT_TRUE(effects.refreshDbStats);
     EXPECT_EQ(effects.refreshStatsPrimaryId, "Epic|98765");
+    {
+        std::shared_lock<std::shared_mutex> lk(state->history.mutex);
+        EXPECT_TRUE(state->history.playlistHistoryY.empty());
+    }
+
+    data["Players"][0]["PrimaryId"] = "Steam|12345";
+    reducer.Reduce(std::string(Constants::EVT_UPDATE_STATE), data);
+    EXPECT_EQ(state->game.myPrimaryId, "Steam|12345");
+    {
+        std::shared_lock<std::shared_mutex> lk(state->history.mutex);
+        EXPECT_EQ(state->history.playlistInitialMmr.at("2v2"), 1424);
+        EXPECT_EQ(state->history.playlistHistoryY.at("2v2"),
+                  (std::vector<float>{1424.0f, 1425.0f}));
+    }
 
     // Clean up
     Config::Update([](ConfigData& c) { c.last_primary_id = ""; }, true);

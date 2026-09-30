@@ -19,6 +19,24 @@
 #include "network/MMRFetcherDetail.hpp"
 
 using namespace MMRFetcherDetail;
+namespace {
+    class ScopedMmrHistoryOwner {
+      public:
+        ScopedMmrHistoryOwner(HistoryState& history, const std::string& requestId,
+                              const std::string& currentId)
+            : m_history(history), m_restoreId(requestId == currentId ? "" : currentId) {
+            m_history.SelectMmrOwner(requestId);
+        }
+
+        ~ScopedMmrHistoryOwner() {
+            if (!m_restoreId.empty()) m_history.SelectMmrOwner(m_restoreId);
+        }
+
+      private:
+        HistoryState& m_history;
+        std::string m_restoreId;
+    };
+}
 
 bool MMRFetcher::IsPostMatchMmrStale(int previousMmr, int fetchedMmr, int previousMatches, int fetchedMatches) {
     if (fetchedMmr <= 0) return true;
@@ -409,6 +427,7 @@ bool MMRFetcher::ReconcileTrackerResponse(const MMRRequest& req, int fetchedMmr,
 
         std::unique_lock<std::shared_mutex> gameLock(m_state->game.mutex);
         std::unique_lock<std::shared_mutex> historyLock(m_state->history.mutex);
+        ScopedMmrHistoryOwner owner(m_state->history, req.primaryId, m_state->game.myPrimaryId);
         auto& points = m_state->history.playlistMatchPoints[req.playlist];
         auto& projection = m_state->history.playlistHistoryY[req.playlist];
 
@@ -600,7 +619,8 @@ bool MMRFetcher::ReconcileTrackerResponse(const MMRRequest& req, int fetchedMmr,
 
         // The live match's snapshot may predate this confirmation.
         if (allPendingCovered && fetchedMatches >= 0 &&
-            m_state->game.inMatch && !m_state->game.matchFinalized) {
+            m_state->game.inMatch && !m_state->game.matchFinalized &&
+            req.primaryId == m_state->game.myPrimaryId) {
             for (auto& [snapshotGuid, snapshot] : m_state->game.preMatchMmrByGuid) {
                 if (m_postMatchRecordsByGuid.count(snapshotGuid) > 0 ||
                     m_completedPostMatchGuids.count(snapshotGuid) > 0) {
@@ -626,13 +646,13 @@ bool MMRFetcher::ReconcileTrackerResponse(const MMRRequest& req, int fetchedMmr,
             }
         }
 
-        if (!projection.empty()) {
+        if (!projection.empty() && req.primaryId == m_state->game.myPrimaryId) {
             m_state->game.sessionTotals.mmrChangeByPlaylist[req.playlist] =
                 static_cast<int>(std::lround(projection.back())) -
                 m_state->history.playlistInitialMmr[req.playlist];
+            UpdateSessionAggregateLocked();
+            m_state->game.version++;
         }
-        UpdateSessionAggregateLocked();
-        m_state->game.version++;
         m_state->history.version++;
     }
 
@@ -679,6 +699,7 @@ void MMRFetcher::EnsureProvisionalPoint(const MMRRequest& req,
 
         std::unique_lock<std::shared_mutex> gameLock(m_state->game.mutex);
         std::unique_lock<std::shared_mutex> historyLock(m_state->history.mutex);
+        ScopedMmrHistoryOwner owner(m_state->history, req.primaryId, m_state->game.myPrimaryId);
         auto& projection = m_state->history.playlistHistoryY[req.playlist];
         auto& points = m_state->history.playlistMatchPoints[req.playlist];
         auto pointIt = std::find_if(points.begin(), points.end(), [&](const SessionMmrPoint& point) {
@@ -766,10 +787,12 @@ void MMRFetcher::EnsureProvisionalPoint(const MMRRequest& req,
         record.valueEstimated = true;
         record.reconciliationState = PostMatchReconciliationState::Provisional;
         m_completedPostMatchGuids.insert(req.matchGuid);
-        m_state->game.sessionTotals.mmrChangeByPlaylist[req.playlist] =
-            provisionalMmr - m_state->history.playlistInitialMmr[req.playlist];
-        UpdateSessionAggregateLocked();
-        m_state->game.version++;
+        if (req.primaryId == m_state->game.myPrimaryId) {
+            m_state->game.sessionTotals.mmrChangeByPlaylist[req.playlist] =
+                provisionalMmr - m_state->history.playlistInitialMmr[req.playlist];
+            UpdateSessionAggregateLocked();
+            m_state->game.version++;
+        }
         m_state->history.version++;
         appended = true;
         shouldUpdateDatabase = record.databaseRowUpdated;
@@ -938,6 +961,7 @@ bool MMRFetcher::PublishProfileResult(const MMRRequest& req, const NormalizedPro
         player.rankVerificationSource = profile.rankVerificationSource;
 
         if (req.primaryId == m_state->game.myPrimaryId) {
+            m_state->history.SelectMmrOwner(req.primaryId);
             if (m_state->history.initialMmr == -1 && profile.bestMmr > 0) {
                 m_state->history.initialMmr = profile.bestMmr;
             }

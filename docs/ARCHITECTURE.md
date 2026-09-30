@@ -46,6 +46,8 @@ Core telemetry, storage, networking, updater, replay, and integration code does 
 - `src/updater`: the separate updater process, dependency repair, download, checksum verification, and process replacement.
 - `installer/wix`: the supported public installer.
 
+Session MMR graphs belong to the local account ID. `HistoryState` keeps the selected account's graph active and stores other accounts' graphs separately, so an account switch restores that account's existing session points. Post-match responses update the requesting account's history even if they arrive after a switch.
+
 ## UI update model
 
 RmlUi documents are kept alive instead of being recreated each frame. `RmlUiController` compares session/history versions and relevant UI/config state, refreshes only the affected roots, and caches RmlUi/D3D resources through the normal document/render-interface lifetime. Fast telemetry remains in `SessionState`; it is not serialized into an intermediate browser-style state blob. Counter and speed values reach the DOM through the `live` data model, so a telemetry tick updates bound text nodes and never rebuilds a widget.
