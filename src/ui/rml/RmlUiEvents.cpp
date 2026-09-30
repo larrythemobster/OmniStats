@@ -403,6 +403,7 @@ void RmlUiController::HandleInput(Rml::Element* target) {
         Config::Update([&](ConfigData& c) { c.ballchasing_token = value; });
     } else if (key == "custom_api_key") {
         Config::Update([&](ConfigData& c) { c.custom_api_key = value; });
+        if (m_state) m_state->ui.customApiKeyRejected.store(false);
     } else if (key == "statsapi_path") {
         // Validate the completed path on blur, not after each character.
         return;

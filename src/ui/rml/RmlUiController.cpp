@@ -541,6 +541,17 @@ void RmlUiController::RebuildVisibleUi(bool force, bool configChanged) {
         RebuildToast();
     }
 
+    if (m_state) {
+        const uint64_t rejectedVersion = m_state->ui.customApiKeyRejectedVersion.load();
+        if (rejectedVersion != m_lastCustomApiKeyRejectedVersion) {
+            m_lastCustomApiKeyRejectedVersion = rejectedVersion;
+            if (m_state->ui.customApiKeyRejected.load()) {
+                ShowToast("Your OmniStats API key was rejected. Custom API lookups are paused until you enter a valid key in Settings > Integrations.", true);
+                if (m_state->ui.showMenu.load()) RebuildSettings();
+            }
+        }
+    }
+
     // Do not replace DOM while a pointer target is active, but keep safe leaf
     // telemetry flowing. This preserves drag/click stability without freezing
     // live counters for the entire interaction. Structural versions remain

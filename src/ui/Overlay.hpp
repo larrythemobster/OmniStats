@@ -46,6 +46,7 @@ class Overlay {
     HWND m_hwnd = nullptr;
     float m_dpiScale = 1.0f;
     bool m_lastSecondMonitorMode = false;
+    uint64_t m_lastCustomApiKeyRejectedVersion = 0;
 
     std::atomic<bool> m_resizePending{false};
     std::atomic<int> m_pendingWidth{0};

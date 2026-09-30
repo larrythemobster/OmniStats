@@ -56,6 +56,8 @@ std::string RmlUiController::RenderSettingsIntegrations() {
         << "<div class='setting-row'><div class='setting-info'><div class='setting-name'>API Key</div></div><input type='password' class='text' data-setting='custom_api_key' value='" << Escape(m_config.custom_api_key) << "'/></div>";
     if (m_config.custom_api_key.empty())
         out << "<div class='setting-help'>No key set. Sign in on the website and copy your API key from account settings.</div>";
+    else if (m_state && m_state->ui.customApiKeyRejected.load())
+        out << "<div class='setting-help loss'>This API key was rejected. Custom API lookups are paused until you enter a valid key from your account settings.</div>";
     else
         out << "<div class='setting-help win'>API key saved and active.</div>";
     out << SectionEnd();

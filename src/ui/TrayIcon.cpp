@@ -39,6 +39,7 @@ HICON LoadAppIcon(int width, int height) {
 #define ID_TRAY_EXIT 1001
 #define ID_TRAY_TOGGLE_MODE 1002
 #define ID_TRAY_INSIGHTS 1003
+#define WM_TRAY_NOTIFY (WM_APP + 4)
 TrayIcon::TrayIcon(HWND mainHwnd) : m_mainHwnd(mainHwnd) {}
 
 TrayIcon::~TrayIcon() {
@@ -87,6 +88,21 @@ void TrayIcon::Shutdown() {
         m_thread.join();
     }
     m_initialized = false;
+}
+
+void TrayIcon::ShowNotification(std::wstring title, std::wstring text) {
+    HWND hwnd = nullptr;
+    {
+        std::lock_guard<std::mutex> lock(m_startupMutex);
+        hwnd = m_hWnd;
+    }
+    if (!hwnd) return;
+    {
+        std::lock_guard<std::mutex> lock(m_notificationMutex);
+        m_notificationTitle = std::move(title);
+        m_notificationText = std::move(text);
+    }
+    PostMessageW(hwnd, WM_TRAY_NOTIFY, 0, 0);
 }
 
 HICON TrayIcon::LoadIconFromPNG(bool& owned) {
@@ -261,6 +277,22 @@ void TrayIcon::ThreadFunc() {
                 } else if (cmd == ID_TRAY_INSIGHTS) {
                     if (self && self->m_mainHwnd) PostMessageW(self->m_mainHwnd, WM_OPEN_INSIGHTS, 0, 0);
                 }
+            }
+            return 0;
+        }
+        case WM_TRAY_NOTIFY: {
+            TrayIcon* self = reinterpret_cast<TrayIcon*>(GetWindowLongPtrW(hWnd, GWLP_USERDATA));
+            if (!self) return 0;
+            NOTIFYICONDATAW nid = self->m_nid;
+            nid.uFlags = NIF_INFO;
+            nid.dwInfoFlags = NIIF_WARNING;
+            {
+                std::lock_guard<std::mutex> lock(self->m_notificationMutex);
+                wcsncpy_s(nid.szInfoTitle, self->m_notificationTitle.c_str(), _TRUNCATE);
+                wcsncpy_s(nid.szInfo, self->m_notificationText.c_str(), _TRUNCATE);
+            }
+            if (!Shell_NotifyIconW(NIM_MODIFY, &nid)) {
+                std::cout << "[Tray] Failed to show notification. Error=" << GetLastError() << "\n";
             }
             return 0;
         }

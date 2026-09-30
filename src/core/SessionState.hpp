@@ -289,6 +289,8 @@ struct UIState {
     mutable std::mutex statsApiMutex;
     StatsApiConfig::CheckResult statsApiResult;
     std::atomic<bool> statsApiChecked{false};
+    std::atomic<bool> customApiKeyRejected{false};
+    std::atomic<uint64_t> customApiKeyRejectedVersion{0};
 };
 
 struct GameState {

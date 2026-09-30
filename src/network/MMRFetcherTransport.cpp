@@ -86,6 +86,19 @@ CustomApiFetchResult MMRFetcher::FetchProfileFromCustomApi(const MMRRequest& req
     if (!config.custom_api_enabled || config.custom_api_key.empty()) {
         return CustomApiFetchResult::DisabledOrNotReady;
     }
+    {
+        std::lock_guard<std::mutex> lock(m_queueMutex);
+        if (!m_rejectedCustomApiKey.empty()) {
+            if (m_rejectedCustomApiKey == config.custom_api_key) {
+                if (!m_state->ui.customApiKeyRejected.exchange(true)) {
+                    m_state->ui.customApiKeyRejectedVersion.fetch_add(1);
+                }
+                return CustomApiFetchResult::AuthFailure;
+            }
+            m_rejectedCustomApiKey.clear();
+            m_state->ui.customApiKeyRejected.store(false);
+        }
+    }
     std::string baseUrl = config.custom_api_base_url;
     if (baseUrl.empty()) {
         baseUrl = "https://api.omnistats.org";
@@ -206,9 +219,20 @@ CustomApiFetchResult MMRFetcher::FetchProfileFromCustomApi(const MMRRequest& req
                   << ": curl error " << res << ".\n";
         return CustomApiFetchResult::TransientError;
     }
-    if (httpCode == 401 || httpCode == 403) {
-        std::cout << "[MMRFetcher] Custom API authentication failed (HTTP "
-                  << httpCode << ") for "
+    if (httpCode == 401) {
+        {
+            std::lock_guard<std::mutex> lock(m_queueMutex);
+            m_rejectedCustomApiKey = config.custom_api_key;
+        }
+        if (!m_state->ui.customApiKeyRejected.exchange(true)) {
+            m_state->ui.customApiKeyRejectedVersion.fetch_add(1);
+        }
+        std::cout << "[MMRFetcher] Custom API rejected the configured API key (HTTP 401). "
+                  << "Custom API lookups are paused until the key is changed.\n";
+        return CustomApiFetchResult::AuthFailure;
+    }
+    if (httpCode == 403) {
+        std::cout << "[MMRFetcher] Custom API authentication failed (HTTP 403) for "
                   << PrivacyLog::Sensitive(req.name, "player name")
                   << ". Check your custom API key.\n";
         return CustomApiFetchResult::AuthFailure;

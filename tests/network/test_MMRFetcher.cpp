@@ -1383,7 +1383,7 @@ TEST_F(MMRFetcherTest, CustomApiMalformedJsonReturnsUnusableData) {
     EXPECT_EQ(res, CustomApiFetchResult::UnusableData);
 }
 
-TEST_F(MMRFetcherTest, CustomApiAuthFailure401And403) {
+TEST_F(MMRFetcherTest, RejectedCustomApiKeyStopsRequestsUntilKeyChanges) {
     Config::Update([](ConfigData& config) {
         config.custom_api_enabled = true;
         config.custom_api_key = "oms_test_account_key";
@@ -1394,13 +1394,28 @@ TEST_F(MMRFetcherTest, CustomApiAuthFailure401And403) {
     req.primaryId = "Epic|test_epic_id|0";
     req.name = "TestPlayer";
 
-    g_mock_custom_api_response_code = 401;
-    g_mock_custom_api_response = R"({"error": {"code": "invalid_api_key", "message": "Unauthorized"}})";
-    EXPECT_EQ(fetcher->FetchProfileFromCustomApiForTests(req), CustomApiFetchResult::AuthFailure);
-
     g_mock_custom_api_response_code = 403;
     g_mock_custom_api_response = R"({"error": {"code": "access_denied", "message": "Forbidden"}})";
     EXPECT_EQ(fetcher->FetchProfileFromCustomApiForTests(req), CustomApiFetchResult::AuthFailure);
+    EXPECT_FALSE(sessionState->ui.customApiKeyRejected.load());
+
+    g_mock_custom_api_response_code = 401;
+    g_mock_custom_api_response = R"({"error": {"code": "invalid_api_key", "message": "Unauthorized"}})";
+    EXPECT_EQ(fetcher->FetchProfileFromCustomApiForTests(req), CustomApiFetchResult::AuthFailure);
+    EXPECT_TRUE(sessionState->ui.customApiKeyRejected.load());
+    const uint64_t noticeVersion = sessionState->ui.customApiKeyRejectedVersion.load();
+    EXPECT_EQ(noticeVersion, 1u);
+    const int performsAfterRejection = g_mock_perform_count.load();
+
+    EXPECT_EQ(fetcher->FetchProfileFromCustomApiForTests(req), CustomApiFetchResult::AuthFailure);
+    EXPECT_EQ(g_mock_perform_count.load(), performsAfterRejection);
+    EXPECT_EQ(sessionState->ui.customApiKeyRejectedVersion.load(), noticeVersion);
+
+    Config::Update([](ConfigData& config) { config.custom_api_key = "oms_replacement_account_key"; }, false);
+    g_mock_custom_api_response_code = 500;
+    EXPECT_EQ(fetcher->FetchProfileFromCustomApiForTests(req), CustomApiFetchResult::TransientError);
+    EXPECT_EQ(g_mock_perform_count.load(), performsAfterRejection + 1);
+    EXPECT_FALSE(sessionState->ui.customApiKeyRejected.load());
 }
 
 TEST_F(MMRFetcherTest, CustomApiNotFound404ReturnsUnusableData) {

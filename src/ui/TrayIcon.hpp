@@ -3,6 +3,7 @@
 #include <shellapi.h>
 #include <thread>
 #include <memory>
+#include <string>
 #include <condition_variable>
 #include <mutex>
 
@@ -20,6 +21,8 @@ class TrayIcon {
 
     bool Initialize();
     void Shutdown();
+    // Thread-safe; shows a Windows notification from the tray icon.
+    void ShowNotification(std::wstring title, std::wstring text);
 
   private:
     void ThreadFunc();
@@ -41,4 +44,7 @@ class TrayIcon {
     HICON m_appIcon = nullptr;
     bool m_appIconOwned = false;
     ULONG_PTR m_gdiplusToken = 0;
+    std::mutex m_notificationMutex;
+    std::wstring m_notificationTitle;
+    std::wstring m_notificationText;
 };

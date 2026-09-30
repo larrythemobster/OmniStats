@@ -308,6 +308,7 @@ class RmlUiController final : public Rml::EventListener {
     uint64_t m_lastLeafGameVersion = 0;
     uint64_t m_lastRenderedHistoryVersion = 0;
     uint64_t m_lastRenderedDbStatsVersion = 0;
+    uint64_t m_lastCustomApiKeyRejectedVersion = 0;
     bool m_lastShowMenu = false;
     bool m_lastShowOverlay = false;
     bool m_lastShowSessionView = false;

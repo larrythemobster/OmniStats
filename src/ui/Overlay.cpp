@@ -288,6 +288,16 @@ void Overlay::RunLoop() {
             if (width > 0 && height > 0) ResizeSwapChain(width, height);
         }
 
+        const uint64_t apiKeyRejectedVersion = m_state->ui.customApiKeyRejectedVersion.load();
+        if (apiKeyRejectedVersion != m_lastCustomApiKeyRejectedVersion) {
+            m_lastCustomApiKeyRejectedVersion = apiKeyRejectedVersion;
+            if (m_trayIcon && m_state->ui.customApiKeyRejected.load()) {
+                m_trayIcon->ShowNotification(
+                    L"OmniStats API key rejected",
+                    L"Custom API rank lookups are paused. Enter a valid key from your account in Settings > Integrations.");
+            }
+        }
+
         if (!m_d3d11 || !m_d3d11->RenderTargetView() || !m_rmlUi) {
             std::this_thread::sleep_for(std::chrono::milliseconds(10));
             continue;
