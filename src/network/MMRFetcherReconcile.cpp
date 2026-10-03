@@ -100,20 +100,20 @@ int MMRFetcher::EstimatePostMatchMmr(int previousMmr, bool won, const std::vecto
     return (std::max)(1, baselineMmr + (won ? estimatedDelta : -estimatedDelta));
 }
 
-size_t MMRFetcher::PendingPlaylistCountLocked(const std::string& playlist) const {
-    const auto it = m_pendingPostMatchesByPlaylist.find(playlist);
+size_t MMRFetcher::PendingPlaylistCountLocked(const std::string& primaryId, const std::string& playlist) const {
+    const auto it = m_pendingPostMatchesByPlaylist.find(PendingPostMatchKey(primaryId, playlist));
     return it == m_pendingPostMatchesByPlaylist.end() ? 0 : it->second.size();
 }
 
 void MMRFetcher::ResetPublicationBaselineForCounterRollbackLocked(
-    const std::string& playlist, int previousMatches) {
+    const std::string& primaryId, const std::string& playlist, int previousMatches) {
     if (playlist.empty() || previousMatches < 0 ||
-        PendingPlaylistCountLocked(playlist) != 0) {
+        PendingPlaylistCountLocked(primaryId, playlist) != 0) {
         return;
     }
 
     const auto baselineIt =
-        m_trackerPublicationBaselineByPlaylist.find(playlist);
+        m_trackerPublicationBaselineByPlaylist.find(PendingPostMatchKey(primaryId, playlist));
     if (baselineIt == m_trackerPublicationBaselineByPlaylist.end() ||
         previousMatches >= baselineIt->second - 1) {
         return;
@@ -127,9 +127,35 @@ void MMRFetcher::ResetPublicationBaselineForCounterRollbackLocked(
     baselineIt->second = previousMatches;
 }
 
-void MMRFetcher::UpdateSessionAggregateLocked() {
-    m_state->game.sessionTotals.totalMmrChange = static_cast<float>(
-        CalculateTrackedSessionMmrChange(m_state->game.sessionTotals.mmrChangeByPlaylist));
+void MMRFetcher::AdoptCachedPreMatchBaselineLocked(PendingPostMatchRecord& record,
+                                                   int fetchedMatches,
+                                                   size_t pendingCount) const {
+    if (fetchedMatches < 0 || record.preMatchMatchesPlayed >= 0 ||
+        record.firstObservedMatchesPlayed >= 0 ||
+        (record.preMatchMmrIsPlaylistSpecific && record.preMatchMmr > 0) ||
+        m_localProfileCache.primaryId != record.primaryId) {
+        return;
+    }
+    const auto mmrIt = m_localProfileCache.playlists.find(record.playlist);
+    const auto matchesIt = m_localProfileCache.playlistMatches.find(record.playlist);
+    if (mmrIt == m_localProfileCache.playlists.end() || mmrIt->second <= 0 ||
+        matchesIt == m_localProfileCache.playlistMatches.end() || matchesIt->second < 0) {
+        return;
+    }
+
+    // Counter advances beyond the pending matches mean untracked games.
+    const int advanced = fetchedMatches - matchesIt->second;
+    if (advanced < 0 || static_cast<size_t>(advanced) > pendingCount) return;
+
+    record.preMatchMmr = mmrIt->second;
+    record.preMatchMatchesPlayed = matchesIt->second;
+    record.preMatchMmrIsPlaylistSpecific = true;
+    std::cout
+        << "[MMRFetcher] Reconstructed pre-match MMR from last confirmed profile: matchGuid="
+        << PrivacyLog::Sensitive(record.matchGuid, "match GUID")
+        << ", playlist=" << record.playlist
+        << ", mmr=" << record.preMatchMmr
+        << ", matches=" << record.preMatchMatchesPlayed << "->" << fetchedMatches << ".\n";
 }
 
 bool MMRFetcher::ReconcileTrackerResponse(const MMRRequest& req, int fetchedMmr, int fetchedMatches) {
@@ -149,7 +175,8 @@ bool MMRFetcher::ReconcileTrackerResponse(const MMRRequest& req, int fetchedMmr,
 
     {
         std::lock_guard<std::mutex> queueLock(m_queueMutex);
-        auto pendingIt = m_pendingPostMatchesByPlaylist.find(req.playlist);
+        const std::string pendingKey = PendingPostMatchKey(req.primaryId, req.playlist);
+        auto pendingIt = m_pendingPostMatchesByPlaylist.find(pendingKey);
         if (pendingIt == m_pendingPostMatchesByPlaylist.end() || pendingIt->second.empty()) {
             return m_completedPostMatchGuids.count(req.matchGuid) > 0;
         }
@@ -158,6 +185,7 @@ bool MMRFetcher::ReconcileTrackerResponse(const MMRRequest& req, int fetchedMmr,
         const auto oldestRecordIt = m_postMatchRecordsByGuid.find(pendingGuids.front());
         if (oldestRecordIt == m_postMatchRecordsByGuid.end()) return false;
         auto& oldestRecord = oldestRecordIt->second;
+        AdoptCachedPreMatchBaselineLocked(oldestRecord, fetchedMatches, pendingGuids.size());
         const bool hadFirstObservedMmr = oldestRecord.firstObservedMmr > 0;
         const bool hadFirstObservedMatches = oldestRecord.firstObservedMatchesPlayed >= 0;
 
@@ -169,7 +197,7 @@ bool MMRFetcher::ReconcileTrackerResponse(const MMRRequest& req, int fetchedMmr,
             publicationBaseline =
                 (std::max)(publicationBaseline, oldestRecord.firstObservedMatchesPlayed);
         }
-        const auto baselineIt = m_trackerPublicationBaselineByPlaylist.find(req.playlist);
+        const auto baselineIt = m_trackerPublicationBaselineByPlaylist.find(pendingKey);
         if (baselineIt != m_trackerPublicationBaselineByPlaylist.end()) {
             publicationBaseline = (std::max)(publicationBaseline, baselineIt->second);
         }
@@ -207,7 +235,7 @@ bool MMRFetcher::ReconcileTrackerResponse(const MMRRequest& req, int fetchedMmr,
         const auto persistPublicationBaseline = [&](int matchesBaseline) {
             if (matchesBaseline < 0) return;
             auto [it, inserted] =
-                m_trackerPublicationBaselineByPlaylist.emplace(req.playlist, matchesBaseline);
+                m_trackerPublicationBaselineByPlaylist.emplace(pendingKey, matchesBaseline);
             if (!inserted) {
                 it->second = (std::max)(it->second, matchesBaseline);
             }
@@ -430,32 +458,48 @@ bool MMRFetcher::ReconcileTrackerResponse(const MMRRequest& req, int fetchedMmr,
         ScopedMmrHistoryOwner owner(m_state->history, req.primaryId, m_state->game.myPrimaryId);
         auto& points = m_state->history.playlistMatchPoints[req.playlist];
         auto& projection = m_state->history.playlistHistoryY[req.playlist];
+        auto& initialMmrByPlaylist = m_state->history.playlistInitialMmr;
+        const uint64_t sessionGeneration = m_state->game.sessionGeneration.load();
+        const bool oldestInSession = oldestRecord.sessionGeneration == sessionGeneration;
 
         int pathBaselineMmr = oldestRecord.preMatchMmrIsPlaylistSpecific
                                   ? oldestRecord.preMatchMmr
                                   : 0;
-        size_t earliestPendingHistoryIndex = projection.size();
-        for (const std::string& pendingGuid : pendingGuids) {
-            const auto pointIt = std::find_if(
-                points.begin(), points.end(), [&](const SessionMmrPoint& point) {
-                    return point.matchGuid == pendingGuid;
-                });
-            if (pointIt != points.end()) {
-                earliestPendingHistoryIndex =
-                    (std::min)(earliestPendingHistoryIndex, pointIt->historyIndex);
+        if (oldestInSession) {
+            size_t earliestPendingHistoryIndex = projection.size();
+            for (const std::string& pendingGuid : pendingGuids) {
+                const auto pointIt = std::find_if(
+                    points.begin(), points.end(), [&](const SessionMmrPoint& point) {
+                        return point.matchGuid == pendingGuid;
+                    });
+                if (pointIt != points.end()) {
+                    earliestPendingHistoryIndex =
+                        (std::min)(earliestPendingHistoryIndex, pointIt->historyIndex);
+                }
+            }
+            if (earliestPendingHistoryIndex > 0 &&
+                earliestPendingHistoryIndex <= projection.size()) {
+                pathBaselineMmr = static_cast<int>(
+                    std::lround(projection[earliestPendingHistoryIndex - 1]));
+            }
+            if (pathBaselineMmr <= 0) {
+                const auto initialIt = initialMmrByPlaylist.find(req.playlist);
+                if (initialIt != initialMmrByPlaylist.end()) {
+                    pathBaselineMmr = initialIt->second;
+                }
             }
         }
-        if (earliestPendingHistoryIndex > 0 &&
-            earliestPendingHistoryIndex <= projection.size()) {
-            pathBaselineMmr = static_cast<int>(
-                std::lround(projection[earliestPendingHistoryIndex - 1]));
-        }
-        if (pathBaselineMmr <= 0) {
-            const auto initialIt = m_state->history.playlistInitialMmr.find(req.playlist);
-            if (initialIt != m_state->history.playlistInitialMmr.end()) {
-                pathBaselineMmr = initialIt->second;
-            }
-        }
+
+        const auto verifiedSessionStartMmr =
+            [&](const PendingPostMatchRecord& record, size_t index) {
+                const bool countProvesCurrent =
+                    record.preMatchMatchesPlayed >= 0 && publicationBaseline >= 0 &&
+                    record.preMatchMatchesPlayed == publicationBaseline + static_cast<int>(index);
+                return record.preMatchMmrIsPlaylistSpecific && record.preMatchMmr > 0 &&
+                               (!record.followsPreviousSessionMatch || countProvesCurrent)
+                           ? record.preMatchMmr
+                           : 0;
+            };
 
         std::vector<int> estimatedPath;
         estimatedPath.reserve(coveredCount);
@@ -508,15 +552,24 @@ bool MMRFetcher::ReconcileTrackerResponse(const MMRRequest& req, int fetchedMmr,
         const bool reconciledPathAvailable =
             reconciledPath.size() == coveredCount;
         int chainMmr = pathBaselineMmr;
+        auto& recap = m_state->game.lastSessionRecap;
+        const bool recapOwnsRequest =
+            recap.valid && recap.sessionGeneration != sessionGeneration &&
+            recap.mmrOwnerPrimaryId == req.primaryId;
+        int recapLatestMmr = 0;
+        int previousSessionEndMmr = 0;
         for (size_t index = 0; index < coveredCount; ++index) {
             const std::string guid = pendingGuids[index];
             auto recordIt = m_postMatchRecordsByGuid.find(guid);
             if (recordIt == m_postMatchRecordsByGuid.end()) continue;
             auto& record = recordIt->second;
+            const bool inSession = record.sessionGeneration == sessionGeneration;
 
-            auto pointIt = std::find_if(points.begin(), points.end(), [&](const SessionMmrPoint& point) {
-                return point.matchGuid == guid;
-            });
+            auto pointIt = inSession
+                               ? std::find_if(points.begin(), points.end(), [&](const SessionMmrPoint& point) {
+                                     return point.matchGuid == guid;
+                                 })
+                               : points.end();
             const bool valueEstimated = index < coveredCount - 1;
             int resolvedMmr = 0;
             if (!valueEstimated) {
@@ -530,8 +583,13 @@ bool MMRFetcher::ReconcileTrackerResponse(const MMRRequest& req, int fetchedMmr,
             }
             if (resolvedMmr <= 0) resolvedMmr = (std::max)(1, chainMmr);
 
-            const bool appended = pointIt == points.end();
-            if (appended) {
+            const bool appended = inSession && pointIt == points.end();
+            if (!inSession) {
+                if (recapOwnsRequest && record.sessionGeneration == recap.sessionGeneration) {
+                    recapLatestMmr = resolvedMmr;
+                }
+                if (!valueEstimated) previousSessionEndMmr = resolvedMmr;
+            } else if (appended) {
                 const size_t historyIndex = projection.size();
                 projection.push_back(static_cast<float>(resolvedMmr));
                 points.push_back(SessionMmrPoint{
@@ -558,11 +616,10 @@ bool MMRFetcher::ReconcileTrackerResponse(const MMRRequest& req, int fetchedMmr,
                 }
             }
 
-            if (m_state->history.playlistInitialMmr.count(req.playlist) == 0) {
-                m_state->history.playlistInitialMmr[req.playlist] =
-                    record.preMatchMmrIsPlaylistSpecific && record.preMatchMmr > 0
-                        ? record.preMatchMmr
-                        : resolvedMmr;
+            if (inSession && pointIt->historyIndex == 0 &&
+                initialMmrByPlaylist.count(req.playlist) == 0) {
+                const int sessionStartMmr = verifiedSessionStartMmr(record, index);
+                if (sessionStartMmr > 0) initialMmrByPlaylist[req.playlist] = sessionStartMmr;
             }
             record.provisionalMmr = resolvedMmr;
             record.graphPointAppended = true;
@@ -590,7 +647,8 @@ bool MMRFetcher::ReconcileTrackerResponse(const MMRRequest& req, int fetchedMmr,
                 << ", previousMatches=" << record.preMatchMatchesPlayed
                 << ", fetchedMatches=" << fetchedMatches
                 << ", pending=" << pendingGuids.size()
-                << ", point=" << (appended ? "appended" : "replaced")
+                << ", point=" << (!inSession ? "previous-session" : appended ? "appended"
+                                                                             : "replaced")
                 << ", reconciliation="
                 << (reconciledPathAvailable ? "adjusted" : "fallback")
                 << ", coverage=tracker-covered"
@@ -615,7 +673,44 @@ bool MMRFetcher::ReconcileTrackerResponse(const MMRRequest& req, int fetchedMmr,
         }
         pendingGuids.erase(pendingGuids.begin(), pendingGuids.begin() + static_cast<std::ptrdiff_t>(coveredCount));
         const bool allPendingCovered = pendingGuids.empty();
+
+        const auto stillPending = [&](const auto& predicate) {
+            return std::any_of(pendingGuids.begin(), pendingGuids.end(), [&](const std::string& guid) {
+                const auto recordIt = m_postMatchRecordsByGuid.find(guid);
+                return recordIt != m_postMatchRecordsByGuid.end() && predicate(recordIt->second);
+            });
+        };
+        if (previousSessionEndMmr > 0 && projection.empty() &&
+            initialMmrByPlaylist.count(req.playlist) == 0 &&
+            !stillPending([&](const PendingPostMatchRecord& record) {
+                return record.sessionGeneration != sessionGeneration;
+            })) {
+            initialMmrByPlaylist[req.playlist] = previousSessionEndMmr;
+            projection.push_back(static_cast<float>(previousSessionEndMmr));
+        }
+
+        const auto recapInitialIt = recap.playlistInitialMmr.find(req.playlist);
+        if (recapLatestMmr > 0 &&
+            recapInitialIt != recap.playlistInitialMmr.end() && recapInitialIt->second > 0 &&
+            !stillPending([&](const PendingPostMatchRecord& record) {
+                return record.sessionGeneration == recap.sessionGeneration;
+            })) {
+            recap.totals.mmrChangeByPlaylist[req.playlist] = recapLatestMmr - recapInitialIt->second;
+            recap.totals.totalMmrChange = static_cast<float>(
+                CalculateTrackedSessionMmrChange(recap.totals.mmrChangeByPlaylist));
+            m_state->game.version++;
+        }
         if (allPendingCovered) m_pendingPostMatchesByPlaylist.erase(pendingIt);
+
+        // AdoptCachedPreMatchBaselineLocked relies on this being the last confirmed rating.
+        if (m_localProfileCache.primaryId == req.primaryId) {
+            if (fetchedMatches >= 0) {
+                m_localProfileCache.playlists[req.playlist] = fetchedMmr;
+                m_localProfileCache.playlistMatches[req.playlist] = fetchedMatches;
+            } else {
+                m_localProfileCache.playlistMatches.erase(req.playlist);
+            }
+        }
 
         // The live match's snapshot may predate this confirmation.
         if (allPendingCovered && fetchedMatches >= 0 &&
@@ -646,11 +741,8 @@ bool MMRFetcher::ReconcileTrackerResponse(const MMRRequest& req, int fetchedMmr,
             }
         }
 
-        if (!projection.empty() && req.primaryId == m_state->game.myPrimaryId) {
-            m_state->game.sessionTotals.mmrChangeByPlaylist[req.playlist] =
-                static_cast<int>(std::lround(projection.back())) -
-                m_state->history.playlistInitialMmr[req.playlist];
-            UpdateSessionAggregateLocked();
+        if (req.primaryId == m_state->game.myPrimaryId) {
+            m_state->syncSessionMmrChangeLocked();
             m_state->game.version++;
         }
         m_state->history.version++;
@@ -699,6 +791,7 @@ void MMRFetcher::EnsureProvisionalPoint(const MMRRequest& req,
 
         std::unique_lock<std::shared_mutex> gameLock(m_state->game.mutex);
         std::unique_lock<std::shared_mutex> historyLock(m_state->history.mutex);
+        if (record.sessionGeneration != m_state->game.sessionGeneration.load()) return;
         ScopedMmrHistoryOwner owner(m_state->history, req.primaryId, m_state->game.myPrimaryId);
         auto& projection = m_state->history.playlistHistoryY[req.playlist];
         auto& points = m_state->history.playlistMatchPoints[req.playlist];
@@ -707,6 +800,14 @@ void MMRFetcher::EnsureProvisionalPoint(const MMRRequest& req,
         });
         if (pointIt != points.end()) return;
 
+        if (record.preMatchMmrIsPlaylistSpecific && record.preMatchMmr > 0) {
+            baselineMmr = record.preMatchMmr;
+        }
+        const int sessionStartMmr =
+            record.preMatchMmrIsPlaylistSpecific && record.preMatchMmr > 0 &&
+                    !record.followsPreviousSessionMatch
+                ? record.preMatchMmr
+                : 0;
         bool canApplyResultDirection =
             record.resultKnown &&
             record.preMatchMmrIsPlaylistSpecific &&
@@ -731,13 +832,12 @@ void MMRFetcher::EnsureProvisionalPoint(const MMRRequest& req,
             baselineMmr = fetchedMmr;
         }
         if (baselineMmr <= 0) {
+            // Best MMR belongs to another playlist.
             const auto playerIt = m_state->game.roster.find(req.primaryId);
             if (playerIt != m_state->game.roster.end()) {
                 const auto playlistIt = playerIt->second.playlists.find(req.playlist);
                 if (playlistIt != playerIt->second.playlists.end() && playlistIt->second > 0) {
                     baselineMmr = playlistIt->second;
-                } else if (playerIt->second.mmr > 0) {
-                    baselineMmr = playerIt->second.mmr;
                 }
             }
         }
@@ -756,7 +856,7 @@ void MMRFetcher::EnsureProvisionalPoint(const MMRRequest& req,
                 << ", fetchedMmr=" << fetchedMmr
                 << ", previousMatches=" << req.previousMatches
                 << ", fetchedMatches=" << fetchedMatches
-                << ", pending=" << PendingPlaylistCountLocked(req.playlist)
+                << ", pending=" << PendingPlaylistCountLocked(req.primaryId, req.playlist)
                 << ", point=deferred, state=awaiting-baseline.\n";
             return;
         }
@@ -774,9 +874,9 @@ void MMRFetcher::EnsureProvisionalPoint(const MMRRequest& req,
             .trackerMatchesPlayed = req.previousMatches,
             .trackerCovered = false,
             .valueEstimated = true});
-        if (m_state->history.playlistInitialMmr.count(req.playlist) == 0) {
-            m_state->history.playlistInitialMmr[req.playlist] =
-                baselineMmr > 0 ? baselineMmr : provisionalMmr;
+        if (historyIndex == 0 && sessionStartMmr > 0 &&
+            m_state->history.playlistInitialMmr.count(req.playlist) == 0) {
+            m_state->history.playlistInitialMmr[req.playlist] = sessionStartMmr;
         }
         record.provisionalMmr = provisionalMmr;
         record.graphPointAppended = true;
@@ -788,9 +888,7 @@ void MMRFetcher::EnsureProvisionalPoint(const MMRRequest& req,
         record.reconciliationState = PostMatchReconciliationState::Provisional;
         m_completedPostMatchGuids.insert(req.matchGuid);
         if (req.primaryId == m_state->game.myPrimaryId) {
-            m_state->game.sessionTotals.mmrChangeByPlaylist[req.playlist] =
-                provisionalMmr - m_state->history.playlistInitialMmr[req.playlist];
-            UpdateSessionAggregateLocked();
+            m_state->syncSessionMmrChangeLocked();
             m_state->game.version++;
         }
         m_state->history.version++;
@@ -806,7 +904,7 @@ void MMRFetcher::EnsureProvisionalPoint(const MMRRequest& req,
             << ", fetchedMmr=" << fetchedMmr
             << ", previousMatches=" << req.previousMatches
             << ", fetchedMatches=" << fetchedMatches
-            << ", pending=" << PendingPlaylistCountLocked(req.playlist)
+            << ", pending=" << PendingPlaylistCountLocked(req.primaryId, req.playlist)
             << ", point=appended, coverage=uncovered, value=estimated.\n";
     }
 
@@ -831,7 +929,7 @@ bool MMRFetcher::PublishProfileResult(const MMRRequest& req, const NormalizedPro
         size_t pendingCount = 0;
         {
             std::lock_guard<std::mutex> queueLock(m_queueMutex);
-            pendingCount = PendingPlaylistCountLocked(req.playlist);
+            pendingCount = PendingPlaylistCountLocked(req.primaryId, req.playlist);
         }
         std::cout
             << "[MMRFetcher] Post-match refresh: matchGuid="
@@ -862,21 +960,27 @@ bool MMRFetcher::PublishProfileResult(const MMRRequest& req, const NormalizedPro
         std::vector<MMRRequest> pendingPlaylists;
         {
             std::lock_guard<std::mutex> queueLock(m_queueMutex);
-            for (const auto& [playlist, guids] : m_pendingPostMatchesByPlaylist) {
+            for (const auto& [pendingKey, guids] : m_pendingPostMatchesByPlaylist) {
                 if (guids.empty()) continue;
                 const auto recordIt = m_postMatchRecordsByGuid.find(guids.front());
                 if (recordIt == m_postMatchRecordsByGuid.end()) continue;
+                const auto& record = recordIt->second;
+                // A profile fetched before the match's session began cannot include it.
+                if (record.primaryId != req.primaryId ||
+                    record.sessionGeneration > req.sessionGeneration) {
+                    continue;
+                }
                 MMRRequest pendingReq;
-                pendingReq.primaryId = recordIt->second.primaryId;
-                pendingReq.matchGuid = recordIt->second.matchGuid;
-                pendingReq.playlist = playlist;
-                pendingReq.previousMmr = recordIt->second.preMatchMmr;
-                pendingReq.previousMatches = recordIt->second.preMatchMatchesPlayed;
+                pendingReq.primaryId = record.primaryId;
+                pendingReq.matchGuid = record.matchGuid;
+                pendingReq.playlist = record.playlist;
+                pendingReq.previousMmr = record.preMatchMmr;
+                pendingReq.previousMatches = record.preMatchMatchesPlayed;
                 pendingReq.previousMmrIsPlaylistSpecific =
-                    recordIt->second.preMatchMmrIsPlaylistSpecific;
-                pendingReq.won = recordIt->second.won;
-                pendingReq.resultKnown =
-                    recordIt->second.resultKnown;
+                    record.preMatchMmrIsPlaylistSpecific;
+                pendingReq.won = record.won;
+                pendingReq.resultKnown = record.resultKnown;
+                pendingReq.sessionGeneration = req.sessionGeneration;
                 pendingPlaylists.push_back(std::move(pendingReq));
             }
         }
@@ -911,16 +1015,24 @@ bool MMRFetcher::PublishProfileResult(const MMRRequest& req, const NormalizedPro
     std::unordered_set<std::string> playlistsAwaitingPostMatch;
     {
         std::lock_guard<std::mutex> queueLock(m_queueMutex);
-        for (const auto& [playlist, guids] : m_pendingPostMatchesByPlaylist) {
-            if (!guids.empty()) playlistsAwaitingPostMatch.insert(playlist);
+        for (const auto& [pendingKey, guids] : m_pendingPostMatchesByPlaylist) {
+            if (guids.empty()) continue;
+            const auto recordIt = m_postMatchRecordsByGuid.find(guids.front());
+            if (recordIt != m_postMatchRecordsByGuid.end() &&
+                recordIt->second.primaryId == req.primaryId) {
+                playlistsAwaitingPostMatch.insert(recordIt->second.playlist);
+            }
         }
     }
 
     {
         std::unique_lock<std::shared_mutex> gameLock(m_state->game.mutex);
         std::unique_lock<std::shared_mutex> historyLock(m_state->history.mutex);
+        const bool fetchedThisSession =
+            req.sessionGeneration == m_state->game.sessionGeneration.load();
 
         if (req.reason == MMRRequestReason::Roster &&
+            fetchedThisSession &&
             req.primaryId == m_state->game.myPrimaryId &&
             m_state->game.inMatch &&
             !m_state->game.matchGuid.empty() &&
@@ -960,7 +1072,7 @@ bool MMRFetcher::PublishProfileResult(const MMRRequest& req, const NormalizedPro
         player.fetchFailed = false;
         player.rankVerificationSource = profile.rankVerificationSource;
 
-        if (req.primaryId == m_state->game.myPrimaryId) {
+        if (req.primaryId == m_state->game.myPrimaryId && fetchedThisSession) {
             m_state->history.SelectMmrOwner(req.primaryId);
             if (m_state->history.initialMmr == -1 && profile.bestMmr > 0) {
                 m_state->history.initialMmr = profile.bestMmr;
@@ -979,16 +1091,14 @@ bool MMRFetcher::PublishProfileResult(const MMRRequest& req, const NormalizedPro
                 if (playlistsAwaitingPostMatch.count(playlistName) > 0) continue;
 
                 auto& history = m_state->history.playlistHistoryY[playlistName];
-                if (m_state->history.playlistInitialMmr.count(playlistName) == 0) {
+                if (history.empty() && m_state->history.playlistInitialMmr.count(playlistName) == 0) {
                     m_state->history.playlistInitialMmr[playlistName] = fetchedMmr;
                 }
-                m_state->game.sessionTotals.mmrChangeByPlaylist[playlistName] =
-                    fetchedMmr - m_state->history.playlistInitialMmr[playlistName];
                 if (history.empty() || static_cast<int>(std::lround(history.back())) != fetchedMmr) {
                     history.push_back(static_cast<float>(fetchedMmr));
                 }
             }
-            UpdateSessionAggregateLocked();
+            m_state->syncSessionMmrChangeLocked();
         }
 
         std::cout << "[MMRFetcher] Updated: " << PrivacyLog::Sensitive(req.name, "player name")

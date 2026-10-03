@@ -4,7 +4,10 @@
 #include "database/DatabaseManager.hpp"
 #include "core/SessionState.hpp"
 #include "core/Config.hpp"
+#include <chrono>
+#include <functional>
 #include <memory>
+#include <thread>
 
 TEST(StatsClientTest, Lifecycle) {
     auto state = std::make_shared<SessionState>();
@@ -107,4 +110,97 @@ TEST(StatsClientTest, DisconnectClearsDiscordPresence) {
 
     client.Stop();
     Config::Update([backup](ConfigData& c) { c = backup; }, false);
+}
+
+namespace {
+    void SeedFinishedSession(SessionState& state) {
+        std::unique_lock gameLock(state.game.mutex);
+        std::unique_lock historyLock(state.history.mutex);
+        state.game.myPrimaryId = "Steam|1";
+        state.history.SelectMmrOwner("Steam|1");
+        state.game.sessionTotals.wins = 2;
+        state.game.sessionGamemodes["2v2"] = {2, 0, 2};
+        state.history.playlistInitialMmr["2v2"] = 1200;
+        state.history.playlistHistoryY["2v2"] = {1200.0f, 1210.0f, 1220.0f};
+        state.history.lifetimeMmrY = {1100.0f, 1200.0f, 1220.0f};
+        state.syncSessionMmrChangeLocked();
+    }
+
+    bool WaitFor(const std::function<bool()>& predicate, std::chrono::milliseconds timeout) {
+        const auto deadline = std::chrono::steady_clock::now() + timeout;
+        while (std::chrono::steady_clock::now() < deadline) {
+            if (predicate()) return true;
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        }
+        return predicate();
+    }
+} // namespace
+
+TEST(StatsClientTest, ClosingTheGameStartsANewSessionWhenResetIsEnabled) {
+    ConfigData backup = Config::Read();
+    Config::Update([](ConfigData& c) {
+        c.host = "not_an_ip";
+        c.reset_session_on_close = true;
+        c.last_primary_id.clear();
+        c.show_session_recap_on_close = false;
+    },
+                   false);
+
+    auto state = std::make_shared<SessionState>();
+    auto fetcher = std::make_shared<MMRFetcher>(state);
+    auto db = std::make_shared<DatabaseManager>(state);
+    ASSERT_TRUE(db->Initialize(":memory:"));
+    StatsClient client(state, fetcher, db);
+    SeedFinishedSession(*state);
+
+    client.Start();
+    // With Rocket League running, the reset waits for the fifth disconnect.
+    const bool reset = WaitFor([&] { return state->game.sessionGeneration.load() != 0; },
+                               std::chrono::seconds(25));
+    client.Stop();
+    Config::Update([backup](ConfigData& c) { c = backup; }, false);
+
+    ASSERT_TRUE(reset);
+    EXPECT_EQ(state->game.sessionGeneration.load(), 1u);
+    EXPECT_EQ(state->game.sessionTotals.wins, 0);
+    EXPECT_TRUE(state->game.sessionTotals.mmrChangeByPlaylist.empty());
+    EXPECT_TRUE(state->history.playlistHistoryY.empty());
+    EXPECT_TRUE(state->history.playlistInitialMmr.empty());
+    EXPECT_EQ(state->history.lifetimeMmrY, (std::vector<float>{1100.0f, 1200.0f, 1220.0f}));
+    ASSERT_TRUE(state->game.lastSessionRecap.valid);
+    EXPECT_EQ(state->game.lastSessionRecap.totals.wins, 2);
+    EXPECT_EQ(state->game.lastSessionRecap.totals.mmrChangeByPlaylist.at("2v2"), 20);
+}
+
+TEST(StatsClientTest, ClosingTheGameKeepsTheSessionWhenResetIsDisabled) {
+    ConfigData backup = Config::Read();
+    Config::Update([](ConfigData& c) {
+        c.host = "not_an_ip";
+        c.reset_session_on_close = false;
+        c.last_primary_id.clear();
+    },
+                   false);
+
+    auto state = std::make_shared<SessionState>();
+    auto fetcher = std::make_shared<MMRFetcher>(state);
+    auto db = std::make_shared<DatabaseManager>(state);
+    ASSERT_TRUE(db->Initialize(":memory:"));
+    auto discord = std::make_shared<MockDiscordManager>(state);
+    StatsClient client(state, fetcher, db);
+    client.SetDiscordManager(discord);
+    SeedFinishedSession(*state);
+
+    client.Start();
+    const bool disconnected = WaitFor([&] { return discord->pushCount.load() > 0; },
+                                      std::chrono::seconds(5));
+    client.Stop();
+    Config::Update([backup](ConfigData& c) { c = backup; }, false);
+
+    ASSERT_TRUE(disconnected);
+    EXPECT_EQ(state->game.sessionGeneration.load(), 0u);
+    EXPECT_EQ(state->game.sessionTotals.wins, 2);
+    EXPECT_EQ(state->game.sessionTotals.mmrChangeByPlaylist.at("2v2"), 20);
+    EXPECT_EQ(state->history.playlistHistoryY.at("2v2"), (std::vector<float>{1200.0f, 1210.0f, 1220.0f}));
+    EXPECT_EQ(state->history.playlistInitialMmr.at("2v2"), 1200);
+    EXPECT_FALSE(state->game.lastSessionRecap.valid);
 }

@@ -36,6 +36,8 @@ struct MMRRequest {
     bool resultKnown = true;
     int retriesRemaining = 2;
     std::chrono::steady_clock::time_point notBefore{};
+    // Stamped at dequeue.
+    uint64_t sessionGeneration = 0;
 };
 
 struct MMRProfileTotals {
@@ -92,6 +94,9 @@ struct PendingPostMatchRecord {
     bool trackerCovered = false;
     bool valueEstimated = true;
     PostMatchReconciliationState reconciliationState = PostMatchReconciliationState::AwaitingTracker;
+    uint64_t sessionGeneration = 0;
+    // preMatchMmr may predate an unresolved ended-session match.
+    bool followsPreviousSessionMatch = false;
 };
 
 class MMRFetcher {
@@ -158,6 +163,7 @@ class MMRFetcher {
         std::map<std::string, std::string> playlistTiers;
         std::map<std::string, int> playlistMatches;
         int totalWins = -1;
+        uint64_t sessionGeneration = 0;
     };
 
     void WorkerLoop();
@@ -181,10 +187,12 @@ class MMRFetcher {
                                 int baselineMmr,
                                 int fetchedMmr = 0,
                                 int fetchedMatches = -1);
-    void UpdateSessionAggregateLocked();
-    size_t PendingPlaylistCountLocked(const std::string& playlist) const;
+    size_t PendingPlaylistCountLocked(const std::string& primaryId, const std::string& playlist) const;
     void ResetPublicationBaselineForCounterRollbackLocked(
-        const std::string& playlist, int previousMatches);
+        const std::string& primaryId, const std::string& playlist, int previousMatches);
+    void AdoptCachedPreMatchBaselineLocked(PendingPostMatchRecord& record,
+                                           int fetchedMatches,
+                                           size_t pendingCount) const;
 
     std::shared_ptr<SessionState> m_state;
     std::weak_ptr<DatabaseManager> m_dbManager;
@@ -195,6 +203,7 @@ class MMRFetcher {
     std::unordered_set<std::string> m_pendingPostMatchGuids;
     std::unordered_set<std::string> m_completedPostMatchGuids;
     std::unordered_map<std::string, PendingPostMatchRecord> m_postMatchRecordsByGuid;
+    // Keyed by PendingPostMatchKey(primaryId, playlist).
     std::unordered_map<std::string, std::deque<std::string>> m_pendingPostMatchesByPlaylist;
     std::unordered_map<std::string, int> m_trackerPublicationBaselineByPlaylist;
     std::string m_rejectedCustomApiKey;

@@ -83,18 +83,18 @@ void RmlUiController::HideInsights() {
 
 void RmlUiController::RefreshInsights(bool force) {
     if (!m_state) return;
-    if (m_insightsShowsEndedSession) {
-        if (force) {
+    if (force || m_lastRecapGameVersion != m_lastGameVersion) {
+        m_lastRecapGameVersion = m_lastGameVersion;
+        if (m_insightsShowsEndedSession) {
             SessionRecap recap;
             {
                 std::shared_lock lock(m_state->game.mutex);
                 recap = m_state->game.lastSessionRecap;
             }
             m_insights.SetRecap(recap, false);
+        } else {
+            m_insights.SetRecap({true, 0, m_snap.sessionTotals, m_snap.sessionGamemodes}, true);
         }
-    } else if (force || m_lastRecapGameVersion != m_lastGameVersion) {
-        m_lastRecapGameVersion = m_lastGameVersion;
-        m_insights.SetRecap({true, 0, m_snap.sessionTotals, m_snap.sessionGamemodes}, true);
         m_renderDirty = true;
     }
 

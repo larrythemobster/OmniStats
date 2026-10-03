@@ -42,7 +42,8 @@ bool MMRFetcher::TrySatisfyLocalRosterRequest(const std::string& primaryId) {
     {
         std::lock_guard<std::mutex> lock(m_queueMutex);
         if (m_localProfileCache.valid &&
-            m_localProfileCache.primaryId == primaryId) {
+            m_localProfileCache.primaryId == primaryId &&
+            m_localProfileCache.sessionGeneration == m_state->game.sessionGeneration.load()) {
             cached = m_localProfileCache;
             hasCachedProfile = true;
         } else {
@@ -116,6 +117,7 @@ void MMRFetcher::StoreLocalProfileCache(
     {
         std::shared_lock<std::shared_mutex> gameLock(m_state->game.mutex);
         if (m_state->game.myPrimaryId != req.primaryId) return;
+        if (req.sessionGeneration != m_state->game.sessionGeneration.load()) return;
     }
 
     std::lock_guard<std::mutex> lock(m_queueMutex);
@@ -131,6 +133,7 @@ void MMRFetcher::StoreLocalProfileCache(
 
     m_localProfileCache.valid = true;
     m_localProfileCache.primaryId = req.primaryId;
+    m_localProfileCache.sessionGeneration = req.sessionGeneration;
     m_localProfileCache.bestMmr = bestMmr;
     m_localProfileCache.bestTier = bestTier;
     m_localProfileCache.playlists = playlists;
@@ -193,7 +196,15 @@ void MMRFetcher::EnqueuePostMatch(const std::string& primaryId,
         }
 
         ResetPublicationBaselineForCounterRollbackLocked(
-            playlist, previousMatches);
+            primaryId, playlist, previousMatches);
+        const uint64_t sessionGeneration = m_state->game.sessionGeneration.load();
+        auto& pendingGuids = m_pendingPostMatchesByPlaylist[PendingPostMatchKey(primaryId, playlist)];
+        const bool followsPreviousSessionMatch = std::any_of(
+            pendingGuids.begin(), pendingGuids.end(), [&](const std::string& guid) {
+                const auto recordIt = m_postMatchRecordsByGuid.find(guid);
+                return recordIt != m_postMatchRecordsByGuid.end() &&
+                       recordIt->second.sessionGeneration != sessionGeneration;
+            });
         m_pendingPostMatchGuids.insert(matchGuid);
         m_postMatchRecordsByGuid.emplace(
             matchGuid,
@@ -204,8 +215,10 @@ void MMRFetcher::EnqueuePostMatch(const std::string& primaryId,
                 .preMatchMmr = previousMmr,
                 .preMatchMatchesPlayed = previousMatches,
                 .preMatchMmrIsPlaylistSpecific = previousMmrIsPlaylistSpecific,
-                .won = won});
-        m_pendingPostMatchesByPlaylist[playlist].push_back(matchGuid);
+                .won = won,
+                .sessionGeneration = sessionGeneration,
+                .followsPreviousSessionMatch = followsPreviousSessionMatch});
+        pendingGuids.push_back(matchGuid);
 
         MMRRequest request;
         request.primaryId = primaryId;
@@ -256,7 +269,15 @@ void MMRFetcher::EnqueuePendingDestroyedMatch(
         }
 
         ResetPublicationBaselineForCounterRollbackLocked(
-            pending.playlist, pending.previousMatches);
+            pending.primaryId, pending.playlist, pending.previousMatches);
+        const uint64_t sessionGeneration = m_state->game.sessionGeneration.load();
+        auto& pendingGuids = m_pendingPostMatchesByPlaylist[PendingPostMatchKey(pending.primaryId, pending.playlist)];
+        const bool followsPreviousSessionMatch = std::any_of(
+            pendingGuids.begin(), pendingGuids.end(), [&](const std::string& guid) {
+                const auto recordIt = m_postMatchRecordsByGuid.find(guid);
+                return recordIt != m_postMatchRecordsByGuid.end() &&
+                       recordIt->second.sessionGeneration != sessionGeneration;
+            });
         m_pendingPostMatchGuids.insert(pending.matchGuid);
         m_postMatchRecordsByGuid.emplace(
             pending.matchGuid,
@@ -281,9 +302,10 @@ void MMRFetcher::EnqueuePendingDestroyedMatch(
                 .validCompetitiveMatch =
                     pending.validCompetitiveMatch,
                 .databaseMatchFinalized = false,
-                .graphPointAppended = false});
-        m_pendingPostMatchesByPlaylist[pending.playlist].push_back(
-            pending.matchGuid);
+                .graphPointAppended = false,
+                .sessionGeneration = sessionGeneration,
+                .followsPreviousSessionMatch = followsPreviousSessionMatch});
+        pendingGuids.push_back(pending.matchGuid);
 
         request.primaryId = pending.primaryId;
         request.name = pending.name;
@@ -373,6 +395,7 @@ void MMRFetcher::WorkerLoop() {
 
             req = std::move(*nextIt);
             m_queue.erase(nextIt);
+            req.sessionGeneration = m_state->game.sessionGeneration.load();
         }
 
         const bool requeued = FetchProfile(req);

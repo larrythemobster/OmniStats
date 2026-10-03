@@ -505,7 +505,7 @@ void TelemetryReducer::HandleUpdateState(const nlohmann::json& data, SideEffects
                         m_state->game.myPrimaryId = newId;
                         {
                             std::unique_lock<std::shared_mutex> historyLock(m_state->history.mutex);
-                            m_state->history.SelectMmrOwner(newId);
+                            m_state->selectMmrOwnerLocked(newId);
                         }
                         // Try to pick up team info from the current players array
                         for (const auto& p : data["Players"]) {
@@ -571,7 +571,7 @@ void TelemetryReducer::HandleUpdateState(const nlohmann::json& data, SideEffects
                         m_state->game.myPrimaryId = identifiedId;
                         {
                             std::unique_lock<std::shared_mutex> historyLock(m_state->history.mutex);
-                            m_state->history.SelectMmrOwner(identifiedId);
+                            m_state->selectMmrOwnerLocked(identifiedId);
                         }
                         for (const auto& p : data["Players"]) {
                             if (p.contains("PrimaryId") && p["PrimaryId"].is_string() && p["PrimaryId"].get<std::string>() == identifiedId) {

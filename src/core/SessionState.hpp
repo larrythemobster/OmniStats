@@ -218,6 +218,9 @@ struct SessionRecap {
     int64_t endedAtUnix = 0;
     SessionTotals totals;
     std::map<std::string, GamemodeStat> gamemodes;
+    uint64_t sessionGeneration = 0;
+    std::string mmrOwnerPrimaryId;
+    std::map<std::string, int> playlistInitialMmr;
 };
 
 // Database aggregates behind the Insights window, loaded on demand.
@@ -296,6 +299,8 @@ struct UIState {
 struct GameState {
     std::shared_mutex mutex;
     std::atomic<uint64_t> version{1};
+    // Work stamped with an older generation must not touch session state.
+    std::atomic<uint64_t> sessionGeneration{0};
 
     // Match Lifecycle State
     std::atomic<bool> inMatch{false};
@@ -368,10 +373,12 @@ struct HistoryState {
     // Match ownership metadata is authoritative. playlistHistoryY remains the
     // float projection consumed by the existing graph widget.
     std::map<std::string, std::vector<SessionMmrPoint>> playlistMatchPoints;
+    // Absent when no pre-match rating was observed; never backfilled later.
     std::map<std::string, int> playlistInitialMmr;
     std::string mmrOwnerPrimaryId;
     std::map<std::string, AccountMmrHistory> inactiveMmrHistories;
     void SelectMmrOwner(const std::string& primaryId);
+    void ResetSessionMmr();
 
     // Lifetime MMR history for graphing
     std::vector<float> lifetimeMmrY;
@@ -398,4 +405,10 @@ class SessionState : public std::enable_shared_from_this<SessionState> {
 
     void resetMatch(const std::string& newArena, const std::string& newArenaAsset = "");
     void clearActiveMatchOnDisconnect();
+
+    // Callers hold game.mutex and history.mutex exclusively.
+    // Returns whether a recap was captured.
+    bool startNewSessionLocked(int64_t endedAtUnix);
+    void syncSessionMmrChangeLocked();
+    void selectMmrOwnerLocked(const std::string& primaryId);
 };

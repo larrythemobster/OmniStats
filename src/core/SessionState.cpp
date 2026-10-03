@@ -1,4 +1,5 @@
 #include "SessionState.hpp"
+#include <cmath>
 
 std::string MmrCategoryToString(MmrCategory cat) {
     switch (cat) {
@@ -83,6 +84,17 @@ void HistoryState::SelectMmrOwner(const std::string& primaryId) {
     version++;
 }
 
+void HistoryState::ResetSessionMmr() {
+    mmrHistoryY.clear();
+    mmrHistoryX.clear();
+    playlistHistoryY.clear();
+    playlistMatchPoints.clear();
+    playlistInitialMmr.clear();
+    initialMmr = -1;
+    inactiveMmrHistories.clear();
+    version++;
+}
+
 void SessionState::resetMatch(const std::string& newArena, const std::string& newArenaAsset) {
     game.inMatch = true;
     game.inReplay = false;
@@ -152,4 +164,42 @@ void SessionState::clearActiveMatchOnDisconnect() {
     game.matchRoster.clear();
     game.preMatchMmrByGuid.clear();
     game.matchFinalized = false;
+}
+
+bool SessionState::startNewSessionLocked(int64_t endedAtUnix) {
+    const bool captureRecap = game.sessionTotals.wins + game.sessionTotals.losses > 0;
+    if (captureRecap) {
+        game.lastSessionRecap = {
+            .valid = true,
+            .endedAtUnix = endedAtUnix,
+            .totals = std::move(game.sessionTotals),
+            .gamemodes = std::move(game.sessionGamemodes),
+            .sessionGeneration = game.sessionGeneration.load(),
+            .mmrOwnerPrimaryId = history.mmrOwnerPrimaryId,
+            .playlistInitialMmr = history.playlistInitialMmr};
+    }
+    game.sessionTotals = SessionTotals();
+    game.sessionGamemodes.clear();
+    game.sessionGeneration.fetch_add(1);
+    history.ResetSessionMmr();
+    ui.graphOffset.store(0);
+    game.version++;
+    return captureRecap;
+}
+
+void SessionState::syncSessionMmrChangeLocked() {
+    auto& changes = game.sessionTotals.mmrChangeByPlaylist;
+    changes.clear();
+    for (const auto& [playlist, projection] : history.playlistHistoryY) {
+        const auto initialIt = history.playlistInitialMmr.find(playlist);
+        if (projection.empty() || initialIt == history.playlistInitialMmr.end() || initialIt->second <= 0) continue;
+        changes[playlist] = static_cast<int>(std::lround(projection.back())) - initialIt->second;
+    }
+    game.sessionTotals.totalMmrChange = static_cast<float>(CalculateTrackedSessionMmrChange(changes));
+}
+
+void SessionState::selectMmrOwnerLocked(const std::string& primaryId) {
+    history.SelectMmrOwner(primaryId);
+    syncSessionMmrChangeLocked();
+    game.version++;
 }

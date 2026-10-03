@@ -205,11 +205,14 @@ std::string RmlUiController::RenderMmrGraph(bool showCategoryBadge) {
     }
 
     const int current = static_cast<int>(std::lround(values.back()));
-    const int change = hasBaseline ? static_cast<int>(std::lround(values.back() - baseline)) : 0;
-    out << "<div class='graph-current' style='left:83%;top:" << (yPct(values.back()) - 4.0f) << "%;'>" << current
-        << " <span class='" << (change >= 0 ? "win" : "loss") << "'>";
-    if (change >= 0) out << '+';
-    out << change << "</span></div></div>";
+    out << "<div class='graph-current' style='left:83%;top:" << (yPct(values.back()) - 4.0f) << "%;'>" << current;
+    if (hasBaseline) {
+        const int change = static_cast<int>(std::lround(values.back() - baseline));
+        out << " <span class='" << (change >= 0 ? "win" : "loss") << "'>";
+        if (change >= 0) out << '+';
+        out << change << "</span>";
+    }
+    out << "</div></div>";
     return out.str();
 }
 

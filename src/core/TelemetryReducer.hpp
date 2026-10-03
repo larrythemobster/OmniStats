@@ -44,6 +44,7 @@ class TelemetryReducer {
         std::string matchGuid;
         int playlistId = -1;
         uint64_t matchGeneration = 0;
+        uint64_t sessionGeneration = 0;
         std::string myPrimaryId;
         int myTeam = -1;
         std::array<int, 2> score{};
@@ -69,6 +70,10 @@ class TelemetryReducer {
     };
 
     void FinalizeMatchLocked(int winnerTeam, MatchFinalizeSource source, SideEffects& effects);
+    void AddMatchToSessionTotalsLocked(const CapturedMatch& match,
+                                       bool iWon,
+                                       SessionTotals& sessionTotals,
+                                       std::map<std::string, GamemodeStat>& sessionGamemodes);
     void FinalizeCapturedMatchLocked(CapturedMatch match,
                                      int winnerTeam,
                                      MatchFinalizeSource source,

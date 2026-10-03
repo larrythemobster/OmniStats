@@ -29,6 +29,7 @@ TelemetryReducer::CapturedMatch TelemetryReducer::CaptureMatchLocked() const {
     match.matchGuid = game.matchGuid;
     match.playlistId = game.playlistId;
     match.matchGeneration = game.activeMatchGeneration;
+    match.sessionGeneration = game.sessionGeneration.load();
     match.myPrimaryId = game.myPrimaryId;
     match.myTeam = game.myTeam;
     match.score = game.score;

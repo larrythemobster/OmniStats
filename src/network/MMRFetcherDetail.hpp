@@ -48,4 +48,8 @@ namespace MMRFetcherDetail {
     bool MmrPathPreservesResults(int initialMmr, const std::vector<int>& path, const std::vector<bool>& results);
     std::vector<int> BuildDirectionalMmrPath(int initialMmr, int finalMmr, const std::vector<bool>& results);
     std::vector<int> ReconcileEstimatedPath(int initialMmr, int finalMmr, const std::vector<int>& estimatedPath, const std::vector<bool>& results);
+
+    inline std::string PendingPostMatchKey(const std::string& primaryId, const std::string& playlist) {
+        return primaryId + '\x1f' + playlist;
+    }
 }

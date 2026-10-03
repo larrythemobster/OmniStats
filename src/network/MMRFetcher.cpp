@@ -50,6 +50,7 @@ void MMRFetcher::ProcessPostMatchResponseForTests(const std::string& matchGuid,
         req.previousMmrIsPlaylistSpecific = it->second.preMatchMmrIsPlaylistSpecific;
         req.won = it->second.won;
         req.resultKnown = it->second.resultKnown;
+        req.sessionGeneration = m_state->game.sessionGeneration.load();
     }
     if (!ReconcileTrackerResponse(req, fetchedMmr, fetchedMatches)) {
         EnsureProvisionalPoint(req, req.previousMmr, fetchedMmr, fetchedMatches);
@@ -62,6 +63,7 @@ void MMRFetcher::FetchRosterProfileForTests(const std::string& primaryId,
     req.primaryId = primaryId;
     req.name = name;
     req.reason = MMRRequestReason::Roster;
+    req.sessionGeneration = m_state->game.sessionGeneration.load();
     (void)FetchProfile(std::move(req));
 }
 

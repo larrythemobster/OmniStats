@@ -52,65 +52,18 @@ void TelemetryReducer::FinalizeMatchLocked(
         CaptureMatchLocked(), winnerTeam, source, true, effects);
 }
 
-void TelemetryReducer::FinalizeCapturedMatchLocked(
-    CapturedMatch match,
-    int winnerTeam,
-    MatchFinalizeSource source,
-    bool enqueueMmrRefresh,
-    SideEffects& effects) {
-    if (!match.matchGuid.empty() &&
-        m_finalizedMatchGuids.count(match.matchGuid) > 0) {
-        std::cout << "[TelemetryReducer] Skipping duplicate match save for guid: "
-                  << PrivacyLog::Sensitive(match.matchGuid, "match GUID")
-                  << "\n";
-        return;
-    }
-
-    const MatchEndDecision decision =
-        ClassifyMatchEndLocked(match, winnerTeam);
-    RecordTerminalMatchGuidLocked(match.matchGuid);
-    const bool isCurrentMatch =
-        match.matchGeneration ==
-            m_state->game.activeMatchGeneration &&
-        match.matchGuid == m_state->game.matchGuid;
-
-    if (isCurrentMatch) {
-        m_state->game.matchFinalized = true;
-        m_state->game.lastMatchWasVoid = !decision.shouldCount;
-        m_state->game.lastMatchVoidReason = decision.voidReason;
-        m_state->game.matchSummaryScore = match.score;
-        m_state->game.matchSummaryMyTeam = match.myTeam;
-        m_state->game.matchSummaryWinnerTeam = winnerTeam;
-        m_state->ui.showMatchSummary = true;
-        m_state->ui.matchSummaryStartMs.store(
-            std::chrono::duration_cast<std::chrono::milliseconds>(
-                std::chrono::steady_clock::now().time_since_epoch())
-                .count());
-    }
-
-    if (!decision.shouldCount) {
-        std::cout << "[Event] MATCH VOIDED: " << decision.voidReason
-                  << "\n";
-        if (isCurrentMatch) {
-            effects.pushDiscord = true;
-            effects.discordSnapshot = BuildDiscordSnapshotLocked();
-        }
-        return;
-    }
-
-    if (!match.matchGuid.empty()) {
-        m_lastSavedMatchGuid = match.matchGuid;
-    }
-
-    const bool iWon = decision.iWon;
+void TelemetryReducer::AddMatchToSessionTotalsLocked(
+    const CapturedMatch& match,
+    bool iWon,
+    SessionTotals& sessionTotals,
+    std::map<std::string, GamemodeStat>& sessionGamemodes) {
     if (iWon) {
-        m_state->game.sessionTotals.wins++;
+        sessionTotals.wins++;
     } else {
-        m_state->game.sessionTotals.losses++;
+        sessionTotals.losses++;
     }
 
     const auto& currentMatch = match.stats;
-    auto& sessionTotals = m_state->game.sessionTotals;
     sessionTotals.goals += currentMatch.goalsSelf;
     sessionTotals.saves += currentMatch.savesSelf;
     sessionTotals.savesTotal += currentMatch.saves;
@@ -177,7 +130,7 @@ void TelemetryReducer::FinalizeCapturedMatchLocked(
         !(!PlaylistMetadata::HasAuthoritativeId(match.playlistId) &&
           (match.fallbackCasualContext || match.fallbackNonRecordableContext)) &&
         GamemodeUtils::IsTrackedCompetitiveMode(match.mode)) {
-        auto& gamemode = m_state->game.sessionGamemodes[match.mode];
+        auto& gamemode = sessionGamemodes[match.mode];
         if (iWon) {
             gamemode.wins++;
         } else {
@@ -185,7 +138,67 @@ void TelemetryReducer::FinalizeCapturedMatchLocked(
         }
         gamemode.total++;
     }
+}
 
+void TelemetryReducer::FinalizeCapturedMatchLocked(
+    CapturedMatch match,
+    int winnerTeam,
+    MatchFinalizeSource source,
+    bool enqueueMmrRefresh,
+    SideEffects& effects) {
+    if (!match.matchGuid.empty() &&
+        m_finalizedMatchGuids.count(match.matchGuid) > 0) {
+        std::cout << "[TelemetryReducer] Skipping duplicate match save for guid: "
+                  << PrivacyLog::Sensitive(match.matchGuid, "match GUID")
+                  << "\n";
+        return;
+    }
+
+    const MatchEndDecision decision =
+        ClassifyMatchEndLocked(match, winnerTeam);
+    RecordTerminalMatchGuidLocked(match.matchGuid);
+    const bool isCurrentMatch =
+        match.matchGeneration ==
+            m_state->game.activeMatchGeneration &&
+        match.matchGuid == m_state->game.matchGuid;
+
+    if (isCurrentMatch) {
+        m_state->game.matchFinalized = true;
+        m_state->game.lastMatchWasVoid = !decision.shouldCount;
+        m_state->game.lastMatchVoidReason = decision.voidReason;
+        m_state->game.matchSummaryScore = match.score;
+        m_state->game.matchSummaryMyTeam = match.myTeam;
+        m_state->game.matchSummaryWinnerTeam = winnerTeam;
+        m_state->ui.showMatchSummary = true;
+        m_state->ui.matchSummaryStartMs.store(
+            std::chrono::duration_cast<std::chrono::milliseconds>(
+                std::chrono::steady_clock::now().time_since_epoch())
+                .count());
+    }
+
+    if (!decision.shouldCount) {
+        std::cout << "[Event] MATCH VOIDED: " << decision.voidReason
+                  << "\n";
+        if (isCurrentMatch) {
+            effects.pushDiscord = true;
+            effects.discordSnapshot = BuildDiscordSnapshotLocked();
+        }
+        return;
+    }
+
+    if (!match.matchGuid.empty()) {
+        m_lastSavedMatchGuid = match.matchGuid;
+    }
+
+    const bool iWon = decision.iWon;
+    auto& recap = m_state->game.lastSessionRecap;
+    if (match.sessionGeneration == m_state->game.sessionGeneration.load()) {
+        AddMatchToSessionTotalsLocked(match, iWon, m_state->game.sessionTotals, m_state->game.sessionGamemodes);
+    } else if (recap.valid && recap.sessionGeneration == match.sessionGeneration) {
+        AddMatchToSessionTotalsLocked(match, iWon, recap.totals, recap.gamemodes);
+    }
+
+    const auto& currentMatch = match.stats;
     for (auto& [primaryId, player] : match.roster) {
         const bool isTeammate = player.team == match.myTeam;
         if (isTeammate) {

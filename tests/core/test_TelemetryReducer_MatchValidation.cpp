@@ -1309,6 +1309,33 @@ TEST(TelemetryReducerMatchValidation, DuplicateMatchDestroyedKeepsOnePendingReco
     EXPECT_EQ(state->game.sessionTotals.losses, 1);
 }
 
+TEST(TelemetryReducerMatchValidation, DestroyedMatchConfirmedAfterSessionEndsCountsTowardItsRecap) {
+    Storage::InitializeEnvironment();
+    auto state = std::make_shared<SessionState>();
+    TelemetryReducer reducer(state);
+    StartRankedOnesMatch(
+        reducer, state, "ended-session-destroyed-guid", 1, 0);
+
+    SideEffects destroyed = reducer.Reduce(std::string(Constants::EVT_MATCH_DESTROYED), CurrentMatchEvent(state, nlohmann::json{}));
+    ASSERT_TRUE(destroyed.pendingDestroyedMatch.has_value());
+    {
+        std::unique_lock gameLock(state->game.mutex);
+        std::unique_lock historyLock(state->history.mutex);
+        state->game.sessionTotals.wins = 1;
+        ASSERT_TRUE(state->startNewSessionLocked(1700000000));
+    }
+
+    SideEffects confirmed =
+        reducer.ConfirmPendingDestroyedMatch(
+            "ended-session-destroyed-guid", false);
+    ASSERT_TRUE(confirmed.saveMatch);
+    EXPECT_EQ(state->game.sessionTotals.wins, 0);
+    EXPECT_EQ(state->game.sessionTotals.losses, 0);
+    EXPECT_TRUE(state->game.sessionGamemodes.empty());
+    EXPECT_EQ(state->game.lastSessionRecap.totals.wins, 1);
+    EXPECT_EQ(state->game.lastSessionRecap.totals.losses, 1);
+}
+
 TEST(TelemetryReducerMatchValidation, DestroyedBeforeRoundStartRemainsVoid) {
     Storage::InitializeEnvironment();
     auto state = std::make_shared<SessionState>();

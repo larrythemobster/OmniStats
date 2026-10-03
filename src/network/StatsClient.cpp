@@ -111,13 +111,11 @@ void StatsClient::RunLoop() {
             {
                 std::unique_lock<std::shared_mutex> lock(m_state->game.mutex);
                 if (resetSessionAfterDisconnect) {
-                    auto& game = m_state->game;
-                    if (game.sessionTotals.wins + game.sessionTotals.losses > 0) {
-                        game.lastSessionRecap = {true, static_cast<int64_t>(std::time(nullptr)), game.sessionTotals, game.sessionGamemodes};
-                        if (conf.show_session_recap_on_close) m_state->ui.showSessionRecap.store(true);
+                    std::unique_lock<std::shared_mutex> historyLock(m_state->history.mutex);
+                    if (m_state->startNewSessionLocked(static_cast<int64_t>(std::time(nullptr))) &&
+                        conf.show_session_recap_on_close) {
+                        m_state->ui.showSessionRecap.store(true);
                     }
-                    game.sessionTotals = SessionTotals();
-                    game.sessionGamemodes.clear();
                 }
                 // A reconnect starts with no trustworthy active-match telemetry.
                 // Clear all per-match classification/observation state so a frame

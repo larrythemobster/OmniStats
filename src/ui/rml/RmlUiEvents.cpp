@@ -714,7 +714,7 @@ void RmlUiController::HandleChange(Rml::Element* target, Rml::Event& event) {
             std::unique_lock lock(m_state->game.mutex);
             m_state->game.myPrimaryId = value;
             std::unique_lock historyLock(m_state->history.mutex);
-            m_state->history.SelectMmrOwner(value);
+            m_state->selectMmrOwnerLocked(value);
             m_state->game.myTeam = -1;
             if (!value.empty()) {
                 if (auto it = m_state->game.roster.find(value); it != m_state->game.roster.end()) m_state->game.myTeam = it->second.team;
