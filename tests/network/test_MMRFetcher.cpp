@@ -1194,6 +1194,73 @@ TEST_F(MMRFetcherTest, FallsBackToCustomApiWhenTrackerReturns403) {
     EXPECT_EQ(player.playlistTiers.at("2v2"), "Diamond II Div III");
     EXPECT_EQ(player.mmr, 1250);
 }
+
+namespace {
+    void UseLocalCustomApi(int mmr, int matches) {
+        Config::Update([](ConfigData& config) {
+            config.custom_api_enabled = true;
+            config.custom_api_key = "oms_test_account_key";
+        },
+                       false);
+        g_mock_custom_api_response_code = 200;
+        g_mock_custom_api_response =
+            R"({"players":[{"platform":"Epic","account_id":"local_id","skills":[{"playlist":11,"mmr":)" +
+            std::to_string(mmr) + R"(,"tier":14,"division":2,"matches_played":)" +
+            std::to_string(matches) + R"(}]}]})";
+    }
+} // namespace
+
+TEST_F(MMRFetcherTest, UnavailableTrackerFallsBackToCustomApiForTheLocalSessionBaseline) {
+    sessionState->game.myPrimaryId = "Epic|local_id";
+    g_mock_response_code = 503;
+    UseLocalCustomApi(1250, 45);
+
+    fetcher->FetchRosterProfileForTests("Epic|local_id", "Local");
+    EXPECT_EQ(g_mock_perform_count.load(), 2);
+    {
+        std::shared_lock gameLock(sessionState->game.mutex);
+        std::shared_lock historyLock(sessionState->history.mutex);
+        EXPECT_EQ(sessionState->game.roster.at("Epic|local_id").rankVerificationSource, "ServerA");
+        EXPECT_EQ(sessionState->history.playlistInitialMmr.at("2v2"), 1250);
+    }
+
+    fetcher->FetchRosterProfileForTests("Epic|local_id", "Local");
+    EXPECT_EQ(g_mock_perform_count.load(), 4);
+}
+
+TEST_F(MMRFetcherTest, UnavailableTrackerKeepsOtherPlayersOffTheCustomApi) {
+    sessionState->game.myPrimaryId = "Epic|local_id";
+    sessionState->game.roster["Epic|opponent_id"] =
+        PlayerData{.primaryId = "Epic|opponent_id", .name = "Opponent"};
+    g_mock_response_code = 503;
+    UseLocalCustomApi(1250, 45);
+
+    fetcher->FetchRosterProfileForTests("Epic|opponent_id", "Opponent");
+    EXPECT_EQ(g_mock_perform_count.load(), 1);
+    std::shared_lock lock(sessionState->game.mutex);
+    EXPECT_TRUE(sessionState->game.roster.at("Epic|opponent_id").fetchFailed);
+}
+
+TEST_F(MMRFetcherTest, RateLimitedTrackerDoesNotDelayTheLocalSessionBaseline) {
+    sessionState->game.myPrimaryId = "Epic|local_id";
+    g_mock_response_code = 429;
+    g_mock_headers = "Retry-After: 90\r\n";
+    UseLocalCustomApi(1250, 45);
+
+    fetcher->Start();
+    fetcher->Enqueue("Epic|local_id", "Local");
+    bool baselineSet = false;
+    for (int i = 0; i < 100 && !baselineSet; ++i) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        std::shared_lock lock(sessionState->history.mutex);
+        baselineSet = sessionState->history.playlistInitialMmr.count("2v2") > 0;
+    }
+    const size_t pending = fetcher->PendingRequestCountForTests();
+    fetcher->Stop();
+
+    EXPECT_TRUE(baselineSet);
+    EXPECT_EQ(pending, 0u);
+}
 TEST_F(MMRFetcherTest, CustomApiMultipleSkillsParsesAllAndSetsBest) {
     g_mock_response_code = 403;
     g_mock_custom_api_response_code = 200;

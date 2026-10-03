@@ -15,6 +15,7 @@
 #include <map>
 #include <cmath>
 #include <cctype>
+#include <optional>
 #include <string_view>
 #include "network/MMRFetcherDetail.hpp"
 
@@ -476,6 +477,18 @@ bool MMRFetcher::FetchProfile(MMRRequest req) {
             }
         }
     }
+    const auto localCustomApiFallback = [&]() -> std::optional<bool> {
+        if (m_useCustomApiFallback.load()) return std::nullopt;
+        {
+            std::shared_lock<std::shared_mutex> gameLock(m_state->game.mutex);
+            if (req.primaryId != m_state->game.myPrimaryId) return std::nullopt;
+        }
+        const auto result = FetchProfileFromCustomApi(req);
+        if (result == CustomApiFetchResult::SuccessFinished) return false;
+        if (result == CustomApiFetchResult::SuccessRequeued) return true;
+        return std::nullopt;
+    };
+
     auto& ci = CurlImpersonate::Instance();
     if (!ci.IsReady()) {
         std::cout << "[MMRFetcher] Skipping " << PrivacyLog::Sensitive(req.name, "player name")
@@ -619,11 +632,13 @@ bool MMRFetcher::FetchProfile(MMRRequest req) {
             }
             std::cout << "[MMRFetcher] Rate limited by Tracker.gg (HTTP 429). Pausing requests for "
                       << std::chrono::duration_cast<std::chrono::seconds>(lockout).count() << " seconds.\n";
+            if (const auto requeued = localCustomApiFallback()) return *requeued;
             if (ScheduleRetry(req, lockout, "rate limited")) return true;
         } else if (res != 0 || httpCode == 408 || (httpCode >= 500 && httpCode <= 599)) {
             if (ScheduleRetry(req, kTransientRetryDelay, "transient Tracker failure")) return true;
         }
 
+        if (const auto requeued = localCustomApiFallback()) return *requeued;
         std::unique_lock<std::shared_mutex> gameLock(m_state->game.mutex);
         if (m_state->game.roster.count(req.primaryId)) {
             auto& player = m_state->game.roster[req.primaryId];
@@ -653,6 +668,7 @@ bool MMRFetcher::FetchProfile(MMRRequest req) {
         if (!jsonResp.contains("data") || !jsonResp["data"].is_object() ||
             !jsonResp["data"].contains("segments") || !jsonResp["data"]["segments"].is_array()) {
             if (ScheduleRetry(req, kTransientRetryDelay, "incomplete Tracker response")) return true;
+            if (const auto requeued = localCustomApiFallback()) return *requeued;
             return false;
         }
 
@@ -765,6 +781,7 @@ bool MMRFetcher::FetchProfile(MMRRequest req) {
     } catch (const std::exception& e) {
         std::cout << "[MMRFetcher] JSON Parse Error: " << e.what() << "\n";
         if (ScheduleRetry(req, kTransientRetryDelay, "invalid Tracker response")) return true;
+        if (const auto requeued = localCustomApiFallback()) return *requeued;
 
         std::unique_lock<std::shared_mutex> gameLock(m_state->game.mutex);
         if (m_state->game.roster.count(req.primaryId)) {
