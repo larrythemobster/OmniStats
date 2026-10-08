@@ -168,10 +168,6 @@ std::string RmlUiController::RenderPlayerRoster(int team, const char* label) {
 
         if (mmr > 0 && matchCount > 0) out << "<span class='chip'>" << matchCount << (matchCount == 1 ? " match" : " matches") << "</span>";
         if (m_config.show_account_wins_overlay && p->totalWins >= 0) out << "<span class='chip'>" << p->totalWins << " wins</span>";
-        // The chip binds to a stable per-player slot so telemetry updates only its text.
-        const size_t slot = m_liveModel.PlayerSlot(p->primaryId);
-        m_liveModel.SetPlayer(slot, ComputeLivePlayerStat(*p));
-        out << "<span class='chip' data-if='players[" << slot << "].visible'>{{players[" << slot << "].text}}</span>";
         out << "</div></div>";
 
         // Trailing status column, one state per player: yourself, a player with

@@ -1105,8 +1105,6 @@ void RmlUiController::RefreshLiveUi(bool force, bool allowStructural) {
     if (leafGameChanged || primeStructure) {
         // Bound text views re-evaluate only for the variables marked dirty here.
         bool changed = m_liveModel.SetValues(ComputeLiveValues(m_snap, m_config));
-        for (const auto& [id, player] : m_snap.roster)
-            changed |= m_liveModel.SetPlayer(m_liveModel.PlayerSlot(id), ComputeLivePlayerStat(player));
         if (changed) m_renderDirty = true;
     }
 

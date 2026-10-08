@@ -115,15 +115,6 @@ LiveValues ComputeLiveValues(const RmlRenderSnapshot& snapshot, const ConfigData
     return v;
 }
 
-LivePlayerStat ComputeLivePlayerStat(const PlayerData& player) {
-    LivePlayerStat stat;
-    stat.visible = player.goals || player.saves || player.shots || player.assists || player.demos;
-    stat.text = "G" + std::to_string(player.goals) + " S" + std::to_string(player.saves) +
-                " A" + std::to_string(player.assists) + " Sh" + std::to_string(player.shots) +
-                " D" + std::to_string(player.demos);
-    return stat;
-}
-
 bool RmlLiveModel::Create(Rml::Context* context) {
     Reset();
     if (!context) return false;
@@ -134,13 +125,6 @@ bool RmlLiveModel::Create(Rml::Context* context) {
         constructor.Bind(field.name, &(m_values.*field.member));
     for (const auto& field : kToneFields)
         constructor.Bind(field.name, &(m_values.*field.member));
-
-    if (auto player = constructor.RegisterStruct<LivePlayerStat>()) {
-        player.RegisterMember("text", &LivePlayerStat::text);
-        player.RegisterMember("visible", &LivePlayerStat::visible);
-    }
-    constructor.RegisterArray<std::vector<LivePlayerStat>>();
-    constructor.Bind("players", &m_players);
 
     m_handle = constructor.GetModelHandle();
     m_bound = true;
@@ -154,15 +138,6 @@ void RmlLiveModel::Reset() {
 
 void RmlLiveModel::Dirty(const char* name) {
     if (m_bound) m_handle.DirtyVariable(name);
-}
-
-size_t RmlLiveModel::PlayerSlot(const std::string& primaryId) {
-    auto [it, inserted] = m_playerSlots.try_emplace(primaryId, m_players.size());
-    if (inserted) {
-        m_players.emplace_back();
-        Dirty("players");
-    }
-    return it->second;
 }
 
 bool RmlLiveModel::SetValues(LiveValues values) {
@@ -182,11 +157,4 @@ bool RmlLiveModel::SetValues(LiveValues values) {
         changed = true;
     }
     return changed;
-}
-
-bool RmlLiveModel::SetPlayer(size_t slot, LivePlayerStat stat) {
-    if (slot >= m_players.size() || m_players[slot] == stat) return false;
-    m_players[slot] = std::move(stat);
-    Dirty("players");
-    return true;
 }

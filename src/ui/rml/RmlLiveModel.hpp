@@ -9,11 +9,8 @@
 #include <RmlUi/Core/Types.h>
 
 #include <string>
-#include <unordered_map>
-#include <vector>
 
 #include "core/Config.hpp"
-#include "core/SessionState.hpp"
 
 struct RmlRenderSnapshot;
 
@@ -58,14 +55,7 @@ struct LiveValues {
     int demo_session_tone = 0;
 };
 
-struct LivePlayerStat {
-    Rml::String text;
-    bool visible = false;
-    bool operator==(const LivePlayerStat&) const = default;
-};
-
 LiveValues ComputeLiveValues(const RmlRenderSnapshot& snapshot, const ConfigData& config);
-LivePlayerStat ComputeLivePlayerStat(const PlayerData& player);
 
 class RmlLiveModel {
   public:
@@ -77,13 +67,8 @@ class RmlLiveModel {
         return m_values;
     }
 
-    // Stable per-player slot for `players[N]` bindings. Slots are never reused,
-    // so markup rendered for an earlier roster can never point at another player.
-    size_t PlayerSlot(const std::string& primaryId);
-
     // Returns true when any bound value changed.
     bool SetValues(LiveValues values);
-    bool SetPlayer(size_t slot, LivePlayerStat stat);
 
   private:
     void Dirty(const char* name);
@@ -91,6 +76,4 @@ class RmlLiveModel {
     Rml::DataModelHandle m_handle;
     bool m_bound = false;
     LiveValues m_values;
-    std::vector<LivePlayerStat> m_players;
-    std::unordered_map<std::string, size_t> m_playerSlots;
 };
