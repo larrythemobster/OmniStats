@@ -108,6 +108,9 @@ class RmlUiControllerStateTest : public ::testing::Test {
     std::string RenderIntegrationSettings(RmlUiController& controller) {
         return controller.RenderSettingsIntegrations();
     }
+    std::string RenderDataSettings(RmlUiController& controller) {
+        return controller.RenderSettingsData();
+    }
     void BeginSaveReplayKeyCapture(RmlUiController& controller) {
         controller.BeginBindCapture(RmlUiController::BindCaptureTarget::KeySaveReplay);
     }
@@ -1863,4 +1866,36 @@ TEST_F(RmlUiControllerStateTest, HotReloadAppliesEditedStylesheet) {
     }
     SetEnvironmentVariableA("OMNISTATS_RML_DIR", nullptr);
     std::filesystem::remove_all(dev);
+}
+
+TEST_F(RmlUiControllerStateTest, SettingsDataShowsDetailedStatsRecordedSummary) {
+    auto state = std::make_shared<SessionState>();
+    auto db = std::make_shared<DatabaseManager>(state);
+    ASSERT_TRUE(db->Initialize(":memory:"));
+    RmlUiController controller(state, db);
+
+    EXPECT_NE(RenderDataSettings(controller).find("Detailed stats not yet recorded"), std::string::npos);
+
+    MatchSaveSnapshot snap;
+    snap.arenaName = "DFH Stadium";
+    snap.matchGuid = "settings-data-guid";
+    snap.playlistId = 11;
+    snap.myTeam = 0;
+    snap.winnerTeam = 0;
+    snap.validResult = true;
+    snap.score[0] = 3;
+    snap.score[1] = 1;
+    snap.myPrimaryId = "Steam|settings-data";
+    snap.endedAtUnixMs = 1'791'936'000'000; // 2026-10-14 00:00:00 UTC
+    snap.roster["Steam|settings-data"] =
+        PlayerData{.primaryId = "Steam|settings-data", .name = "Player", .team = 0, .mmr = 1200, .goals = 2};
+    db->AsyncSaveMatch(snap);
+    db->AsyncSetSetting("settings_data_barrier", "done");
+    for (int i = 0; i < 200 && db->GetSetting("settings_data_barrier", "") != "done"; ++i) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    }
+    ASSERT_EQ(db->GetSetting("settings_data_barrier", ""), "done");
+
+    const std::string rendered = RenderDataSettings(controller);
+    EXPECT_NE(rendered.find("Detailed stats recorded since 2026-10-14 · 1 matches"), std::string::npos) << rendered;
 }

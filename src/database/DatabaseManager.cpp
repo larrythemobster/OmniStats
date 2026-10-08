@@ -46,6 +46,167 @@ static bool SqliteTableHasColumn(sqlite3* db,
     return found;
 }
 
+static bool SqliteTableExists(sqlite3* db, const char* tableName) {
+    if (!db || !tableName) return false;
+    const char* sql = "SELECT 1 FROM sqlite_master WHERE type='table' AND name = ? LIMIT 1;";
+    sqlite3_stmt* stmt = nullptr;
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK) return false;
+    sqlite3_bind_text(stmt, 1, tableName, -1, SQLITE_STATIC);
+    const bool found = (sqlite3_step(stmt) == SQLITE_ROW);
+    sqlite3_finalize(stmt);
+    return found;
+}
+
+static bool SqliteHasAnyUserTable(sqlite3* db) {
+    if (!db) return false;
+    const char* sql = "SELECT 1 FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' LIMIT 1;";
+    sqlite3_stmt* stmt = nullptr;
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK) return false;
+    const bool found = (sqlite3_step(stmt) == SQLITE_ROW);
+    sqlite3_finalize(stmt);
+    return found;
+}
+
+static int ReadUserVersion(sqlite3* db) {
+    if (!db) return 0;
+    sqlite3_stmt* stmt = nullptr;
+    if (sqlite3_prepare_v2(db, "PRAGMA user_version;", -1, &stmt, nullptr) != SQLITE_OK) return 0;
+    int version = 0;
+    if (sqlite3_step(stmt) == SQLITE_ROW) {
+        version = sqlite3_column_int(stmt, 0);
+    }
+    sqlite3_finalize(stmt);
+    return version;
+}
+
+static bool IsInMemoryDbPath(const std::string& dbPath) {
+    if (dbPath.empty() || dbPath == ":memory:") return true;
+    return dbPath.rfind("file:", 0) == 0 && dbPath.find("mode=memory") != std::string::npos;
+}
+
+static void BackupDatabaseBeforeMigration(sqlite3* db, const std::string& dbPath, int oldVersion) {
+    if (IsInMemoryDbPath(dbPath)) return;
+    std::error_code ec;
+    const fs::path srcPath(dbPath);
+    if (!fs::exists(srcPath, ec) || !fs::is_regular_file(srcPath, ec) || fs::file_size(srcPath, ec) == 0) {
+        return;
+    }
+
+    sqlite3_exec(db, "PRAGMA wal_checkpoint(TRUNCATE);", nullptr, nullptr, nullptr);
+
+    const fs::path parentDir = srcPath.parent_path().empty() ? fs::path(".") : srcPath.parent_path();
+    const std::string prefix = srcPath.filename().string() + ".bak-v";
+    for (const auto& entry : fs::directory_iterator(parentDir, ec)) {
+        if (ec) break;
+        const std::string name = entry.path().filename().string();
+        if (name.rfind(prefix, 0) == 0) {
+            std::error_code rmEc;
+            fs::remove(entry.path(), rmEc);
+        }
+    }
+
+    const fs::path backupPath(dbPath + ".bak-v" + std::to_string(oldVersion));
+    fs::copy_file(srcPath, backupPath, fs::copy_options::overwrite_existing, ec);
+    if (ec) {
+        std::cerr << "[Database] Warning: Failed to create pre-migration backup " << backupPath.string()
+                  << ": " << ec.message() << "\n";
+    }
+}
+
+struct Migration {
+    int version = 0;
+    const char* sql = nullptr;
+    bool (*apply)(sqlite3* db, std::string& error) = nullptr;
+};
+
+static constexpr const char* kMigrationV1Sql = R"(
+    CREATE TABLE IF NOT EXISTS Matches (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+        arena TEXT,
+        our_score INTEGER,
+        their_score INTEGER,
+        win BOOLEAN,
+        match_guid TEXT,
+        playlist_id INTEGER,
+        gamemode TEXT,
+        player_count INTEGER,
+        result_pending BOOLEAN DEFAULT 0
+    );
+    CREATE TABLE IF NOT EXISTS MatchPlayers (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        match_id INTEGER,
+        primary_id TEXT,
+        name TEXT,
+        team INTEGER,
+        mmr INTEGER,
+        mmr_estimated BOOLEAN DEFAULT 0,
+        is_opponent BOOLEAN DEFAULT 0,
+        FOREIGN KEY(match_id) REFERENCES Matches(id)
+    );
+    CREATE TABLE IF NOT EXISTS Settings (
+        key TEXT PRIMARY KEY,
+        value TEXT
+    );
+)";
+
+static bool ApplyMigrationV1(sqlite3* db, std::string& error) {
+    auto execSql = [&](const char* sql, const char* context) {
+        char* errMsg = nullptr;
+        if (sqlite3_exec(db, sql, nullptr, nullptr, &errMsg) != SQLITE_OK) {
+            error = std::string(context) + ": " + (errMsg ? errMsg : "unknown");
+            if (errMsg) sqlite3_free(errMsg);
+            return false;
+        }
+        return true;
+    };
+
+    if (!SqliteTableHasColumn(db, "Matches", "playlist_id")) {
+        if (!execSql("ALTER TABLE Matches ADD COLUMN playlist_id INTEGER;", "Matches.playlist_id")) return false;
+    }
+    if (!SqliteTableHasColumn(db, "MatchPlayers", "mmr_estimated")) {
+        if (!execSql("ALTER TABLE MatchPlayers ADD COLUMN mmr_estimated BOOLEAN DEFAULT 0;", "MatchPlayers.mmr_estimated")) return false;
+    }
+    if (!SqliteTableHasColumn(db, "Matches", "result_pending")) {
+        if (!execSql("ALTER TABLE Matches ADD COLUMN result_pending BOOLEAN DEFAULT 0;", "Matches.result_pending")) return false;
+    }
+
+    const char* createIndexes = R"(
+        CREATE INDEX IF NOT EXISTS idx_matchplayers_primary_id ON MatchPlayers(primary_id);
+        CREATE INDEX IF NOT EXISTS idx_matchplayers_match_id ON MatchPlayers(match_id);
+        CREATE INDEX IF NOT EXISTS idx_mp_primary_match ON MatchPlayers(primary_id, match_id);
+        CREATE INDEX IF NOT EXISTS idx_matches_timestamp ON Matches(timestamp);
+        CREATE INDEX IF NOT EXISTS idx_matches_gamemode ON Matches(gamemode);
+        CREATE INDEX IF NOT EXISTS idx_matches_playlist_id ON Matches(playlist_id);
+    )";
+    return execSql(createIndexes, "v1 indexes");
+}
+
+static constexpr const char* kMigrationV2Sql = R"(
+    CREATE INDEX IF NOT EXISTS idx_mp_primary_match ON MatchPlayers(primary_id, match_id);
+    CREATE TABLE MatchPlayerStats (
+        match_id INTEGER NOT NULL REFERENCES Matches(id) ON DELETE CASCADE,
+        primary_id TEXT NOT NULL,
+        score INTEGER, goals INTEGER, assists INTEGER, saves INTEGER, shots INTEGER, demos INTEGER,
+        touches INTEGER, car_touches INTEGER,
+        max_goal_speed REAL, fastest_goal_time REAL,
+        PRIMARY KEY (match_id, primary_id)
+    );
+    CREATE TABLE MatchLocalStats (
+        match_id INTEGER PRIMARY KEY REFERENCES Matches(id) ON DELETE CASCADE,
+        boost_collected INTEGER, demoed INTEGER, crossbars INTEGER, hardest_crossbar REAL,
+        max_ball_speed REAL, own_goals INTEGER, duration_seconds REAL, overtime_seconds REAL,
+        stats_version INTEGER NOT NULL DEFAULT 1
+    );
+    CREATE INDEX IF NOT EXISTS idx_mps_primary_match ON MatchPlayerStats(primary_id, match_id);
+)";
+
+// Append new migrations in ascending version order; each runs in its own BEGIN IMMEDIATE transaction.
+static const std::vector<Migration> kMigrations = {
+    {1, kMigrationV1Sql, ApplyMigrationV1},
+    {2, kMigrationV2Sql},
+};
+
 static std::string CsvEscape(const std::string& value) {
     bool needsQuotes = value.find_first_of(",\"\r\n") != std::string::npos;
     if (!needsQuotes) return value;
@@ -192,119 +353,206 @@ bool DatabaseManager::Initialize(const std::string& dbPath) {
 }
 
 bool DatabaseManager::CreateTables() {
-    const char* createMatches = R"(
-        CREATE TABLE IF NOT EXISTS Matches (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
-            arena TEXT,
-            our_score INTEGER,
-            their_score INTEGER,
-            win BOOLEAN,
-            match_guid TEXT,
-            playlist_id INTEGER,
-            gamemode TEXT,
-            player_count INTEGER
-        );
+    const bool hadExistingTables = SqliteHasAnyUserTable(m_db);
+    int currentVersion = ReadUserVersion(m_db);
+    const int latestVersion = kMigrations.empty() ? 0 : kMigrations.back().version;
+
+    if (hadExistingTables && currentVersion < latestVersion) {
+        BackupDatabaseBeforeMigration(m_db, m_dbPath, currentVersion);
+    }
+
+    for (const auto& migration : kMigrations) {
+        if (migration.version <= currentVersion) continue;
+
+        char* errMsg = nullptr;
+        if (sqlite3_exec(m_db, "BEGIN IMMEDIATE;", nullptr, nullptr, &errMsg) != SQLITE_OK) {
+            std::cerr << "[Database] Failed to begin migration v" << migration.version << ": "
+                      << (errMsg ? errMsg : "unknown") << "\n";
+            if (errMsg) sqlite3_free(errMsg);
+            break;
+        }
+
+        bool stepOk = true;
+        std::string stepError;
+        if (migration.sql && migration.sql[0] != '\0') {
+            if (sqlite3_exec(m_db, migration.sql, nullptr, nullptr, &errMsg) != SQLITE_OK) {
+                stepError = errMsg ? errMsg : "SQL execution failed";
+                if (errMsg) sqlite3_free(errMsg);
+                errMsg = nullptr;
+                stepOk = false;
+            }
+        }
+
+        if (stepOk && migration.apply) {
+            stepOk = migration.apply(m_db, stepError);
+        }
+
+        if (stepOk) {
+            const std::string setVersionSql =
+                "PRAGMA user_version = " + std::to_string(migration.version) + ";";
+            if (sqlite3_exec(m_db, setVersionSql.c_str(), nullptr, nullptr, &errMsg) != SQLITE_OK) {
+                stepError = errMsg ? errMsg : "Failed to set user_version";
+                if (errMsg) sqlite3_free(errMsg);
+                errMsg = nullptr;
+                stepOk = false;
+            }
+        }
+
+        if (!stepOk || sqlite3_exec(m_db, "COMMIT;", nullptr, nullptr, &errMsg) != SQLITE_OK) {
+            if (errMsg) {
+                if (stepError.empty()) stepError = errMsg;
+                sqlite3_free(errMsg);
+            }
+            sqlite3_exec(m_db, "ROLLBACK;", nullptr, nullptr, nullptr);
+            std::cerr << "[Database] Migration to v" << migration.version << " failed (rolling back): "
+                      << stepError << "\n";
+            break;
+        }
+
+        currentVersion = migration.version;
+    }
+
+    const bool hasV1Tables = SqliteTableExists(m_db, "Matches") &&
+                             SqliteTableExists(m_db, "MatchPlayers") &&
+                             SqliteTableExists(m_db, "Settings");
+    m_hasStatsTables = SqliteTableExists(m_db, "MatchPlayerStats") &&
+                       SqliteTableExists(m_db, "MatchLocalStats");
+    return hasV1Tables;
+}
+
+bool DatabaseManager::HasStatsTablesLocked() const {
+    return m_hasStatsTables &&
+           SqliteTableExists(m_db, "MatchPlayerStats") &&
+           SqliteTableExists(m_db, "MatchLocalStats");
+}
+
+int DatabaseManager::GetSchemaVersion() {
+    std::lock_guard<std::mutex> lock(m_dbMutex);
+    return ReadUserVersion(m_db);
+}
+
+bool DatabaseManager::UpsertMatchStatsLocked(sqlite3_int64 matchId, const MatchSaveSnapshot& snapshot) {
+    if (!HasStatsTablesLocked()) {
+        return true;
+    }
+
+    const char* sqlPlayerStats = R"(
+        INSERT INTO MatchPlayerStats (
+            match_id, primary_id, score, goals, assists, saves, shots, demos,
+            touches, car_touches, max_goal_speed, fastest_goal_time
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(match_id, primary_id) DO UPDATE SET
+            score = excluded.score,
+            goals = excluded.goals,
+            assists = excluded.assists,
+            saves = excluded.saves,
+            shots = excluded.shots,
+            demos = excluded.demos,
+            touches = excluded.touches,
+            car_touches = excluded.car_touches,
+            max_goal_speed = excluded.max_goal_speed,
+            fastest_goal_time = excluded.fastest_goal_time;
     )";
 
-    const char* createPlayers = R"(
-        CREATE TABLE IF NOT EXISTS MatchPlayers (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            match_id INTEGER,
-            primary_id TEXT,
-            name TEXT,
-            team INTEGER,
-            mmr INTEGER,
-            mmr_estimated BOOLEAN DEFAULT 0,
-            is_opponent BOOLEAN DEFAULT 0,
-            FOREIGN KEY(match_id) REFERENCES Matches(id)
-        );
-    )";
-
-    const char* createSettings = R"(
-        CREATE TABLE IF NOT EXISTS Settings (
-            key TEXT PRIMARY KEY,
-            value TEXT
-        );
-    )";
-
-    char* errMsg = nullptr;
-    int rc = sqlite3_exec(m_db, createMatches, nullptr, nullptr, &errMsg);
-    if (rc != SQLITE_OK) {
-        std::cerr << "Error creating Matches table: " << errMsg << "\n";
-        sqlite3_free(errMsg);
+    sqlite3_stmt* stmtPlayerStats = nullptr;
+    if (sqlite3_prepare_v2(m_db, sqlPlayerStats, -1, &stmtPlayerStats, nullptr) != SQLITE_OK) {
+        std::cerr << "[Database] Failed to prepare MatchPlayerStats upsert.\n";
         return false;
     }
 
-    rc = sqlite3_exec(m_db, createPlayers, nullptr, nullptr, &errMsg);
-    if (rc != SQLITE_OK) {
-        std::cerr << "Error creating MatchPlayers table: " << errMsg << "\n";
-        sqlite3_free(errMsg);
-        return false;
-    }
+    bool ok = true;
+    for (const auto& [id, p] : snapshot.roster) {
+        const std::string& primaryId = p.primaryId.empty() ? id : p.primaryId;
+        if (primaryId.empty()) continue;
 
-    rc = sqlite3_exec(m_db, createSettings, nullptr, nullptr, &errMsg);
-    if (rc != SQLITE_OK) {
-        std::cerr << "Error creating Settings table: " << errMsg << "\n";
-        sqlite3_free(errMsg);
-        return false;
-    }
-
-    // Backward-compatible migration. Existing rows keep playlist_id NULL and
-    // continue through the legacy gamemode/player_count fallback. New rows
-    // retain the authoritative Game.PlaylistId end-to-end.
-    if (!SqliteTableHasColumn(m_db, "Matches", "playlist_id")) {
-        rc = sqlite3_exec(
-            m_db,
-            "ALTER TABLE Matches ADD COLUMN playlist_id INTEGER;",
-            nullptr, nullptr, &errMsg);
-        if (rc != SQLITE_OK) {
-            std::cerr << "Error migrating Matches.playlist_id: "
-                      << (errMsg ? errMsg : "unknown") << "\n";
-            if (errMsg) sqlite3_free(errMsg);
-            return false;
+        sqlite3_bind_int64(stmtPlayerStats, 1, matchId);
+        sqlite3_bind_text(stmtPlayerStats, 2, primaryId.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_null(stmtPlayerStats, 3);
+        sqlite3_bind_int(stmtPlayerStats, 4, p.goals);
+        sqlite3_bind_int(stmtPlayerStats, 5, p.assists);
+        sqlite3_bind_int(stmtPlayerStats, 6, p.saves);
+        sqlite3_bind_int(stmtPlayerStats, 7, p.shots);
+        sqlite3_bind_int(stmtPlayerStats, 8, p.demos);
+        sqlite3_bind_null(stmtPlayerStats, 9);
+        sqlite3_bind_null(stmtPlayerStats, 10);
+        if (p.maxGoalSpeed > 0.0f) {
+            sqlite3_bind_double(stmtPlayerStats, 11, static_cast<double>(p.maxGoalSpeed));
+        } else {
+            sqlite3_bind_null(stmtPlayerStats, 11);
         }
-    }
-
-    // Older databases have no way to distinguish an exact Tracker value
-    // from a provisional post-match estimate. Existing rows remain exact for
-    // compatibility; all new/updated rows carry the distinction explicitly.
-    if (!SqliteTableHasColumn(m_db, "MatchPlayers", "mmr_estimated")) {
-        rc = sqlite3_exec(
-            m_db,
-            "ALTER TABLE MatchPlayers ADD COLUMN mmr_estimated BOOLEAN DEFAULT 0;",
-            nullptr, nullptr, &errMsg);
-        if (rc != SQLITE_OK) {
-            std::cerr << "Error migrating MatchPlayers.mmr_estimated: "
-                      << (errMsg ? errMsg : "unknown") << "\n";
-            if (errMsg) sqlite3_free(errMsg);
-            return false;
+        if (p.fastestGoalTime > 0.0f) {
+            sqlite3_bind_double(stmtPlayerStats, 12, static_cast<double>(p.fastestGoalTime));
+        } else {
+            sqlite3_bind_null(stmtPlayerStats, 12);
         }
-    }
 
-    if (!SqliteTableHasColumn(m_db, "Matches", "result_pending")) {
-        rc = sqlite3_exec(
-            m_db,
-            "ALTER TABLE Matches ADD COLUMN result_pending BOOLEAN DEFAULT 0;",
-            nullptr, nullptr, &errMsg);
-        if (rc != SQLITE_OK) {
-            std::cerr << "Error migrating Matches.result_pending: "
-                      << (errMsg ? errMsg : "unknown") << "\n";
-            if (errMsg) sqlite3_free(errMsg);
-            return false;
+        if (sqlite3_step(stmtPlayerStats) != SQLITE_DONE) {
+            std::cerr << "[Database] Failed to upsert MatchPlayerStats row.\n";
+            ok = false;
+            break;
         }
+        sqlite3_reset(stmtPlayerStats);
+        sqlite3_clear_bindings(stmtPlayerStats);
     }
+    sqlite3_finalize(stmtPlayerStats);
+    if (!ok) return false;
 
-    const char* createIndexes = R"(
-        CREATE INDEX IF NOT EXISTS idx_matchplayers_primary_id ON MatchPlayers(primary_id);
-        CREATE INDEX IF NOT EXISTS idx_matchplayers_match_id ON MatchPlayers(match_id);
-        CREATE INDEX IF NOT EXISTS idx_matches_timestamp ON Matches(timestamp);
-        CREATE INDEX IF NOT EXISTS idx_matches_gamemode ON Matches(gamemode);
-        CREATE INDEX IF NOT EXISTS idx_matches_playlist_id ON Matches(playlist_id);
+    const char* sqlLocalStats = R"(
+        INSERT INTO MatchLocalStats (
+            match_id, boost_collected, demoed, crossbars, hardest_crossbar,
+            max_ball_speed, own_goals, duration_seconds, overtime_seconds, stats_version
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
+        ON CONFLICT(match_id) DO UPDATE SET
+            boost_collected = excluded.boost_collected,
+            demoed = excluded.demoed,
+            crossbars = excluded.crossbars,
+            hardest_crossbar = excluded.hardest_crossbar,
+            max_ball_speed = excluded.max_ball_speed,
+            own_goals = excluded.own_goals,
+            duration_seconds = excluded.duration_seconds,
+            overtime_seconds = excluded.overtime_seconds,
+            stats_version = excluded.stats_version;
     )";
-    sqlite3_exec(m_db, createIndexes, nullptr, nullptr, nullptr);
 
-    return true;
+    sqlite3_stmt* stmtLocalStats = nullptr;
+    if (sqlite3_prepare_v2(m_db, sqlLocalStats, -1, &stmtLocalStats, nullptr) != SQLITE_OK) {
+        std::cerr << "[Database] Failed to prepare MatchLocalStats upsert.\n";
+        return false;
+    }
+
+    const auto& local = snapshot.localStats;
+    sqlite3_bind_int64(stmtLocalStats, 1, matchId);
+    sqlite3_bind_int(stmtLocalStats, 2, local.boostPickedUpSelf);
+    sqlite3_bind_int(stmtLocalStats, 3, local.demoedSelf);
+    sqlite3_bind_int(stmtLocalStats, 4, local.crossbarsSelf);
+    if (local.maxImpactForceSelf > 0.0f) {
+        sqlite3_bind_double(stmtLocalStats, 5, static_cast<double>(local.maxImpactForceSelf));
+    } else {
+        sqlite3_bind_null(stmtLocalStats, 5);
+    }
+    if (local.maxBallSpeedSelf > 0.0f) {
+        sqlite3_bind_double(stmtLocalStats, 6, static_cast<double>(local.maxBallSpeedSelf));
+    } else {
+        sqlite3_bind_null(stmtLocalStats, 6);
+    }
+    sqlite3_bind_int(stmtLocalStats, 7, local.ownGoalsSelf);
+    if (snapshot.durationSeconds > 0.0f) {
+        sqlite3_bind_double(stmtLocalStats, 8, static_cast<double>(snapshot.durationSeconds));
+    } else {
+        sqlite3_bind_null(stmtLocalStats, 8);
+    }
+    if (snapshot.overtimeSeconds > 0.0f) {
+        sqlite3_bind_double(stmtLocalStats, 9, static_cast<double>(snapshot.overtimeSeconds));
+    } else {
+        sqlite3_bind_null(stmtLocalStats, 9);
+    }
+
+    ok = (sqlite3_step(stmtLocalStats) == SQLITE_DONE);
+    sqlite3_finalize(stmtLocalStats);
+    if (!ok) {
+        std::cerr << "[Database] Failed to upsert MatchLocalStats row.\n";
+    }
+    return ok;
 }
 
 void DatabaseManager::SaveMatch(const MatchSaveSnapshot& snapshot) {
@@ -491,11 +739,10 @@ void DatabaseManager::SaveMatch(const MatchSaveSnapshot& snapshot) {
     }
     sqlite3_finalize(stmtPlayers);
 
-    if (!ok) {
+    if (!ok || !UpsertMatchStatsLocked(matchId, snapshot)) {
         sqlite3_exec(m_db, "ROLLBACK;", nullptr, nullptr, nullptr);
         return;
     }
-
     if (sqlite3_exec(m_db, "COMMIT;", nullptr, nullptr, &errMsg) != SQLITE_OK) {
         std::cerr << "Failed to commit transaction: " << (errMsg ? errMsg : "unknown") << "\n";
         if (errMsg) sqlite3_free(errMsg);
@@ -515,6 +762,19 @@ void DatabaseManager::ResolvePendingMatchLocked(sqlite3_int64 matchId, const Mat
     if (!validResult) {
         sqlite3_stmt* stmt = nullptr;
         bool ok = sqlite3_exec(m_db, "BEGIN IMMEDIATE;", nullptr, nullptr, nullptr) == SQLITE_OK;
+        if (ok && HasStatsTablesLocked()) {
+            for (const char* sql : {"DELETE FROM MatchPlayerStats WHERE match_id = ?;",
+                                    "DELETE FROM MatchLocalStats WHERE match_id = ?;"}) {
+                if (!ok) break;
+                ok = sqlite3_prepare_v2(m_db, sql, -1, &stmt, nullptr) == SQLITE_OK;
+                if (ok) {
+                    sqlite3_bind_int64(stmt, 1, matchId);
+                    ok = sqlite3_step(stmt) == SQLITE_DONE;
+                }
+                sqlite3_finalize(stmt);
+                stmt = nullptr;
+            }
+        }
         for (const char* sql : {"DELETE FROM MatchPlayers WHERE match_id = ?;",
                                 "DELETE FROM Matches WHERE id = ?;"}) {
             if (!ok) break;
@@ -540,10 +800,16 @@ void DatabaseManager::ResolvePendingMatchLocked(sqlite3_int64 matchId, const Mat
     const int ourScore = snapshot.myTeam == 1 ? snapshot.score[1] : snapshot.score[0];
     const int theirScore = snapshot.myTeam == 1 ? snapshot.score[0] : snapshot.score[1];
 
+    if (sqlite3_exec(m_db, "BEGIN IMMEDIATE;", nullptr, nullptr, nullptr) != SQLITE_OK) {
+        std::cerr << "[Database] Failed to begin pending match confirmation.\n";
+        return;
+    }
+
     sqlite3_stmt* stmt = nullptr;
     const char* sql =
         "UPDATE Matches SET win = ?, our_score = ?, their_score = ?, result_pending = 0 WHERE id = ?;";
     if (sqlite3_prepare_v2(m_db, sql, -1, &stmt, nullptr) != SQLITE_OK) {
+        sqlite3_exec(m_db, "ROLLBACK;", nullptr, nullptr, nullptr);
         std::cerr << "[Database] Failed to prepare pending match confirmation.\n";
         return;
     }
@@ -551,9 +817,10 @@ void DatabaseManager::ResolvePendingMatchLocked(sqlite3_int64 matchId, const Mat
     sqlite3_bind_int(stmt, 2, ourScore);
     sqlite3_bind_int(stmt, 3, theirScore);
     sqlite3_bind_int64(stmt, 4, matchId);
-    const bool ok = sqlite3_step(stmt) == SQLITE_DONE;
+    const bool ok = sqlite3_step(stmt) == SQLITE_DONE && UpsertMatchStatsLocked(matchId, snapshot);
     sqlite3_finalize(stmt);
-    if (!ok) {
+    if (!ok || sqlite3_exec(m_db, "COMMIT;", nullptr, nullptr, nullptr) != SQLITE_OK) {
+        sqlite3_exec(m_db, "ROLLBACK;", nullptr, nullptr, nullptr);
         std::cerr << "[Database] Failed to confirm pending match.\n";
         return;
     }
@@ -695,9 +962,10 @@ void DatabaseManager::GetRecentMatchHistory(const std::string& primaryId, std::v
                strftime('%s', Matches.timestamp), COALESCE(MatchPlayers.mmr, 0), Matches.match_guid, Matches.playlist_id,
                COALESCE(MatchPlayers.mmr_estimated, 0)
         FROM Matches
-        LEFT JOIN MatchPlayers ON MatchPlayers.match_id = Matches.id AND MatchPlayers.primary_id = ?
+        LEFT JOIN MatchPlayers ON MatchPlayers.match_id = Matches.id AND MatchPlayers.primary_id = ?1
+        WHERE EXISTS (SELECT 1 FROM MatchPlayers p WHERE p.match_id = Matches.id AND p.primary_id = ?1)
         ORDER BY Matches.timestamp DESC, Matches.id DESC
-        LIMIT ?;
+        LIMIT ?2;
     )";
 
     sqlite3_stmt* stmt = nullptr;
@@ -858,6 +1126,20 @@ bool DatabaseManager::ExportLocalData(std::string& exportPath, std::string& erro
     matchesCsv << "id,timestamp,arena,our_score,their_score,win,match_guid,playlist_id,gamemode,player_count\n";
     playersCsv << "match_id,primary_id,name,team,mmr,mmr_estimated,is_opponent\n";
 
+    const bool hasStatsTables = HasStatsTablesLocked();
+    sqlite3_stmt* localStatsStmt = nullptr;
+    sqlite3_stmt* playerStatsStmt = nullptr;
+    if (hasStatsTables) {
+        const char* localStatsSql =
+            "SELECT boost_collected, demoed, crossbars, hardest_crossbar, max_ball_speed, own_goals, "
+            "duration_seconds, overtime_seconds, stats_version FROM MatchLocalStats WHERE match_id = ?;";
+        sqlite3_prepare_v2(m_db, localStatsSql, -1, &localStatsStmt, nullptr);
+        const char* playerStatsSql =
+            "SELECT score, goals, assists, saves, shots, demos, touches, car_touches, max_goal_speed, fastest_goal_time "
+            "FROM MatchPlayerStats WHERE match_id = ? AND primary_id = ?;";
+        sqlite3_prepare_v2(m_db, playerStatsSql, -1, &playerStatsStmt, nullptr);
+    }
+
     const char* matchesSql = "SELECT id, timestamp, arena, our_score, their_score, win, match_guid, playlist_id, gamemode, player_count FROM Matches ORDER BY timestamp ASC;";
     sqlite3_stmt* matchStmt = nullptr;
     if (sqlite3_prepare_v2(m_db, matchesSql, -1, &matchStmt, nullptr) != SQLITE_OK) {
@@ -882,6 +1164,35 @@ bool DatabaseManager::ExportLocalData(std::string& exportPath, std::string& erro
         match["gamemode"] = SqlColumnText(matchStmt, 8);
         match["player_count"] = sqlite3_column_int(matchStmt, 9);
         match["players"] = nlohmann::json::array();
+        match["local_stats"] = nullptr;
+        if (localStatsStmt) {
+            sqlite3_reset(localStatsStmt);
+            sqlite3_clear_bindings(localStatsStmt);
+            sqlite3_bind_int(localStatsStmt, 1, matchId);
+            if (sqlite3_step(localStatsStmt) == SQLITE_ROW) {
+                auto optInt = [&](int col) -> nlohmann::json {
+                    return sqlite3_column_type(localStatsStmt, col) == SQLITE_NULL
+                               ? nlohmann::json(nullptr)
+                               : nlohmann::json(sqlite3_column_int(localStatsStmt, col));
+                };
+                auto optDouble = [&](int col) -> nlohmann::json {
+                    return sqlite3_column_type(localStatsStmt, col) == SQLITE_NULL
+                               ? nlohmann::json(nullptr)
+                               : nlohmann::json(sqlite3_column_double(localStatsStmt, col));
+                };
+                match["local_stats"] = {
+                    {"boost_collected", optInt(0)},
+                    {"demoed", optInt(1)},
+                    {"crossbars", optInt(2)},
+                    {"hardest_crossbar", optDouble(3)},
+                    {"max_ball_speed", optDouble(4)},
+                    {"own_goals", optInt(5)},
+                    {"duration_seconds", optDouble(6)},
+                    {"overtime_seconds", optDouble(7)},
+                    {"stats_version", sqlite3_column_int(localStatsStmt, 8)},
+                };
+            }
+        }
 
         matchesCsv << matchId << ","
                    << CsvEscape(match["timestamp"].get<std::string>()) << ","
@@ -909,6 +1220,38 @@ bool DatabaseManager::ExportLocalData(std::string& exportPath, std::string& erro
                 player["mmr"] = sqlite3_column_int(playerStmt, 3);
                 player["mmr_estimated"] = sqlite3_column_int(playerStmt, 4) != 0;
                 player["is_opponent"] = sqlite3_column_int(playerStmt, 5) != 0;
+                player["stats"] = nullptr;
+                if (playerStatsStmt) {
+                    sqlite3_reset(playerStatsStmt);
+                    sqlite3_clear_bindings(playerStatsStmt);
+                    sqlite3_bind_int(playerStatsStmt, 1, matchId);
+                    const std::string pid = player["primary_id"].get<std::string>();
+                    sqlite3_bind_text(playerStatsStmt, 2, pid.c_str(), -1, SQLITE_TRANSIENT);
+                    if (sqlite3_step(playerStatsStmt) == SQLITE_ROW) {
+                        auto optInt = [&](int col) -> nlohmann::json {
+                            return sqlite3_column_type(playerStatsStmt, col) == SQLITE_NULL
+                                       ? nlohmann::json(nullptr)
+                                       : nlohmann::json(sqlite3_column_int(playerStatsStmt, col));
+                        };
+                        auto optDouble = [&](int col) -> nlohmann::json {
+                            return sqlite3_column_type(playerStatsStmt, col) == SQLITE_NULL
+                                       ? nlohmann::json(nullptr)
+                                       : nlohmann::json(sqlite3_column_double(playerStatsStmt, col));
+                        };
+                        player["stats"] = {
+                            {"score", optInt(0)},
+                            {"goals", optInt(1)},
+                            {"assists", optInt(2)},
+                            {"saves", optInt(3)},
+                            {"shots", optInt(4)},
+                            {"demos", optInt(5)},
+                            {"touches", optInt(6)},
+                            {"car_touches", optInt(7)},
+                            {"max_goal_speed", optDouble(8)},
+                            {"fastest_goal_time", optDouble(9)},
+                        };
+                    }
+                }
                 match["players"].push_back(player);
 
                 playersCsv << matchId << ","
@@ -925,6 +1268,8 @@ bool DatabaseManager::ExportLocalData(std::string& exportPath, std::string& erro
         matches.push_back(match);
     }
     sqlite3_finalize(matchStmt);
+    if (playerStatsStmt) sqlite3_finalize(playerStatsStmt);
+    if (localStatsStmt) sqlite3_finalize(localStatsStmt);
 
     std::ofstream jsonFile(exportPath + "matches.json", std::ios::trunc);
     if (!jsonFile.is_open()) {
@@ -944,14 +1289,12 @@ bool DatabaseManager::DeleteLocalMatchHistory(std::string& error) {
     }
 
     char* errMsg = nullptr;
-    const char* sql = R"(
-        BEGIN IMMEDIATE;
-        DELETE FROM MatchPlayers;
-        DELETE FROM Matches;
-        DELETE FROM sqlite_sequence WHERE name IN ('Matches', 'MatchPlayers');
-        COMMIT;
-    )";
-    if (sqlite3_exec(m_db, sql, nullptr, nullptr, &errMsg) != SQLITE_OK) {
+    std::string sql = "BEGIN IMMEDIATE;";
+    if (SqliteTableExists(m_db, "MatchPlayerStats")) sql += "DELETE FROM MatchPlayerStats;";
+    if (SqliteTableExists(m_db, "MatchLocalStats")) sql += "DELETE FROM MatchLocalStats;";
+    sql += "DELETE FROM MatchPlayers; DELETE FROM Matches; "
+           "DELETE FROM sqlite_sequence WHERE name IN ('Matches', 'MatchPlayers'); COMMIT;";
+    if (sqlite3_exec(m_db, sql.c_str(), nullptr, nullptr, &errMsg) != SQLITE_OK) {
         error = errMsg ? errMsg : "Failed to delete local history.";
         if (errMsg) sqlite3_free(errMsg);
         sqlite3_exec(m_db, "ROLLBACK;", nullptr, nullptr, nullptr);
@@ -1024,6 +1367,10 @@ DbMergeResult DatabaseManager::MergeDatabase(const std::string& sourceDbPath) {
     const bool srcHasMmrEstimated = SqliteTableHasColumn(srcDb, "MatchPlayers", "mmr_estimated");
     const bool srcHasIsOpponent = SqliteTableHasColumn(srcDb, "MatchPlayers", "is_opponent");
 
+    const bool copyPlayerStats =
+        tableExists(srcDb, "MatchPlayerStats") && SqliteTableExists(m_db, "MatchPlayerStats");
+    const bool copyLocalStats =
+        tableExists(srcDb, "MatchLocalStats") && SqliteTableExists(m_db, "MatchLocalStats");
     char* errMsg = nullptr;
     if (sqlite3_exec(m_db, "BEGIN IMMEDIATE;", nullptr, nullptr, &errMsg) != SQLITE_OK) {
         result.error = errMsg ? errMsg : "Failed to begin transaction on target database.";
@@ -1095,6 +1442,61 @@ DbMergeResult DatabaseManager::MergeDatabase(const std::string& sourceDbPath) {
         return result;
     }
 
+    sqlite3_stmt* selectPlayerStatsStmt = nullptr;
+    sqlite3_stmt* insertPlayerStatsStmt = nullptr;
+    if (copyPlayerStats) {
+        const char* selectPlayerStatsSql =
+            "SELECT primary_id, score, goals, assists, saves, shots, demos, touches, car_touches, "
+            "max_goal_speed, fastest_goal_time FROM MatchPlayerStats WHERE match_id = ?;";
+        const char* insertPlayerStatsSql =
+            "INSERT OR REPLACE INTO MatchPlayerStats (match_id, primary_id, score, goals, assists, saves, "
+            "shots, demos, touches, car_touches, max_goal_speed, fastest_goal_time) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);";
+        if (sqlite3_prepare_v2(srcDb, selectPlayerStatsSql, -1, &selectPlayerStatsStmt, nullptr) != SQLITE_OK ||
+            sqlite3_prepare_v2(m_db, insertPlayerStatsSql, -1, &insertPlayerStatsStmt, nullptr) != SQLITE_OK) {
+            result.error = "Failed to prepare MatchPlayerStats merge statements.";
+            if (selectPlayerStatsStmt) sqlite3_finalize(selectPlayerStatsStmt);
+            if (insertPlayerStatsStmt) sqlite3_finalize(insertPlayerStatsStmt);
+            sqlite3_finalize(selectPlayersStmt);
+            sqlite3_finalize(selectMatchesStmt);
+            sqlite3_finalize(checkGuidStmt);
+            sqlite3_finalize(checkFallbackStmt);
+            sqlite3_finalize(insertMatchStmt);
+            sqlite3_finalize(insertPlayerStmt);
+            sqlite3_exec(m_db, "ROLLBACK;", nullptr, nullptr, nullptr);
+            sqlite3_close(srcDb);
+            return result;
+        }
+    }
+
+    sqlite3_stmt* selectLocalStatsStmt = nullptr;
+    sqlite3_stmt* insertLocalStatsStmt = nullptr;
+    if (copyLocalStats) {
+        const char* selectLocalStatsSql =
+            "SELECT boost_collected, demoed, crossbars, hardest_crossbar, max_ball_speed, own_goals, "
+            "duration_seconds, overtime_seconds, stats_version FROM MatchLocalStats WHERE match_id = ?;";
+        const char* insertLocalStatsSql =
+            "INSERT OR REPLACE INTO MatchLocalStats (match_id, boost_collected, demoed, crossbars, "
+            "hardest_crossbar, max_ball_speed, own_goals, duration_seconds, overtime_seconds, stats_version) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);";
+        if (sqlite3_prepare_v2(srcDb, selectLocalStatsSql, -1, &selectLocalStatsStmt, nullptr) != SQLITE_OK ||
+            sqlite3_prepare_v2(m_db, insertLocalStatsSql, -1, &insertLocalStatsStmt, nullptr) != SQLITE_OK) {
+            result.error = "Failed to prepare MatchLocalStats merge statements.";
+            if (selectLocalStatsStmt) sqlite3_finalize(selectLocalStatsStmt);
+            if (insertLocalStatsStmt) sqlite3_finalize(insertLocalStatsStmt);
+            if (selectPlayerStatsStmt) sqlite3_finalize(selectPlayerStatsStmt);
+            if (insertPlayerStatsStmt) sqlite3_finalize(insertPlayerStatsStmt);
+            sqlite3_finalize(selectPlayersStmt);
+            sqlite3_finalize(selectMatchesStmt);
+            sqlite3_finalize(checkGuidStmt);
+            sqlite3_finalize(checkFallbackStmt);
+            sqlite3_finalize(insertMatchStmt);
+            sqlite3_finalize(insertPlayerStmt);
+            sqlite3_exec(m_db, "ROLLBACK;", nullptr, nullptr, nullptr);
+            sqlite3_close(srcDb);
+            return result;
+        }
+    }
     bool loopOk = true;
     while (sqlite3_step(selectMatchesStmt) == SQLITE_ROW) {
         int64_t oldMatchId = sqlite3_column_int64(selectMatchesStmt, 0);
@@ -1198,9 +1600,85 @@ DbMergeResult DatabaseManager::MergeDatabase(const std::string& sourceDbPath) {
         }
 
         if (!loopOk) break;
+        if (copyPlayerStats) {
+            sqlite3_reset(selectPlayerStatsStmt);
+            sqlite3_clear_bindings(selectPlayerStatsStmt);
+            sqlite3_bind_int64(selectPlayerStatsStmt, 1, oldMatchId);
+            while (sqlite3_step(selectPlayerStatsStmt) == SQLITE_ROW) {
+                std::string primaryId = SqlColumnText(selectPlayerStatsStmt, 0);
+                sqlite3_reset(insertPlayerStatsStmt);
+                sqlite3_clear_bindings(insertPlayerStatsStmt);
+                sqlite3_bind_int64(insertPlayerStatsStmt, 1, newMatchId);
+                sqlite3_bind_text(insertPlayerStatsStmt, 2, primaryId.c_str(), -1, SQLITE_TRANSIENT);
+                for (int col = 1; col <= 8; ++col) {
+                    if (sqlite3_column_type(selectPlayerStatsStmt, col) == SQLITE_NULL) {
+                        sqlite3_bind_null(insertPlayerStatsStmt, col + 2);
+                    } else {
+                        sqlite3_bind_int(insertPlayerStatsStmt, col + 2, sqlite3_column_int(selectPlayerStatsStmt, col));
+                    }
+                }
+                for (int col = 9; col <= 10; ++col) {
+                    if (sqlite3_column_type(selectPlayerStatsStmt, col) == SQLITE_NULL) {
+                        sqlite3_bind_null(insertPlayerStatsStmt, col + 2);
+                    } else {
+                        sqlite3_bind_double(insertPlayerStatsStmt, col + 2, sqlite3_column_double(selectPlayerStatsStmt, col));
+                    }
+                }
+                if (sqlite3_step(insertPlayerStatsStmt) != SQLITE_DONE) {
+                    result.error = "Failed to insert MatchPlayerStats into target database: " + std::string(sqlite3_errmsg(m_db));
+                    loopOk = false;
+                    break;
+                }
+            }
+            if (!loopOk) break;
+        }
+
+        if (copyLocalStats) {
+            sqlite3_reset(selectLocalStatsStmt);
+            sqlite3_clear_bindings(selectLocalStatsStmt);
+            sqlite3_bind_int64(selectLocalStatsStmt, 1, oldMatchId);
+            if (sqlite3_step(selectLocalStatsStmt) == SQLITE_ROW) {
+                sqlite3_reset(insertLocalStatsStmt);
+                sqlite3_clear_bindings(insertLocalStatsStmt);
+                sqlite3_bind_int64(insertLocalStatsStmt, 1, newMatchId);
+                auto bindOptInt = [&](int srcCol, int dstParam) {
+                    if (sqlite3_column_type(selectLocalStatsStmt, srcCol) == SQLITE_NULL) {
+                        sqlite3_bind_null(insertLocalStatsStmt, dstParam);
+                    } else {
+                        sqlite3_bind_int(insertLocalStatsStmt, dstParam, sqlite3_column_int(selectLocalStatsStmt, srcCol));
+                    }
+                };
+                auto bindOptDouble = [&](int srcCol, int dstParam) {
+                    if (sqlite3_column_type(selectLocalStatsStmt, srcCol) == SQLITE_NULL) {
+                        sqlite3_bind_null(insertLocalStatsStmt, dstParam);
+                    } else {
+                        sqlite3_bind_double(insertLocalStatsStmt, dstParam, sqlite3_column_double(selectLocalStatsStmt, srcCol));
+                    }
+                };
+                bindOptInt(0, 2);
+                bindOptInt(1, 3);
+                bindOptInt(2, 4);
+                bindOptDouble(3, 5);
+                bindOptDouble(4, 6);
+                bindOptInt(5, 7);
+                bindOptDouble(6, 8);
+                bindOptDouble(7, 9);
+                sqlite3_bind_int(insertLocalStatsStmt, 10, sqlite3_column_int(selectLocalStatsStmt, 8));
+                if (sqlite3_step(insertLocalStatsStmt) != SQLITE_DONE) {
+                    result.error = "Failed to insert MatchLocalStats into target database: " + std::string(sqlite3_errmsg(m_db));
+                    loopOk = false;
+                    break;
+                }
+            }
+            if (!loopOk) break;
+        }
     }
 
     sqlite3_finalize(selectPlayersStmt);
+    if (selectLocalStatsStmt) sqlite3_finalize(selectLocalStatsStmt);
+    if (insertLocalStatsStmt) sqlite3_finalize(insertLocalStatsStmt);
+    if (selectPlayerStatsStmt) sqlite3_finalize(selectPlayerStatsStmt);
+    if (insertPlayerStatsStmt) sqlite3_finalize(insertPlayerStatsStmt);
     sqlite3_finalize(selectMatchesStmt);
     sqlite3_finalize(checkGuidStmt);
     sqlite3_finalize(checkFallbackStmt);
@@ -1222,6 +1700,155 @@ DbMergeResult DatabaseManager::MergeDatabase(const std::string& sourceDbPath) {
 
     result.success = true;
     return result;
+}
+
+static std::string NormalizeStatSeriesPlaylistFilter(const std::string& filter) {
+    if (filter.empty() || filter == "all" || filter == "All" || filter == "best" || filter == "Best") {
+        return "";
+    }
+    if (filter == "Duel") return "1v1";
+    if (filter == "Doubles") return "2v2";
+    if (filter == "Standard") return "3v3";
+    if (filter == "Casual") return "casual";
+    if (filter == "Tournament" || filter == "Tournament Match") return "t";
+    if (filter == "Hoops") return "hoops";
+    if (filter == "Rumble") return "rumble";
+    if (filter == "Dropshot") return "dropshot";
+    if (filter == "Snow Day") return "snowday";
+    if (filter == "Heatseeker") return "heatseeker";
+    return filter;
+}
+
+std::vector<PlayerStatRow> DatabaseManager::GetPlayerStatSeries(const std::string& primaryId,
+                                                                const std::string& playlistFilter,
+                                                                int limit) {
+    std::vector<PlayerStatRow> rows;
+    std::lock_guard<std::mutex> lock(m_dbMutex);
+    if (!m_db || primaryId.empty() || !HasStatsTablesLocked()) return rows;
+
+    if (limit <= 0) limit = 100;
+    const std::string normalizedFilter = NormalizeStatSeriesPlaylistFilter(playlistFilter);
+    const bool filtered = !normalizedFilter.empty();
+
+    std::string sql = R"(
+        SELECT Matches.id, Matches.match_guid, strftime('%s', Matches.timestamp),
+               Matches.gamemode, COALESCE(Matches.playlist_id, -1), Matches.win,
+               Matches.our_score, Matches.their_score, COALESCE(MatchPlayers.mmr, 0),
+               MatchPlayerStats.score, COALESCE(MatchPlayerStats.goals, 0),
+               COALESCE(MatchPlayerStats.assists, 0), COALESCE(MatchPlayerStats.saves, 0),
+               COALESCE(MatchPlayerStats.shots, 0), COALESCE(MatchPlayerStats.demos, 0),
+               MatchPlayerStats.touches, MatchPlayerStats.car_touches,
+               MatchPlayerStats.max_goal_speed, MatchPlayerStats.fastest_goal_time,
+               MatchLocalStats.match_id, COALESCE(MatchLocalStats.boost_collected, 0),
+               COALESCE(MatchLocalStats.demoed, 0), COALESCE(MatchLocalStats.crossbars, 0),
+               MatchLocalStats.hardest_crossbar, MatchLocalStats.max_ball_speed,
+               COALESCE(MatchLocalStats.own_goals, 0), MatchLocalStats.duration_seconds,
+               MatchLocalStats.overtime_seconds, COALESCE(MatchLocalStats.stats_version, 1)
+        FROM MatchPlayerStats
+        JOIN Matches ON Matches.id = MatchPlayerStats.match_id
+        LEFT JOIN MatchPlayers ON MatchPlayers.match_id = Matches.id AND MatchPlayers.primary_id = ?1
+        LEFT JOIN MatchLocalStats ON MatchLocalStats.match_id = Matches.id
+        WHERE MatchPlayerStats.primary_id = ?1
+    )";
+    if (filtered) {
+        sql += " AND Matches.gamemode = ?2 ORDER BY Matches.timestamp DESC, Matches.id DESC LIMIT ?3;";
+    } else {
+        sql += " ORDER BY Matches.timestamp DESC, Matches.id DESC LIMIT ?2;";
+    }
+
+    sqlite3_stmt* stmt = nullptr;
+    if (sqlite3_prepare_v2(m_db, sql.c_str(), -1, &stmt, nullptr) != SQLITE_OK) {
+        return rows;
+    }
+
+    sqlite3_bind_text(stmt, 1, primaryId.c_str(), -1, SQLITE_TRANSIENT);
+    if (filtered) {
+        sqlite3_bind_text(stmt, 2, normalizedFilter.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_int(stmt, 3, limit);
+    } else {
+        sqlite3_bind_int(stmt, 2, limit);
+    }
+
+    while (sqlite3_step(stmt) == SQLITE_ROW) {
+        PlayerStatRow row;
+        row.matchId = sqlite3_column_int64(stmt, 0);
+        row.matchGuid = SqlColumnText(stmt, 1);
+        row.timestampUnix = sqlite3_column_int64(stmt, 2);
+        row.playlist = SqlColumnText(stmt, 3);
+        row.playlistId = sqlite3_column_int(stmt, 4);
+        row.win = sqlite3_column_int(stmt, 5) != 0;
+        row.ourScore = sqlite3_column_int(stmt, 6);
+        row.theirScore = sqlite3_column_int(stmt, 7);
+        row.mmr = sqlite3_column_int(stmt, 8);
+        if (sqlite3_column_type(stmt, 9) != SQLITE_NULL) row.score = sqlite3_column_int(stmt, 9);
+        row.goals = sqlite3_column_int(stmt, 10);
+        row.assists = sqlite3_column_int(stmt, 11);
+        row.saves = sqlite3_column_int(stmt, 12);
+        row.shots = sqlite3_column_int(stmt, 13);
+        row.demos = sqlite3_column_int(stmt, 14);
+        if (sqlite3_column_type(stmt, 15) != SQLITE_NULL) row.touches = sqlite3_column_int(stmt, 15);
+        if (sqlite3_column_type(stmt, 16) != SQLITE_NULL) row.carTouches = sqlite3_column_int(stmt, 16);
+        if (sqlite3_column_type(stmt, 17) != SQLITE_NULL)
+            row.maxGoalSpeed = static_cast<float>(sqlite3_column_double(stmt, 17));
+        if (sqlite3_column_type(stmt, 18) != SQLITE_NULL)
+            row.fastestGoalTime = static_cast<float>(sqlite3_column_double(stmt, 18));
+        row.hasLocalStats = sqlite3_column_type(stmt, 19) != SQLITE_NULL;
+        row.boostCollected = sqlite3_column_int(stmt, 20);
+        row.demoed = sqlite3_column_int(stmt, 21);
+        row.crossbars = sqlite3_column_int(stmt, 22);
+        if (sqlite3_column_type(stmt, 23) != SQLITE_NULL)
+            row.hardestCrossbar = static_cast<float>(sqlite3_column_double(stmt, 23));
+        if (sqlite3_column_type(stmt, 24) != SQLITE_NULL)
+            row.maxBallSpeed = static_cast<float>(sqlite3_column_double(stmt, 24));
+        row.ownGoals = sqlite3_column_int(stmt, 25);
+        if (sqlite3_column_type(stmt, 26) != SQLITE_NULL)
+            row.durationSeconds = static_cast<float>(sqlite3_column_double(stmt, 26));
+        if (sqlite3_column_type(stmt, 27) != SQLITE_NULL)
+            row.overtimeSeconds = static_cast<float>(sqlite3_column_double(stmt, 27));
+        row.statsVersion = sqlite3_column_int(stmt, 28);
+        rows.push_back(std::move(row));
+    }
+
+    sqlite3_finalize(stmt);
+    return rows;
+}
+
+void DatabaseManager::GetDetailedStatsSummary(int& outMatchCount, std::string& outSinceDate) {
+    outMatchCount = 0;
+    outSinceDate.clear();
+    std::lock_guard<std::mutex> lock(m_dbMutex);
+    if (!m_db || !HasStatsTablesLocked()) return;
+
+    const char* sql = R"(
+        SELECT COUNT(*), COALESCE(MIN(substr(Matches.timestamp, 1, 10)), '')
+        FROM Matches
+        WHERE EXISTS (SELECT 1 FROM MatchLocalStats s WHERE s.match_id = Matches.id)
+           OR EXISTS (SELECT 1 FROM MatchPlayerStats p WHERE p.match_id = Matches.id);
+    )";
+    sqlite3_stmt* stmt = nullptr;
+    if (sqlite3_prepare_v2(m_db, sql, -1, &stmt, nullptr) != SQLITE_OK) return;
+    if (sqlite3_step(stmt) == SQLITE_ROW) {
+        outMatchCount = sqlite3_column_int(stmt, 0);
+        if (outMatchCount > 0) {
+            outSinceDate = SqlColumnText(stmt, 1);
+        }
+    }
+    sqlite3_finalize(stmt);
+}
+
+void DatabaseManager::AsyncRefreshDetailedStatsSummary() {
+    (void)EnqueueDbJob([this]() {
+        int count = 0;
+        std::string sinceDate;
+        GetDetailedStatsSummary(count, sinceDate);
+        if (m_state) {
+            std::lock_guard<std::mutex> lock(m_state->ui.dbStatsMutex);
+            m_state->ui.cachedDbStats.detailedStatsMatchCount = count;
+            m_state->ui.cachedDbStats.detailedStatsSinceDate = std::move(sinceDate);
+            m_state->ui.dbStatsVersion.fetch_add(1, std::memory_order_relaxed);
+        }
+    },
+                       DbJobPriority::Coalescable, "detailed_stats_summary");
 }
 
 void DatabaseManager::GetOpponentRecord(const std::string& primaryId, const std::string& opponentId, int& wins, int& losses) {
@@ -1511,6 +2138,7 @@ void DatabaseManager::RefreshDbStatsSync(const std::string& primaryId) {
     for (const auto& gm : {"1v1", "2v2", "3v3", "hoops", "rumble", "dropshot", "snowday", "heatseeker", "casual", "t"}) {
         GetGamemodeStats(primaryId, gm, newStats.gamemodes[gm].wins, newStats.gamemodes[gm].losses, newStats.gamemodes[gm].total);
     }
+    GetDetailedStatsSummary(newStats.detailedStatsMatchCount, newStats.detailedStatsSinceDate);
     if (m_state) {
         std::lock_guard<std::mutex> lock(m_state->ui.dbStatsMutex);
         m_state->ui.cachedDbStats = newStats;
@@ -1578,8 +2206,19 @@ void DatabaseManager::AsyncSaveMatch(MatchSaveSnapshot snapshot) {
     if (!EnqueueDbJob([this, snap = std::move(snapshot)]() {
             SaveMatch(snap);
             RefreshDbStatsSync(snap.myPrimaryId);
+            if (snap.myPrimaryId.empty()) {
+                int detailedCount = 0;
+                std::string detailedSince;
+                GetDetailedStatsSummary(detailedCount, detailedSince);
+                if (m_state) {
+                    std::lock_guard<std::mutex> lock(m_state->ui.dbStatsMutex);
+                    m_state->ui.cachedDbStats.detailedStatsMatchCount = detailedCount;
+                    m_state->ui.cachedDbStats.detailedStatsSinceDate = std::move(detailedSince);
+                    m_state->ui.dbStatsVersion.fetch_add(1, std::memory_order_relaxed);
+                }
+            }
             ConfigData conf = Config::Read();
-            std::string primaryId = conf.last_primary_id.empty() ? snap.myPrimaryId : conf.last_primary_id;
+            std::string primaryId = snap.myPrimaryId.empty() ? conf.last_primary_id : snap.myPrimaryId;
             std::vector<SessionMatchSummary> matches;
             GetRecentMatchHistory(primaryId, matches, conf.previous_games_limit);
             if (m_state) {

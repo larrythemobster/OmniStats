@@ -23,6 +23,17 @@ The installation ID is persistent and pseudonymous, not anonymous. It is created
 
 Tracker Network, Discord, Ballchasing, GitHub, and other third-party services apply their own privacy practices to requests sent to them. The Tracker integration may stop working if its service or access requirements change.
 
+## Locally stored match data
+
+OmniStats stores match history on your PC in `%APPDATA%\omnistats\omnistats.db` (`Matches`, `MatchPlayers`, `MatchPlayerStats`, and `MatchLocalStats`) and `%APPDATA%\omnistats\matches.jsonl`:
+
+- `Matches` stores the timestamp, arena, team scores, win/loss outcome, match GUID, playlist ID, gamemode, and player count.
+- `MatchPlayers` stores each participant's platform primary ID, display name, team number, opponent flag, and MMR at match time.
+- `MatchPlayerStats` stores each participant's scoreboard score, goals, assists, saves, shots, demolitions, ball touches, car touches, max goal speed, and fastest goal time.
+- `MatchLocalStats` stores the local player's boost collected, times demolished, crossbars hit, hardest crossbar impact, max ball speed, own goals, match duration, overtime duration, and stats schema version.
+
+These tables remain on your machine and are never uploaded by OmniStats. **Export Local Data** writes them to `%APPDATA%\omnistats\exports`, and **Delete History & Identity** clears all four tables along with the local JSONL files.
+
 ## Local controls
 
 In Settings, **Replays & services** controls optional integrations. **Data & privacy** contains crash report sharing, history exports, and **Delete History & Identity**. Deletion requires confirmation and keeps settings and tokens. Ballchasing tokens are hidden unless **Show token** is selected.

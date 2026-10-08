@@ -349,6 +349,7 @@ class RmlUiController final : public Rml::EventListener {
     std::string m_lastRecentMatchHistoryPrimaryId;
     int m_lastRecentMatchHistoryLimit = 0;
 
+    bool m_detailedStatsSummaryRequested = false;
     SettingsPage m_settingsPage = SettingsPage::General;
     BindCaptureTarget m_bindCaptureTarget = BindCaptureTarget::None;
     bool m_showBallchasingToken = false;

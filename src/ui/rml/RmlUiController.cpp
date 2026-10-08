@@ -524,6 +524,10 @@ void RmlUiController::RefreshAsyncData() {
         m_lastRecentMatchHistoryPrimaryId = effectivePrimary;
         m_lastRecentMatchHistoryLimit = recentLimit;
     }
+    if (!m_detailedStatsSummaryRequested || m_state->ui.dbStatsDirty.load(std::memory_order_relaxed)) {
+        m_dbManager->AsyncRefreshDetailedStatsSummary();
+        m_detailedStatsSummaryRequested = true;
+    }
 }
 
 void RmlUiController::RebuildVisibleUi(bool force, bool configChanged) {
@@ -739,6 +743,9 @@ void RmlUiController::RebuildVisibleUi(bool force, bool configChanged) {
                 HashAppend(settingsHash, static_cast<uint64_t>(std::bit_cast<uint32_t>(result.packetSendRate)));
                 HashAppend(settingsHash, static_cast<uint64_t>(result.rlRunning));
             }
+        }
+        if (m_settingsPage == SettingsPage::Data && m_state) {
+            HashAppend(settingsHash, m_state->ui.dbStatsVersion.load(std::memory_order_relaxed));
         }
         if (m_settingsPage == SettingsPage::General || m_settingsPage == SettingsPage::Ranks) {
             // game.version also advances for ordinary match counters. Hash only
@@ -1228,6 +1235,7 @@ void RmlUiController::DeleteLocalHistory() {
     m_lastDbFetchPrimaryId.clear();
     m_lastLifetimeHistoryPrimaryId.clear();
     m_lastRecentMatchHistoryPrimaryId.clear();
+    m_detailedStatsSummaryRequested = false;
     ShowToast("Deleted local history and identity.");
 }
 

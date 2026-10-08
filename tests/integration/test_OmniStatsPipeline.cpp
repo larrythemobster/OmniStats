@@ -697,3 +697,75 @@ TEST_F(
     EXPECT_TRUE(points[0].trackerCovered);
     EXPECT_TRUE(points[1].trackerCovered);
 }
+
+TEST_F(OmniStatsPipelineTest, TelemetryReducerPersistsPerPlayerAndLocalStatsAndPendingConfirmationYieldsOneStatsRow) {
+    const std::string heroId = "steam|76561198000000001";
+    const std::string oppId = "epic|opponent2222";
+
+    StartRankedOnesMatch("pipeline-v2-stats-guid", 2, 1, 20);
+
+    // Boost pickup (+33)
+    client->HandleLine(R"({
+        "Event": "UpdateState",
+        "Data": {
+            "Game": { "bReplay": false },
+            "Players": [
+                { "PrimaryId": "steam|76561198000000001", "Name": "Hero", "TeamNum": 0, "Boost": 20 },
+                { "PrimaryId": "epic|opponent2222", "Name": "Opponent", "TeamNum": 1, "Boost": 80 }
+            ]
+        }
+    })");
+    client->HandleLine(R"({
+        "Event": "UpdateState",
+        "Data": {
+            "Game": { "bReplay": false },
+            "Players": [
+                { "PrimaryId": "steam|76561198000000001", "Name": "Hero", "TeamNum": 0, "Boost": 65 },
+                { "PrimaryId": "epic|opponent2222", "Name": "Opponent", "TeamNum": 1, "Boost": 80 }
+            ]
+        }
+    })");
+
+    // Statfeed & Goal events
+    client->HandleLine(R"({"Event":"StatfeedEvent","Data":{"EventName":"Save","Player":{"PrimaryId":"steam|76561198000000001","Name":"Hero"}}})");
+    client->HandleLine(R"({"Event":"StatfeedEvent","Data":{"EventName":"Shot","Player":{"PrimaryId":"steam|76561198000000001","Name":"Hero"}}})");
+    client->HandleLine(R"({"Event":"StatfeedEvent","Data":{"EventName":"Demolish","MainTarget":{"PrimaryId":"steam|76561198000000001","Name":"Hero"},"SecondaryTarget":{"PrimaryId":"epic|opponent2222","Name":"Opponent"}}})");
+    client->HandleLine(R"({"Event":"GoalScored","Data":{"Scorer":{"PrimaryId":"steam|76561198000000001","Name":"Hero"},"GoalSpeed":104.5,"GoalTime":19.0}})");
+    client->HandleLine(R"({"Event":"GoalScored","Data":{"Scorer":{"PrimaryId":"epic|opponent2222","Name":"Opponent"},"GoalSpeed":95.0,"GoalTime":42.0}})");
+    client->HandleLine(R"({"Event":"CrossbarHit","Data":{"ImpactForce":1200.0,"BallLastTouch":{"Player":{"PrimaryId":"steam|76561198000000001","Name":"Hero"}}}})");
+    client->HandleLine(R"({"Event":"BallHit","Data":{"Ball":{"PostHitSpeed":115.0},"Players":[{"PrimaryId":"steam|76561198000000001","Name":"Hero"}]}})");
+
+    // Destroyed before MatchEnded creates provisional pending row, then MatchEnded confirms it
+    client->HandleLine(R"({"Event":"MatchDestroyed","Data":{"MatchGuid":"pipeline-v2-stats-guid"}})");
+    client->HandleLine(R"({"Event":"MatchEnded","Data":{"MatchGuid":"pipeline-v2-stats-guid","WinnerTeamNum":0,"Teams":[{"TeamNum":0,"Score":2},{"TeamNum":1,"Score":1}]}})");
+    ASSERT_TRUE(WaitForDatabase("pipeline_v2_stats_barrier"));
+
+    const auto heroSeries = db->GetPlayerStatSeries(heroId, "1v1", 10);
+    ASSERT_EQ(heroSeries.size(), 1u);
+    EXPECT_EQ(heroSeries[0].matchGuid, "pipeline-v2-stats-guid");
+    EXPECT_TRUE(heroSeries[0].win);
+    EXPECT_EQ(heroSeries[0].goals, 1);
+    EXPECT_EQ(heroSeries[0].saves, 1);
+    EXPECT_EQ(heroSeries[0].shots, 1);
+    EXPECT_EQ(heroSeries[0].demos, 1);
+    ASSERT_TRUE(heroSeries[0].maxGoalSpeed.has_value());
+    EXPECT_FLOAT_EQ(*heroSeries[0].maxGoalSpeed, 104.5f);
+    ASSERT_TRUE(heroSeries[0].fastestGoalTime.has_value());
+    EXPECT_FLOAT_EQ(*heroSeries[0].fastestGoalTime, 19.0f);
+    EXPECT_EQ(heroSeries[0].boostCollected, 45);
+    EXPECT_EQ(heroSeries[0].crossbars, 1);
+    ASSERT_TRUE(heroSeries[0].hardestCrossbar.has_value());
+    EXPECT_FLOAT_EQ(*heroSeries[0].hardestCrossbar, 1200.0f);
+    ASSERT_TRUE(heroSeries[0].maxBallSpeed.has_value());
+    EXPECT_FLOAT_EQ(*heroSeries[0].maxBallSpeed, 115.0f);
+
+    const auto oppSeries = db->GetPlayerStatSeries(oppId, "1v1", 10);
+    ASSERT_EQ(oppSeries.size(), 1u);
+    EXPECT_EQ(oppSeries[0].goals, 1);
+
+    sqlite3_stmt* stmt = nullptr;
+    ASSERT_EQ(sqlite3_prepare_v2(db->GetRawDb(), "SELECT COUNT(*) FROM MatchLocalStats;", -1, &stmt, nullptr), SQLITE_OK);
+    ASSERT_EQ(sqlite3_step(stmt), SQLITE_ROW);
+    EXPECT_EQ(sqlite3_column_int(stmt, 0), 1);
+    sqlite3_finalize(stmt);
+}

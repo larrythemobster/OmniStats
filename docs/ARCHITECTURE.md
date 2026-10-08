@@ -41,7 +41,7 @@ Core telemetry, storage, networking, updater, replay, and integration code does 
 
 - `src/core`: configuration, session state, pure reduction logic, input, storage paths, persisted layout configuration, and shared value types. `TelemetryReducer` is split into event dispatch (`TelemetryReducer.cpp`), `UpdateState` handling, stat feed events, match-end validation, and finalization, with shared helpers in `TelemetryReducerDetail`.
 - `src/network`: local telemetry input, required startup diagnostics, Tracker rank lookup, updater support, and other external services. `MMRFetcher` is split into HTTP transport, profile parsing and rank tables, the request queue and rate limiting, and post-match reconciliation, with tuning constants in `MMRFetcherDetail`.
-- `src/database`: SQLite ownership and asynchronous persistence.
+- `src/database`: SQLite ownership, `PRAGMA user_version` schema migrations with pre-migration backups (`omnistats.db.bak-v<old>`), and asynchronous persistence across `Matches`, `MatchPlayers`, `MatchPlayerStats`, `MatchLocalStats`, and `Settings`.
 - `src/ui`: Win32/D3D11 host plus RmlUi presentation and native UI bindings.
 - `src/updater`: the separate updater process, dependency repair, download, checksum verification, and process replacement.
 - `installer/wix`: the supported public installer.

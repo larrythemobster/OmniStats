@@ -27,4 +27,7 @@ struct MatchSaveSnapshot {
     bool localMmrNeedsReconciliation = false;
     int64_t endedAtUnixMs = 0;
     bool resultPending = false;
+    MatchStats localStats;
+    float durationSeconds = 0.0f;
+    float overtimeSeconds = 0.0f;
 };

@@ -154,6 +154,9 @@ void RmlUiController::HandleClick(Rml::Element* target) {
         m_showBallchasingToken = false;
         const int page = std::clamp(std::atoi(Attribute(target, "data-page").c_str()), 0, 7);
         m_settingsPage = static_cast<SettingsPage>(page);
+        if (m_settingsPage == SettingsPage::Data && m_dbManager) {
+            m_dbManager->AsyncRefreshDetailedStatsSummary();
+        }
         RebuildSettings();
     } else if (action == "close-settings") {
         FinishBindCapture();
@@ -337,6 +340,7 @@ void RmlUiController::HandleClick(Rml::Element* target) {
                     m_lastDbFetchPrimaryId.clear();
                     m_lastLifetimeHistoryPrimaryId.clear();
                     m_lastRecentMatchHistoryPrimaryId.clear();
+                    m_detailedStatsSummaryRequested = false;
                     RefreshAsyncData();
                     RebuildSettings();
                     RebuildVisibleUi(true);

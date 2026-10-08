@@ -12,6 +12,8 @@
 #include <atomic>
 #include <mutex>
 #include <unordered_set>
+#include <optional>
+#include <vector>
 
 #include "core/MatchSaveSnapshot.hpp"
 
@@ -21,6 +23,38 @@ struct DbMergeResult {
     int playersImported = 0;
     bool success = false;
     std::string error;
+};
+
+struct PlayerStatRow {
+    int64_t matchId = 0;
+    std::string matchGuid;
+    int64_t timestampUnix = 0;
+    std::string playlist;
+    int playlistId = -1;
+    bool win = false;
+    int ourScore = 0;
+    int theirScore = 0;
+    int mmr = 0;
+    std::optional<int> score;
+    int goals = 0;
+    int assists = 0;
+    int saves = 0;
+    int shots = 0;
+    int demos = 0;
+    std::optional<int> touches;
+    std::optional<int> carTouches;
+    std::optional<float> maxGoalSpeed;
+    std::optional<float> fastestGoalTime;
+    bool hasLocalStats = false;
+    int boostCollected = 0;
+    int demoed = 0;
+    int crossbars = 0;
+    std::optional<float> hardestCrossbar;
+    std::optional<float> maxBallSpeed;
+    int ownGoals = 0;
+    std::optional<float> durationSeconds;
+    std::optional<float> overtimeSeconds;
+    int statsVersion = 1;
 };
 
 class DatabaseManager {
@@ -52,6 +86,12 @@ class DatabaseManager {
     bool ExportLocalData(std::string& exportPath, std::string& error);
     bool DeleteLocalMatchHistory(std::string& error);
     DbMergeResult MergeDatabase(const std::string& sourceDbPath);
+    std::vector<PlayerStatRow> GetPlayerStatSeries(const std::string& primaryId,
+                                                   const std::string& playlistFilter = "",
+                                                   int limit = 100);
+    void GetDetailedStatsSummary(int& outMatchCount, std::string& outSinceDate);
+    void AsyncRefreshDetailedStatsSummary();
+    int GetSchemaVersion();
 
     [[nodiscard]] bool SetSetting(const std::string& key, const std::string& value);
     void AsyncSetSetting(std::string key, std::string value);
@@ -79,6 +119,9 @@ class DatabaseManager {
     [[nodiscard]] bool EnqueueDbJob(std::function<void()> job, DbJobPriority priority = DbJobPriority::Normal, std::string coalesceKey = "");
     bool CreateTables();
     void ResolvePendingMatchLocked(sqlite3_int64 matchId, const MatchSaveSnapshot& snapshot);
+    bool UpsertMatchStatsLocked(sqlite3_int64 matchId, const MatchSaveSnapshot& snapshot);
+    bool HasStatsTablesLocked() const;
+    bool m_hasStatsTables = false;
 
     std::shared_ptr<SessionState> m_state;
     sqlite3* m_db = nullptr;

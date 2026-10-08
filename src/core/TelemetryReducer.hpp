@@ -67,6 +67,8 @@ class TelemetryReducer {
         LocalPreMatchMmrSnapshot preMatchMmr;
         bool hasPreMatchMmr = false;
         int64_t endedAtUnixMs = 0;
+        float durationSeconds = 0.0f;
+        float overtimeSeconds = 0.0f;
     };
 
     void FinalizeMatchLocked(int winnerTeam, MatchFinalizeSource source, SideEffects& effects);

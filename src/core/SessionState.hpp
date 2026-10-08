@@ -209,6 +209,8 @@ struct CachedDbStats {
     int longestWins = 0;
     int longestLosses = 0;
     std::map<std::string, GamemodeStat> gamemodes;
+    int detailedStatsMatchCount = 0;
+    std::string detailedStatsSinceDate;
 };
 
 // Session totals captured when a session ends (Rocket League closed with

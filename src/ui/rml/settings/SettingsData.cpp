@@ -48,12 +48,26 @@
 using namespace RmlUiDetail;
 
 std::string RmlUiController::RenderSettingsData() {
+    int detailedMatches = 0;
+    std::string detailedSince;
+    if (m_state) {
+        std::lock_guard lock(m_state->ui.dbStatsMutex);
+        detailedMatches = m_state->ui.cachedDbStats.detailedStatsMatchCount;
+        detailedSince = m_state->ui.cachedDbStats.detailedStatsSinceDate;
+    }
+    const std::string detailedSummary =
+        (detailedMatches > 0 && !detailedSince.empty())
+            ? ("Detailed stats recorded since " + detailedSince + " · " + std::to_string(detailedMatches) + " matches")
+            : "Detailed stats not yet recorded";
+
     std::ostringstream out;
     out << SectionStart("Privacy & Diagnostics")
         << "<div class='setting-help'>Startup diagnostics are required after accepting the privacy notice. Match data and player names are not included.</div>"
         << ToggleControl("crash_reports_enabled", "Upload crash reports", "Pending minidumps are sent on the next startup.", m_config.crash_reports_enabled)
         << SectionEnd();
     out << SectionStart("Local Data")
+        << "<div class='setting-row'><div class='setting-info'><div class='setting-name'>Stats history</div><div class='setting-help'>"
+        << Escape(detailedSummary) << "</div></div></div>"
         << "<div class='setting-help mono'>" << Escape(Storage::GetDataDirectory()) << "</div><div class='row wrap gap-sm' style='margin-top:8dp'>"
         << Button("open-data-folder", "Open Data Folder") << Button("export-data", "Export Local Data") << Button("merge-database", "Merge Database") << Button("delete-history", "Delete History & Identity", "danger") << "</div>"
         << "<div class='setting-help' style='margin-top:8dp'>Merge matches and history from an older omnistats.db file (such as a backup or from another PC) into your current database. Duplicates are automatically skipped.</div>"
