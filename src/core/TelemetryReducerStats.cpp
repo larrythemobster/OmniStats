@@ -66,9 +66,10 @@ void TelemetryReducer::HandleStatFeed(const nlohmann::json& data) {
 void TelemetryReducer::HandleGoalScored(const nlohmann::json& data, SideEffects& effects) {
     if (m_state->game.inReplay) return;
     const int64_t nowMs = SteadyNowMs();
-    ObserveUiEventMatchGuidLocked(data, nowMs);
-    m_state->ui.lastGoalMs.store(nowMs, std::memory_order_relaxed);
-    m_countdownSeenThisRound = false;
+    if (AcceptsUiMatchEventLocked(data, nowMs)) {
+        m_state->ui.lastGoalMs.store(nowMs, std::memory_order_relaxed);
+        m_countdownSeenThisRound = false;
+    }
     m_roundActive = false;
     m_state->game.currentMatch.goals++;
     std::string scorerName = "", scorerId = "";

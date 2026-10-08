@@ -4,6 +4,7 @@
 #include <RmlUi/Core/Context.h>
 #include <RmlUi/Core/Element.h>
 #include <RmlUi/Core/ElementDocument.h>
+#include <RmlUi/Core/Elements/ElementFormControl.h>
 #include <RmlUi/Core/StringUtilities.h>
 #include <d3d11.h>
 #include <wincodec.h>
@@ -192,6 +193,15 @@ class RmlUiControllerStateTest : public ::testing::Test {
                 break;
             }
         }
+    }
+    void ClearOverlayDrag(RmlUiController& controller) {
+        controller.m_drag = {};
+    }
+    bool HasDeferredSelectRebuild(const RmlUiController& controller) const {
+        return controller.m_deferredSelectRebuild;
+    }
+    void SetVisibilityWakeMs(RmlUiController& controller, std::optional<int64_t> wakeMs) {
+        controller.m_nextVisibilityWakeMs = wakeMs;
     }
     std::pair<float, float> GetContainerPos(const RmlUiController& controller, const std::string& containerId) const {
         for (const auto& c : controller.m_config.overlay_layout.containers) {
@@ -2373,4 +2383,85 @@ TEST_F(RmlUiControllerStateTest, HistoryViewOpensClosesIgnoresStaleResponsesAndO
     controller.OpenHistory();
     EXPECT_TRUE(controller.ProcessWindowMessage(nullptr, WM_KEYDOWN, VK_ESCAPE, 0));
     EXPECT_TRUE(controller.ProcessWindowMessage(nullptr, WM_KEYDOWN, VK_ESCAPE, 0));
+}
+
+TEST_F(RmlUiControllerStateTest, DragHoldClearsExpiredVisibilityDeadlineWithoutPinningShouldRender) {
+    WarpDevice warp;
+    if (!warp.Create(1280, 800)) GTEST_SKIP() << "WARP not available.";
+
+    auto state = std::make_shared<SessionState>();
+    RmlUiController controller(state, nullptr);
+    ASSERT_TRUE(controller.Initialize(nullptr, warp.device.Get(), warp.context.Get(), 1280, 800, 1.0f));
+
+    const int64_t nowMs = RmlUiDetail::SteadyNowMs();
+    state->game.inMatch.store(true);
+    state->ui.lastMatchStartMs.store(nowMs - 500);
+    state->ui.firstCountdownOfMatchMs.store(nowMs);
+    state->game.version.fetch_add(1);
+
+    ConfigData config = Config::Read();
+    config.second_monitor_mode = false;
+    config.show_lobby_ranks_overlay = true;
+    controller.Update(config, true);
+    controller.Render();
+    ASSERT_EQ(controller.NextVisibilityWakeMs(), std::optional<int64_t>(nowMs + 8000));
+    EXPECT_FALSE(controller.ShouldRender());
+
+    // Start an active drag while the deadline expires in the past.
+    SimulateOverlayDragStart(controller, "main_stack", 1490.0f, 0.0f);
+    state->ui.lastMatchStartMs.store(nowMs - 10000);
+    state->ui.firstCountdownOfMatchMs.store(nowMs - 9000);
+    SetVisibilityWakeMs(controller, nowMs - 1000);
+    ASSERT_TRUE(controller.ShouldRender());
+
+    // Render() runs RebuildVisibleUi, which hits the drag early-return and clears
+    // the expired deadline so ShouldRender() does not stay pinned true every frame.
+    controller.Render();
+    EXPECT_EQ(controller.NextVisibilityWakeMs(), std::nullopt);
+    EXPECT_FALSE(controller.ShouldRender());
+
+    // Ending the drag reconciles the deferred visibility change on the next Update().
+    ClearOverlayDrag(controller);
+    controller.Update(config, false);
+    EXPECT_EQ(OverlayRoot(controller)->QuerySelector("[data-container='lobby_ranks']"), nullptr);
+}
+
+TEST_F(RmlUiControllerStateTest, DeferredSelectRebuildSurvivesBlockedUpdateUntilInteractionEnds) {
+    WarpDevice warp;
+    if (!warp.Create(1280, 800)) GTEST_SKIP() << "WARP not available.";
+
+    auto state = std::make_shared<SessionState>();
+    state->ui.showMenu.store(true);
+    state->ui.dashboardLayoutEditMode.store(true);
+
+    RmlUiController controller(state, nullptr);
+    ASSERT_TRUE(controller.Initialize(nullptr, warp.device.Get(), warp.context.Get(), 1280, 800, 1.0f));
+    controller.Update(Config::Read(), false);
+    controller.Render();
+
+    auto* root = OverlayRoot(controller);
+    ASSERT_NE(root, nullptr);
+    // main_stack starts in KeyHeld mode, so its event/seconds selects are not in the DOM yet.
+    ASSERT_EQ(root->QuerySelector("[data-setting='overlay_vis_event:main_stack']"), nullptr);
+
+    auto* modeSelect = dynamic_cast<Rml::ElementFormControl*>(
+        root->QuerySelector("[data-setting='overlay_vis_mode:main_stack']"));
+    ASSERT_NE(modeSelect, nullptr);
+    modeSelect->SetValue("after_event");
+    EXPECT_TRUE(HasDeferredSelectRebuild(controller));
+
+    // If a drag is active when Update() runs with the echoed local config revision,
+    // RebuildVisibleUi returns early and must preserve m_deferredSelectRebuild.
+    SimulateOverlayDragStart(controller, "main_stack", 1490.0f, 0.0f);
+    controller.Update(Config::Read(), true, Config::Revision());
+    EXPECT_TRUE(HasDeferredSelectRebuild(controller));
+    EXPECT_EQ(OverlayRoot(controller)->QuerySelector("[data-setting='overlay_vis_event:main_stack']"), nullptr);
+
+    // Once the drag ends, the next Update() consumes m_deferredSelectRebuild and rebuilds the container chrome.
+    ClearOverlayDrag(controller);
+    controller.Update(Config::Read(), false, Config::Revision());
+    controller.Render();
+    EXPECT_FALSE(HasDeferredSelectRebuild(controller));
+    EXPECT_NE(OverlayRoot(controller)->QuerySelector("[data-setting='overlay_vis_event:main_stack']"), nullptr);
+    EXPECT_NE(OverlayRoot(controller)->QuerySelector("[data-setting='overlay_vis_seconds:main_stack']"), nullptr);
 }

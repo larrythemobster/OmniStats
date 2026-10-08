@@ -269,11 +269,6 @@ TEST(TelemetryReducerStats, LifecycleEventsWriteSteadyClockTimestampsAndGoalRepl
     reducer.Reduce(std::string(Constants::EVT_GOAL_REPLAY_END), nlohmann::json{{"MatchGuid", "vis-guid-1"}});
     EXPECT_FALSE(state->ui.inGoalReplay.load());
 
-    // Pause/unpause events are accepted without disturbing match validation or UI timestamps.
-    reducer.Reduce(std::string(Constants::EVT_MATCH_PAUSED), nlohmann::json{{"MatchGuid", "vis-guid-1"}});
-    reducer.Reduce(std::string(Constants::EVT_MATCH_UNPAUSED), nlohmann::json{{"MatchGuid", "vis-guid-1"}});
-    EXPECT_EQ(state->ui.lastGoalMs.load(), goalMs);
-
     std::this_thread::sleep_for(std::chrono::milliseconds(2));
     reducer.Reduce(
         std::string(Constants::EVT_MATCH_ENDED),
@@ -314,17 +309,19 @@ TEST(TelemetryReducerStats, SkippedGoalReplayClearsOnCountdownRoundMatchEndDestr
     reducer.Reduce(std::string(Constants::EVT_MATCH_ENDED), nlohmann::json{{"MatchGuid", "replay-clear-1"}, {"WinnerTeamNum", 0}});
     EXPECT_FALSE(state->ui.inGoalReplay.load());
 
-    // Cleared by MatchDestroyed.
+    // Cleared by MatchDestroyed on an active match.
+    reducer.Reduce(std::string(Constants::EVT_MATCH_CREATED), nlohmann::json{{"MatchGuid", "replay-clear-2"}});
     reducer.Reduce(std::string(Constants::EVT_GOAL_REPLAY_START), nlohmann::json{});
     EXPECT_TRUE(state->ui.inGoalReplay.load());
-    reducer.Reduce(std::string(Constants::EVT_MATCH_DESTROYED), nlohmann::json{{"MatchGuid", "replay-clear-1"}});
+    reducer.Reduce(std::string(Constants::EVT_MATCH_DESTROYED), nlohmann::json{{"MatchGuid", "replay-clear-2"}});
     EXPECT_FALSE(state->ui.inGoalReplay.load());
     EXPECT_EQ(state->ui.firstCountdownOfMatchMs.load(), 0);
 
-    // Cleared by new match.
+    // Cleared by new match while a goal replay is active in the prior match.
+    reducer.Reduce(std::string(Constants::EVT_MATCH_CREATED), nlohmann::json{{"MatchGuid", "replay-clear-3"}});
     reducer.Reduce(std::string(Constants::EVT_GOAL_REPLAY_START), nlohmann::json{});
     EXPECT_TRUE(state->ui.inGoalReplay.load());
-    reducer.Reduce(std::string(Constants::EVT_MATCH_CREATED), nlohmann::json{{"MatchGuid", "replay-clear-2"}});
+    reducer.Reduce(std::string(Constants::EVT_MATCH_CREATED), nlohmann::json{{"MatchGuid", "replay-clear-4"}});
     EXPECT_FALSE(state->ui.inGoalReplay.load());
 }
 
@@ -361,4 +358,53 @@ TEST(TelemetryReducerStats, FirstCountdownFallbacksAndResetPerMatch) {
     const int64_t firstCd3 = state->ui.firstCountdownOfMatchMs.load();
     EXPECT_GT(firstCd3, firstCd2);
     EXPECT_EQ(state->ui.lastGoalMs.load(), 0);
+}
+
+TEST(TelemetryReducerStats, RejectedOrDuplicateTerminalEventsDoNotRestartVisibilityWindows) {
+    Storage::InitializeEnvironment();
+    auto state = std::make_shared<SessionState>();
+    TelemetryReducer reducer(state);
+
+    reducer.Reduce(std::string(Constants::EVT_MATCH_CREATED), nlohmann::json{{"MatchGuid", "vis-term-1"}});
+    reducer.Reduce(std::string(Constants::EVT_ROUND_STARTED), nlohmann::json{{"MatchGuid", "vis-term-1"}});
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(2));
+    reducer.Reduce(
+        std::string(Constants::EVT_MATCH_ENDED),
+        nlohmann::json{{"MatchGuid", "vis-term-1"}, {"WinnerTeamNum", 0}});
+    const int64_t endMs = state->ui.lastMatchEndMs.load();
+    ASSERT_GT(endMs, 0);
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(2));
+    reducer.Reduce(std::string(Constants::EVT_PODIUM_START), nlohmann::json{{"MatchGuid", "vis-term-1"}});
+    const int64_t podiumMs = state->ui.lastPodiumMs.load();
+    ASSERT_GE(podiumMs, endMs);
+
+    // Duplicate MatchEnded and PodiumStart for the already-finalized match must not overwrite timestamps.
+    std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    reducer.Reduce(
+        std::string(Constants::EVT_MATCH_ENDED),
+        nlohmann::json{{"MatchGuid", "vis-term-1"}, {"WinnerTeamNum", 0}});
+    EXPECT_EQ(state->ui.lastMatchEndMs.load(), endMs);
+
+    reducer.Reduce(std::string(Constants::EVT_PODIUM_START), nlohmann::json{{"MatchGuid", "vis-term-1"}});
+    EXPECT_EQ(state->ui.lastPodiumMs.load(), podiumMs);
+    EXPECT_EQ(state->ui.matchSummaryStartMs.load(), podiumMs);
+
+    // Late in-match events for the finalized match must also be ignored.
+    reducer.Reduce(std::string(Constants::EVT_GOAL_SCORED), nlohmann::json{{"MatchGuid", "vis-term-1"}});
+    EXPECT_EQ(state->ui.lastGoalMs.load(), 0);
+    reducer.Reduce(std::string(Constants::EVT_GOAL_REPLAY_START), nlohmann::json{{"MatchGuid", "vis-term-1"}});
+    EXPECT_FALSE(state->ui.inGoalReplay.load());
+
+    // After MatchDestroyed (back in menus, inMatch == false), late MatchEnded or PodiumStart must be rejected.
+    reducer.Reduce(std::string(Constants::EVT_MATCH_DESTROYED), nlohmann::json{{"MatchGuid", "vis-term-1"}});
+    ASSERT_FALSE(state->game.inMatch.load());
+    std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    reducer.Reduce(
+        std::string(Constants::EVT_MATCH_ENDED),
+        nlohmann::json{{"MatchGuid", "vis-late-guid"}, {"WinnerTeamNum", 0}});
+    reducer.Reduce(std::string(Constants::EVT_PODIUM_START), nlohmann::json{{"MatchGuid", "vis-late-guid"}});
+    EXPECT_EQ(state->ui.lastMatchEndMs.load(), endMs);
+    EXPECT_EQ(state->ui.lastPodiumMs.load(), podiumMs);
 }

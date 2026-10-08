@@ -174,7 +174,7 @@ void TelemetryReducer::HandleUpdateState(const nlohmann::json& data, SideEffects
     bool isSpectator = false;
 
     if (!m_nonLiveReplayActive) {
-        ObserveUiEventMatchGuidLocked(data, SteadyNowMs());
+        (void)AcceptsUiMatchEventLocked(data, SteadyNowMs());
     }
     if (data.contains("Game") && data["Game"].is_object()) {
         auto game = data["Game"];

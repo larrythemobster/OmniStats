@@ -405,9 +405,7 @@ void RmlUiController::Update(const ConfigData& config, bool configChanged, uint6
         // delay after failures. Poll the gate once per minute instead of every frame.
         m_nextUpdateCheckPollMs = nowMs + 60 * 1000;
     }
-    const bool deferredSelect = m_deferredSelectRebuild;
-    m_deferredSelectRebuild = false;
-    RebuildVisibleUi(false, (configChanged && !localConfigEcho) || deferredSelect);
+    RebuildVisibleUi(false, (configChanged && !localConfigEcho) || m_deferredSelectRebuild);
     if (m_state && m_state->ui.showSessionRecap.exchange(false)) ShowInsights(InsightsView::Tab::Recap, true);
     if (m_insightsVisible) RefreshInsights(false);
     if (m_historyVisible) RefreshHistory(false);
@@ -592,9 +590,11 @@ void RmlUiController::RebuildVisibleUi(bool force, bool configChanged) {
     // live counters for the entire interaction. Structural versions remain
     // pending and are reconciled as soon as the interaction ends.
     if (m_drag.kind != DragKind::None || (m_pointerPressed && !force)) {
+        m_nextVisibilityWakeMs.reset();
         RefreshLiveUi(false, false);
         return;
     }
+    m_deferredSelectRebuild = false;
 
     const int64_t nowMs = SteadyNowMs();
     const bool showMenu = m_state && m_state->ui.showMenu.load(std::memory_order_relaxed);

@@ -421,13 +421,6 @@ void TelemetryReducer::HandleMatchDestroyed(
         }
     }
 
-    m_state->ui.inGoalReplay.store(false, std::memory_order_relaxed);
-    m_state->ui.firstCountdownOfMatchMs.store(0, std::memory_order_relaxed);
-    m_state->ui.lastCountdownMs.store(0, std::memory_order_relaxed);
-    m_state->ui.lastGoalMs.store(0, std::memory_order_relaxed);
-    m_state->ui.lastMatchStartMs.store(0, std::memory_order_relaxed);
-    m_uiMatchGuid.clear();
-    m_countdownSeenThisRound = false;
     m_roundActive = false;
     UpdateLifecycleSignalsLocked(data);
 
@@ -440,6 +433,13 @@ void TelemetryReducer::HandleMatchDestroyed(
         return;
     }
 
+    m_state->ui.inGoalReplay.store(false, std::memory_order_relaxed);
+    m_state->ui.firstCountdownOfMatchMs.store(0, std::memory_order_relaxed);
+    m_state->ui.lastCountdownMs.store(0, std::memory_order_relaxed);
+    m_state->ui.lastGoalMs.store(0, std::memory_order_relaxed);
+    m_state->ui.lastMatchStartMs.store(0, std::memory_order_relaxed);
+    m_uiMatchGuid.clear();
+    m_countdownSeenThisRound = false;
     if (data.contains("Teams") && data["Teams"].is_array()) {
         for (const auto& team : data["Teams"]) {
             if (!team.contains("TeamNum") ||
@@ -789,13 +789,6 @@ void TelemetryReducer::HandleMatchEnded(
                 .won = won};
         return;
     }
-    if (!hasExplicitEventGuid || !m_state->game.inMatch ||
-        m_state->game.matchGuid.empty() || targetsCurrentByGuid) {
-        const int64_t nowMs = SteadyNowMs();
-        m_state->ui.inGoalReplay.store(false, std::memory_order_relaxed);
-        m_state->ui.lastMatchEndMs.store(nowMs, std::memory_order_relaxed);
-        m_countdownSeenThisRound = false;
-    }
 
     bool targetsCurrent = targetsCurrentByGuid;
     if (!hasExplicitEventGuid) {
@@ -835,6 +828,10 @@ void TelemetryReducer::HandleMatchEnded(
         return;
     }
 
+    const int64_t nowMs = SteadyNowMs();
+    m_state->ui.inGoalReplay.store(false, std::memory_order_relaxed);
+    m_state->ui.lastMatchEndMs.store(nowMs, std::memory_order_relaxed);
+    m_countdownSeenThisRound = false;
     m_roundActive = false;
     if (data.contains("Teams") && data["Teams"].is_array()) {
         for (const auto& team : data["Teams"]) {
