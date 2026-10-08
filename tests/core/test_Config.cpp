@@ -476,7 +476,7 @@ TEST_F(ConfigTest, OldLayoutMigratesToKeyHeldEverywhereAndInvalidValuesSanitize)
                     {"visibility",
                      {{"mode", 99},
                       {"event", -5},
-                      {"seconds", 1}}}},
+                      {"seconds", 0}}}},
                })}}}}
                     .dump(2);
     }
@@ -491,7 +491,7 @@ TEST_F(ConfigTest, OldLayoutMigratesToKeyHeldEverywhereAndInvalidValuesSanitize)
     EXPECT_EQ(loaded.overlay_layout.containers[0].id, "lobby_ranks");
     EXPECT_EQ(loaded.overlay_layout.containers[0].visibility.mode, OverlayLayout::Visibility::KeyHeld);
 
-    // Invalid strings/numbers sanitized and seconds clamped to [5, 30].
+    // Invalid strings/numbers sanitized and seconds clamped to [1, 30].
     EXPECT_EQ(loaded.overlay_layout.containers[1].visibility.mode, OverlayLayout::Visibility::KeyHeld);
     EXPECT_EQ(loaded.overlay_layout.containers[1].visibility.event, OverlayLayout::Visibility::FirstCountdown);
     EXPECT_EQ(loaded.overlay_layout.containers[1].visibility.seconds, 30);
@@ -500,7 +500,7 @@ TEST_F(ConfigTest, OldLayoutMigratesToKeyHeldEverywhereAndInvalidValuesSanitize)
 
     EXPECT_EQ(loaded.overlay_layout.containers[2].visibility.mode, OverlayLayout::Visibility::KeyHeld);
     EXPECT_EQ(loaded.overlay_layout.containers[2].visibility.event, OverlayLayout::Visibility::FirstCountdown);
-    EXPECT_EQ(loaded.overlay_layout.containers[2].visibility.seconds, 5);
+    EXPECT_EQ(loaded.overlay_layout.containers[2].visibility.seconds, 1);
 }
 
 TEST_F(ConfigTest, NewInstallDefaultsLobbyRanksToFirstCountdown8sAndMatchSummaryTo20s) {

@@ -36,7 +36,7 @@ In overlay edit mode (**Settings > Cards > Edit overlay layout**), each overlay 
 
 - **While scoreboard key held**: shows the container while holding the overlay key or controller button.
 - **Always during match**: keeps the container visible throughout an active match.
-- **For N s after event**: shows the container for 5 to 30 seconds after match start, the first kickoff countdown, each kickoff countdown, a goal, match end, or the podium screen.
+- **For N s after event**: shows the container for 1 to 30 seconds after match start, the first kickoff countdown, each kickoff countdown, a goal, match end, or the podium screen.
 - **In menus only**: shows the container only outside matches.
 - **Also while key held** and **Hide during goal replays** toggles per container.
 

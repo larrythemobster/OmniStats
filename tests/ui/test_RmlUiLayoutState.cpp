@@ -152,9 +152,9 @@ TEST(RmlUiLayoutState, ContainerVisibleEvaluatorTableCoversModesBoundariesReplay
         {"StalePodium_OlderThanLatestMatchEnd", Mode::AfterEvent, Event::Podium, 20, false, false, 21000,
          Timestamps{.matchStartMs = 1000, .matchEndMs = 20000, .podiumMs = 15000}, false, true, false, false, false},
 
-        // Seconds clamping (< 5 -> 5s, > 30 -> 30s)
-        {"ClampedLowSeconds_4sStillVisibleAt2sInput", Mode::AfterEvent, Event::Goal, 2, false, false, 14999, activeMatchTs, false, true, false, false, true},
-        {"ClampedLowSeconds_5sBoundaryAt2sInput", Mode::AfterEvent, Event::Goal, 2, false, false, 15000, activeMatchTs, false, true, false, false, false},
+        // Seconds clamping (< 1 -> 1s, > 30 -> 30s)
+        {"ClampedLowSeconds_VisibleJustBefore1sAt0sInput", Mode::AfterEvent, Event::Goal, 0, false, false, 10999, activeMatchTs, false, true, false, false, true},
+        {"ClampedLowSeconds_1sBoundaryAt0sInput", Mode::AfterEvent, Event::Goal, 0, false, false, 11000, activeMatchTs, false, true, false, false, false},
         {"ClampedHighSeconds_29sStillVisibleAt99sInput", Mode::AfterEvent, Event::Goal, 99, false, false, 39999, activeMatchTs, false, true, false, false, true},
         {"ClampedHighSeconds_30sBoundaryAt99sInput", Mode::AfterEvent, Event::Goal, 99, false, false, 40000, activeMatchTs, false, true, false, false, false},
     };
