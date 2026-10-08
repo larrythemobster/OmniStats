@@ -106,6 +106,16 @@ SideEffects TelemetryReducer::Reduce(const std::string& eventName, const nlohman
                          ? (currentIsNonRecordable ? "non-recordable-transition" : "different-explicit-guid")
                          : "no-active-match";
 
+            if (!m_cachedConf.reset_session_on_close) {
+                const int64_t nowUnix =
+                    std::chrono::duration_cast<std::chrono::seconds>(
+                        std::chrono::system_clock::now().time_since_epoch())
+                        .count();
+                std::unique_lock<std::shared_mutex> historyLock(m_state->history.mutex);
+                if (m_state->closeSessionIfInactiveLocked(nowUnix)) {
+                    effects.persistSession = m_state->game.lastSessionRecap;
+                }
+            }
             LocalPreMatchMmrSnapshot initialMmrSnapshot;
             bool hasInitialMmrSnapshot = false;
             if (!m_state->game.myPrimaryId.empty()) {

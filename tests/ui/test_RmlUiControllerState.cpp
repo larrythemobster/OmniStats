@@ -2087,3 +2087,112 @@ TEST_F(RmlUiControllerStateTest, EditModeRendersVisibilityControlsAndPersistsCha
     ASSERT_NE(it, updated.overlay_layout.containers.end());
     EXPECT_TRUE(it->visibility.hideDuringReplay);
 }
+
+TEST_F(RmlUiControllerStateTest, SessionsTabRendersRowsOpensArchivedRecapAndComparesWithPrevious) {
+    WarpDevice warp;
+    if (!warp.Create(1280, 800)) GTEST_SKIP() << "WARP not available.";
+
+    const std::string pid = "Steam|sessions-ui";
+    auto state = std::make_shared<SessionState>();
+    auto db = std::make_shared<DatabaseManager>(state);
+    ASSERT_TRUE(db->Initialize(":memory:"));
+
+    // Seed 6 archived sessions (enough for top/bottom 10% best/worst badges) plus 1 backfilled session without MMR.
+    const int mmrDeltas[] = {35, 18, 9, -4, -12, -28};
+    for (int i = 0; i < 6; ++i) {
+        SessionRecap s;
+        s.valid = true;
+        s.account = pid;
+        s.startedAtUnix = 1'770'000'000 + i * 10'000;
+        s.endedAtUnix = s.startedAtUnix + 3600;
+        s.sessionGeneration = static_cast<uint64_t>(i + 1);
+        s.totals.wins = 3 + (i % 2);
+        s.totals.losses = 2;
+        s.totals.goals = 4 + i;
+        s.totals.saves = 3;
+        s.totals.mmrChangeByPlaylist["2v2"] = mmrDeltas[i];
+        s.gamemodes["2v2"] = {s.totals.wins, s.totals.losses, s.totals.wins + s.totals.losses};
+        ASSERT_GT(db->SaveSession(s), 0);
+    }
+    {
+        SessionRecap backfilled;
+        backfilled.valid = true;
+        backfilled.account = pid;
+        backfilled.source = "backfill";
+        backfilled.startedAtUnix = 1'769'900'000;
+        backfilled.endedAtUnix = 1'769'901'800;
+        backfilled.totals.wins = 2;
+        backfilled.totals.losses = 1;
+        ASSERT_GT(db->SaveSession(backfilled), 0);
+    }
+
+    {
+        std::unique_lock lock(state->game.mutex);
+        state->game.myPrimaryId = pid;
+        state->game.sessionTotals.wins = 1;
+        state->game.sessionTotals.losses = 0;
+        state->game.sessionTotals.mmrChangeByPlaylist["2v2"] = 10;
+        state->game.version.fetch_add(1);
+    }
+    {
+        std::lock_guard lock(state->insights.mutex);
+        state->insights.primaryId = pid;
+        state->insights.sessions = db->ListSessions(pid, 0, 50);
+        state->insights.loaded = true;
+        state->insights.version.fetch_add(1);
+    }
+
+    RmlUiController controller(state, db);
+    ASSERT_TRUE(controller.Initialize(nullptr, warp.device.Get(), warp.context.Get(), 1280, 800, 1.0f));
+    controller.Update(Config::Read(), false);
+    controller.OpenInsights();
+    controller.Render();
+
+    Rml::ElementDocument* doc = InsightsDocument(controller);
+    ASSERT_NE(doc, nullptr);
+
+    // Switch to Sessions tab.
+    Rml::ElementList tabs;
+    doc->QuerySelectorAll(tabs, "[data-action='insights-tab'][data-tab='sessions']");
+    ASSERT_EQ(tabs.size(), 1u);
+    Click(controller, tabs.front());
+    controller.Render();
+
+    Rml::ElementList sessionRows;
+    doc->QuerySelectorAll(sessionRows, ".session-row.item");
+    // 1 Live session + 7 archived sessions = 8 rows.
+    ASSERT_EQ(sessionRows.size(), 8u);
+    EXPECT_NE(sessionRows[0]->GetInnerRML().find("Live"), std::string::npos);
+
+    // Verify Best (+35) and Worst (-28) badges and "--" for unknown MMR exist in the rendered table.
+    Rml::Element* table = doc->QuerySelector(".sessions-table");
+    ASSERT_NE(table, nullptr);
+    const std::string tableRml = table->GetInnerRML();
+    EXPECT_NE(tableRml.find("Best"), std::string::npos);
+    EXPECT_NE(tableRml.find("Worst"), std::string::npos);
+    EXPECT_NE(tableRml.find("--"), std::string::npos);
+
+    // Clicking an archived session opens it in the Recap tab and populates the recap card.
+    Click(controller, sessionRows[1]);
+    controller.Render();
+
+    Rml::Element* card = doc->GetElementById("recap-card");
+    ASSERT_NE(card, nullptr);
+    EXPECT_NE(card->GetInnerRML().find("-28"), std::string::npos);
+
+    // Toggle "Compare with previous" and verify comparison rows render.
+    Rml::ElementList compareBtns;
+    doc->QuerySelectorAll(compareBtns, "[data-action='recap-compare']");
+    ASSERT_EQ(compareBtns.size(), 1u);
+    Click(controller, compareBtns.front());
+    controller.Render();
+    EXPECT_NE(card->GetInnerRML().find("Compared with"), std::string::npos);
+
+    // Step to the next older session via › button.
+    Rml::ElementList nextBtns;
+    doc->QuerySelectorAll(nextBtns, "[data-action='recap-next-session']");
+    ASSERT_EQ(nextBtns.size(), 1u);
+    Click(controller, nextBtns.front());
+    controller.Render();
+    EXPECT_NE(card->GetInnerRML().find("-12"), std::string::npos);
+}

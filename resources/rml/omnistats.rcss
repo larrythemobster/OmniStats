@@ -1275,6 +1275,29 @@ body.view-document { pointer-events: none; }
 .recap-mode-mmr { width: 52dp; flex-shrink: 0; text-align: right; font-family: "JetBrains Mono"; font-weight: 700; color: #a6b3bf; }
 .recap-empty { display: block; padding: 28dp 0 18dp 0; color: #a6b3bf; }
 .recap-foot { display: block; margin-top: 16dp; font-size: 11dp; color: #a6b3bf99; text-align: right; }
+.recap-stepper { margin-bottom: 10dp; align-items: center; }
+.recap-compare { display: block; margin-top: 16dp; padding-top: 10dp; border-top: 1dp #eef1f514; }
+.recap-compare-row { display: flex; flex-direction: row; align-items: center; min-height: 26dp; border-top: 1dp #eef1f50f; font-size: 12dp; }
+.recap-compare-label { flex-grow: 1; color: #eef1f5; font-weight: 600; }
+.recap-compare-val { width: 64dp; text-align: right; color: #eef1f5; }
+.recap-compare-prev { width: 80dp; text-align: right; color: #a6b3bf; }
+.recap-compare-delta { width: 64dp; text-align: right; font-weight: 700; color: #a6b3bf; }
+
+.sessions-table { display: block; border: 1dp #eef1f51a; border-radius: 6dp; overflow: hidden; }
+.session-row { display: flex; flex-direction: row; align-items: center; min-height: 40dp; padding: 5dp 10dp; border-top: 1dp #eef1f50f; font-size: 12dp; gap: 8dp; }
+.session-row.header { min-height: 26dp; border-top: 0; background-color: #eef1f508; color: #9da6b3; font-size: 10dp; font-weight: 700; letter-spacing: 0.3dp; }
+.session-row.item { cursor: pointer; }
+.session-row.item:hover { background-color: #eef1f50a; }
+.session-row.item.selected { background-color: #eef1f512; }
+.session-date-col { display: flex; flex-direction: column; width: 155dp; flex-shrink: 0; }
+.session-cell { width: 64dp; flex-shrink: 0; text-align: right; }
+.session-bar-col { display: flex; flex-direction: row; align-items: center; width: 110dp; flex-shrink: 0; gap: 6dp; }
+.session-bar-track { flex-grow: 1; height: 5dp; border-radius: 3dp; background-color: #ff0303; overflow: hidden; }
+.session-rate { width: 36dp; flex-shrink: 0; text-align: right; }
+.session-playlists-col { display: flex; flex-direction: row; align-items: center; flex-grow: 1; min-width: 0; gap: 6dp; }
+.session-mmr-list { display: flex; flex-direction: row; flex-wrap: wrap; gap: 6dp; }
+.session-mmr-pill { font-size: 11dp; padding: 1dp 5dp; border-radius: 4dp; background-color: #eef1f50d; color: #a6b3bf; }
+.session-badge { font-size: 10dp; padding: 1dp 6dp; }
 
 .people-table { display: block; border: 1dp #eef1f51a; border-radius: 6dp; overflow: hidden; }
 .people-row { display: flex; flex-direction: row; align-items: center; min-height: 32dp; padding: 3dp 10dp; border-top: 1dp #eef1f50f; font-size: 12dp; }

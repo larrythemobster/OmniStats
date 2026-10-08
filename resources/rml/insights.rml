@@ -15,11 +15,18 @@
             </div>
             <div class="view-tabs row">
                 <button class="tab-button" data-action="insights-tab" data-tab="recap" data-class-active="tab == 'recap'">Session recap</button>
+                <button class="tab-button" data-action="insights-tab" data-tab="sessions" data-class-active="tab == 'sessions'">Sessions</button>
                 <button class="tab-button" data-action="insights-tab" data-tab="people" data-class-active="tab == 'people'">People</button>
                 <button class="tab-button" data-action="insights-tab" data-tab="trends" data-class-active="tab == 'trends'">Trends</button>
             </div>
 
             <div class="view-body" data-if="tab == 'recap'">
+                <div class="row gap-sm recap-stepper" data-if="recap_can_step">
+                    <button class="ghost compact" data-action="recap-prev-session" data-attr-disabled="!recap_can_prev">&#x2039;</button>
+                    <div class="label mono">{{recap_step_label}}</div>
+                    <button class="ghost compact" data-action="recap-next-session" data-attr-disabled="!recap_can_next">&#x203A;</button>
+                    <div class="label grow">{{recap_title}}</div>
+                </div>
                 <div id="recap-card" class="recap-card">
                     <div class="recap-inner">
                         <div class="recap-head row">
@@ -61,6 +68,15 @@
                                     <div class="recap-mode-mmr" data-class-win="mode.tone == 1" data-class-loss="mode.tone == -1">{{mode.mmr}}</div>
                                 </div>
                             </div>
+                            <div class="recap-compare" data-if="recap_comparing && recap_compare_rows.size > 0">
+                                <div class="recap-section-title">{{recap_compare_title}}</div>
+                                <div class="recap-compare-row" data-for="cmp : recap_compare_rows">
+                                    <div class="recap-compare-label">{{cmp.label}}</div>
+                                    <div class="recap-compare-val mono">{{cmp.current_val}}</div>
+                                    <div class="recap-compare-prev mono muted">vs {{cmp.previous_val}}</div>
+                                    <div class="recap-compare-delta mono" data-class-win="cmp.tone == 1" data-class-loss="cmp.tone == -1">{{cmp.delta}}</div>
+                                </div>
+                            </div>
                         </div>
                         <div class="recap-empty" data-if="!recap_has_games">No games this session yet. Play a match and the recap fills in here.</div>
                         <div class="recap-foot">omnistats.org</div>
@@ -68,8 +84,50 @@
                 </div>
                 <div class="row gap-sm view-actions" data-if="recap_has_games">
                     <button class="primary" data-action="recap-export">Save as PNG</button>
+                    <button class="ghost" data-if="recap_can_compare" data-action="recap-compare" data-class-active="recap_comparing">Compare with previous</button>
                     <div class="label grow">Saves to Pictures\OmniStats so you can drop it into Discord.</div>
                 </div>
+            </div>
+
+            <div class="view-body" data-if="tab == 'sessions'">
+                <div class="sessions-table" data-if="sessions.size > 0">
+                    <div class="session-row header">
+                        <div class="session-date-col">Session</div>
+                        <div class="session-cell">Games</div>
+                        <div class="session-cell">Record</div>
+                        <div class="session-bar-col">Win rate</div>
+                        <div class="session-playlists-col">By playlist</div>
+                        <div class="session-cell">Net MMR</div>
+                    </div>
+                    <div data-for="session : sessions">
+                        <div class="session-row item" data-action="session-open" data-attr-data-session-index="session.index" data-class-selected="session.selected">
+                            <div class="session-date-col">
+                                <div class="row gap-xs">
+                                    <span class="value">{{session.date}}</span>
+                                    <span class="badge session-badge" data-if="session.badge != ''" data-class-win="session.badge_kind == 'best'" data-class-loss="session.badge_kind == 'worst'" data-class-accent="session.badge_kind == 'live'">{{session.badge}}</span>
+                                </div>
+                                <div class="label">{{session.time_range}}</div>
+                            </div>
+                            <div class="session-cell mono">{{session.games}}</div>
+                            <div class="session-cell mono">{{session.record}}</div>
+                            <div class="session-bar-col">
+                                <div class="session-bar-track"><div class="recap-bar-fill" data-style-width="session.win_width"></div></div>
+                                <div class="session-rate mono">{{session.rate}}</div>
+                            </div>
+                            <div class="session-playlists-col">
+                                <div class="session-mmr-list" data-if="session.playlist_mmrs.size > 0">
+                                    <span class="session-mmr-pill mono" data-for="pm : session.playlist_mmrs" data-class-win="pm.tone == 1" data-class-loss="pm.tone == -1">{{pm.label}}</span>
+                                </div>
+                                <span class="mono muted" data-if="session.playlist_mmrs.size == 0">--</span>
+                            </div>
+                            <div class="session-cell mono" data-class-win="session.mmr_tone == 1" data-class-loss="session.mmr_tone == -1">{{session.mmr}}</div>
+                        </div>
+                    </div>
+                </div>
+                <div class="row gap-sm view-actions" data-if="sessions_has_more">
+                    <button class="ghost" data-action="sessions-load-more">Load more</button>
+                </div>
+                <div class="muted view-empty" data-if="sessions.size == 0">{{sessions_empty}}</div>
             </div>
 
             <div class="view-body" data-if="tab == 'people'">

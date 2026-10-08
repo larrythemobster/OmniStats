@@ -197,11 +197,44 @@ void TelemetryReducer::FinalizeCapturedMatchLocked(
     }
 
     const bool iWon = decision.iWon;
+    const int64_t matchEndedUnix = match.endedAtUnixMs > 0 ? match.endedAtUnixMs / 1000 : 0;
+    if (!m_cachedConf.reset_session_on_close &&
+        match.sessionGeneration == m_state->game.sessionGeneration.load() &&
+        m_state->game.lastMatchEndedAtUnix > 0 &&
+        matchEndedUnix > 0 &&
+        Insights::StartsNewSession(m_state->game.lastMatchEndedAtUnix, matchEndedUnix, true)) {
+        std::unique_lock<std::shared_mutex> historyLock(m_state->history.mutex);
+        if (m_state->startNewSessionLocked(m_state->game.lastMatchEndedAtUnix)) {
+            effects.persistSession = m_state->game.lastSessionRecap;
+        }
+        match.sessionGeneration = m_state->game.sessionGeneration.load();
+    }
+
     auto& recap = m_state->game.lastSessionRecap;
     if (match.sessionGeneration == m_state->game.sessionGeneration.load()) {
         AddMatchToSessionTotalsLocked(match, iWon, m_state->game.sessionTotals, m_state->game.sessionGamemodes);
+        if (matchEndedUnix > 0) {
+            if (m_state->game.sessionStartedAtUnix <= 0 || matchEndedUnix < m_state->game.sessionStartedAtUnix) {
+                m_state->game.sessionStartedAtUnix = matchEndedUnix;
+            }
+            m_state->game.lastMatchEndedAtUnix = std::max(m_state->game.lastMatchEndedAtUnix, matchEndedUnix);
+        }
+        if (!match.matchGuid.empty() &&
+            std::find(m_state->game.sessionMatchGuids.begin(),
+                      m_state->game.sessionMatchGuids.end(),
+                      match.matchGuid) == m_state->game.sessionMatchGuids.end()) {
+            m_state->game.sessionMatchGuids.push_back(match.matchGuid);
+        }
     } else if (recap.valid && recap.sessionGeneration == match.sessionGeneration) {
         AddMatchToSessionTotalsLocked(match, iWon, recap.totals, recap.gamemodes);
+        if (!match.matchGuid.empty() &&
+            std::find(recap.matchGuids.begin(), recap.matchGuids.end(), match.matchGuid) == recap.matchGuids.end()) {
+            recap.matchGuids.push_back(match.matchGuid);
+        }
+        if (recap.account.empty() && !match.myPrimaryId.empty()) {
+            recap.account = match.myPrimaryId;
+        }
+        effects.updateSession = recap;
     }
 
     const auto& currentMatch = match.stats;

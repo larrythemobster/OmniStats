@@ -225,6 +225,12 @@ void RmlUiController::UpdateThemeProperties() {
     rule(".people-table", "border-color", line);
     rule(".people-row", "border-top-color", lineSoft);
     rule(".people-row.header", "background-color", scaledColor(m_config.themeText, 1.0f, 0.03f));
+    rule(".sessions-table", "border-color", line);
+    rule(".session-row", "border-top-color", lineSoft);
+    rule(".session-row.header", "background-color", scaledColor(m_config.themeText, 1.0f, 0.03f));
+    rule(".session-bar-track", "background-color", scaledColor(m_config.themeLoss, 1.0f, 0.85f));
+    rule(".recap-compare", "border-top-color", line);
+    rule(".recap-compare-row", "border-top-color", lineSoft);
     rule(".trend-track", "background-color", lineSoft);
     rule(".trend-bar", "background-color", muted);
     rule(".trend-bar.win", "background-color", win);

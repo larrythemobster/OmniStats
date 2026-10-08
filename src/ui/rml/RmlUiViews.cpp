@@ -19,6 +19,7 @@ using namespace RmlUiDetail;
 
 namespace {
     InsightsView::Tab TabFromName(const std::string& name) {
+        if (name == "sessions") return InsightsView::Tab::Sessions;
         if (name == "people") return InsightsView::Tab::People;
         if (name == "trends") return InsightsView::Tab::Trends;
         return InsightsView::Tab::Recap;
@@ -62,6 +63,7 @@ void RmlUiController::ShowInsights(InsightsView::Tab tab, bool endedSession) {
         showEnded = m_state->game.lastSessionRecap.valid;
     }
     m_insightsShowsEndedSession = showEnded;
+    m_insights.ClearArchivedSelection();
     m_insights.SetTab(tab);
     RefreshInsights(true);
     if (!m_insightsVisible) {
@@ -86,16 +88,13 @@ void RmlUiController::RefreshInsights(bool force) {
     if (!m_state) return;
     if (force || m_lastRecapGameVersion != m_lastGameVersion) {
         m_lastRecapGameVersion = m_lastGameVersion;
-        if (m_insightsShowsEndedSession) {
-            SessionRecap recap;
-            {
-                std::shared_lock lock(m_state->game.mutex);
-                recap = m_state->game.lastSessionRecap;
-            }
-            m_insights.SetRecap(recap, false);
-        } else {
-            m_insights.SetRecap({true, 0, m_snap.sessionTotals, m_snap.sessionGamemodes}, true);
+        SessionRecap endedRecap;
+        {
+            std::shared_lock lock(m_state->game.mutex);
+            endedRecap = m_state->game.lastSessionRecap;
         }
+        SessionRecap liveRecap{true, 0, m_snap.sessionTotals, m_snap.sessionGamemodes};
+        m_insights.SetLiveAndEndedSession(liveRecap, endedRecap, m_insightsShowsEndedSession);
         m_renderDirty = true;
     }
 
@@ -105,6 +104,7 @@ void RmlUiController::RefreshInsights(bool force) {
     std::vector<PersonRecord> people;
     std::vector<MatchOutcome> outcomes;
     std::vector<MatchMmrContext> mmrContext;
+    std::vector<SessionRecap> sessions;
     bool loaded = false;
     {
         std::lock_guard lock(m_state->insights.mutex);
@@ -113,9 +113,10 @@ void RmlUiController::RefreshInsights(bool force) {
             people = m_state->insights.people;
             outcomes = m_state->insights.outcomes;
             mmrContext = m_state->insights.mmrContext;
+            sessions = m_state->insights.sessions;
         }
     }
-    m_insights.SetHistory(m_snap.myPrimaryId, loaded, people, outcomes, mmrContext);
+    m_insights.SetHistory(m_snap.myPrimaryId, loaded, people, outcomes, mmrContext, sessions);
     m_renderDirty = true;
 }
 
@@ -201,6 +202,28 @@ bool RmlUiController::HandleViewAction(const std::string& action, Rml::Element* 
         m_renderDirty = true;
     } else if (action == "recap-export") {
         m_recapCapturePending = true;
+        m_renderDirty = true;
+    } else if (action == "session-open") {
+        const int idx = std::atoi(Attribute(target, "data-session-index").c_str());
+        if (idx >= 0 && m_insights.OpenSession(static_cast<size_t>(idx))) {
+            m_insightsShowsEndedSession = m_insights.ViewingArchivedSession();
+            m_renderDirty = true;
+        }
+    } else if (action == "recap-prev-session") {
+        if (m_insights.StepSession(-1)) {
+            m_insightsShowsEndedSession = m_insights.ViewingArchivedSession();
+            m_renderDirty = true;
+        }
+    } else if (action == "recap-next-session") {
+        if (m_insights.StepSession(1)) {
+            m_insightsShowsEndedSession = m_insights.ViewingArchivedSession();
+            m_renderDirty = true;
+        }
+    } else if (action == "recap-compare") {
+        m_insights.ToggleCompareWithPrevious();
+        m_renderDirty = true;
+    } else if (action == "sessions-load-more") {
+        m_insights.LoadMoreSessions();
         m_renderDirty = true;
     } else if (action == "onboarding-next") {
         m_onboarding.SetStep(m_onboarding.Step() + 1);

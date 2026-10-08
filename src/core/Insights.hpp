@@ -124,6 +124,17 @@ struct TrendsReport {
 namespace Insights {
     // Consecutive matches more than this far apart belong to different sittings.
     inline constexpr int64_t kSessionGapSeconds = 2 * 60 * 60;
+    inline constexpr bool StartsNewSession(int64_t previousEndedAtUnix, int64_t endedAtUnix, bool hasPrevious = true) {
+        return !hasPrevious || endedAtUnix - previousEndedAtUnix > kSessionGapSeconds;
+    }
+
+    struct SessionSlice {
+        size_t beginIndex = 0;
+        size_t endIndex = 0;
+        int64_t startedAtUnix = 0;
+        int64_t endedAtUnix = 0;
+    };
+    std::vector<SessionSlice> GroupSessionTimestamps(const std::vector<int64_t>& endedAtUnix);
     // A tilt warning needs this many games after two straight losses and a win
     // rate at least this far below the overall rate.
     inline constexpr int kTiltMinimumGames = 10;

@@ -68,6 +68,13 @@ class DatabaseManager {
     bool UpdateMatchPlayerMmr(const std::string& matchGuid, const std::string& primaryId, int mmr, bool estimated = false);
     void AsyncUpdateMatchPlayerMmr(std::string matchGuid, std::string primaryId, int mmr, bool estimated = false);
 
+    int64_t SaveSession(const SessionRecap& recap);
+    void AsyncSaveSession(SessionRecap recap);
+    bool UpdateSession(const SessionRecap& recap);
+    void AsyncUpdateSession(SessionRecap recap);
+    int BackfillSessions(int chunkSize = 500);
+    std::vector<SessionRecap> ListSessions(const std::string& account, int offset = 0, int limit = 50);
+    SessionRecap GetSession(int64_t id);
     void GetLifetimeMmrHistory(const std::string& primaryId, const std::string& playlist, std::vector<float>& outX, std::vector<float>& outY);
     void AsyncGetLifetimeMmrHistory(const std::string& primaryId, const std::string& playlist);
     void GetRecentMatchHistory(const std::string& primaryId, std::vector<SessionMatchSummary>& outMatches, int limit = kPreviousGamesDefaultLimit);
@@ -123,6 +130,26 @@ class DatabaseManager {
     bool UpsertMatchStatsLocked(sqlite3_int64 matchId, const MatchSaveSnapshot& snapshot);
     bool HasStatsTablesLocked() const;
     bool m_hasStatsTables = false;
+    bool HasSessionsTableLocked() const;
+    int64_t SaveSessionLocked(const SessionRecap& recap);
+    bool UpdateSessionLocked(const SessionRecap& recap);
+    void LinkSessionMatchesLocked(sqlite3_int64 sessionId,
+                                  const std::string& account,
+                                  int64_t startedAt,
+                                  int64_t endedAt,
+                                  const std::vector<std::string>& matchGuids,
+                                  int expectedGames,
+                                  int64_t& outEarliestMatchTs,
+                                  int64_t& outLatestMatchTs);
+    bool RecomputeBackfillSessionLocked(sqlite3_int64 sessionId, const std::string& account);
+    int BackfillSessionsChunkLocked(int chunkSize, bool& outMoreRemaining);
+    bool m_hasSessionsTable = false;
+    std::atomic<bool> m_backfillPending{false};
+    struct LiveSessionRecord {
+        sqlite3_int64 sessionId = 0;
+        int64_t endedAtUnix = 0;
+    };
+    std::map<std::pair<std::string, uint64_t>, LiveSessionRecord> m_sessionIdByGeneration;
 
     std::shared_ptr<SessionState> m_state;
     sqlite3* m_db = nullptr;

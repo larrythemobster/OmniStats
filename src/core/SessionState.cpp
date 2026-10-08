@@ -1,5 +1,6 @@
 #include "SessionState.hpp"
 #include <cmath>
+#include <algorithm>
 
 std::string MmrCategoryToString(MmrCategory cat) {
     switch (cat) {
@@ -175,22 +176,49 @@ void SessionState::clearActiveMatchOnDisconnect() {
 bool SessionState::startNewSessionLocked(int64_t endedAtUnix) {
     const bool captureRecap = game.sessionTotals.wins + game.sessionTotals.losses > 0;
     if (captureRecap) {
+        std::vector<std::string> matchGuids = std::move(game.sessionMatchGuids);
+        for (const auto& [playlist, points] : history.playlistMatchPoints) {
+            for (const auto& pt : points) {
+                if (!pt.matchGuid.empty() &&
+                    std::find(matchGuids.begin(), matchGuids.end(), pt.matchGuid) == matchGuids.end()) {
+                    matchGuids.push_back(pt.matchGuid);
+                }
+            }
+        }
+        const std::string account = !game.myPrimaryId.empty() ? game.myPrimaryId : history.mmrOwnerPrimaryId;
+        const int64_t startedAt = game.sessionStartedAtUnix > 0 ? std::min(game.sessionStartedAtUnix, endedAtUnix) : 0;
         game.lastSessionRecap = {
             .valid = true,
             .endedAtUnix = endedAtUnix,
             .totals = std::move(game.sessionTotals),
             .gamemodes = std::move(game.sessionGamemodes),
             .sessionGeneration = game.sessionGeneration.load(),
-            .mmrOwnerPrimaryId = history.mmrOwnerPrimaryId,
-            .playlistInitialMmr = history.playlistInitialMmr};
+            .mmrOwnerPrimaryId = history.mmrOwnerPrimaryId.empty() ? account : history.mmrOwnerPrimaryId,
+            .playlistInitialMmr = history.playlistInitialMmr,
+            .id = 0,
+            .account = account,
+            .startedAtUnix = startedAt,
+            .source = "live",
+            .matchGuids = std::move(matchGuids)};
     }
     game.sessionTotals = SessionTotals();
     game.sessionGamemodes.clear();
+    game.sessionStartedAtUnix = 0;
+    game.lastMatchEndedAtUnix = 0;
+    game.sessionMatchGuids.clear();
     game.sessionGeneration.fetch_add(1);
     history.ResetSessionMmr();
     ui.graphOffset.store(0);
     game.version++;
     return captureRecap;
+}
+
+bool SessionState::closeSessionIfInactiveLocked(int64_t nowUnix) {
+    if (game.inMatch) return false;
+    if (game.sessionTotals.wins + game.sessionTotals.losses <= 0) return false;
+    if (game.lastMatchEndedAtUnix <= 0) return false;
+    if (!Insights::StartsNewSession(game.lastMatchEndedAtUnix, nowUnix, true)) return false;
+    return startNewSessionLocked(game.lastMatchEndedAtUnix);
 }
 
 void SessionState::syncSessionMmrChangeLocked() {

@@ -169,6 +169,7 @@ bool MMRFetcher::ReconcileTrackerResponse(const MMRRequest& req, int fetchedMmr,
     };
     std::vector<DbUpdate> dbUpdates;
     bool requestConfirmed = false;
+    std::optional<SessionRecap> updatedRecap;
     std::vector<std::pair<std::string, bool>>
         destroyedMatchConfirmations;
     DestroyedMatchConfirmationCallback confirmationCallback;
@@ -698,6 +699,7 @@ bool MMRFetcher::ReconcileTrackerResponse(const MMRRequest& req, int fetchedMmr,
             recap.totals.mmrChangeByPlaylist[req.playlist] = recapLatestMmr - recapInitialIt->second;
             recap.totals.totalMmrChange = static_cast<float>(
                 CalculateTrackedSessionMmrChange(recap.totals.mmrChangeByPlaylist));
+            updatedRecap = recap;
             m_state->game.version++;
         }
         if (allPendingCovered) m_pendingPostMatchesByPlaylist.erase(pendingIt);
@@ -760,6 +762,9 @@ bool MMRFetcher::ReconcileTrackerResponse(const MMRRequest& req, int fetchedMmr,
             db->AsyncUpdateMatchPlayerMmr(
                 update.matchGuid, update.primaryId, update.mmr,
                 update.estimated);
+        }
+        if (updatedRecap) {
+            db->AsyncUpdateSession(*updatedRecap);
         }
     }
     return requestConfirmed;

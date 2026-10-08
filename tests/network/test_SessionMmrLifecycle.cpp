@@ -2,6 +2,9 @@
 #include "network/MMRFetcher.hpp"
 #include "core/SessionState.hpp"
 #include "core/Config.hpp"
+#include "core/TelemetryReducer.hpp"
+#include "core/SideEffectExecutor.hpp"
+#include "database/DatabaseManager.hpp"
 #include <map>
 #include <memory>
 #include <mutex>
@@ -448,4 +451,108 @@ TEST_F(SessionMmrLifecycleTest, OlderSessionConfirmationNeverRewritesANewerRecap
     fetcher->ProcessPostMatchResponseForTests("s1-g1", 1210, 51);
     EXPECT_EQ(RecapChange("2v2"), std::nullopt);
     EXPECT_EQ(RecapTotal(), 9);
+}
+
+TEST_F(SessionMmrLifecycleTest, ThreeMatchesThenSimulatedClosePersistsSessionAndLinksMatches) {
+    auto db = std::make_shared<DatabaseManager>(state);
+    ASSERT_TRUE(db->Initialize(":memory:"));
+    fetcher = std::make_shared<MMRFetcher>(state, db);
+
+    PublishRoster({{"2v2", {1200, 50}}});
+
+    auto saveAndPlay = [&](const std::string& guid, bool won, Rating pre, Rating post, int goals, int saves, int64_t tsSec) {
+        MatchSaveSnapshot snap;
+        snap.arenaName = "DFH Stadium";
+        snap.matchGuid = guid;
+        snap.playlistId = 11;
+        snap.gamemode = "2v2";
+        snap.myTeam = 0;
+        snap.winnerTeam = won ? 0 : 1;
+        snap.validResult = true;
+        snap.score[0] = won ? 3 : 1;
+        snap.score[1] = won ? 1 : 3;
+        snap.myPrimaryId = kMe;
+        snap.endedAtUnixMs = tsSec * 1000;
+        snap.roster[kMe] = PlayerData{
+            .primaryId = kMe, .name = "Player", .team = 0, .mmr = pre.mmr, .goals = goals, .saves = saves, .shots = goals + 1};
+        snap.roster["Steam|opp"] = PlayerData{.primaryId = "Steam|opp", .name = "Opp", .team = 1, .mmr = pre.mmr};
+        db->SaveMatch(snap);
+
+        PlayMatch(guid, "2v2", won, pre, post);
+        std::unique_lock lock(state->game.mutex);
+        if (won)
+            state->game.sessionTotals.wins++;
+        else
+            state->game.sessionTotals.losses++;
+        state->game.sessionTotals.goals += goals;
+        state->game.sessionTotals.saves += saves;
+        state->game.sessionGamemodes["2v2"].wins += won ? 1 : 0;
+        state->game.sessionGamemodes["2v2"].losses += won ? 0 : 1;
+        state->game.sessionGamemodes["2v2"].total++;
+        if (state->game.sessionStartedAtUnix == 0) state->game.sessionStartedAtUnix = tsSec;
+        state->game.lastMatchEndedAtUnix = tsSec;
+        state->game.sessionMatchGuids.push_back(guid);
+    };
+
+    saveAndPlay("s1-m1", true, {1200, 50}, {1210, 51}, 2, 1, 1700000100);
+    saveAndPlay("s1-m2", false, {1210, 51}, {1201, 52}, 1, 2, 1700000400);
+    saveAndPlay("s1-m3", true, {1201, 52}, {1212, 53}, 3, 1, 1700000700);
+
+    StartNewSession();
+    ASSERT_TRUE(state->game.lastSessionRecap.valid);
+    const int64_t sessionId = db->SaveSession(state->game.lastSessionRecap);
+    ASSERT_GT(sessionId, 0);
+
+    const auto sessions = db->ListSessions(kMe, 0, 10);
+    ASSERT_EQ(sessions.size(), 1u);
+    EXPECT_EQ(sessions[0].id, sessionId);
+    EXPECT_EQ(sessions[0].totals.wins, 2);
+    EXPECT_EQ(sessions[0].totals.losses, 1);
+    EXPECT_EQ(sessions[0].totals.goals, 6);
+    EXPECT_EQ(sessions[0].totals.saves, 4);
+    ASSERT_TRUE(sessions[0].totals.mmrChangeByPlaylist.count("2v2"));
+    EXPECT_EQ(sessions[0].totals.mmrChangeByPlaylist.at("2v2"), 12);
+    EXPECT_EQ(sessions[0].source, "live");
+
+    const SessionRecap loaded = db->GetSession(sessionId);
+    ASSERT_TRUE(loaded.valid);
+    EXPECT_EQ(loaded.totals.wins, 2);
+    EXPECT_EQ(loaded.totals.losses, 1);
+    EXPECT_EQ(loaded.totals.goals, 6);
+    EXPECT_EQ(loaded.NetMmrChange(), 12);
+
+    sqlite3_stmt* stmt = nullptr;
+    ASSERT_EQ(sqlite3_prepare_v2(db->GetRawDb(), "SELECT COUNT(*) FROM Matches WHERE session_id = ?;", -1, &stmt, nullptr),
+              SQLITE_OK);
+    sqlite3_bind_int64(stmt, 1, sessionId);
+    ASSERT_EQ(sqlite3_step(stmt), SQLITE_ROW);
+    EXPECT_EQ(sqlite3_column_int(stmt, 0), 3);
+    sqlite3_finalize(stmt);
+}
+
+TEST_F(SessionMmrLifecycleTest, InactivityCloseAfterTwoHoursSavesSessionWithoutResetOnClose) {
+    Config::Update([](ConfigData& config) { config.reset_session_on_close = false; }, false);
+    auto db = std::make_shared<DatabaseManager>(state);
+    ASSERT_TRUE(db->Initialize(":memory:"));
+
+    {
+        std::unique_lock gameLock(state->game.mutex);
+        std::unique_lock historyLock(state->history.mutex);
+        state->game.sessionTotals.wins = 3;
+        state->game.sessionTotals.losses = 1;
+        state->game.sessionStartedAtUnix = 1700000000;
+        state->game.lastMatchEndedAtUnix = 1700001200;
+        EXPECT_FALSE(state->closeSessionIfInactiveLocked(1700001200 + Insights::kSessionGapSeconds));
+        EXPECT_TRUE(state->closeSessionIfInactiveLocked(1700001200 + Insights::kSessionGapSeconds + 1));
+    }
+
+    ASSERT_TRUE(state->game.lastSessionRecap.valid);
+    EXPECT_EQ(state->game.lastSessionRecap.endedAtUnix, 1700001200);
+    EXPECT_EQ(state->game.sessionTotals.wins, 0);
+    const int64_t sid = db->SaveSession(state->game.lastSessionRecap);
+    ASSERT_GT(sid, 0);
+    const auto sessions = db->ListSessions(kMe, 0, 10);
+    ASSERT_EQ(sessions.size(), 1u);
+    EXPECT_EQ(sessions[0].totals.wins, 3);
+    EXPECT_EQ(sessions[0].totals.losses, 1);
 }

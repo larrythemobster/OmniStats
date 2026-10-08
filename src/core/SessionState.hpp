@@ -223,6 +223,21 @@ struct SessionRecap {
     uint64_t sessionGeneration = 0;
     std::string mmrOwnerPrimaryId;
     std::map<std::string, int> playlistInitialMmr;
+    int64_t id = 0;
+    std::string account;
+    int64_t startedAtUnix = 0;
+    std::string source = "live";
+    std::vector<std::string> matchGuids;
+
+    int Games() const {
+        return totals.wins + totals.losses;
+    }
+    bool HasKnownMmrChange() const {
+        return !totals.mmrChangeByPlaylist.empty();
+    }
+    int NetMmrChange() const {
+        return CalculateTrackedSessionMmrChange(totals.mmrChangeByPlaylist);
+    }
 };
 
 // Database aggregates behind the Insights window, loaded on demand.
@@ -234,6 +249,7 @@ struct InsightsState {
     std::vector<PersonRecord> people;
     std::vector<MatchOutcome> outcomes;
     std::vector<MatchMmrContext> mmrContext;
+    std::vector<SessionRecap> sessions;
 };
 
 // Decomposed state sections
@@ -372,6 +388,9 @@ struct GameState {
     // reads this instead of the mutable live roster.
     std::unordered_map<std::string, LocalPreMatchMmrSnapshot> preMatchMmrByGuid;
     bool matchFinalized = false;
+    int64_t sessionStartedAtUnix = 0;
+    int64_t lastMatchEndedAtUnix = 0;
+    std::vector<std::string> sessionMatchGuids;
     SessionRecap lastSessionRecap;
 };
 
@@ -431,6 +450,7 @@ class SessionState : public std::enable_shared_from_this<SessionState> {
     // Callers hold game.mutex and history.mutex exclusively.
     // Returns whether a recap was captured.
     bool startNewSessionLocked(int64_t endedAtUnix);
+    bool closeSessionIfInactiveLocked(int64_t nowUnix);
     void syncSessionMmrChangeLocked();
     void selectMmrOwnerLocked(const std::string& primaryId);
 };

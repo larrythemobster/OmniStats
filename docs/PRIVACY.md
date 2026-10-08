@@ -26,14 +26,15 @@ Tracker Network, Discord, Ballchasing, GitHub, and other third-party services ap
 
 ## Locally stored match data
 
-OmniStats stores match history on your PC in `%APPDATA%\omnistats\omnistats.db` (`Matches`, `MatchPlayers`, `MatchPlayerStats`, and `MatchLocalStats`) and `%APPDATA%\omnistats\matches.jsonl`:
+OmniStats stores match and session history on your PC in `%APPDATA%\omnistats\omnistats.db` (`Matches`, `MatchPlayers`, `MatchPlayerStats`, `MatchLocalStats`, and `Sessions`) and `%APPDATA%\omnistats\matches.jsonl`:
 
-- `Matches` stores the timestamp, arena, team scores, win/loss outcome, match GUID, playlist ID, gamemode, and player count.
+- `Matches` stores the timestamp, arena, team scores, win/loss outcome, match GUID, playlist ID, gamemode, player count, and linked session ID.
 - `MatchPlayers` stores each participant's platform primary ID, display name, team number, opponent flag, and MMR at match time.
 - `MatchPlayerStats` stores each participant's scoreboard score, goals, assists, saves, shots, demolitions, ball touches, car touches, max goal speed, and fastest goal time.
 - `MatchLocalStats` stores the local player's boost collected, times demolished, crossbars hit, hardest crossbar impact, max ball speed, own goals, match duration, overtime duration, and stats schema version.
+- `Sessions` stores the local account ID, start and end timestamps, win/loss counts, per-playlist MMR change JSON, session totals JSON, and whether the row came from a live reset or historical backfill.
 
-These tables remain on your machine and are never uploaded by OmniStats. **Export Local Data** writes them to `%APPDATA%\omnistats\exports`, and **Delete History & Identity** clears all four tables along with the local JSONL files.
+These tables remain on your machine and are never uploaded by OmniStats. **Export Local Data** writes them to `%APPDATA%\omnistats\exports`, and **Delete History & Identity** clears all five tables along with the local JSONL files.
 
 ## Local controls
 

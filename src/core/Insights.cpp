@@ -132,7 +132,7 @@ namespace Insights {
         bool previousWon = false;
 
         for (const auto& match : matches) {
-            const bool newSession = gameInSession == 0 || match.endedAtUnix - previousEnd > kSessionGapSeconds;
+            const bool newSession = StartsNewSession(previousEnd, match.endedAtUnix, gameInSession > 0);
             if (newSession) {
                 ++report.sessions;
                 gameInSession = 0;
@@ -276,5 +276,19 @@ namespace Insights {
         });
         if (people.size() > limit) people.resize(limit);
         return people;
+    }
+
+    std::vector<SessionSlice> GroupSessionTimestamps(const std::vector<int64_t>& endedAtUnix) {
+        std::vector<SessionSlice> slices;
+        for (size_t i = 0; i < endedAtUnix.size(); ++i) {
+            const int64_t ts = endedAtUnix[i];
+            if (StartsNewSession(slices.empty() ? 0 : slices.back().endedAtUnix, ts, !slices.empty())) {
+                slices.push_back({i, i + 1, ts, ts});
+            } else {
+                slices.back().endIndex = i + 1;
+                slices.back().endedAtUnix = std::max(slices.back().endedAtUnix, ts);
+            }
+        }
+        return slices;
     }
 }

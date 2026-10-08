@@ -108,13 +108,22 @@ void StatsClient::RunLoop() {
                 m_reducer.OnTelemetryDisconnected();
             }
 
+            SideEffects disconnectEffects;
             {
                 std::unique_lock<std::shared_mutex> lock(m_state->game.mutex);
+                const int64_t nowUnix = static_cast<int64_t>(std::time(nullptr));
                 if (resetSessionAfterDisconnect) {
                     std::unique_lock<std::shared_mutex> historyLock(m_state->history.mutex);
-                    if (m_state->startNewSessionLocked(static_cast<int64_t>(std::time(nullptr))) &&
-                        conf.show_session_recap_on_close) {
-                        m_state->ui.showSessionRecap.store(true);
+                    if (m_state->startNewSessionLocked(nowUnix)) {
+                        if (conf.show_session_recap_on_close) {
+                            m_state->ui.showSessionRecap.store(true);
+                        }
+                        disconnectEffects.persistSession = m_state->game.lastSessionRecap;
+                    }
+                } else if (!conf.reset_session_on_close) {
+                    std::unique_lock<std::shared_mutex> historyLock(m_state->history.mutex);
+                    if (m_state->closeSessionIfInactiveLocked(nowUnix)) {
+                        disconnectEffects.persistSession = m_state->game.lastSessionRecap;
                     }
                 }
                 // A reconnect starts with no trustworthy active-match telemetry.
@@ -123,6 +132,13 @@ void StatsClient::RunLoop() {
                 // previous match's playlist, counts, roster, or stats.
                 m_state->clearActiveMatchOnDisconnect();
                 m_state->game.version++;
+            }
+            if (disconnectEffects.persistSession) {
+                m_executor.Execute(
+                    std::move(disconnectEffects),
+                    m_dbManager,
+                    m_discordManager,
+                    m_mmrFetcher);
             }
 
             if (m_discordManager) {

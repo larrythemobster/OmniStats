@@ -929,7 +929,7 @@ TEST_F(DatabaseManagerTest, MigratesAllHistoricalSchemasToV2WithBackupsAndIdempo
         {
             auto db = std::make_shared<DatabaseManager>(sessionState);
             ASSERT_TRUE(db->Initialize(path)) << tc.label;
-            EXPECT_EQ(db->GetSchemaVersion(), 2) << tc.label;
+            EXPECT_EQ(db->GetSchemaVersion(), 3) << tc.label;
             EXPECT_EQ(QueryIntScalar(db->GetRawDb(), "SELECT COUNT(*) FROM Matches;"), 2) << tc.label;
             EXPECT_EQ(QueryIntScalar(db->GetRawDb(), "SELECT COUNT(*) FROM MatchPlayers;"), 3) << tc.label;
             EXPECT_EQ(QueryIntScalar(db->GetRawDb(),
@@ -947,7 +947,7 @@ TEST_F(DatabaseManagerTest, MigratesAllHistoricalSchemasToV2WithBackupsAndIdempo
         {
             auto db = std::make_shared<DatabaseManager>(sessionState);
             ASSERT_TRUE(db->Initialize(path)) << tc.label;
-            EXPECT_EQ(db->GetSchemaVersion(), 2) << tc.label;
+            EXPECT_EQ(db->GetSchemaVersion(), 3) << tc.label;
             EXPECT_EQ(QueryIntScalar(db->GetRawDb(), "SELECT COUNT(*) FROM Matches;"), 2) << tc.label;
             EXPECT_EQ(QueryIntScalar(db->GetRawDb(), "SELECT COUNT(*) FROM MatchPlayers;"), 3) << tc.label;
         }
@@ -1454,4 +1454,177 @@ TEST_F(DatabaseManagerTest, GetMatchMmrContextAggregatesLobbiesAndExcludesOtherA
     const GapReport report = Insights::ComputeGapTrends(rows, "All");
     EXPECT_EQ(report.games, 2);
     EXPECT_EQ(report.wins, 2);
+}
+
+TEST_F(DatabaseManagerTest, MigrationV2ToV3CreatesSessionsTableAndMatchSessionIndex) {
+    const std::string path = "test_mig_v2_to_v3.db";
+    const std::string backupPath = path + ".bak-v2";
+    RemoveTestDbFiles(path);
+    std::filesystem::remove(backupPath);
+
+    sqlite3* raw = nullptr;
+    ASSERT_EQ(sqlite3_open(path.c_str(), &raw), SQLITE_OK);
+    ASSERT_EQ(sqlite3_exec(raw, R"(
+        CREATE TABLE Matches (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+            arena TEXT,
+            our_score INTEGER,
+            their_score INTEGER,
+            win BOOLEAN,
+            match_guid TEXT,
+            playlist_id INTEGER,
+            gamemode TEXT,
+            player_count INTEGER,
+            result_pending BOOLEAN DEFAULT 0
+        );
+        CREATE TABLE MatchPlayers (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            match_id INTEGER,
+            primary_id TEXT,
+            name TEXT,
+            team INTEGER,
+            mmr INTEGER,
+            mmr_estimated BOOLEAN DEFAULT 0,
+            is_opponent BOOLEAN DEFAULT 0
+        );
+        CREATE TABLE Settings (key TEXT PRIMARY KEY, value TEXT);
+        CREATE TABLE MatchPlayerStats (
+            match_id INTEGER NOT NULL REFERENCES Matches(id) ON DELETE CASCADE,
+            primary_id TEXT NOT NULL,
+            score INTEGER, goals INTEGER, assists INTEGER, saves INTEGER, shots INTEGER, demos INTEGER,
+            touches INTEGER, car_touches INTEGER, max_goal_speed REAL, fastest_goal_time REAL,
+            PRIMARY KEY (match_id, primary_id)
+        );
+        CREATE TABLE MatchLocalStats (
+            match_id INTEGER PRIMARY KEY REFERENCES Matches(id) ON DELETE CASCADE,
+            boost_collected INTEGER, demoed INTEGER, crossbars INTEGER, hardest_crossbar REAL,
+            max_ball_speed REAL, own_goals INTEGER, duration_seconds REAL, overtime_seconds REAL,
+            stats_version INTEGER NOT NULL DEFAULT 1
+        );
+        PRAGMA user_version = 2;
+        INSERT INTO Matches (timestamp, arena, our_score, their_score, win, match_guid, playlist_id, gamemode, player_count, result_pending)
+        VALUES ('2026-01-10 18:00:00', 'DFH Stadium', 3, 1, 1, 'v2-m1', 11, '2v2', 0, 0),
+               ('2026-01-10 18:10:00', 'Mannfield', 1, 2, 0, 'v2-m2', 11, '2v2', 0, 0);
+        INSERT INTO MatchPlayers (match_id, primary_id, name, team, mmr, mmr_estimated, is_opponent)
+        VALUES (1, 'Steam|v2user', 'Hero', 0, 1100, 0, 0),
+               (2, 'Steam|v2user', 'Hero', 0, 1091, 0, 0);
+    )",
+                           nullptr, nullptr, nullptr),
+              SQLITE_OK);
+    sqlite3_close(raw);
+
+    {
+        auto db = std::make_shared<DatabaseManager>(sessionState);
+        ASSERT_TRUE(db->Initialize(path));
+        EXPECT_EQ(db->GetSchemaVersion(), 3);
+        EXPECT_TRUE(std::filesystem::exists(backupPath));
+        EXPECT_EQ(QueryIntScalar(db->GetRawDb(), "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='Sessions';"), 1);
+        EXPECT_EQ(QueryIntScalar(db->GetRawDb(), "SELECT COUNT(*) FROM sqlite_master WHERE type='index' AND name='idx_matches_session';"), 1);
+
+        const auto sessions = db->ListSessions("Steam|v2user", 0, 10);
+        ASSERT_EQ(sessions.size(), 1u);
+        EXPECT_EQ(sessions[0].source, "backfill");
+        EXPECT_EQ(sessions[0].totals.wins, 1);
+        EXPECT_EQ(sessions[0].totals.losses, 1);
+        ASSERT_TRUE(sessions[0].totals.mmrChangeByPlaylist.count("2v2"));
+        EXPECT_EQ(sessions[0].totals.mmrChangeByPlaylist.at("2v2"), -9);
+        EXPECT_EQ(QueryIntScalar(db->GetRawDb(), "SELECT COUNT(*) FROM Matches WHERE session_id IS NOT NULL;"), 2);
+    }
+
+    RemoveTestDbFiles(path);
+    std::filesystem::remove(backupPath);
+}
+
+TEST_F(DatabaseManagerTest, BackfillMatchesComputeTrendsSittingCountAndIsIdempotent) {
+    const std::string pid = "Steam|backfill-user";
+    const int64_t t0 = 1'750'000'000;
+    const int64_t gap = Insights::kSessionGapSeconds;
+
+    // 3 sittings: [t0, t0+600, t0+1200], break >2h, [t1, t1+500], break >2h, [t2]
+    const int64_t t1 = t0 + 1200 + gap + 10;
+    const int64_t t2 = t1 + 500 + gap + 60;
+    const std::vector<std::pair<int64_t, bool>> schedule = {
+        {t0, true},
+        {t0 + 600, true},
+        {t0 + 1200, false},
+        {t1, false},
+        {t1 + 500, true},
+        {t2, true},
+    };
+
+    for (size_t i = 0; i < schedule.size(); ++i) {
+        MatchSaveSnapshot snap;
+        snap.arenaName = "DFH Stadium";
+        snap.matchGuid = "bf-guid-" + std::to_string(i);
+        snap.playlistId = 11;
+        snap.gamemode = "2v2";
+        snap.myTeam = 0;
+        snap.winnerTeam = schedule[i].second ? 0 : 1;
+        snap.validResult = true;
+        snap.score[0] = schedule[i].second ? 3 : 1;
+        snap.score[1] = schedule[i].second ? 1 : 3;
+        snap.myPrimaryId = pid;
+        snap.endedAtUnixMs = schedule[i].first * 1000;
+        snap.roster[pid] = PlayerData{.primaryId = pid, .name = "Hero", .team = 0, .mmr = 0, .goals = 1, .saves = 2};
+        snap.roster["Steam|opp"] = PlayerData{.primaryId = "Steam|opp", .name = "Opp", .team = 1, .mmr = 0};
+        dbManager->SaveMatch(snap);
+    }
+
+    std::vector<MatchOutcome> outcomes;
+    dbManager->GetMatchOutcomes(pid, outcomes);
+    const TrendsReport trends = Insights::ComputeTrends(outcomes);
+    ASSERT_EQ(trends.sessions, 3);
+
+    const int createdFirst = dbManager->BackfillSessions(2); // chunk size 2 tests cross-chunk sitting merge
+    EXPECT_EQ(createdFirst, trends.sessions);
+
+    const int createdSecond = dbManager->BackfillSessions(2);
+    EXPECT_EQ(createdSecond, 0);
+
+    const auto sessions = dbManager->ListSessions(pid, 0, 20);
+    ASSERT_EQ(static_cast<int>(sessions.size()), trends.sessions);
+    EXPECT_EQ(sessions[0].totals.wins, 1);
+    EXPECT_EQ(sessions[0].totals.losses, 0);
+    EXPECT_FALSE(sessions[0].HasKnownMmrChange());
+
+    EXPECT_EQ(sessions[1].totals.wins, 1);
+    EXPECT_EQ(sessions[1].totals.losses, 1);
+
+    EXPECT_EQ(sessions[2].totals.wins, 2);
+    EXPECT_EQ(sessions[2].totals.losses, 1);
+    EXPECT_EQ(sessions[2].totals.goals, 3);
+    EXPECT_EQ(sessions[2].totals.saves, 6);
+}
+
+TEST_F(DatabaseManagerTest, LateConfirmationUpdatesStoredSessionTotals) {
+    const std::string pid = "Steam|late-confirm";
+    SessionRecap recap;
+    recap.valid = true;
+    recap.account = pid;
+    recap.startedAtUnix = 1'760'000'000;
+    recap.endedAtUnix = 1'760'001'200;
+    recap.sessionGeneration = 4;
+    recap.totals.wins = 2;
+    recap.totals.losses = 0;
+    recap.totals.goals = 4;
+    recap.gamemodes["2v2"] = {2, 0, 2};
+
+    const int64_t sid = dbManager->SaveSession(recap);
+    ASSERT_GT(sid, 0);
+
+    // Destroyed match from generation 4 confirms later as a loss with 1 goal.
+    recap.totals.losses = 1;
+    recap.totals.goals = 5;
+    recap.totals.mmrChangeByPlaylist["2v2"] = 11;
+    recap.gamemodes["2v2"] = {2, 1, 3};
+    ASSERT_TRUE(dbManager->UpdateSession(recap));
+
+    const auto all = dbManager->ListSessions(pid, 0, 10);
+    ASSERT_EQ(all.size(), 1u);
+    EXPECT_EQ(all[0].id, sid);
+    EXPECT_EQ(all[0].totals.wins, 2);
+    EXPECT_EQ(all[0].totals.losses, 1);
+    EXPECT_EQ(all[0].totals.goals, 5);
+    EXPECT_EQ(all[0].NetMmrChange(), 11);
 }
