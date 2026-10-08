@@ -282,7 +282,9 @@ void TelemetryReducer::FinalizeCapturedMatchLocked(
         BuildMatchSaveSnapshot(match, winnerTeam, decision);
     snapshot.roster = std::move(match.roster);
     snapshot.localMmrNeedsReconciliation =
-        hasLocalRefresh && m_cachedConf.enable_mmr_tracking;
+        hasLocalRefresh &&
+        (m_cachedConf.enable_mmr_tracking ||
+         (m_cachedConf.custom_api_enabled && !m_cachedConf.account_refresh_token.empty()));
 
     effects.saveMatch = true;
     effects.matchRecord = std::move(matchRecord);
@@ -562,7 +564,8 @@ void TelemetryReducer::HandleMatchDestroyed(
                             BuildMatchSaveSnapshot(match, provisionalWinner, decision);
                         provisional.roster = match.roster;
                         provisional.localMmrNeedsReconciliation =
-                            m_cachedConf.enable_mmr_tracking;
+                            m_cachedConf.enable_mmr_tracking ||
+                            (m_cachedConf.custom_api_enabled && !m_cachedConf.account_refresh_token.empty());
                         provisional.resultPending = true;
                         effects.provisionalSaveSnapshot = std::move(provisional);
                     }

@@ -91,6 +91,10 @@ struct ConfigData {
     std::string custom_api_base_url = "https://api.omnistats.org";
     std::string custom_api_key = "";
 
+    std::string account_signed_in_name = "";
+    std::string account_device_public_id = "";
+    std::string account_refresh_token = "";
+    std::string account_device_key = "";
     std::string rocket_league_stats_api_config_path = "";
     bool check_stats_api_config_on_startup = true;
 

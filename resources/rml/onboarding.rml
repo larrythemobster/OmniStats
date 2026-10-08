@@ -53,6 +53,29 @@
 
             <div class="view-body" data-if="step == 2">
                 <div class="wizard-lead">These are optional and off by default. Each one sends data somewhere else, so turn on only what you want.</div>
+                <div class="status-card account-onboarding-card" data-class-ok="account_signed_in">
+                    <div class="row">
+                        <div class="grow">
+                            <div class="row gap-xs">
+                                <div class="setting-name">Sign in with OmniStats</div>
+                                <span class="badge win">Recommended</span>
+                            </div>
+                            <div class="setting-help">The private, more reliable option for live ranks with one-click browser approval and no third-party scraping.</div>
+                            <div class="setting-help win" data-if="account_signed_in">{{account_status}}</div>
+                            <div class="setting-help loss" data-if="account_has_error">{{account_status}}</div>
+                        </div>
+                        <div class="row gap-xs">
+                            <button class="primary" data-if="!account_signed_in && !account_awaiting" data-action="account-sign-in">Sign in with OmniStats</button>
+                            <button class="primary" data-if="account_awaiting" data-action="account-open-verify">Open browser</button>
+                            <button class="ghost" data-if="account_awaiting" data-action="account-cancel">Cancel</button>
+                            <button class="ghost" data-if="account_signed_in" data-action="account-sign-out">Sign out</button>
+                        </div>
+                    </div>
+                    <div class="account-code-card" data-if="account_awaiting">
+                        <div class="label">Verification code</div>
+                        <div class="account-user-code mono">{{account_user_code}}</div>
+                    </div>
+                </div>
                 <div class="setting-row">
                     <div class="setting-info">
                         <div class="setting-name">Live ranks from Tracker Network</div>

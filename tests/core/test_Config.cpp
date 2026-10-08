@@ -334,3 +334,46 @@ TEST_F(ConfigTest, ResetThemeAndLayoutRestoresBoth) {
     EXPECT_EQ(conf.themeBg.r, defaults.themeBg.r);
     EXPECT_EQ(conf.session_view_x, defaults.session_view_x);
 }
+
+TEST_F(ConfigTest, AccountDpapiFieldsRoundTripWithoutPlaintextOnDisk) {
+    const std::string secretRefresh = "plaintext_refresh_secret_value_998877";
+    const std::string secretDeviceKey = "plaintext_device_seed_value_112233";
+
+    Config::Update([&](ConfigData& c) {
+        c.account_signed_in_name = "PilotOne";
+        c.account_device_public_id = "dev_pub_id_123";
+        c.account_refresh_token = secretRefresh;
+        c.account_device_key = secretDeviceKey;
+    });
+    Config::Save();
+
+    const std::string configPath = Storage::GetDataDirectory() + "config.json";
+    std::string rawDiskContent;
+    {
+        std::ifstream file(configPath);
+        rawDiskContent.assign(std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>());
+    }
+    EXPECT_EQ(rawDiskContent.find(secretRefresh), std::string::npos);
+    EXPECT_EQ(rawDiskContent.find(secretDeviceKey), std::string::npos);
+
+    nlohmann::json savedJson = nlohmann::json::parse(rawDiskContent);
+    EXPECT_FALSE(savedJson.at("account_refresh_token").get<std::string>().empty());
+    EXPECT_FALSE(savedJson.at("account_device_key").get<std::string>().empty());
+    EXPECT_NE(savedJson.at("account_refresh_token").get<std::string>(), secretRefresh);
+    EXPECT_NE(savedJson.at("account_device_key").get<std::string>(), secretDeviceKey);
+
+    Config::Update([](ConfigData& c) {
+        c.account_signed_in_name.clear();
+        c.account_device_public_id.clear();
+        c.account_refresh_token.clear();
+        c.account_device_key.clear();
+    },
+                   false);
+
+    Config::Load();
+    const ConfigData loaded = Config::Read();
+    EXPECT_EQ(loaded.account_signed_in_name, "PilotOne");
+    EXPECT_EQ(loaded.account_device_public_id, "dev_pub_id_123");
+    EXPECT_EQ(loaded.account_refresh_token, secretRefresh);
+    EXPECT_EQ(loaded.account_device_key, secretDeviceKey);
+}

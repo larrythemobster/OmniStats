@@ -12,6 +12,7 @@ The startup diagnostic is required to use OmniStats and cannot be disabled in Se
 
 | Feature | Destination and fields | Default |
 | --- | --- | --- |
+| OmniStats account sign-in and rank lookup | Signing in sends the device public key, derived device ID, computer name, `windows` platform string, and app version to `api.omnistats.org/v1/auth/device/*`, then opens the approval page in the default browser. When signed in and enabled, rank lookups send lobby platform and account IDs with a short-lived device bearer token and device ID to `api.omnistats.org/v1/ranks`. | Off until signed in |
 | Tracker rank lookup | Tracker Network receives the lobby player's public name and platform identifier needed to request public Rocket League rank information. | Off |
 | Discord Rich Presence | Match/session presence is sent to the user's local Discord client. | Off |
 | Ballchasing replay upload | Selected replay files are uploaded to ballchasing.com using the user's token. | Off |
@@ -36,7 +37,7 @@ These tables remain on your machine and are never uploaded by OmniStats. **Expor
 
 ## Local controls
 
-In Settings, **Replays & services** controls optional integrations. **Data & privacy** contains crash report sharing, history exports, and **Delete History & Identity**. Deletion requires confirmation and keeps settings and tokens. Ballchasing tokens are hidden unless **Show token** is selected.
+In Settings, **Integrations** controls OmniStats account sign-in, the OmniStats rank API toggle, and optional third-party services. Signing in generates an Ed25519 device keypair and stores the private key and rotating refresh token in `config.json` encrypted with Windows DPAPI `CryptProtectData` bound to the current Windows user, alongside the signed-in display name and derived device public ID. Signing out revokes the device session and clears the stored refresh token and display name. **Data** contains crash report sharing, history exports, and **Delete History & Identity**. Deletion requires confirmation and keeps settings and tokens. Ballchasing tokens are hidden unless **Show** is selected.
 
 Deleting `%APPDATA%\omnistats` while OmniStats is closed removes local configuration, history, logs, crash dumps, and the installation ID. Back up anything you want to keep first.
 

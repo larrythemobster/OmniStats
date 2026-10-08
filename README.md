@@ -19,7 +19,7 @@ releases.
 
 - Live match telemetry from Rocket League's loopback Stats API.
 - Session and match statistics including score, goals, assists, saves, shots, demos, streaks, and records.
-- Optional live public-rank lookup through Tracker Network.
+- Optional live rank lookup through your OmniStats account with one-click browser device approval, or through Tracker Network.
 - Local SQLite and JSONL history.
 - Click-through overlay and second-monitor dashboard.
 - Player roster context and browser links to public player profiles.
@@ -75,7 +75,7 @@ Read [CONTRIBUTING.md](CONTRIBUTING.md), keep changes focused, and run the Relea
 
 ## Privacy and updates
 
-After the privacy notice is accepted, OmniStats sends required startup diagnostics containing the app version, a pseudonymous installation identifier, and feature-toggle status. Match data and player names are not included. Tracker rank lookup sends lobby player names and platform identifiers to Tracker Network only when enabled. Updates are downloaded over HTTPS and checked against published SHA-256 values.
+After the privacy notice is accepted, OmniStats sends required startup diagnostics containing the app version, a pseudonymous installation identifier, and feature-toggle status. Match data and player names are not included. Signing in with an OmniStats account registers the device public key, computer name, platform, and app version with `api.omnistats.org`, stores the Ed25519 device key and rotating refresh token locally with Windows DPAPI, and uses the OmniStats rank API as the primary rank source. Tracker rank lookup sends lobby player names and platform identifiers to Tracker Network only when enabled. Updates are downloaded over HTTPS and checked against published SHA-256 values.
 
 ## Official links
 

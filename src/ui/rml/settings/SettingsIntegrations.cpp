@@ -38,6 +38,7 @@
 #include "database/DatabaseManager.hpp"
 #include "network/ExternalUpdaterLauncher.hpp"
 #include "network/MMRFetcher.hpp"
+#include "network/AccountClient.hpp"
 #include "ui/Formatting.hpp"
 #include "ui/KeyNames.hpp"
 #include "ui/rml/RmlInputWin32.hpp"
@@ -50,16 +51,56 @@ using namespace RmlUiDetail;
 std::string RmlUiController::RenderSettingsIntegrations() {
     if (m_pendingBallchasingToken.empty() && !m_config.ballchasing_token.empty()) m_pendingBallchasingToken = m_config.ballchasing_token;
     std::ostringstream out;
-    out << SectionStart("Custom Rank API")
-        << "<div class='setting-help'>Authenticate custom API rank lookups with the API key from your OmniStats account.</div>"
-        << ToggleControl("custom_api_enabled", "Enable custom API fallback", "Used when Tracker.gg rank requests are blocked or unavailable.", m_config.custom_api_enabled)
-        << "<div class='setting-row'><div class='setting-info'><div class='setting-name'>API Key</div></div><input type='password' class='text' data-setting='custom_api_key' value='" << Escape(m_config.custom_api_key) << "'/></div>";
-    if (m_config.custom_api_key.empty())
-        out << "<div class='setting-help'>No key set. Sign in on the website and copy your API key from account settings.</div>";
-    else if (m_state && m_state->ui.customApiKeyRejected.load())
-        out << "<div class='setting-help loss'>This API key was rejected. Custom API lookups are paused until you enter a valid key from your account settings.</div>";
-    else
-        out << "<div class='setting-help win'>API key saved and active.</div>";
+    const AccountStatusSnapshot accountStatus = AccountClient::Instance().GetStatus();
+    out << SectionStart("Account");
+    if (accountStatus.state == AccountAuthState::SignedIn) {
+        out << "<div class='setting-row'><div class='setting-info'>"
+            << "<div class='setting-name win'>Signed in as " << Escape(accountStatus.displayName)
+            << " · Ranks: " << (m_config.custom_api_enabled ? "OmniStats" : "Off") << "</div>"
+            << "<div class='setting-help'>OmniStats rank API is your primary rank source for all lobby players.</div>"
+            << "</div><div class='row gap-xs'>"
+            << "<button class='ghost' data-action='account-manage-devices'>Manage devices</button>"
+            << "<button class='ghost' data-action='account-sign-out'>Sign out</button>"
+            << "</div></div>";
+    } else if (accountStatus.state == AccountAuthState::AwaitingApproval) {
+        out << "<div class='setting-row'><div class='setting-info'>"
+            << "<div class='setting-name'>Waiting for browser approval...</div>"
+            << "<div class='setting-help'>Confirm this code in your browser to finish signing in.</div>"
+            << "</div><div class='row gap-xs'>"
+            << "<button class='primary' data-action='account-open-verify'>Open browser</button>"
+            << "<button class='ghost' data-action='account-cancel'>Cancel</button>"
+            << "</div></div>"
+            << "<div class='account-code-card'><div class='label'>Verification code</div>"
+            << "<div class='account-user-code mono'>" << Escape(accountStatus.userCode) << "</div></div>";
+    } else {
+        out << "<div class='setting-row'><div class='setting-info'>"
+            << "<div class='setting-name'>Not signed in</div>"
+            << "<div class='setting-help'>Sign in with OmniStats for one-click browser approval and verified rank lookups.</div>";
+        if (accountStatus.state == AccountAuthState::Error && !accountStatus.errorMessage.empty()) {
+            out << "<div class='setting-help loss'>" << Escape(accountStatus.errorMessage) << "</div>";
+        }
+        out << "</div><div class='row gap-xs'>"
+            << "<button class='primary' data-action='account-sign-in'>Sign in with OmniStats</button>"
+            << "<button class='ghost' data-action='account-manage-devices'>Manage devices</button>"
+            << "</div></div>";
+    }
+    out << ToggleControl("custom_api_enabled",
+                         "Enable OmniStats rank API",
+                         "Primary rank source for all players when signed in; used as a fallback when an API key is configured.",
+                         m_config.custom_api_enabled)
+        << "<div class='setting-row'><div class='setting-info'><div class='setting-name'>Advanced: use API key instead</div>"
+        << "<div class='setting-help'>Paste an API key from your OmniStats account instead of signing in. Keys you already set up keep working.</div></div>"
+        << "<button class='ghost' data-action='toggle-advanced-api-key'>" << (m_showAdvancedApiKey ? "Hide" : "Show") << "</button></div>";
+    if (m_showAdvancedApiKey) {
+        out << "<div class='setting-row'><div class='setting-info'><div class='setting-name'>API Key</div></div>"
+            << "<input type='password' class='text' data-setting='custom_api_key' value='" << Escape(m_config.custom_api_key) << "'/></div>";
+        if (m_config.custom_api_key.empty())
+            out << "<div class='setting-help'>No key set. Sign in on the website and copy your API key from account settings.</div>";
+        else if (m_state && m_state->ui.customApiKeyRejected.load())
+            out << "<div class='setting-help loss'>This API key was rejected. Custom API lookups are paused until you enter a valid key from your account settings.</div>";
+        else
+            out << "<div class='setting-help win'>API key saved and active.</div>";
+    }
     out << SectionEnd();
     out << SectionStart("Ballchasing Uploader")
         << "<div class='setting-help'>Upload saved replay files to your Ballchasing account. Add your API token from Ballchasing.com.</div>"

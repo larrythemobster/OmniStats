@@ -1244,3 +1244,23 @@ body.view-document { pointer-events: none; }
 .choice-card:hover { border-color: #505050; }
 .choice-card.selected { border: 2dp #eef1f5; background-color: #1c1c1c; }
 .choice-title { display: block; margin-bottom: 6dp; font-size: 14dp; font-weight: 700; }
+
+.account-onboarding-card { margin-bottom: 10dp; }
+.account-code-card {
+    display: block;
+    margin-top: 8dp;
+    margin-bottom: 6dp;
+    padding: 10dp 14dp;
+    border: 1dp #3b3b3b;
+    border-radius: 8dp;
+    background-color: #131313;
+    text-align: center;
+}
+.account-user-code {
+    display: block;
+    margin-top: 4dp;
+    font-size: 22dp;
+    font-weight: 700;
+    letter-spacing: 2dp;
+    color: #eef1f5;
+}

@@ -1,5 +1,6 @@
 #include "ui/rml/views/OnboardingView.hpp"
 
+#include "network/AccountClient.hpp"
 #include <RmlUi/Core/Context.h>
 
 #include <algorithm>
@@ -38,6 +39,11 @@ bool OnboardingView::Create(Rml::Context* context) {
     constructor.Bind("discord", &m_discord);
     constructor.Bind("crash_reports", &m_crashReports);
     constructor.Bind("identity_hint", &m_identityHint);
+    constructor.Bind("account_signed_in", &m_accountSignedIn);
+    constructor.Bind("account_awaiting", &m_accountAwaiting);
+    constructor.Bind("account_has_error", &m_accountHasError);
+    constructor.Bind("account_status", &m_accountStatus);
+    constructor.Bind("account_user_code", &m_accountUserCode);
 
     m_handle = constructor.GetModelHandle();
     m_bound = true;
@@ -82,4 +88,19 @@ void OnboardingView::Refresh(const ConfigData& config, const StatsApiConfig::Che
         Rml::String(accountDetected ? "Your account was detected from a match. You can change it later in Settings > General."
                                     : "Only accounts OmniStats has already seen are listed. Auto-detect works for new installs."),
         "identity_hint");
+
+    const AccountStatusSnapshot account = AccountClient::Instance().GetStatus();
+    Set(m_accountSignedIn, account.state == AccountAuthState::SignedIn, "account_signed_in");
+    Set(m_accountAwaiting, account.state == AccountAuthState::AwaitingApproval, "account_awaiting");
+    Set(m_accountHasError, account.state == AccountAuthState::Error && !account.errorMessage.empty(), "account_has_error");
+    Set(m_accountUserCode, Rml::String(account.userCode), "account_user_code");
+    if (account.state == AccountAuthState::SignedIn) {
+        Set(m_accountStatus,
+            Rml::String("Signed in as " + account.displayName + " · Ranks: " + (config.custom_api_enabled ? "OmniStats" : "Off")),
+            "account_status");
+    } else if (account.state == AccountAuthState::Error && !account.errorMessage.empty()) {
+        Set(m_accountStatus, Rml::String(account.errorMessage), "account_status");
+    } else {
+        Set(m_accountStatus, Rml::String(""), "account_status");
+    }
 }

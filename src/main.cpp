@@ -13,6 +13,7 @@
 #include "core/Storage.hpp"
 #include "database/DatabaseManager.hpp"
 #include "network/DiscordManager.hpp"
+#include "network/AccountClient.hpp"
 #include "network/ExternalUpdaterLauncher.hpp"
 #include "network/MMRFetcher.hpp"
 #include "network/ReplayUploader.hpp"
@@ -170,6 +171,7 @@ int main(int argc, char* argv[]) {
     (void)argv;
     // Initialize Curl globally for static linking
     curl_global_init(CURL_GLOBAL_ALL);
+    AccountClient::EnsureSodiumInitialized();
     Storage::InitializeEnvironment();
     std::string crashFile = Storage::GetDataDirectory() + "crash_pending.dmp";
     MultiByteToWideChar(CP_UTF8, 0, crashFile.c_str(), -1, g_crashDumpPath, MAX_PATH);
@@ -182,6 +184,7 @@ int main(int argc, char* argv[]) {
         setvbuf(outStream, NULL, _IONBF, 0);
     std::cout << "OmniStats Starting...\n";
     Config::Load();
+    AccountClient::Instance().SyncFromConfig();
     if (!EnsureRequiredPrivacyAcceptance()) {
         std::cout << "[Privacy] Required privacy notice was declined. Exiting.\n";
         curl_global_cleanup();
@@ -297,6 +300,7 @@ int main(int argc, char* argv[]) {
         uploader->Stop();
         std::cout << "[Main] ReplayUploader stopped.\n";
     }
+    AccountClient::Instance().Shutdown();
     TelemetryManager::Shutdown();
     std::cout << "[Main] TelemetryManager stopped.\n";
     Config::ShutdownSaver();

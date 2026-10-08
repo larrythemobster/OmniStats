@@ -84,6 +84,42 @@ static std::string DecryptToken(const std::string& hexCipher) {
     return hexCipher; // Fallback to raw if decryption fails (plain text from older version)
 }
 
+static std::string EncryptSecretStrict(const std::string& plainText) {
+    if (plainText.empty()) return "";
+
+    DATA_BLOB inputBlob;
+    inputBlob.pbData = (BYTE*)plainText.data();
+    inputBlob.cbData = (DWORD)plainText.size();
+
+    DATA_BLOB outputBlob;
+    if (CryptProtectData(&inputBlob, L"OmniStats Token", nullptr, nullptr, nullptr, 0, &outputBlob)) {
+        std::string encryptedBytes((char*)outputBlob.pbData, outputBlob.cbData);
+        LocalFree(outputBlob.pbData);
+        return StringToHex(encryptedBytes);
+    }
+    std::cerr << "[Config] DPAPI encryption failed with error: " << GetLastError() << "\n";
+    return "";
+}
+
+static std::string DecryptSecretStrict(const std::string& hexCipher) {
+    if (hexCipher.empty()) return "";
+
+    std::string cipherBytes = HexToString(hexCipher);
+    if (cipherBytes.empty()) return "";
+
+    DATA_BLOB inputBlob;
+    inputBlob.pbData = (BYTE*)cipherBytes.data();
+    inputBlob.cbData = (DWORD)cipherBytes.size();
+
+    DATA_BLOB outputBlob;
+    if (CryptUnprotectData(&inputBlob, nullptr, nullptr, nullptr, nullptr, 0, &outputBlob)) {
+        std::string decryptedBytes((char*)outputBlob.pbData, outputBlob.cbData);
+        LocalFree(outputBlob.pbData);
+        return decryptedBytes;
+    }
+    return "";
+}
+
 // Helper: serialize ColorRGBA to JSON array [r, g, b, a]
 static nlohmann::json ColorToJson(const ColorRGBA& c) {
     return nlohmann::json::array({c.r, c.g, c.b, c.a});
@@ -332,6 +368,26 @@ namespace Config {
             } else if (j.contains("pro_api_key") && j["pro_api_key"].is_string()) {
                 Current.custom_api_key = DecryptToken(j["pro_api_key"].get<std::string>());
             }
+            if (j.contains("account_signed_in_name") && j["account_signed_in_name"].is_string()) {
+                Current.account_signed_in_name = j["account_signed_in_name"].get<std::string>();
+            } else {
+                Current.account_signed_in_name.clear();
+            }
+            if (j.contains("account_device_public_id") && j["account_device_public_id"].is_string()) {
+                Current.account_device_public_id = j["account_device_public_id"].get<std::string>();
+            } else {
+                Current.account_device_public_id.clear();
+            }
+            if (j.contains("account_refresh_token") && j["account_refresh_token"].is_string()) {
+                Current.account_refresh_token = DecryptSecretStrict(j["account_refresh_token"].get<std::string>());
+            } else {
+                Current.account_refresh_token.clear();
+            }
+            if (j.contains("account_device_key") && j["account_device_key"].is_string()) {
+                Current.account_device_key = DecryptSecretStrict(j["account_device_key"].get<std::string>());
+            } else {
+                Current.account_device_key.clear();
+            }
             if (j.contains("rocket_league_stats_api_config_path")) Current.rocket_league_stats_api_config_path = j["rocket_league_stats_api_config_path"];
             if (j.contains("check_stats_api_config_on_startup")) Current.check_stats_api_config_on_startup = j["check_stats_api_config_on_startup"];
             if (j.contains("ballchasing_token") && j["ballchasing_token"].is_string()) {
@@ -570,6 +626,10 @@ namespace Config {
         j["custom_api_enabled"] = Current.custom_api_enabled;
         j["custom_api_base_url"] = Current.custom_api_base_url;
         j["custom_api_key"] = EncryptToken(Current.custom_api_key);
+        j["account_signed_in_name"] = Current.account_signed_in_name;
+        j["account_device_public_id"] = Current.account_device_public_id;
+        j["account_refresh_token"] = EncryptSecretStrict(Current.account_refresh_token);
+        j["account_device_key"] = EncryptSecretStrict(Current.account_device_key);
         j["ballchasing_token"] = EncryptToken(Current.ballchasing_token);
         j["auto_upload_replays"] = Current.auto_upload_replays;
         j["ballchasing_upload_notice_accepted"] = Current.ballchasing_upload_notice_accepted;

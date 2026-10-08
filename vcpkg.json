@@ -4,6 +4,7 @@
   "dependencies": [
     "asio",
     "curl",
+    "libsodium",
     "nlohmann-json",
     "rmlui",
     "sdl2",

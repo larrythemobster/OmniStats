@@ -52,9 +52,9 @@ find_package(RmlUi CONFIG REQUIRED)
 find_package(CURL CONFIG REQUIRED)
 find_package(SDL2 CONFIG REQUIRED)
 find_package(unofficial-sqlite3 CONFIG REQUIRED)
+find_package(unofficial-sodium CONFIG REQUIRED)
 find_package(ZLIB REQUIRED)
 find_package(asio CONFIG REQUIRED)
-
 option(BUILD_TESTING "Build the testing tree" ON)
 option(OMNISTATS_BUILD_BENCHMARKS "Build the Google Benchmark executable" OFF)
 option(OMNISTATS_BUILD_FUZZER "Build the fuzzing executable" OFF)
@@ -163,6 +163,7 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
     CURL::libcurl
     SDL2::SDL2-static
     unofficial::sqlite3::sqlite3
+    unofficial-sodium::sodium
     ZLIB::ZLIB
     asio::asio
     $<IF:$<CONFIG:Debug>,${DISCORD_RPC_LIB_DEBUG},${DISCORD_RPC_LIB_RELEASE}>
@@ -270,6 +271,7 @@ if(BUILD_TESTING)
         CURL::libcurl
         SDL2::SDL2-static
         unofficial::sqlite3::sqlite3
+        unofficial-sodium::sodium
         ZLIB::ZLIB
         asio::asio
         $<IF:$<CONFIG:Debug>,${DISCORD_RPC_LIB_DEBUG},${DISCORD_RPC_LIB_RELEASE}>
@@ -328,6 +330,7 @@ if(BUILD_TESTING)
             CURL::libcurl
             SDL2::SDL2-static
             unofficial::sqlite3::sqlite3
+            unofficial-sodium::sodium
             ZLIB::ZLIB
             asio::asio
             $<IF:$<CONFIG:Debug>,${DISCORD_RPC_LIB_DEBUG},${DISCORD_RPC_LIB_RELEASE}>
@@ -378,6 +381,7 @@ if(BUILD_TESTING)
             CURL::libcurl
             SDL2::SDL2-static
             unofficial::sqlite3::sqlite3
+            unofficial-sodium::sodium
             ZLIB::ZLIB
             asio::asio
             $<IF:$<CONFIG:Debug>,${DISCORD_RPC_LIB_DEBUG},${DISCORD_RPC_LIB_RELEASE}>

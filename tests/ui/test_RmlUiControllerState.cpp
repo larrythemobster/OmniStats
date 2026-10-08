@@ -1943,3 +1943,17 @@ TEST_F(RmlUiControllerStateTest, BuildTrendSectionsIncludesLobbyStrengthAndMmrDe
     ASSERT_EQ(emptySections[4].rows.size(), 1u);
     EXPECT_EQ(emptySections[4].rows[0].label, "Not enough ranked data");
 }
+
+TEST_F(RmlUiControllerStateTest, IntegrationsRendersAccountSectionAndCollapsedAdvancedApiKey) {
+    auto state = std::make_shared<SessionState>();
+    RmlUiController controller(state, nullptr);
+    controller.Update(Config::Read());
+
+    const std::string html = RenderIntegrationSettings(controller);
+    EXPECT_NE(html.find("Account"), std::string::npos);
+    EXPECT_NE(html.find("data-action='account-sign-in'"), std::string::npos);
+    EXPECT_NE(html.find("data-action='account-manage-devices'"), std::string::npos);
+    EXPECT_NE(html.find("Advanced: use API key instead"), std::string::npos);
+    EXPECT_NE(html.find("data-action='toggle-advanced-api-key'"), std::string::npos);
+    EXPECT_EQ(html.find("data-setting='custom_api_key'"), std::string::npos);
+}

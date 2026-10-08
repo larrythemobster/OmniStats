@@ -1,5 +1,6 @@
 #include "MMRFetcher.hpp"
 #include "CurlImpersonate.hpp"
+#include "network/AccountClient.hpp"
 #include "core/Config.hpp"
 #include "core/GamemodeUtils.hpp"
 #include "core/PlaylistMetadata.hpp"
@@ -19,6 +20,14 @@
 #include "network/MMRFetcherDetail.hpp"
 
 using namespace MMRFetcherDetail;
+
+namespace {
+    bool IsRankLookupEnabled() {
+        const ConfigData conf = Config::Read();
+        if (conf.enable_mmr_tracking) return true;
+        return conf.custom_api_enabled && AccountClient::Instance().IsSignedIn();
+    }
+}
 
 void MMRFetcher::Start() {
     if (m_isRunning) return;
@@ -145,7 +154,7 @@ void MMRFetcher::StoreLocalProfileCache(
 }
 
 void MMRFetcher::Enqueue(const std::string& primaryId, const std::string& name) {
-    if (!Config::Read().enable_mmr_tracking || primaryId.empty()) return;
+    if (!IsRankLookupEnabled() || primaryId.empty()) return;
 
     // Only the local player's successful profile is cached. It stays valid
     // until an actual completed match can have changed that player's rank.
@@ -180,7 +189,7 @@ void MMRFetcher::EnqueuePostMatch(const std::string& primaryId,
                                   bool previousMmrIsPlaylistSpecific,
                                   bool won,
                                   bool provisionalImmediately) {
-    if (!Config::Read().enable_mmr_tracking || primaryId.empty() || matchGuid.empty() || playlist.empty()) return;
+    if (!IsRankLookupEnabled() || primaryId.empty() || matchGuid.empty() || playlist.empty()) return;
 
     std::optional<MMRRequest> provisionalRequest;
     {
@@ -249,7 +258,7 @@ void MMRFetcher::EnqueuePostMatch(const std::string& primaryId,
 
 void MMRFetcher::EnqueuePendingDestroyedMatch(
     const PendingDestroyedMatchMmrRefresh& pending) {
-    if (!Config::Read().enable_mmr_tracking ||
+    if (!IsRankLookupEnabled() ||
         pending.primaryId.empty() || pending.matchGuid.empty() ||
         pending.playlist.empty() || !pending.validCompetitiveMatch) {
         return;

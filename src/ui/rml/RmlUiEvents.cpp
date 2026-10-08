@@ -152,6 +152,7 @@ void RmlUiController::HandleClick(Rml::Element* target) {
     } else if (action == "settings-page") {
         FinishBindCapture();
         m_showBallchasingToken = false;
+        m_showAdvancedApiKey = false;
         const int page = std::clamp(std::atoi(Attribute(target, "data-page").c_str()), 0, 7);
         m_settingsPage = static_cast<SettingsPage>(page);
         if (m_settingsPage == SettingsPage::Data && m_dbManager) {
@@ -268,6 +269,9 @@ void RmlUiController::HandleClick(Rml::Element* target) {
         RebuildSettings();
     } else if (action == "toggle-token") {
         m_showBallchasingToken = !m_showBallchasingToken;
+        RebuildSettings();
+    } else if (action == "toggle-advanced-api-key") {
+        m_showAdvancedApiKey = !m_showAdvancedApiKey;
         RebuildSettings();
     } else if (action == "edit-color") {
         const std::string key = Attribute(target, "data-color-key");

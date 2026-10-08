@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 #include "network/MMRFetcher.hpp"
 #include "network/CurlImpersonate.hpp"
+#include "network/AccountClient.hpp"
 #include "core/SessionState.hpp"
 #include "core/Config.hpp"
 #include <chrono>
@@ -25,6 +26,8 @@ static int g_mock_custom_api_perform_res = 0;
 static std::atomic<int> g_mock_perform_count{0};
 static std::string g_mock_impersonation_profile;
 static std::string g_mock_user_agent_header;
+static std::vector<std::string> g_mock_request_headers;
+static std::vector<long> g_mock_custom_api_status_sequence;
 static int mock_easy_setopt(void* curl, int option, ...) {
     va_list args;
     va_start(args, option);
@@ -50,7 +53,9 @@ static int mock_easy_perform(void* curl) {
     const std::string* body = &g_mock_response;
     int res = g_mock_perform_res;
     if (g_mock_custom_api_response_code > 0 && (g_mock_url.find("/v1/ranks") != std::string::npos || g_mock_url.find("/v1/pro/ranks") != std::string::npos)) {
-        code = g_mock_custom_api_response_code;
+        code = g_mock_custom_api_status_sequence.empty()
+                   ? g_mock_custom_api_response_code
+                   : g_mock_custom_api_status_sequence.front();
         body = &g_mock_custom_api_response;
         if (g_mock_custom_api_perform_res != 0) {
             res = g_mock_custom_api_perform_res;
@@ -71,6 +76,13 @@ static int mock_easy_getinfo(void* curl, int info, ...) {
     if (info == CI_CURLINFO_RESPONSE_CODE) {
         long* code = va_arg(args, long*);
         if (g_mock_custom_api_response_code > 0 && (g_mock_url.find("/v1/ranks") != std::string::npos || g_mock_url.find("/v1/pro/ranks") != std::string::npos)) {
+            if (!g_mock_custom_api_status_sequence.empty() &&
+                (g_mock_url.find("/v1/ranks") != std::string::npos || g_mock_url.find("/v1/pro/ranks") != std::string::npos)) {
+                *code = g_mock_custom_api_status_sequence.front();
+                g_mock_custom_api_status_sequence.erase(g_mock_custom_api_status_sequence.begin());
+                va_end(args);
+                return 0;
+            }
             *code = g_mock_custom_api_response_code;
         } else {
             *code = g_mock_response_code;
@@ -84,6 +96,7 @@ static void mock_easy_cleanup(void* curl) {}
 static void mock_slist_free_all(void* list) {}
 static void* mock_slist_append(void* list, const char* str) {
     const std::string header = str ? str : "";
+    g_mock_request_headers.push_back(header);
     if (header.rfind("User-Agent: ", 0) == 0) {
         g_mock_user_agent_header = header;
     }
@@ -114,6 +127,9 @@ class MMRFetcherTest : public ::testing::Test {
         g_mock_response.clear();
         g_mock_impersonation_profile.clear();
         g_mock_user_agent_header.clear();
+        g_mock_request_headers.clear();
+        g_mock_custom_api_status_sequence.clear();
+        AccountClient::Instance().ResetForTests();
         g_mock_perform_res = 0;
         g_mock_custom_api_perform_res = 0;
         sessionState = std::make_shared<SessionState>();
@@ -161,6 +177,9 @@ class MMRFetcherTest : public ::testing::Test {
         g_mock_url.clear();
         g_mock_custom_api_response_code = 0;
         g_mock_custom_api_response.clear();
+        g_mock_request_headers.clear();
+        g_mock_custom_api_status_sequence.clear();
+        AccountClient::Instance().ResetForTests();
         Config::Update([this](ConfigData& config) { config = originalConfig; }, false);
         g_mock_perform_res = 0;
         g_mock_custom_api_perform_res = 0;
@@ -1687,4 +1706,175 @@ TEST_F(MMRFetcherTest, SwitchingAccountsKeepsEachSessionGraphOnItsOwnRating) {
     ASSERT_EQ(sessionState->history.playlistMatchPoints.at("2v2").size(), 2u);
     EXPECT_EQ(sessionState->history.playlistMatchPoints.at("2v2")[0].mmr, 1416);
     EXPECT_EQ(sessionState->history.playlistMatchPoints.at("2v2")[1].mmr, 1407);
+}
+
+TEST_F(MMRFetcherTest, SignedInUsesBearerHeadersAndIsPrimaryForAllPlayers) {
+    auto& account = AccountClient::Instance();
+    AccountClient::DeviceKeyPair keyPair;
+    ASSERT_TRUE(account.EnsureDeviceKey(&keyPair));
+    Config::Update([&](ConfigData& c) {
+        c.enable_mmr_tracking = false;
+        c.custom_api_enabled = true;
+        c.custom_api_key = "legacy_key_should_not_be_used";
+        c.account_refresh_token = "valid_refresh_token";
+        c.account_signed_in_name = "SignedInPlayer";
+        c.account_device_public_id = keyPair.publicId;
+    },
+                   false);
+    account.SyncFromConfig();
+    account.SetClockForTests([]() { return 1700000000; });
+    account.SetCachedAccessTokenForTests("bearer_token_abc", 1700000900);
+
+    g_mock_response_code = 500;
+    g_mock_custom_api_response_code = 200;
+    g_mock_custom_api_response = R"({
+        "players": [{
+            "platform": "Epic",
+            "account_id": "opp_id",
+            "skills": [
+                { "playlist": 11, "mmr": 1310.0, "tier": 15, "division": 1, "matches_played": 30 }
+            ]
+        }]
+    })";
+
+    sessionState->game.myPrimaryId = "Epic|local_id";
+    fetcher->FetchRosterProfileForTests("Epic|opp_id", "Opponent");
+
+    EXPECT_EQ(g_mock_perform_count.load(), 1);
+    bool sawBearer = false;
+    bool sawDeviceId = false;
+    bool sawApiKey = false;
+    for (const auto& h : g_mock_request_headers) {
+        if (h == "Authorization: Bearer bearer_token_abc") sawBearer = true;
+        if (h == "X-Omni-Device-Id: " + keyPair.publicId) sawDeviceId = true;
+        if (h.rfind("X-API-Key:", 0) == 0) sawApiKey = true;
+    }
+    EXPECT_TRUE(sawBearer);
+    EXPECT_TRUE(sawDeviceId);
+    EXPECT_FALSE(sawApiKey);
+
+    std::shared_lock<std::shared_mutex> lock(sessionState->game.mutex);
+    ASSERT_TRUE(sessionState->game.roster.count("Epic|opp_id") > 0);
+    EXPECT_EQ(sessionState->game.roster.at("Epic|opp_id").mmr, 1310);
+    EXPECT_EQ(sessionState->game.roster.at("Epic|opp_id").rankVerificationSource, "ServerA");
+}
+
+TEST_F(MMRFetcherTest, SignedIn401RefreshesOnceAndRetriesOnceBeforeSigningOutOnSecond401) {
+    auto& account = AccountClient::Instance();
+    AccountClient::DeviceKeyPair keyPair;
+    ASSERT_TRUE(account.EnsureDeviceKey(&keyPair));
+    Config::Update([&](ConfigData& c) {
+        c.enable_mmr_tracking = false;
+        c.custom_api_enabled = true;
+        c.account_refresh_token = "initial_refresh_token";
+        c.account_signed_in_name = "SignedInPlayer";
+        c.account_device_public_id = keyPair.publicId;
+    },
+                   false);
+    account.SyncFromConfig();
+    account.SetClockForTests([]() { return 1700000000; });
+    account.SetCachedAccessTokenForTests("expired_access_token", 1700000900);
+
+    int refreshCalls = 0;
+    account.SetTransportForTests([&](const std::string& url, const std::string&) {
+        AccountClient::HttpResponse resp;
+        EXPECT_NE(url.find("/v1/auth/device/refresh"), std::string::npos);
+        ++refreshCalls;
+        resp.statusCode = 200;
+        resp.body = nlohmann::json{
+            {"access_token", "fresh_access_token_" + std::to_string(refreshCalls)},
+            {"expires_in", 900},
+            {"refresh_token", "rotated_refresh_token_" + std::to_string(refreshCalls)},
+            {"refresh_expires_in", 2592000},
+            {"account", {{"display_name", "SignedInPlayer"}}},
+            {"device", {{"public_id", keyPair.publicId}, {"status", "active"}}}}
+                        .dump();
+        return resp;
+    });
+
+    g_mock_custom_api_response_code = 200;
+    g_mock_custom_api_status_sequence = {401, 200};
+    g_mock_custom_api_response = R"({
+        "players": [{
+            "platform": "Steam",
+            "account_id": "76561198000000001",
+            "skills": [
+                { "playlist": 11, "mmr": 1400.0, "tier": 16, "division": 2, "matches_played": 50 }
+            ]
+        }]
+    })";
+
+    MMRRequest req;
+    req.primaryId = "Steam|76561198000000001";
+    req.name = "PlayerOne";
+    EXPECT_EQ(fetcher->FetchProfileFromCustomApiForTests(req), CustomApiFetchResult::SuccessFinished);
+    EXPECT_EQ(refreshCalls, 1);
+    EXPECT_EQ(g_mock_perform_count.load(), 2);
+    EXPECT_TRUE(account.IsSignedIn());
+    EXPECT_EQ(Config::Read().account_refresh_token, "rotated_refresh_token_1");
+
+    g_mock_perform_count.store(0);
+    g_mock_custom_api_status_sequence = {401, 401};
+    EXPECT_EQ(fetcher->FetchProfileFromCustomApiForTests(req), CustomApiFetchResult::AuthFailure);
+    EXPECT_EQ(refreshCalls, 2);
+    EXPECT_EQ(g_mock_perform_count.load(), 2);
+    EXPECT_FALSE(account.IsSignedIn());
+    EXPECT_TRUE(Config::Read().account_refresh_token.empty());
+    std::string reason;
+    EXPECT_TRUE(account.ConsumeSignedOutNotification(reason));
+    EXPECT_FALSE(reason.empty());
+}
+
+TEST_F(MMRFetcherTest, SignedInCustomApiFailureOnlyFallsBackToTrackerWhenMmrTrackingEnabled) {
+    auto& account = AccountClient::Instance();
+    AccountClient::DeviceKeyPair keyPair;
+    ASSERT_TRUE(account.EnsureDeviceKey(&keyPair));
+    Config::Update([&](ConfigData& c) {
+        c.enable_mmr_tracking = false;
+        c.custom_api_enabled = true;
+        c.account_refresh_token = "valid_refresh_token";
+        c.account_signed_in_name = "SignedInPlayer";
+        c.account_device_public_id = keyPair.publicId;
+    },
+                   false);
+    account.SyncFromConfig();
+    account.SetClockForTests([]() { return 1700000000; });
+    account.SetCachedAccessTokenForTests("bearer_token_abc", 1700000900);
+
+    g_mock_custom_api_response_code = 404;
+    g_mock_response_code = 200;
+    g_mock_response = R"({
+        "data": {
+            "segments": [{
+                "type": "playlist",
+                "attributes": { "playlistId": 11 },
+                "stats": {
+                    "rating": { "value": 1350 },
+                    "tier": { "metadata": { "name": "Champion I" } },
+                    "division": { "metadata": { "name": "Division II" } },
+                    "matchesPlayed": { "value": 40 }
+                }
+            }]
+        }
+    })";
+
+    sessionState->game.roster["Steam|76561198000000099"] =
+        PlayerData{.primaryId = "Steam|76561198000000099", .name = "TestTarget"};
+    fetcher->FetchRosterProfileForTests("Steam|76561198000000099", "TestTarget");
+    EXPECT_EQ(g_mock_perform_count.load(), 1);
+    {
+        std::shared_lock<std::shared_mutex> lock(sessionState->game.mutex);
+        EXPECT_TRUE(sessionState->game.roster.at("Steam|76561198000000099").fetchFailed);
+    }
+
+    g_mock_perform_count.store(0);
+    Config::Update([](ConfigData& c) { c.enable_mmr_tracking = true; }, false);
+    fetcher->FetchRosterProfileForTests("Steam|76561198000000099", "TestTarget");
+    EXPECT_EQ(g_mock_perform_count.load(), 2);
+    {
+        std::shared_lock<std::shared_mutex> lock(sessionState->game.mutex);
+        EXPECT_FALSE(sessionState->game.roster.at("Steam|76561198000000099").fetchFailed);
+        EXPECT_EQ(sessionState->game.roster.at("Steam|76561198000000099").mmr, 1350);
+        EXPECT_EQ(sessionState->game.roster.at("Steam|76561198000000099").rankVerificationSource, "Tracker");
+    }
 }

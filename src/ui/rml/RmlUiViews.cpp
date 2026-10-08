@@ -12,6 +12,7 @@
 
 #include "database/DatabaseManager.hpp"
 #include "ui/rml/RmlCapture.hpp"
+#include "network/AccountClient.hpp"
 #include "ui/rml/RmlUiHelpers.hpp"
 
 using namespace RmlUiDetail;
@@ -217,6 +218,23 @@ bool RmlUiController::HandleViewAction(const std::string& action, Rml::Element* 
     } else if (action == "onboarding-statsapi-check" || action == "onboarding-statsapi-fix") {
         CheckStatsApi(action == "onboarding-statsapi-fix", false);
         RefreshOnboarding();
+    } else if (action == "account-sign-in") {
+        AccountClient::Instance().BeginSignInAsync(true);
+        if (m_state && m_state->ui.showMenu.load()) RebuildSettings();
+        if (m_onboardingVisible) RefreshOnboarding();
+    } else if (action == "account-cancel") {
+        AccountClient::Instance().CancelAuthorization();
+        if (m_state && m_state->ui.showMenu.load()) RebuildSettings();
+        if (m_onboardingVisible) RefreshOnboarding();
+    } else if (action == "account-sign-out") {
+        AccountClient::Instance().LogoutAsync();
+        m_config = Config::Read();
+        if (m_state && m_state->ui.showMenu.load()) RebuildSettings();
+        if (m_onboardingVisible) RefreshOnboarding();
+    } else if (action == "account-open-verify") {
+        AccountClient::Instance().OpenVerificationBrowser();
+    } else if (action == "account-manage-devices") {
+        AccountClient::Instance().OpenManageDevicesBrowser();
     } else {
         return false;
     }

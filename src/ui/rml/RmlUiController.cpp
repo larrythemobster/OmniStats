@@ -38,6 +38,7 @@
 #include "database/DatabaseManager.hpp"
 #include "network/ExternalUpdaterLauncher.hpp"
 #include "network/MMRFetcher.hpp"
+#include "network/AccountClient.hpp"
 #include "ui/Formatting.hpp"
 #include "ui/KeyNames.hpp"
 #include "ui/rml/RmlInputWin32.hpp"
@@ -367,6 +368,7 @@ void RmlUiController::Update(const ConfigData& config, bool configChanged, uint6
         CommitColorPick();
         FinishBindCapture();
         m_showBallchasingToken = false;
+        m_showAdvancedApiKey = false;
         m_confirmReplayUploads = false;
         m_confirmDeleteHistory = false;
         m_editColorKey.clear();
@@ -555,6 +557,18 @@ void RmlUiController::RebuildVisibleUi(bool force, bool configChanged) {
             }
         }
     }
+    {
+        const AccountStatusSnapshot accountStatus = AccountClient::Instance().GetStatus();
+        if (accountStatus.version != m_lastAccountStatusVersion) {
+            m_lastAccountStatusVersion = accountStatus.version;
+            std::string signedOutReason;
+            if (AccountClient::Instance().ConsumeSignedOutNotification(signedOutReason)) {
+                ShowToast(signedOutReason, true);
+            }
+            if (m_state && m_state->ui.showMenu.load()) RebuildSettings();
+            if (m_onboardingVisible) RefreshOnboarding();
+        }
+    }
 
     // Do not replace DOM while a pointer target is active, but keep safe leaf
     // telemetry flowing. This preserves drag/click stability without freezing
@@ -707,6 +721,8 @@ void RmlUiController::RebuildVisibleUi(bool force, bool configChanged) {
         HashAppend(settingsHash, static_cast<uint64_t>(m_settingsPage));
         HashAppend(settingsHash, static_cast<uint64_t>(m_bindCaptureTarget));
         HashAppend(settingsHash, static_cast<uint64_t>(m_showBallchasingToken));
+        HashAppend(settingsHash, static_cast<uint64_t>(m_showAdvancedApiKey));
+        HashAppend(settingsHash, AccountClient::Instance().GetStatus().version);
         HashAppend(settingsHash, static_cast<uint64_t>(m_confirmReplayUploads));
         HashAppend(settingsHash, static_cast<uint64_t>(m_confirmDeleteHistory));
         HashAppend(settingsHash, m_editColorKey);

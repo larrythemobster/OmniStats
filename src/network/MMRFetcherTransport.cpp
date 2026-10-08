@@ -1,5 +1,6 @@
 #include "MMRFetcher.hpp"
 #include "CurlImpersonate.hpp"
+#include "network/AccountClient.hpp"
 #include "core/Config.hpp"
 #include "core/GamemodeUtils.hpp"
 #include "core/PlaylistMetadata.hpp"
@@ -84,10 +85,15 @@ CustomApiFetchResult MMRFetcher::FetchProfileFromCustomApi(const MMRRequest& req
     }
 
     const auto config = Config::Read();
-    if (!config.custom_api_enabled || config.custom_api_key.empty()) {
+    if (!config.custom_api_enabled) {
         return CustomApiFetchResult::DisabledOrNotReady;
     }
-    {
+    auto& accountClient = AccountClient::Instance();
+    const bool signedIn = accountClient.IsSignedIn();
+    if (!signedIn && config.custom_api_key.empty()) {
+        return CustomApiFetchResult::DisabledOrNotReady;
+    }
+    if (!signedIn) {
         std::lock_guard<std::mutex> lock(m_queueMutex);
         if (!m_rejectedCustomApiKey.empty()) {
             if (m_rejectedCustomApiKey == config.custom_api_key) {
@@ -96,6 +102,12 @@ CustomApiFetchResult MMRFetcher::FetchProfileFromCustomApi(const MMRRequest& req
                 }
                 return CustomApiFetchResult::AuthFailure;
             }
+            m_rejectedCustomApiKey.clear();
+            m_state->ui.customApiKeyRejected.store(false);
+        }
+    } else {
+        std::lock_guard<std::mutex> lock(m_queueMutex);
+        if (!m_rejectedCustomApiKey.empty()) {
             m_rejectedCustomApiKey.clear();
             m_state->ui.customApiKeyRejected.store(false);
         }
@@ -182,37 +194,91 @@ CustomApiFetchResult MMRFetcher::FetchProfileFromCustomApi(const MMRRequest& req
     const std::string reqBodyStr = reqBody.dump();
     const std::string url = baseUrl + "/v1/ranks";
 
-    void* ci_curl = ci.easy_init();
-    if (!ci_curl) return CustomApiFetchResult::DisabledOrNotReady;
-
-    void* headers = nullptr;
-    headers = ci.slist_append(headers, "Content-Type: application/json");
-    headers = ci.slist_append(headers, "Accept: application/json");
-    headers = ci.slist_append(headers, ("X-API-Key: " + config.custom_api_key).c_str());
-
     std::string readBuffer;
     FetchHeaderState headerState;
-
-    ci.easy_setopt(ci_curl, CI_CURLOPT_URL, url.c_str());
-    ci.easy_setopt(ci_curl, CI_CURLOPT_POST, 1L);
-    ci.easy_setopt(ci_curl, CI_CURLOPT_POSTFIELDS, reqBodyStr.c_str());
-    ci.easy_setopt(ci_curl, CI_CURLOPT_POSTFIELDSIZE, static_cast<long>(reqBodyStr.size()));
-    ci.easy_setopt(ci_curl, CI_CURLOPT_HTTPHEADER, headers);
-    ci.easy_setopt(ci_curl, CI_CURLOPT_WRITEFUNCTION, WriteCallback);
-    ci.easy_setopt(ci_curl, CI_CURLOPT_WRITEDATA, &readBuffer);
-    ci.easy_setopt(ci_curl, CI_CURLOPT_HEADERFUNCTION, HeaderCallback);
-    ci.easy_setopt(ci_curl, CI_CURLOPT_HEADERDATA, &headerState);
-    ci.easy_setopt(ci_curl, CI_CURLOPT_TIMEOUT, 10L);
-    ci.easy_setopt(ci_curl, CI_CURLOPT_SSL_OPTIONS, static_cast<long>(CI_CURLSSLOPT_NATIVE_CA));
-    ci.easy_setopt(ci_curl, CI_CURLOPT_FOLLOWLOCATION, 1L);
-    ci.easy_setopt(ci_curl, CI_CURLOPT_NOPROGRESS, 1L);
-
-    const int res = ci.easy_perform(ci_curl);
+    int res = 0;
     long httpCode = 0;
-    ci.easy_getinfo(ci_curl, CI_CURLINFO_RESPONSE_CODE, &httpCode);
 
-    ci.slist_free_all(headers);
-    ci.easy_cleanup(ci_curl);
+    const auto performRequest = [&](const std::string& bearerToken, const std::string& deviceId) -> bool {
+        readBuffer.clear();
+        headerState = {};
+        res = 0;
+        httpCode = 0;
+
+        void* ci_curl = ci.easy_init();
+        if (!ci_curl) return false;
+
+        void* headers = nullptr;
+        headers = ci.slist_append(headers, "Content-Type: application/json");
+        headers = ci.slist_append(headers, "Accept: application/json");
+        if (signedIn) {
+            headers = ci.slist_append(headers, ("Authorization: Bearer " + bearerToken).c_str());
+            headers = ci.slist_append(headers, ("X-Omni-Device-Id: " + deviceId).c_str());
+        } else {
+            headers = ci.slist_append(headers, ("X-API-Key: " + config.custom_api_key).c_str());
+        }
+
+        ci.easy_setopt(ci_curl, CI_CURLOPT_URL, url.c_str());
+        ci.easy_setopt(ci_curl, CI_CURLOPT_POST, 1L);
+        ci.easy_setopt(ci_curl, CI_CURLOPT_POSTFIELDS, reqBodyStr.c_str());
+        ci.easy_setopt(ci_curl, CI_CURLOPT_POSTFIELDSIZE, static_cast<long>(reqBodyStr.size()));
+        ci.easy_setopt(ci_curl, CI_CURLOPT_HTTPHEADER, headers);
+        ci.easy_setopt(ci_curl, CI_CURLOPT_WRITEFUNCTION, WriteCallback);
+        ci.easy_setopt(ci_curl, CI_CURLOPT_WRITEDATA, &readBuffer);
+        ci.easy_setopt(ci_curl, CI_CURLOPT_HEADERFUNCTION, HeaderCallback);
+        ci.easy_setopt(ci_curl, CI_CURLOPT_HEADERDATA, &headerState);
+        ci.easy_setopt(ci_curl, CI_CURLOPT_TIMEOUT, 10L);
+        ci.easy_setopt(ci_curl, CI_CURLOPT_SSL_OPTIONS, static_cast<long>(CI_CURLSSLOPT_NATIVE_CA));
+        ci.easy_setopt(ci_curl, CI_CURLOPT_FOLLOWLOCATION, 1L);
+        ci.easy_setopt(ci_curl, CI_CURLOPT_NOPROGRESS, 1L);
+
+        res = ci.easy_perform(ci_curl);
+        ci.easy_getinfo(ci_curl, CI_CURLINFO_RESPONSE_CODE, &httpCode);
+
+        ci.slist_free_all(headers);
+        ci.easy_cleanup(ci_curl);
+        return true;
+    };
+
+    if (signedIn) {
+        std::string accessToken = accountClient.AccessToken();
+        std::string deviceId = accountClient.DevicePublicId();
+        if (accessToken.empty() || deviceId.empty()) {
+            if (!accountClient.IsSignedIn()) {
+                return CustomApiFetchResult::AuthFailure;
+            }
+            return CustomApiFetchResult::TransientError;
+        }
+        if (!performRequest(accessToken, deviceId)) {
+            return CustomApiFetchResult::DisabledOrNotReady;
+        }
+        if (res == 0 && httpCode == 401) {
+            if (!accountClient.Refresh()) {
+                if (accountClient.IsSignedIn()) {
+                    accountClient.MarkSignedOut("Your OmniStats session expired or this device was revoked. Sign in again in Settings > Integrations.");
+                }
+                return CustomApiFetchResult::AuthFailure;
+            }
+            accessToken = accountClient.AccessToken();
+            deviceId = accountClient.DevicePublicId();
+            if (accessToken.empty() || deviceId.empty()) {
+                accountClient.MarkSignedOut("Your OmniStats session expired or this device was revoked. Sign in again in Settings > Integrations.");
+                return CustomApiFetchResult::AuthFailure;
+            }
+            if (!performRequest(accessToken, deviceId)) {
+                return CustomApiFetchResult::DisabledOrNotReady;
+            }
+            if (res == 0 && httpCode == 401) {
+                accountClient.MarkSignedOut("Your OmniStats session expired or this device was revoked. Sign in again in Settings > Integrations.");
+                std::cout << "[MMRFetcher] Custom API rejected refreshed device token (HTTP 401). Signed out.\n";
+                return CustomApiFetchResult::AuthFailure;
+            }
+        }
+    } else {
+        if (!performRequest("", "")) {
+            return CustomApiFetchResult::DisabledOrNotReady;
+        }
+    }
 
     if (res != 0) {
         std::cout << "[MMRFetcher] Custom API network error for "
@@ -235,7 +301,7 @@ CustomApiFetchResult MMRFetcher::FetchProfileFromCustomApi(const MMRRequest& req
     if (httpCode == 403) {
         std::cout << "[MMRFetcher] Custom API authentication failed (HTTP 403) for "
                   << PrivacyLog::Sensitive(req.name, "player name")
-                  << ". Check your custom API key.\n";
+                  << ".\n";
         return CustomApiFetchResult::AuthFailure;
     }
     if (httpCode == 429) {
@@ -441,7 +507,10 @@ bool MMRFetcher::FetchProfile(MMRRequest req) {
             return false;
         }
     }
-    if (m_useCustomApiFallback.load()) {
+    const ConfigData config = Config::Read();
+    const bool signedInPrimary = config.custom_api_enabled && AccountClient::Instance().IsSignedIn();
+    const bool tryCustomApiFirst = signedInPrimary || m_useCustomApiFallback.load();
+    if (tryCustomApiFirst) {
         const auto customResult = FetchProfileFromCustomApi(req);
         if (customResult == CustomApiFetchResult::SuccessFinished) {
             return false;
@@ -451,21 +520,39 @@ bool MMRFetcher::FetchProfile(MMRRequest req) {
         }
         if (customResult == CustomApiFetchResult::AuthFailure) {
             m_useCustomApiFallback.store(false);
-        } else if (customResult == CustomApiFetchResult::TransientError) {
-            if (ScheduleRetry(req, kTransientRetryDelay, "transient custom API failure")) {
-                return true;
+        } else if (!config.enable_mmr_tracking || !signedInPrimary) {
+            if (customResult == CustomApiFetchResult::TransientError) {
+                if (ScheduleRetry(req, kTransientRetryDelay, "transient custom API failure")) {
+                    return true;
+                }
+                std::unique_lock<std::shared_mutex> gameLock(m_state->game.mutex);
+                if (m_state->game.roster.count(req.primaryId)) {
+                    auto& player = m_state->game.roster[req.primaryId];
+                    player.fetched = true;
+                    player.fetchFailed = true;
+                    m_state->game.version++;
+                }
+                return false;
+            } else if (customResult == CustomApiFetchResult::UnusableData) {
+                const auto now = std::chrono::steady_clock::now();
+                if (!config.enable_mmr_tracking || m_rateLimitedUntil > now) {
+                    std::unique_lock<std::shared_mutex> gameLock(m_state->game.mutex);
+                    if (m_state->game.roster.count(req.primaryId)) {
+                        auto& player = m_state->game.roster[req.primaryId];
+                        player.fetched = true;
+                        player.fetchFailed = true;
+                        m_state->game.version++;
+                    }
+                    return false;
+                }
             }
-            std::unique_lock<std::shared_mutex> gameLock(m_state->game.mutex);
-            if (m_state->game.roster.count(req.primaryId)) {
-                auto& player = m_state->game.roster[req.primaryId];
-                player.fetched = true;
-                player.fetchFailed = true;
-                m_state->game.version++;
-            }
-            return false;
-        } else if (customResult == CustomApiFetchResult::UnusableData) {
+        } else {
             const auto now = std::chrono::steady_clock::now();
             if (m_rateLimitedUntil > now) {
+                if (customResult == CustomApiFetchResult::TransientError &&
+                    ScheduleRetry(req, kTransientRetryDelay, "transient custom API failure")) {
+                    return true;
+                }
                 std::unique_lock<std::shared_mutex> gameLock(m_state->game.mutex);
                 if (m_state->game.roster.count(req.primaryId)) {
                     auto& player = m_state->game.roster[req.primaryId];
@@ -477,8 +564,21 @@ bool MMRFetcher::FetchProfile(MMRRequest req) {
             }
         }
     }
+    if (!config.enable_mmr_tracking) {
+        if (req.reason == MMRRequestReason::PostMatch) {
+            EnsureProvisionalPoint(req, req.previousMmr);
+        }
+        std::unique_lock<std::shared_mutex> gameLock(m_state->game.mutex);
+        if (m_state->game.roster.count(req.primaryId)) {
+            auto& player = m_state->game.roster[req.primaryId];
+            player.fetched = true;
+            player.fetchFailed = true;
+            m_state->game.version++;
+        }
+        return false;
+    }
     const auto localCustomApiFallback = [&]() -> std::optional<bool> {
-        if (m_useCustomApiFallback.load()) return std::nullopt;
+        if (tryCustomApiFirst) return std::nullopt;
         {
             std::shared_lock<std::shared_mutex> gameLock(m_state->game.mutex);
             if (req.primaryId != m_state->game.myPrimaryId) return std::nullopt;
@@ -488,7 +588,6 @@ bool MMRFetcher::FetchProfile(MMRRequest req) {
         if (result == CustomApiFetchResult::SuccessRequeued) return true;
         return std::nullopt;
     };
-
     auto& ci = CurlImpersonate::Instance();
     if (!ci.IsReady()) {
         std::cout << "[MMRFetcher] Skipping " << PrivacyLog::Sensitive(req.name, "player name")
@@ -579,24 +678,26 @@ bool MMRFetcher::FetchProfile(MMRRequest req) {
                   << " (HTTP " << httpCode << ") - Curl error: " << res << "\n";
 
         if (httpCode == 403) {
-            std::cout
-                << "[MMRFetcher] Tracker.gg returned HTTP 403 after "
-                << kTrackerForbiddenAttempts
-                << " attempts. Attempting fallback to custom API...\n";
-            const auto customResult = FetchProfileFromCustomApi(req);
-            if (customResult == CustomApiFetchResult::SuccessFinished) {
-                std::cout << "[MMRFetcher] Successfully fetched ranks from custom API for "
-                          << PrivacyLog::Sensitive(req.name, "player name") << "!\n";
-                m_useCustomApiFallback.store(true);
-                return false;
+            if (!tryCustomApiFirst) {
+                std::cout
+                    << "[MMRFetcher] Tracker.gg returned HTTP 403 after "
+                    << kTrackerForbiddenAttempts
+                    << " attempts. Attempting fallback to custom API...\n";
+                const auto customResult = FetchProfileFromCustomApi(req);
+                if (customResult == CustomApiFetchResult::SuccessFinished) {
+                    std::cout << "[MMRFetcher] Successfully fetched ranks from custom API for "
+                              << PrivacyLog::Sensitive(req.name, "player name") << "!\n";
+                    m_useCustomApiFallback.store(true);
+                    return false;
+                }
+                if (customResult == CustomApiFetchResult::SuccessRequeued) {
+                    std::cout << "[MMRFetcher] Successfully fetched ranks from custom API for "
+                              << PrivacyLog::Sensitive(req.name, "player name") << "!\n";
+                    m_useCustomApiFallback.store(true);
+                    return true;
+                }
+                std::cout << "[MMRFetcher] Custom API fallback was unavailable or failed.\n";
             }
-            if (customResult == CustomApiFetchResult::SuccessRequeued) {
-                std::cout << "[MMRFetcher] Successfully fetched ranks from custom API for "
-                          << PrivacyLog::Sensitive(req.name, "player name") << "!\n";
-                m_useCustomApiFallback.store(true);
-                return true;
-            }
-            std::cout << "[MMRFetcher] Custom API fallback was unavailable or failed.\n";
             if (!m_isRunning) return false;
 
             size_t strike = 0;
