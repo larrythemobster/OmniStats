@@ -61,6 +61,30 @@ bool TelemetryReducer::AcceptsUiMatchEventLocked(const nlohmann::json& data, int
     return true;
 }
 
+bool TelemetryReducer::TargetsCurrentActiveMatchUiLocked(const nlohmann::json& data) {
+    if (!m_state->game.inMatch || m_nonLiveReplayActive) {
+        return false;
+    }
+    const std::string incomingGuid = ExtractEventMatchGuid(data);
+    if (!incomingGuid.empty()) {
+        if ((!m_state->game.matchGuid.empty() && incomingGuid != m_state->game.matchGuid) ||
+            (!m_uiMatchGuid.empty() && incomingGuid != m_uiMatchGuid) ||
+            m_pendingDestroyedMatches.count(incomingGuid) > 0) {
+            return false;
+        }
+        if (m_state->game.matchGuid.empty() && m_uiMatchGuid.empty() &&
+            m_finalizedMatchGuids.count(incomingGuid) > 0) {
+            return false;
+        }
+        if (m_uiMatchGuid.empty()) m_uiMatchGuid = incomingGuid;
+        return true;
+    }
+    if (!m_pendingDestroyedMatches.empty() || m_missingGuidAssociationBlockedByReconnect) {
+        return false;
+    }
+    return true;
+}
+
 SideEffects TelemetryReducer::Reduce(const std::string& eventName, const nlohmann::json& data) {
     SideEffects effects;
     std::unique_lock<std::shared_mutex> lock(m_state->game.mutex);
@@ -264,8 +288,7 @@ SideEffects TelemetryReducer::Reduce(const std::string& eventName, const nlohman
     }
 
     if (eventName == Constants::EVT_GOAL_REPLAY_START) {
-        const int64_t nowMs = SteadyNowMs();
-        if (AcceptsUiMatchEventLocked(data, nowMs)) {
+        if (TargetsCurrentActiveMatchUiLocked(data)) {
             m_state->ui.inGoalReplay.store(true, std::memory_order_relaxed);
         }
         return effects;
@@ -277,23 +300,19 @@ SideEffects TelemetryReducer::Reduce(const std::string& eventName, const nlohman
     }
 
     if (eventName == Constants::EVT_GOAL_REPLAY_END) {
+        const std::string incomingGuid = ExtractEventMatchGuid(data);
+        if (!incomingGuid.empty() &&
+            ((!m_state->game.matchGuid.empty() && incomingGuid != m_state->game.matchGuid) ||
+             (!m_uiMatchGuid.empty() && incomingGuid != m_uiMatchGuid) ||
+             m_pendingDestroyedMatches.count(incomingGuid) > 0)) {
+            return effects;
+        }
         m_state->ui.inGoalReplay.store(false, std::memory_order_relaxed);
         return effects;
     }
 
     if (eventName == Constants::EVT_PODIUM_START) {
-        if (!m_state->game.inMatch || m_nonLiveReplayActive) {
-            return effects;
-        }
-        const std::string incomingGuid = ExtractEventMatchGuid(data);
-        if (!incomingGuid.empty()) {
-            if ((!m_state->game.matchGuid.empty() && incomingGuid != m_state->game.matchGuid) ||
-                (!m_uiMatchGuid.empty() && incomingGuid != m_uiMatchGuid) ||
-                m_pendingDestroyedMatches.count(incomingGuid) > 0) {
-                return effects;
-            }
-            if (m_uiMatchGuid.empty()) m_uiMatchGuid = incomingGuid;
-        } else if (!m_pendingDestroyedMatches.empty() || m_missingGuidAssociationBlockedByReconnect) {
+        if (!TargetsCurrentActiveMatchUiLocked(data)) {
             return effects;
         }
         m_state->ui.inGoalReplay.store(false, std::memory_order_relaxed);

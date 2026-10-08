@@ -375,8 +375,22 @@ TEST(TelemetryReducerStats, RejectedOrDuplicateTerminalEventsDoNotRestartVisibil
     const int64_t endMs = state->ui.lastMatchEndMs.load();
     ASSERT_GT(endMs, 0);
 
+    // Match-winning goal replay after MatchEnded (e.g. OT golden goal) still sets inGoalReplay
+    // for the current match, while stale/other GUIDs are rejected.
+    reducer.Reduce(std::string(Constants::EVT_GOAL_REPLAY_START), nlohmann::json{{"MatchGuid", "other-stale-guid"}});
+    EXPECT_FALSE(state->ui.inGoalReplay.load());
+
+    reducer.Reduce(std::string(Constants::EVT_GOAL_REPLAY_START), nlohmann::json{{"MatchGuid", "vis-term-1"}});
+    EXPECT_TRUE(state->ui.inGoalReplay.load());
+    reducer.Reduce(std::string(Constants::EVT_GOAL_REPLAY_END), nlohmann::json{{"MatchGuid", "vis-term-1"}});
+    EXPECT_FALSE(state->ui.inGoalReplay.load());
+
+    // PodiumStart also clears an active post-MatchEnded goal replay and stamps lastPodiumMs.
+    reducer.Reduce(std::string(Constants::EVT_GOAL_REPLAY_START), nlohmann::json{{"MatchGuid", "vis-term-1"}});
+    EXPECT_TRUE(state->ui.inGoalReplay.load());
     std::this_thread::sleep_for(std::chrono::milliseconds(2));
     reducer.Reduce(std::string(Constants::EVT_PODIUM_START), nlohmann::json{{"MatchGuid", "vis-term-1"}});
+    EXPECT_FALSE(state->ui.inGoalReplay.load());
     const int64_t podiumMs = state->ui.lastPodiumMs.load();
     ASSERT_GE(podiumMs, endMs);
 
@@ -391,16 +405,21 @@ TEST(TelemetryReducerStats, RejectedOrDuplicateTerminalEventsDoNotRestartVisibil
     EXPECT_EQ(state->ui.lastPodiumMs.load(), podiumMs);
     EXPECT_EQ(state->ui.matchSummaryStartMs.load(), podiumMs);
 
-    // Late in-match events for the finalized match must also be ignored.
+    // Late GoalScored for the finalized match must still be ignored.
     reducer.Reduce(std::string(Constants::EVT_GOAL_SCORED), nlohmann::json{{"MatchGuid", "vis-term-1"}});
     EXPECT_EQ(state->ui.lastGoalMs.load(), 0);
-    reducer.Reduce(std::string(Constants::EVT_GOAL_REPLAY_START), nlohmann::json{{"MatchGuid", "vis-term-1"}});
-    EXPECT_FALSE(state->ui.inGoalReplay.load());
 
-    // After MatchDestroyed (back in menus, inMatch == false), late MatchEnded or PodiumStart must be rejected.
+    // MatchDestroyed clears an active post-MatchEnded goal replay, and once inMatch == false
+    // any late GoalReplayStart, MatchEnded, or PodiumStart is rejected.
+    reducer.Reduce(std::string(Constants::EVT_GOAL_REPLAY_START), nlohmann::json{{"MatchGuid", "vis-term-1"}});
+    EXPECT_TRUE(state->ui.inGoalReplay.load());
     reducer.Reduce(std::string(Constants::EVT_MATCH_DESTROYED), nlohmann::json{{"MatchGuid", "vis-term-1"}});
     ASSERT_FALSE(state->game.inMatch.load());
+    EXPECT_FALSE(state->ui.inGoalReplay.load());
+
     std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    reducer.Reduce(std::string(Constants::EVT_GOAL_REPLAY_START), nlohmann::json{{"MatchGuid", "vis-term-1"}});
+    EXPECT_FALSE(state->ui.inGoalReplay.load());
     reducer.Reduce(
         std::string(Constants::EVT_MATCH_ENDED),
         nlohmann::json{{"MatchGuid", "vis-late-guid"}, {"WinnerTeamNum", 0}});

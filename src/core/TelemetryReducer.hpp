@@ -92,6 +92,7 @@ class TelemetryReducer {
     static bool HasExplicitLocalForfeitSignal(const nlohmann::json& data, int localTeam);
     bool AttachTerminalGuidToCurrentLocked(const std::string& eventMatchGuid);
     bool AcceptsUiMatchEventLocked(const nlohmann::json& data, int64_t nowMs);
+    bool TargetsCurrentActiveMatchUiLocked(const nlohmann::json& data);
 
     struct MatchEndDecision {
         bool shouldCount = false;
