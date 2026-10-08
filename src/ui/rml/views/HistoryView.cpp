@@ -141,7 +141,6 @@ bool HistoryView::Create(Rml::Context* context) {
     constructor.RegisterArray<std::vector<HistoryDetailPlayerRow>>();
 
     constructor.Bind("subtitle", &m_subtitle);
-    constructor.Bind("count_label", &m_countLabel);
     constructor.Bind("playlist_filter", &m_playlistFilter);
     constructor.Bind("playlist_options", &m_playlistOptions);
     constructor.Bind("result_filter", &m_resultFilter);
@@ -185,7 +184,6 @@ void HistoryView::Reset() {
     m_totalCount = 0;
     m_detailSource.reset();
     m_subtitle = "Your saved match history";
-    m_countLabel = "0 matches";
     m_playlistFilter = "All";
     m_playlistOptions = {
         {"All", "All"},
@@ -427,8 +425,8 @@ void HistoryView::RebuildRows() {
     }
 
     m_hasMore = static_cast<int>(m_sourceRows.size()) < m_totalCount;
-    m_countLabel = std::to_string(m_totalCount) + (m_totalCount == 1 ? " match" : " matches");
-    m_subtitle = m_totalCount > 0 ? m_countLabel : Rml::String("Your saved match history");
+    m_subtitle = m_totalCount > 0 ? Rml::String(std::to_string(m_totalCount) + (m_totalCount == 1 ? " match" : " matches"))
+                                  : Rml::String("Your saved match history");
 
     if (m_account.empty()) {
         m_emptyMessage = "Play a match so OmniStats can identify your account.";
@@ -438,7 +436,7 @@ void HistoryView::RebuildRows() {
         m_emptyMessage = "No saved matches match the current filters.";
     }
 
-    for (const char* name : {"rows", "loading", "has_more", "count_label", "subtitle", "empty_message"}) {
+    for (const char* name : {"rows", "loading", "has_more", "subtitle", "empty_message"}) {
         Dirty(name);
     }
 }

@@ -165,12 +165,10 @@
                 <div class="callout" data-if="gap_callout != ''">{{gap_callout}}</div>
                 <div class="label trends-summary">{{trends_summary}}</div>
                 <div class="trend-section" data-for="section : trend_sections">
-                    <div class="row gap-sm">
-                        <div class="stat-section-title">{{section.title}}</div>
-                        <div class="label tooltip-host" data-if="section.subtitle != ''">
-                            <span>{{section.subtitle}}</span>
-                            <div class="tooltip-bubble" data-if="section.tooltip != ''">{{section.tooltip}}</div>
-                        </div>
+                    <div class="stat-section-title">{{section.title}}</div>
+                    <div class="card-subtitle trend-section-subtitle tooltip-host" data-if="section.subtitle != ''">
+                        <span>{{section.subtitle}}</span>
+                        <div class="tooltip-bubble" data-if="section.tooltip != ''">{{section.tooltip}}</div>
                     </div>
                     <div class="trend-row" data-for="row : section.rows">
                         <div class="trend-label">{{row.label}}</div>

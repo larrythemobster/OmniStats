@@ -300,6 +300,7 @@ div.value { display: block; }
 }
 .overlay-visibility-row {
     min-height: 24dp;
+    flex-wrap: wrap;
 }
 .overlay-vis-label {
     flex-shrink: 0;
@@ -318,6 +319,14 @@ div.value { display: block; }
 .overlay-visibility-bar select.compact-select selectarrow {
     width: 22dp;
     height: 22dp;
+}
+.overlay-visibility-bar select.overlay-vis-mode {
+    flex: 1 1 162dp;
+    min-width: 162dp;
+}
+.overlay-visibility-bar select.overlay-vis-event {
+    flex: 1 1 156dp;
+    min-width: 156dp;
 }
 .overlay-visibility-bar select.overlay-vis-seconds {
     width: 66dp;
@@ -1310,6 +1319,7 @@ body.view-document { pointer-events: none; }
 
 .trends-summary { display: block; margin-bottom: 12dp; }
 .trend-section { display: block; margin-bottom: 14dp; }
+.trend-section-subtitle { margin-top: -2dp; margin-bottom: 4dp; }
 .trend-row { display: flex; flex-direction: row; align-items: center; min-height: 24dp; gap: 10dp; font-size: 12dp; }
 .trend-label { width: 185dp; flex-shrink: 0; color: #c3cad6; }
 .trend-track { flex-grow: 1; height: 8dp; border-radius: 4dp; background-color: #eef1f512; }
@@ -1376,7 +1386,6 @@ body.view-document { pointer-events: none; }
 .history-filter-row { align-items: center; flex-wrap: wrap; }
 .history-filter-label { margin-left: 6dp; margin-right: 2dp; font-size: 11dp; font-weight: 600; }
 .history-filter-row .history-filter-label:first-child { margin-left: 0; }
-.history-count { font-size: 12dp; font-weight: 600; }
 .history-input-group { display: flex; flex-direction: row; align-items: center; gap: 6dp; }
 .history-input { width: 120dp; min-height: 26dp; padding: 3dp 8dp; font-size: 12dp; }
 .history-input.grow { width: auto; flex-grow: 1; }

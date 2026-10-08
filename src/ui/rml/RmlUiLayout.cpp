@@ -119,11 +119,11 @@ std::string RmlUiController::RenderOverlayContainerVisibilityControls(const Over
 
     std::ostringstream out;
     out << "<div class='overlay-visibility-bar' data-action='overlay-visibility' data-container='" << id << "'>"
-        << "<div class='row gap-xs overlay-visibility-row'><span class='label overlay-vis-label'>Visibility</span>"
+        << "<div class='row wrap gap-xs overlay-visibility-row'><span class='label overlay-vis-label'>Visibility</span>"
         << SelectControl(modeKey, OverlayVisibilityModeOptions(), OverlayLayout::ToConfigString(vis.mode), "compact-select overlay-vis-mode grow")
         << "</div>";
     if (vis.mode == OverlayLayout::Visibility::AfterEvent) {
-        out << "<div class='row gap-xs overlay-visibility-row'>"
+        out << "<div class='row wrap gap-xs overlay-visibility-row'>"
             << SelectControl(eventKey, OverlayVisibilityEventOptions(), OverlayLayout::ToConfigString(vis.event), "compact-select overlay-vis-event grow")
             << SelectControl(secondsKey, OverlayVisibilitySecondsOptions(), std::to_string(vis.seconds), "compact-select overlay-vis-seconds")
             << "</div>";

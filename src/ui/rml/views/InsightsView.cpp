@@ -474,8 +474,8 @@ std::vector<TrendSection> InsightsView::BuildTrendSections(const TrendsReport& r
 
     const float gapOverall = gap.games > 0 ? gap.WinRate() : overall;
     TrendSection lobbySection;
-    lobbySection.title = "Lobby strength (opponents vs your team)";
-    lobbySection.subtitle = "MMR recorded at match time";
+    lobbySection.title = "LOBBY STRENGTH";
+    lobbySection.subtitle = "Opponents vs your team, MMR recorded at match time";
     lobbySection.tooltip =
         "Buckets compare opponent and team average MMR recorded at match time (pre- or post-match depending on reconciliation).";
     if (gap.games == 0) {
@@ -489,7 +489,7 @@ std::vector<TrendSection> InsightsView::BuildTrendSections(const TrendsReport& r
     sections.push_back(std::move(lobbySection));
 
     TrendSection deltaSection;
-    deltaSection.title = "MMR per result by gap";
+    deltaSection.title = "MMR PER RESULT BY GAP";
     deltaSection.subtitle = "Consecutive same-playlist matches within 2h";
     deltaSection.tooltip =
         "Deltas use the next match's recorded MMR minus this match's, excluding estimated ratings and gaps over 2 hours.";

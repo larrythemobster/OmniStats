@@ -154,7 +154,6 @@ class HistoryView {
     std::optional<MatchDetail> m_detailSource;
 
     Rml::String m_subtitle = "Your saved match history";
-    Rml::String m_countLabel = "0 matches";
     Rml::String m_playlistFilter = "All";
     std::vector<HistoryFilterOption> m_playlistOptions;
     Rml::String m_resultFilter = "all";

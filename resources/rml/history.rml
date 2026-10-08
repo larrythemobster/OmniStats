@@ -38,8 +38,6 @@
                     <button class="tab-button pill" data-action="history-filter" data-sort="biggest_win" data-class-active="sort_filter == 'biggest_win'">+MMR</button>
                     <button class="tab-button pill" data-action="history-filter" data-sort="biggest_loss" data-class-active="sort_filter == 'biggest_loss'">-MMR</button>
                     <button class="tab-button pill" data-action="history-filter" data-sort="margin" data-class-active="sort_filter == 'margin'">Margin</button>
-                    <div class="grow"></div>
-                    <div class="label mono history-count">{{count_label}}</div>
                 </div>
                 <div class="row gap-sm history-filter-row">
                     <div class="history-input-group">

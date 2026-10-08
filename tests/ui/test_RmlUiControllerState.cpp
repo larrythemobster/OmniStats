@@ -1938,8 +1938,8 @@ TEST_F(RmlUiControllerStateTest, BuildTrendSectionsIncludesLobbyStrengthAndMmrDe
     EXPECT_EQ(sections[1].title, "TIME OF DAY");
     EXPECT_EQ(sections[2].title, "GAMES INTO A SITTING");
     EXPECT_EQ(sections[3].title, "AFTER THE PREVIOUS GAME");
-    EXPECT_EQ(sections[4].title, "Lobby strength (opponents vs your team)");
-    EXPECT_EQ(sections[4].subtitle, "MMR recorded at match time");
+    EXPECT_EQ(sections[4].title, "LOBBY STRENGTH");
+    EXPECT_EQ(sections[4].subtitle, "Opponents vs your team, MMR recorded at match time");
     ASSERT_GE(sections[4].rows.size(), 5u);
     EXPECT_EQ(sections[4].rows[0].label, "Much stronger (+75 or more)");
     EXPECT_EQ(sections[4].rows[0].rate, "50%");
@@ -1950,7 +1950,8 @@ TEST_F(RmlUiControllerStateTest, BuildTrendSectionsIncludesLobbyStrengthAndMmrDe
     EXPECT_EQ(sections[4].rows[3].label, "Weaker (-25 to -75)");
     EXPECT_EQ(sections[4].rows[4].label, "Much weaker (-75 or less)");
 
-    EXPECT_EQ(sections[5].title, "MMR per result by gap");
+    EXPECT_EQ(sections[5].title, "MMR PER RESULT BY GAP");
+    EXPECT_EQ(sections[5].subtitle, "Consecutive same-playlist matches within 2h");
     ASSERT_GE(sections[5].rows.size(), 5u);
     EXPECT_EQ(sections[5].rows[0].label, "Much stronger (+75 or more)");
     EXPECT_EQ(sections[5].rows[0].rate, "+5.0 per win / +5.0 per loss");
@@ -2105,6 +2106,27 @@ TEST_F(RmlUiControllerStateTest, EditModeRendersVisibilityControlsAndPersistsCha
                                  [](const auto& c) { return c.id == "lobby_ranks"; });
     ASSERT_NE(it, updated.overlay_layout.containers.end());
     EXPECT_TRUE(it->visibility.hideDuringReplay);
+
+    Config::Update([](ConfigData& c) {
+        for (auto& container : c.overlay_layout.containers) {
+            if (container.id == "demo_tracker") {
+                container.visibility.mode = OverlayLayout::Visibility::AfterEvent;
+                container.visibility.event = OverlayLayout::Visibility::FirstCountdown;
+                container.visibility.seconds = 8;
+            }
+        }
+    },
+                   true);
+    controller.Update(Config::Read(), true, Config::Revision());
+    controller.Render();
+
+    auto* narrowEventSelect = OverlayRoot(controller)->QuerySelector("[data-setting='overlay_vis_event:demo_tracker']");
+    auto* narrowSecondsSelect = OverlayRoot(controller)->QuerySelector("[data-setting='overlay_vis_seconds:demo_tracker']");
+    ASSERT_NE(narrowEventSelect, nullptr);
+    ASSERT_NE(narrowSecondsSelect, nullptr);
+    EXPECT_GE(narrowEventSelect->GetBox().GetSize(Rml::BoxArea::Border).x, 156.0f);
+    EXPECT_GT(narrowSecondsSelect->GetAbsoluteOffset(Rml::BoxArea::Border).y,
+              narrowEventSelect->GetAbsoluteOffset(Rml::BoxArea::Border).y);
 }
 
 TEST_F(RmlUiControllerStateTest, SessionsTabRendersRowsOpensArchivedRecapAndComparesWithPrevious) {
@@ -2274,6 +2296,10 @@ TEST_F(RmlUiControllerStateTest, HistoryViewOpensClosesIgnoresStaleResponsesAndO
     ASSERT_EQ(HistoryModel(controller).Rows().size(), 2u);
     EXPECT_EQ(HistoryModel(controller).Rows()[0].arena, "Mannfield");
     EXPECT_EQ(HistoryModel(controller).Rows()[0].mmr_delta, "+9");
+    EXPECT_EQ(HistoryDocument(controller)->QuerySelector(".history-count"), nullptr);
+    auto* headerSubtitle = HistoryDocument(controller)->QuerySelector(".view-header .label");
+    ASSERT_NE(headerSubtitle, nullptr);
+    EXPECT_EQ(headerSubtitle->GetInnerRML(), "2 matches");
 
     // 2. Stale response with older requestId must be ignored
     const uint64_t activeReq = HistoryModel(controller).ActiveRequestId();
