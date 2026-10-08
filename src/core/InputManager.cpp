@@ -494,7 +494,8 @@ void InputManager::KeyboardThreadLoop() {
             }
         }
 
-        MsgWaitForMultipleObjectsEx(0, NULL, 25, QS_ALLINPUT, MWMO_INPUTAVAILABLE);
+        // The overlay key is polled, so this wait bounds how late a press or release is seen.
+        MsgWaitForMultipleObjectsEx(0, NULL, 8, QS_ALLINPUT, MWMO_INPUTAVAILABLE);
     }
 
     unregisterRegisteredHotkeys();

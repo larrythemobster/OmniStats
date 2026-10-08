@@ -252,6 +252,16 @@ void Overlay::RunLoop() {
     // Consuming it at read time would drop config commits made while hidden and
     // leave the controller rendering the previous mode's DOM.
     bool configDirty = false;
+    const auto inputSignature = [this] {
+        const auto& ui = m_state->ui;
+        return static_cast<unsigned>(ui.showOverlay.load(std::memory_order_relaxed)) |
+               static_cast<unsigned>(ui.showMenu.load(std::memory_order_relaxed)) << 1 |
+               static_cast<unsigned>(ui.showSessionView.load(std::memory_order_relaxed)) << 2 |
+               static_cast<unsigned>(ui.showGraphView.load(std::memory_order_relaxed)) << 3 |
+               static_cast<unsigned>(ui.h2hExpanded.load(std::memory_order_relaxed)) << 4 |
+               static_cast<unsigned>(ui.dashboardLayoutEditMode.load(std::memory_order_relaxed)) << 5;
+    };
+    unsigned lastInputSignature = inputSignature();
 
     while (!done) {
         if (m_state->ui.appExitRequested.load()) {
@@ -420,10 +430,13 @@ void Overlay::RunLoop() {
         const auto nextVisibilityWakeMs = m_rmlUi->NextVisibilityWakeMs();
         const bool visibilityWakeDue = nextVisibilityWakeMs.has_value() && uiNowMs >= *nextVisibilityWakeMs;
         constexpr auto kUiDataInterval = std::chrono::milliseconds(100);
-        if (configChanged || visibilityWakeDue || uiNow - lastUiDataUpdate >= kUiDataInterval) {
+        const unsigned currentInputSignature = inputSignature();
+        const bool inputChanged = currentInputSignature != lastInputSignature;
+        if (configChanged || inputChanged || visibilityWakeDue || uiNow - lastUiDataUpdate >= kUiDataInterval) {
             m_rmlUi->Update(m_frameConfig, configChanged, lastConfigRevision);
             configDirty = false;
             lastUiDataUpdate = uiNow;
+            lastInputSignature = currentInputSignature;
         }
         const bool needsInteract = m_rmlUi->WantsInteraction();
         isClickThrough = (GetWindowLong(m_hwnd, GWL_EXSTYLE) & WS_EX_TRANSPARENT) != 0;
