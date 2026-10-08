@@ -38,6 +38,7 @@
 #include "database/DatabaseManager.hpp"
 #include "network/ExternalUpdaterLauncher.hpp"
 #include "network/MMRFetcher.hpp"
+#include "network/RemoteConfig.hpp"
 #include "ui/Formatting.hpp"
 #include "ui/KeyNames.hpp"
 #include "ui/rml/RmlInputWin32.hpp"
@@ -345,6 +346,62 @@ void RmlUiController::RebuildOverlay() {
     m_liveDomNeedsPrime = true;
 }
 
+std::string RmlUiController::RenderReleaseBanners() const {
+    const RemoteConfigData remoteSnap = RemoteConfig::Instance().GetSnapshot();
+    const bool belowMin = RemoteConfig::IsVersionBelowMinimum(AppVersion::Current, remoteSnap.min_supported_version);
+    const auto announcements = RemoteConfig::Instance().ActiveAnnouncements();
+    if (!belowMin && announcements.empty()) {
+        return {};
+    }
+
+    bool updateDownloading = false;
+    bool updateFailed = false;
+    if (m_state) {
+        updateDownloading = m_state->ui.updateDownloading.load();
+        updateFailed = m_state->ui.updateDownloadFailed.load();
+    }
+
+    std::ostringstream out;
+    out << "<div class='release-banners'>";
+    if (belowMin) {
+        const std::string msg = remoteSnap.min_version_message.empty()
+                                    ? ("OmniStats v" + remoteSnap.min_supported_version + " or newer is recommended.")
+                                    : remoteSnap.min_version_message;
+        const std::string updateLabel = updateDownloading ? "Starting updater..."
+                                        : updateFailed    ? "Retry Update"
+                                                          : "Update Now";
+        out << "<div class='release-banner severity-warning min-version-banner'>"
+            << "<div class='release-banner-body'>"
+            << "<div class='release-banner-title'>Update Recommended · v" << Escape(remoteSnap.min_supported_version) << "+</div>"
+            << "<div class='release-banner-text'>" << Escape(msg) << "</div>"
+            << "</div><div class='release-banner-actions'>"
+            << Button("update-app", updateLabel, "primary compact")
+            << "</div></div>";
+    }
+
+    for (const auto& ann : announcements) {
+        out << "<div class='release-banner severity-" << Escape(ann.severity)
+            << "' data-announcement-id='" << Escape(ann.id) << "'>"
+            << "<div class='release-banner-body'>"
+            << "<div class='release-banner-title'>" << Escape(ann.title) << "</div>";
+        if (!ann.body.empty()) {
+            out << "<div class='release-banner-text'>" << Escape(ann.body) << "</div>";
+        }
+        out << "</div><div class='release-banner-actions'>";
+        if (!ann.link_url.empty() && RemoteConfig::IsAllowedAnnouncementLinkUrl(ann.link_url)) {
+            out << "<button class='ghost compact' data-action='open-announcement-link' data-url='"
+                << Escape(ann.link_url) << "'>Learn More</button>";
+        }
+        if (ann.dismissible) {
+            out << "<button class='ghost compact' data-action='dismiss-announcement' data-announcement-id='"
+                << Escape(ann.id) << "'>Dismiss</button>";
+        }
+        out << "</div></div>";
+    }
+    out << "</div>";
+    return out.str();
+}
+
 void RmlUiController::RebuildDashboard() {
     // The inactive surface is cleared exactly once when window mode changes.
     // Do not keep touching an unused root during unrelated Settings/layout work.
@@ -453,6 +510,7 @@ void RmlUiController::RebuildDashboard() {
         << "</div></div>";
 
     out << "<div class='dashboard-content'>";
+    out << RenderReleaseBanners();
     if (!editMode && !dashboardHasVisibleWidgets) {
         out << "<div class='card empty-dashboard'><div class='card-title'>Dashboard panels are hidden</div>"
             << "<div class='setting-help'>Open Settings or Edit Layout to re-enable dashboard widgets.</div></div>";

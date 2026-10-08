@@ -1482,3 +1482,59 @@ body.view-document { pointer-events: none; }
 
 .previous-games-view-all { margin-left: 8dp; padding: 2dp 8dp; min-height: 22dp; font-size: 11dp; }
 .match-summary-actions { justify-content: flex-end; margin-top: 8dp; }
+
+.release-banners {
+    display: flex;
+    flex-direction: column;
+    gap: 6dp;
+    margin-bottom: 10dp;
+}
+.release-banner {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    gap: 10dp;
+    padding: 8dp 12dp;
+    border-radius: 6dp;
+    border: 1dp #3b4454;
+    background-color: #141820f2;
+}
+.release-banner.severity-info {
+    border-color: #3b6ea8;
+    background-color: #111c2bf2;
+}
+.release-banner.severity-warning {
+    border-color: #b87d1e;
+    background-color: #241b0df2;
+}
+.release-banner.severity-critical {
+    border-color: #c92a3a;
+    background-color: #261014f2;
+}
+.release-banner-body {
+    display: flex;
+    flex-direction: column;
+    flex-grow: 1;
+    min-width: 0;
+}
+.release-banner-title {
+    display: block;
+    font-size: 12dp;
+    font-weight: 700;
+    color: #eef1f5;
+    line-height: 1.25;
+}
+.release-banner-text {
+    display: block;
+    margin-top: 2dp;
+    font-size: 11dp;
+    color: #c3cad6;
+    line-height: 1.35;
+}
+.release-banner-actions {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    flex-shrink: 0;
+    gap: 6dp;
+}

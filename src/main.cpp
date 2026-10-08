@@ -19,6 +19,7 @@
 #include "network/ReplayUploader.hpp"
 #include "network/StatsClient.hpp"
 #include "network/TelemetryManager.hpp"
+#include "network/RemoteConfig.hpp"
 #include "ui/Overlay.hpp"
 #include "core/StatsApiConfig.hpp"
 #include <curl/curl.h>
@@ -258,6 +259,7 @@ int main(int argc, char* argv[]) {
     (void)dbManager->Initialize(Storage::GetDataDirectory() + Storage::APP_NAME +
                                 ".db");
     TelemetryManager::Initialize(dbManager);
+    RemoteConfig::Instance().Start();
     // Start Backend Threads
     std::shared_ptr<MMRFetcher> mmrFetcher =
         std::make_shared<MMRFetcher>(g_state, dbManager);
@@ -280,6 +282,8 @@ int main(int argc, char* argv[]) {
     }
     Overlay overlay(g_state, dbManager);
     if (!overlay.Initialize()) {
+        RemoteConfig::Instance().Shutdown();
+        TelemetryManager::Shutdown();
         Config::ShutdownSaver();
         curl_global_cleanup();
         return 1;
@@ -301,6 +305,7 @@ int main(int argc, char* argv[]) {
         std::cout << "[Main] ReplayUploader stopped.\n";
     }
     AccountClient::Instance().Shutdown();
+    RemoteConfig::Instance().Shutdown();
     TelemetryManager::Shutdown();
     std::cout << "[Main] TelemetryManager stopped.\n";
     Config::ShutdownSaver();

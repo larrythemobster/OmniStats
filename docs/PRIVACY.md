@@ -18,6 +18,7 @@ The startup diagnostic is required to use OmniStats and cannot be disabled in Se
 | Ballchasing replay upload | Selected replay files are uploaded to ballchasing.com using the user's token. | Off |
 | Crash reports | A pending Windows minidump, app version, and pseudonymous installation ID are uploaded to `api.omnistats.org/api/v1/crash`. Minidumps may contain sensitive process memory. | Off |
 | Update checks | Version metadata is requested from `omnistats.org` at startup, periodically while OmniStats is running, and when Settings is opened. Release files are only downloaded when an update is installed and are checked against published SHA-256 values. | Always on |
+| Service announcements | `api.omnistats.org/api/v1/client/config` is requested after privacy acceptance and about every 15 minutes with only the app version. It returns service announcements and the minimum recommended version, which shows an update reminder on older versions. The last response is cached in `%APPDATA%\omnistats\remote_config_cache.json`, and dismissed announcements in `remote_config_dismissed.json`. | Always on |
 | Player profile links | The user's default browser opens the selected public profile page. | User action |
 
 The installation ID is persistent and pseudonymous, not anonymous. It is created during startup after privacy acceptance and is stored in local configuration/database state.

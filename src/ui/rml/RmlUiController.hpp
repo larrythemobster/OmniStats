@@ -192,6 +192,7 @@ class RmlUiController final : public Rml::EventListener {
     void RebuildSettings();
     void RebuildToast();
 
+    std::string RenderReleaseBanners() const;
     std::string RenderWidget(DashboardLayout::WidgetId id, bool dashboard);
     std::string RenderPlayerRoster(int team, const char* label);
     std::string RenderLiveMatchStats();

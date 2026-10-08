@@ -39,6 +39,7 @@
 #include "network/ExternalUpdaterLauncher.hpp"
 #include "network/MMRFetcher.hpp"
 #include "network/AccountClient.hpp"
+#include "network/RemoteConfig.hpp"
 #include "ui/Formatting.hpp"
 #include "ui/KeyNames.hpp"
 #include "ui/rml/RmlInputWin32.hpp"
@@ -652,6 +653,7 @@ void RmlUiController::RebuildVisibleUi(bool force, bool configChanged) {
         }
     }
     if (m_state && m_config.second_monitor_mode) {
+        HashAppend(runtimeStructuralHash, RemoteConfig::Instance().Version());
         const bool updateAvailable = m_state->ui.updateAvailable.load(std::memory_order_relaxed);
         HashAppend(runtimeStructuralHash, static_cast<uint64_t>(updateAvailable));
         HashAppend(runtimeStructuralHash, static_cast<uint64_t>(m_state->ui.updateDownloading.load(std::memory_order_relaxed)));
@@ -773,6 +775,7 @@ void RmlUiController::RebuildVisibleUi(bool force, bool configChanged) {
         HashAppend(settingsHash, static_cast<uint64_t>(m_showAdvancedApiKey));
         HashAppend(settingsHash, AccountClient::Instance().GetStatus().version);
         HashAppend(settingsHash, static_cast<uint64_t>(m_confirmReplayUploads));
+        HashAppend(settingsHash, RemoteConfig::Instance().Version());
         HashAppend(settingsHash, static_cast<uint64_t>(m_confirmDeleteHistory));
         HashAppend(settingsHash, m_editColorKey);
         HashAppend(settingsHash, m_statsApiPathError);

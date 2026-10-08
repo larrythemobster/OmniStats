@@ -38,6 +38,7 @@
 #include "database/DatabaseManager.hpp"
 #include "network/ExternalUpdaterLauncher.hpp"
 #include "network/MMRFetcher.hpp"
+#include "network/RemoteConfig.hpp"
 #include "ui/Formatting.hpp"
 #include "ui/KeyNames.hpp"
 #include "ui/rml/RmlInputWin32.hpp"
@@ -191,6 +192,18 @@ void RmlUiController::HandleClick(Rml::Element* target) {
     } else if (action == "dismiss-update") {
         m_showUpdatePrompt = false;
         RebuildDashboard();
+    } else if (action == "open-announcement-link") {
+        const std::string url = Attribute(target, "data-url");
+        if (RemoteConfig::IsAllowedAnnouncementLinkUrl(url)) {
+            ShellExecuteA(nullptr, "open", url.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+        }
+    } else if (action == "dismiss-announcement") {
+        const std::string id = Attribute(target, "data-announcement-id");
+        if (!id.empty()) {
+            RemoteConfig::Instance().DismissAnnouncement(id);
+            if (m_config.second_monitor_mode) RebuildDashboard();
+            if (m_state && m_state->ui.showMenu.load()) RebuildSettings();
+        }
     } else if (action == "dashboard-edit") {
         if (m_state) {
             const bool enabling = !m_state->ui.dashboardLayoutEditMode.load();
