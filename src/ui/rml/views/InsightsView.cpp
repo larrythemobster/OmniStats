@@ -6,6 +6,7 @@
 #include <cmath>
 #include <ctime>
 #include <set>
+#include <cstdio>
 
 #include "ui/rml/RmlUiHelpers.hpp"
 
@@ -62,6 +63,92 @@ namespace {
         return row;
     }
 
+    std::string FormatSignedDecimal(double value) {
+        char buffer[32]{};
+        const double rounded = std::round(value * 10.0) / 10.0;
+        if (std::abs(rounded) < 0.05) return "0.0";
+        std::snprintf(buffer, sizeof(buffer), "%+.1f", rounded);
+        return buffer;
+    }
+
+    TrendRow MakeGapWinRow(const GapBucket& bucket, float overallRate) {
+        TrendRow row;
+        row.label = bucket.label;
+        row.games = std::to_string(bucket.games) + (bucket.games == 1 ? " game" : " games");
+        if (bucket.games < Insights::kGapMinimumBucketGames) {
+            row.rate = "Not enough games";
+            row.width = "0%";
+            return row;
+        }
+        const float rate = bucket.WinRate();
+        row.rate = Percent(rate);
+        row.width = Percent(rate);
+        row.tone = rate > overallRate + kTrendToneMargin ? 1 : rate < overallRate - kTrendToneMargin ? -1
+                                                                                                     : 0;
+        return row;
+    }
+
+    TrendRow MakeCarryWinRow(const TrendBucket& bucket, float overallRate) {
+        TrendRow row;
+        row.label = bucket.label;
+        row.games = std::to_string(bucket.games) + (bucket.games == 1 ? " game" : " games");
+        if (bucket.games < Insights::kGapMinimumBucketGames) {
+            row.rate = "Not enough games";
+            row.width = "0%";
+            return row;
+        }
+        const float rate = bucket.WinRate();
+        row.rate = Percent(rate);
+        row.width = Percent(rate);
+        row.tone = rate > overallRate + kTrendToneMargin ? 1 : rate < overallRate - kTrendToneMargin ? -1
+                                                                                                     : 0;
+        return row;
+    }
+
+    TrendRow MakeGapDeltaRow(const GapBucket& bucket) {
+        TrendRow row;
+        row.label = bucket.label;
+        const int samples = bucket.winDeltas + bucket.lossDeltas;
+        row.games = std::to_string(samples) + (samples == 1 ? " game" : " games");
+        if (samples == 0) {
+            row.rate = "Not enough games";
+            row.width = "0%";
+            return row;
+        }
+        const std::string winText =
+            (bucket.winDeltas > 0 ? FormatSignedDecimal(bucket.AvgWinDelta()) : std::string("-")) + " per win";
+        const std::string lossText =
+            (bucket.lossDeltas > 0 ? FormatSignedDecimal(bucket.AvgLossDelta()) : std::string("-")) + " per loss";
+        row.rate = winText + " / " + lossText;
+        if (bucket.winDeltas > 0 && bucket.lossDeltas > 0) {
+            const double winMag = std::max(0.0, bucket.AvgWinDelta());
+            const double lossMag = std::abs(bucket.AvgLossDelta());
+            const double totalMag = winMag + lossMag;
+            row.width = totalMag > 0.0 ? Percent(static_cast<float>(winMag / totalMag)) : "0%";
+            const double net = bucket.AvgWinDelta() + bucket.AvgLossDelta();
+            row.tone = net > 0.5 ? 1 : net < -0.5 ? -1
+                                                  : 0;
+        } else {
+            row.width = bucket.winDeltas > 0 ? "100%" : "0%";
+            row.tone = bucket.winDeltas > 0 ? 1 : -1;
+        }
+        return row;
+    }
+
+    TrendRow MakeCarryDeltaRow(const GapReport& gap) {
+        TrendRow row;
+        row.label = "Carry factor (you vs teammates)";
+        row.games = std::to_string(gap.carryGames) + (gap.carryGames == 1 ? " game" : " games");
+        const double avgCarry = gap.AvgCarry();
+        row.rate = FormatSignedDecimal(avgCarry) + " MMR";
+        const float ratio =
+            std::clamp(0.5f + static_cast<float>(avgCarry / (2.0 * Insights::kGapStrongLimit)), 0.0f, 1.0f);
+        row.width = Percent(ratio);
+        row.tone = avgCarry > 5.0 ? 1 : avgCarry < -5.0 ? -1
+                                                        : 0;
+        return row;
+    }
+
     TrendSection MakeSection(const char* title, const std::vector<TrendBucket>& buckets, float overallRate) {
         TrendSection section;
         section.title = title;
@@ -110,10 +197,16 @@ bool InsightsView::Create(Rml::Context* context) {
     constructor.RegisterArray<std::vector<TrendRow>>();
     if (auto section = constructor.RegisterStruct<TrendSection>()) {
         section.RegisterMember("title", &TrendSection::title);
+        section.RegisterMember("subtitle", &TrendSection::subtitle);
+        section.RegisterMember("tooltip", &TrendSection::tooltip);
         section.RegisterMember("rows", &TrendSection::rows);
     }
     constructor.RegisterArray<std::vector<TrendSection>>();
-
+    if (auto playlist = constructor.RegisterStruct<TrendPlaylistOption>()) {
+        playlist.RegisterMember("id", &TrendPlaylistOption::id);
+        playlist.RegisterMember("label", &TrendPlaylistOption::label);
+    }
+    constructor.RegisterArray<std::vector<TrendPlaylistOption>>();
     constructor.Bind("tab", &m_tabName);
     constructor.Bind("subtitle", &m_subtitle);
     constructor.Bind("recap_title", &m_recapTitle);
@@ -132,10 +225,12 @@ bool InsightsView::Create(Rml::Context* context) {
     constructor.Bind("people", &m_people);
     constructor.Bind("people_empty", &m_peopleEmpty);
     constructor.Bind("tilt_message", &m_tiltMessage);
+    constructor.Bind("gap_callout", &m_gapCallout);
+    constructor.Bind("trend_playlist_filter", &m_trendPlaylistFilter);
+    constructor.Bind("trend_playlists", &m_trendPlaylists);
     constructor.Bind("trends_summary", &m_trendsSummary);
     constructor.Bind("trend_sections", &m_trendSections);
     constructor.Bind("trends_empty", &m_trendsEmpty);
-
     m_handle = constructor.GetModelHandle();
     m_bound = true;
     return true;
@@ -144,6 +239,13 @@ bool InsightsView::Create(Rml::Context* context) {
 void InsightsView::Reset() {
     m_handle = {};
     m_bound = false;
+    m_trendPlaylistFilter = "All";
+    m_trendPlaylists = {
+        {"All", "All"},
+        {"1v1", "1v1"},
+        {"2v2", "2v2"},
+        {"3v3", "3v3"},
+    };
 }
 
 void InsightsView::Dirty(const char* name) {
@@ -162,6 +264,13 @@ void InsightsView::SetPeopleFilter(Insights::PeopleFilter filter) {
     m_peopleFilterName = filter == Insights::PeopleFilter::Teammates ? "teammates" : "rivals";
     Dirty("people_filter");
     RebuildPeople();
+}
+
+void InsightsView::SetTrendPlaylistFilter(const std::string& playlist) {
+    const std::string next = (playlist == "1v1" || playlist == "2v2" || playlist == "3v3") ? playlist : "All";
+    m_trendPlaylistFilter = next;
+    Dirty("trend_playlist_filter");
+    RebuildTrends();
 }
 
 std::vector<RecapModeRow> InsightsView::BuildRecapModes(const SessionRecap& recap) {
@@ -232,27 +341,67 @@ void InsightsView::SetRecap(const SessionRecap& recap, bool currentSession) {
         Dirty(name);
 }
 
-std::vector<TrendSection> InsightsView::BuildTrendSections(const TrendsReport& report) {
-    if (report.games == 0) return {};
-    const float overall = report.WinRate();
-    return {
-        MakeSection("BY PLAYLIST", report.byPlaylist, overall),
-        MakeSection("TIME OF DAY", report.byTimeOfDay, overall),
-        MakeSection("GAMES INTO A SITTING", report.bySessionGame, overall),
-        MakeSection("AFTER THE PREVIOUS GAME", report.afterStreak, overall),
-    };
+std::vector<TrendSection> InsightsView::BuildTrendSections(const TrendsReport& report, const GapReport& gap) {
+    if (report.games == 0 && gap.games == 0) return {};
+    std::vector<TrendSection> sections;
+    const float overall = report.games > 0 ? report.WinRate() : gap.WinRate();
+    if (report.games > 0) {
+        sections.push_back(MakeSection("BY PLAYLIST", report.byPlaylist, overall));
+        sections.push_back(MakeSection("TIME OF DAY", report.byTimeOfDay, overall));
+        sections.push_back(MakeSection("GAMES INTO A SITTING", report.bySessionGame, overall));
+        sections.push_back(MakeSection("AFTER THE PREVIOUS GAME", report.afterStreak, overall));
+    }
+
+    const float gapOverall = gap.games > 0 ? gap.WinRate() : overall;
+    TrendSection lobbySection;
+    lobbySection.title = "Lobby strength (opponents vs your team)";
+    lobbySection.subtitle = "MMR recorded at match time";
+    lobbySection.tooltip =
+        "Buckets compare opponent and team average MMR recorded at match time (pre- or post-match depending on reconciliation).";
+    if (gap.games == 0) {
+        lobbySection.rows.push_back({"Not enough ranked data", "-", "0 games", "0%", 0});
+    } else {
+        for (const auto& bucket : gap.buckets)
+            lobbySection.rows.push_back(MakeGapWinRow(bucket, gapOverall));
+        if (gap.carryGames > 0)
+            lobbySection.rows.push_back(MakeCarryWinRow(gap.carryHigher, gapOverall));
+    }
+    sections.push_back(std::move(lobbySection));
+
+    TrendSection deltaSection;
+    deltaSection.title = "MMR per result by gap";
+    deltaSection.subtitle = "Consecutive same-playlist matches within 2h";
+    deltaSection.tooltip =
+        "Deltas use the next match's recorded MMR minus this match's, excluding estimated ratings and gaps over 2 hours.";
+    if (gap.games == 0) {
+        deltaSection.rows.push_back({"Not enough ranked data", "-", "0 games", "0%", 0});
+    } else {
+        for (const auto& bucket : gap.buckets)
+            deltaSection.rows.push_back(MakeGapDeltaRow(bucket));
+        if (gap.carryGames > 0)
+            deltaSection.rows.push_back(MakeCarryDeltaRow(gap));
+    }
+    sections.push_back(std::move(deltaSection));
+    return sections;
 }
 
 void InsightsView::SetHistory(const std::string& primaryId, bool loaded, const std::vector<PersonRecord>& people,
-                              const std::vector<MatchOutcome>& outcomes) {
+                              const std::vector<MatchOutcome>& outcomes, const std::vector<MatchMmrContext>& mmrContext) {
     m_hasAccount = !primaryId.empty();
     m_historyLoaded = loaded;
     m_peopleSource = people;
+    m_outcomesSource = outcomes;
+    m_mmrContextSource = mmrContext;
     RebuildPeople();
+    RebuildTrends();
+}
 
-    const TrendsReport report = Insights::ComputeTrends(outcomes);
-    m_trendSections = BuildTrendSections(report);
+void InsightsView::RebuildTrends() {
+    const TrendsReport report = Insights::ComputeTrends(m_outcomesSource);
+    const GapReport gap = Insights::ComputeGapTrends(m_mmrContextSource, m_trendPlaylistFilter);
+    m_trendSections = BuildTrendSections(report, gap);
     m_tiltMessage = report.tiltWarning;
+    m_gapCallout = gap.callout;
     if (report.games > 0) {
         m_trendsSummary = std::to_string(report.games) + " games over " + std::to_string(report.sessions) +
                           (report.sessions == 1 ? " sitting" : " sittings") + ", " + Percent(report.WinRate()) +
@@ -262,10 +411,10 @@ void InsightsView::SetHistory(const std::string& primaryId, bool loaded, const s
         m_trendsSummary.clear();
         m_subtitle = "Your saved match history";
     }
-    m_trendsEmpty = !m_hasAccount ? "Play a match so OmniStats can identify your account."
-                    : !loaded     ? "Loading your match history..."
-                                  : "No saved matches yet. Trends show up once you have played a few games.";
-    for (const char* name : {"trend_sections", "tilt_message", "trends_summary", "trends_empty", "subtitle"})
+    m_trendsEmpty = !m_hasAccount      ? "Play a match so OmniStats can identify your account."
+                    : !m_historyLoaded ? "Loading your match history..."
+                                       : "No saved matches yet. Trends show up once you have played a few games.";
+    for (const char* name : {"trend_sections", "tilt_message", "gap_callout", "trends_summary", "trends_empty", "subtitle"})
         Dirty(name);
 }
 

@@ -76,6 +76,7 @@ class DatabaseManager {
     void AsyncGetPlayerEncounterRecord(const std::string& primaryId);
     void GetPeopleRecords(const std::string& primaryId, std::vector<PersonRecord>& outPeople);
     void GetMatchOutcomes(const std::string& primaryId, std::vector<MatchOutcome>& outMatches);
+    void GetMatchMmrContext(const std::string& primaryId, std::vector<MatchMmrContext>& out);
     // Loads people and match outcomes for the Insights window into state->insights.
     void AsyncLoadInsights(const std::string& primaryId);
     void GetOpponentRecord(const std::string& primaryId, const std::string& opponentId, int& wins, int& losses);

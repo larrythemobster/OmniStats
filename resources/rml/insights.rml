@@ -100,10 +100,20 @@
             </div>
 
             <div class="view-body" data-if="tab == 'trends'">
+                <div class="row gap-sm view-filters">
+                    <button class="tab-button pill" data-for="playlist : trend_playlists" data-action="trend-playlist-filter" data-attr-data-playlist="playlist.id" data-class-active="trend_playlist_filter == playlist.id">{{playlist.label}}</button>
+                </div>
                 <div class="callout" data-if="tilt_message != ''">{{tilt_message}}</div>
+                <div class="callout" data-if="gap_callout != ''">{{gap_callout}}</div>
                 <div class="label trends-summary">{{trends_summary}}</div>
                 <div class="trend-section" data-for="section : trend_sections">
-                    <div class="stat-section-title">{{section.title}}</div>
+                    <div class="row gap-sm">
+                        <div class="stat-section-title">{{section.title}}</div>
+                        <div class="label tooltip-host" data-if="section.subtitle != ''">
+                            <span>{{section.subtitle}}</span>
+                            <div class="tooltip-bubble" data-if="section.tooltip != ''">{{section.tooltip}}</div>
+                        </div>
+                    </div>
                     <div class="trend-row" data-for="row : section.rows">
                         <div class="trend-label">{{row.label}}</div>
                         <div class="trend-track">

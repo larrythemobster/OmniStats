@@ -103,6 +103,7 @@ void RmlUiController::RefreshInsights(bool force) {
     m_lastInsightsVersion = version;
     std::vector<PersonRecord> people;
     std::vector<MatchOutcome> outcomes;
+    std::vector<MatchMmrContext> mmrContext;
     bool loaded = false;
     {
         std::lock_guard lock(m_state->insights.mutex);
@@ -110,9 +111,10 @@ void RmlUiController::RefreshInsights(bool force) {
         if (loaded) {
             people = m_state->insights.people;
             outcomes = m_state->insights.outcomes;
+            mmrContext = m_state->insights.mmrContext;
         }
     }
-    m_insights.SetHistory(m_snap.myPrimaryId, loaded, people, outcomes);
+    m_insights.SetHistory(m_snap.myPrimaryId, loaded, people, outcomes, mmrContext);
     m_renderDirty = true;
 }
 
@@ -190,6 +192,11 @@ bool RmlUiController::HandleViewAction(const std::string& action, Rml::Element* 
     } else if (action == "people-filter") {
         m_insights.SetPeopleFilter(Attribute(target, "data-filter") == "rivals" ? Insights::PeopleFilter::Rivals
                                                                                 : Insights::PeopleFilter::Teammates);
+        m_renderDirty = true;
+    } else if (action == "trend-playlist-filter") {
+        std::string playlist = Attribute(target, "data-playlist");
+        if (playlist.empty() && target) playlist = target->GetInnerRML().c_str();
+        m_insights.SetTrendPlaylistFilter(playlist);
         m_renderDirty = true;
     } else if (action == "recap-export") {
         m_recapCapturePending = true;

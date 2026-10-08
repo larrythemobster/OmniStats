@@ -42,6 +42,66 @@ struct TrendBucket {
         return games > 0 ? static_cast<float>(wins) / static_cast<float>(games) : 0.0f;
     }
 };
+struct MatchMmrContext {
+    int64_t endedAtUnix = 0;
+    std::string playlist;
+    bool win = false;
+    int myMmr = 0;
+    bool mmrEstimated = false;
+    double teamAvg = 0.0;
+    double oppAvg = 0.0;
+    int teamCount = 0;
+    int oppCount = 0;
+};
+
+struct ConfidenceInterval {
+    double low = 0.0;
+    double high = 0.0;
+
+    bool Excludes(double value) const {
+        return value < low || value > high;
+    }
+};
+
+struct GapBucket {
+    std::string label;
+    int games = 0;
+    int wins = 0;
+    int winDeltas = 0;
+    int lossDeltas = 0;
+    double totalWinDelta = 0.0;
+    double totalLossDelta = 0.0;
+
+    float WinRate() const {
+        return games > 0 ? static_cast<float>(wins) / static_cast<float>(games) : 0.0f;
+    }
+    double AvgWinDelta() const {
+        return winDeltas > 0 ? totalWinDelta / static_cast<double>(winDeltas) : 0.0;
+    }
+    double AvgLossDelta() const {
+        return lossDeltas > 0 ? totalLossDelta / static_cast<double>(lossDeltas) : 0.0;
+    }
+};
+
+struct GapReport {
+    std::string playlistFilter;
+    int games = 0;
+    int wins = 0;
+    std::vector<GapBucket> buckets;
+    TrendBucket carryHigher;
+    int carryGames = 0;
+    int carryWins = 0;
+    double totalCarry = 0.0;
+    std::string callout;
+    std::string statusMessage;
+
+    float WinRate() const {
+        return games > 0 ? static_cast<float>(wins) / static_cast<float>(games) : 0.0f;
+    }
+    double AvgCarry() const {
+        return carryGames > 0 ? totalCarry / static_cast<double>(carryGames) : 0.0;
+    }
+};
 
 struct TrendsReport {
     int games = 0;
@@ -69,8 +129,23 @@ namespace Insights {
     inline constexpr int kTiltMinimumGames = 10;
     inline constexpr float kTiltMargin = 0.08f;
 
+    // MMR gap = oppAvg - teamAvg.
+    // Bucket boundaries:
+    //   Much stronger: gap >= +kGapStrongLimit (+75 inclusive)
+    //   Stronger:      +kGapEvenLimit < gap < +kGapStrongLimit (+25, +75 exclusive)
+    //   Even:          -kGapEvenLimit <= gap <= +kGapEvenLimit (-25, +25 inclusive)
+    //   Weaker:        -kGapStrongLimit < gap < -kGapEvenLimit (-75, -25 exclusive)
+    //   Much weaker:   gap <= -kGapStrongLimit (-75 inclusive)
+    inline constexpr double kGapEvenLimit = 25.0;
+    inline constexpr double kGapStrongLimit = 75.0;
+    inline constexpr int kGapMinimumBucketGames = 10;
+    inline constexpr int kGapCalloutMinimumGames = 30;
+    inline constexpr double kWilsonZ95 = 1.96;
+
     // `matches` must be in chronological order.
     TrendsReport ComputeTrends(const std::vector<MatchOutcome>& matches);
+    GapReport ComputeGapTrends(const std::vector<MatchMmrContext>& matches, const std::string& playlistFilter = "All");
+    ConfidenceInterval WilsonInterval(int wins, int games, double z = kWilsonZ95);
 
     enum class PeopleFilter { Teammates,
                               Rivals };

@@ -233,6 +233,7 @@ struct InsightsState {
     std::string primaryId;
     std::vector<PersonRecord> people;
     std::vector<MatchOutcome> outcomes;
+    std::vector<MatchMmrContext> mmrContext;
 };
 
 // Decomposed state sections

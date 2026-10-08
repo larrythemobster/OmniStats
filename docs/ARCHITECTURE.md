@@ -31,7 +31,7 @@ The UI remains native C++ and keeps the existing DirectX 11 renderer/window infr
 - `src/ui/rml/RmlInputWin32.*`: Win32 mouse, wheel, keyboard, and Unicode text input translation.
 - `src/ui/rml/RmlFileInterface.*`: embedded RML/RCSS resources with a disk fallback for unpacked runs.
 - `resources/rml/`: the reusable RCSS design system, the persistent `main.rml` shell, and the templated view documents. `RmlFileInterface` can read these from a development folder instead of the embedded copies; see [Building](BUILDING.md#editing-the-ui-without-rebuilding).
-- `src/core/Insights.*`: pure aggregation for the Insights window (trend buckets, sittings split on two-hour gaps, tilt detection, people ranking). `DatabaseManager::AsyncLoadInsights` supplies the raw rows.
+- `src/core/Insights.*`: pure aggregation for the Insights window (trend buckets, sittings split on two-hour gaps, tilt detection, lobby MMR-gap analytics, people ranking). `DatabaseManager::AsyncLoadInsights` supplies the raw rows.
 - `resources/fonts/`: the bundled Inter (UI), JetBrains Mono (numeric), and Russo One (display) faces. They are embedded as RCDATA and registered by `RmlUiController::LoadBundledFonts` with an explicit family and weight; Segoe UI and MS Gothic are registered as fallback faces for glyphs the bundled faces lack.
 - `src/core/DashboardLayoutConfig.*` and `src/core/OverlayLayoutConfig.*`: renderer-independent persisted layout formats. Existing user layouts remain the source of truth.
 

@@ -1211,12 +1211,12 @@ body.view-document { pointer-events: none; }
 .trends-summary { display: block; margin-bottom: 12dp; }
 .trend-section { display: block; margin-bottom: 14dp; }
 .trend-row { display: flex; flex-direction: row; align-items: center; min-height: 24dp; gap: 10dp; font-size: 12dp; }
-.trend-label { width: 160dp; flex-shrink: 0; color: #c3cad6; }
+.trend-label { width: 185dp; flex-shrink: 0; color: #c3cad6; }
 .trend-track { flex-grow: 1; height: 8dp; border-radius: 4dp; background-color: #eef1f512; }
 .trend-bar { display: block; height: 8dp; border-radius: 4dp; background-color: #9da6b3; }
 .trend-bar.win { background-color: #43d926; }
 .trend-bar.loss { background-color: #ff3030; }
-.trend-rate { width: 44dp; flex-shrink: 0; text-align: right; }
+.trend-rate { min-width: 44dp; flex-shrink: 0; text-align: right; }
 .trend-games { width: 72dp; flex-shrink: 0; text-align: right; }
 
 .wizard-window { width: 640dp; height: 520dp; }

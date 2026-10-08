@@ -50,9 +50,15 @@ struct TrendRow {
 
 struct TrendSection {
     Rml::String title;
+    Rml::String subtitle;
+    Rml::String tooltip;
     std::vector<TrendRow> rows;
 };
 
+struct TrendPlaylistOption {
+    Rml::String id;
+    Rml::String label;
+};
 class InsightsView {
   public:
     enum class Tab { Recap,
@@ -68,23 +74,28 @@ class InsightsView {
         return m_tab;
     }
     void SetPeopleFilter(Insights::PeopleFilter filter);
+    void SetTrendPlaylistFilter(const std::string& playlist);
+    const std::string& TrendPlaylistFilter() const {
+        return m_trendPlaylistFilter;
+    }
 
     // `currentSession` is false for a recap captured when a session ended.
     void SetRecap(const SessionRecap& recap, bool currentSession);
     // Full match history for `primaryId`. An empty id means the local account
     // is not known yet.
     void SetHistory(const std::string& primaryId, bool loaded, const std::vector<PersonRecord>& people,
-                    const std::vector<MatchOutcome>& outcomes);
+                    const std::vector<MatchOutcome>& outcomes, const std::vector<MatchMmrContext>& mmrContext = {});
 
     bool RecapHasGames() const {
         return m_recapHasGames;
     }
 
-    static std::vector<TrendSection> BuildTrendSections(const TrendsReport& report);
+    static std::vector<TrendSection> BuildTrendSections(const TrendsReport& report, const GapReport& gap = {});
     static std::vector<RecapModeRow> BuildRecapModes(const SessionRecap& recap);
 
   private:
     void RebuildPeople();
+    void RebuildTrends();
     void Dirty(const char* name);
 
     Rml::DataModelHandle m_handle;
@@ -92,6 +103,8 @@ class InsightsView {
     Tab m_tab = Tab::Recap;
     Insights::PeopleFilter m_peopleFilter = Insights::PeopleFilter::Teammates;
     std::vector<PersonRecord> m_peopleSource;
+    std::vector<MatchOutcome> m_outcomesSource;
+    std::vector<MatchMmrContext> m_mmrContextSource;
     bool m_historyLoaded = false;
     bool m_hasAccount = false;
 
@@ -116,6 +129,9 @@ class InsightsView {
     Rml::String m_peopleEmpty;
 
     Rml::String m_tiltMessage;
+    Rml::String m_gapCallout;
+    Rml::String m_trendPlaylistFilter = "All";
+    std::vector<TrendPlaylistOption> m_trendPlaylists;
     Rml::String m_trendsSummary;
     std::vector<TrendSection> m_trendSections;
     Rml::String m_trendsEmpty;

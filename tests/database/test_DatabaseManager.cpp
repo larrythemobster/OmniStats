@@ -1343,3 +1343,115 @@ TEST_F(DatabaseManagerTest, MergeDatabaseV1ToV2AndV2ToV2WithoutDuplicatesAndExpo
     RemoveTestDbFiles(v1SourcePath);
     RemoveTestDbFiles(v2SourcePath);
 }
+
+TEST_F(DatabaseManagerTest, GetMatchMmrContextAggregatesLobbiesAndExcludesOtherAccounts) {
+    const std::string me = "Steam|me";
+
+    // Match 1: complete 2v2 lobby, me=1020, mate=980 (teamAvg=1000), opp1=1040, opp2=1060 (oppAvg=1050)
+    {
+        MatchSaveSnapshot snap;
+        snap.arenaName = "DFH Stadium";
+        snap.matchGuid = "mmr-ctx-1";
+        snap.myTeam = 0;
+        snap.winnerTeam = 0;
+        snap.validResult = true;
+        snap.playlistId = 11;
+        snap.gamemode = "2v2";
+        snap.endedAtUnixMs = 1'700'000'000'000LL;
+        snap.myPrimaryId = me;
+        snap.roster[me] = PlayerData{.primaryId = me, .name = "Me", .team = 0, .mmr = 1020};
+        snap.roster["Steam|mate"] = PlayerData{.primaryId = "Steam|mate", .name = "Mate", .team = 0, .mmr = 980};
+        snap.roster["Steam|opp1"] = PlayerData{.primaryId = "Steam|opp1", .name = "Opp1", .team = 1, .mmr = 1040};
+        snap.roster["Steam|opp2"] = PlayerData{.primaryId = "Steam|opp2", .name = "Opp2", .team = 1, .mmr = 1060};
+        dbManager->SaveMatch(snap);
+    }
+
+    // Match 2: incomplete 2v2 lobby (opp2 has mmr=0) and local player's MMR is estimated
+    {
+        MatchSaveSnapshot snap;
+        snap.arenaName = "Mannfield";
+        snap.matchGuid = "mmr-ctx-2";
+        snap.myTeam = 0;
+        snap.winnerTeam = 1;
+        snap.validResult = true;
+        snap.playlistId = 11;
+        snap.gamemode = "2v2";
+        snap.endedAtUnixMs = 1'700'000'600'000LL;
+        snap.myPrimaryId = me;
+        snap.localMmrNeedsReconciliation = true;
+        snap.roster[me] = PlayerData{.primaryId = me, .name = "Me", .team = 0, .mmr = 1030};
+        snap.roster["Steam|mate"] = PlayerData{.primaryId = "Steam|mate", .name = "Mate", .team = 0, .mmr = 990};
+        snap.roster["Steam|opp1"] = PlayerData{.primaryId = "Steam|opp1", .name = "Opp1", .team = 1, .mmr = 1050};
+        snap.roster["Steam|opp2"] = PlayerData{.primaryId = "Steam|opp2", .name = "Opp2", .team = 1, .mmr = 0};
+        dbManager->SaveMatch(snap);
+    }
+
+    // Match 3: complete 1v1 lobby
+    {
+        MatchSaveSnapshot snap;
+        snap.arenaName = "Champions Field";
+        snap.matchGuid = "mmr-ctx-3";
+        snap.myTeam = 0;
+        snap.winnerTeam = 0;
+        snap.validResult = true;
+        snap.playlistId = 10;
+        snap.gamemode = "1v1";
+        snap.endedAtUnixMs = 1'700'001'200'000LL;
+        snap.myPrimaryId = me;
+        snap.roster[me] = PlayerData{.primaryId = me, .name = "Me", .team = 0, .mmr = 900};
+        snap.roster["Steam|duel_opp"] = PlayerData{.primaryId = "Steam|duel_opp", .name = "DuelOpp", .team = 1, .mmr = 940};
+        dbManager->SaveMatch(snap);
+    }
+
+    // Match 4: played by another account, must be excluded for `me`
+    {
+        MatchSaveSnapshot snap;
+        snap.arenaName = "Utopia Coliseum";
+        snap.matchGuid = "mmr-ctx-other";
+        snap.myTeam = 0;
+        snap.winnerTeam = 0;
+        snap.validResult = true;
+        snap.playlistId = 10;
+        snap.gamemode = "1v1";
+        snap.endedAtUnixMs = 1'700'001'800'000LL;
+        snap.myPrimaryId = "Steam|someone-else";
+        snap.roster["Steam|someone-else"] = PlayerData{.primaryId = "Steam|someone-else", .name = "Other", .team = 0, .mmr = 1100};
+        snap.roster["Steam|other-opp"] = PlayerData{.primaryId = "Steam|other-opp", .name = "OtherOpp", .team = 1, .mmr = 1120};
+        dbManager->SaveMatch(snap);
+    }
+
+    std::vector<MatchMmrContext> rows;
+    dbManager->GetMatchMmrContext(me, rows);
+
+    ASSERT_EQ(rows.size(), 3u);
+    EXPECT_EQ(rows[0].playlist, "Doubles");
+    EXPECT_TRUE(rows[0].win);
+    EXPECT_EQ(rows[0].myMmr, 1020);
+    EXPECT_FALSE(rows[0].mmrEstimated);
+    EXPECT_DOUBLE_EQ(rows[0].teamAvg, 1000.0);
+    EXPECT_DOUBLE_EQ(rows[0].oppAvg, 1050.0);
+    EXPECT_EQ(rows[0].teamCount, 2);
+    EXPECT_EQ(rows[0].oppCount, 2);
+
+    EXPECT_EQ(rows[1].playlist, "Doubles");
+    EXPECT_FALSE(rows[1].win);
+    EXPECT_EQ(rows[1].myMmr, 1030);
+    EXPECT_TRUE(rows[1].mmrEstimated);
+    EXPECT_DOUBLE_EQ(rows[1].teamAvg, 1010.0);
+    EXPECT_DOUBLE_EQ(rows[1].oppAvg, 1050.0);
+    EXPECT_EQ(rows[1].teamCount, 2);
+    EXPECT_EQ(rows[1].oppCount, 1);
+
+    EXPECT_EQ(rows[2].playlist, "Duel");
+    EXPECT_TRUE(rows[2].win);
+    EXPECT_EQ(rows[2].myMmr, 900);
+    EXPECT_FALSE(rows[2].mmrEstimated);
+    EXPECT_DOUBLE_EQ(rows[2].teamAvg, 900.0);
+    EXPECT_DOUBLE_EQ(rows[2].oppAvg, 940.0);
+    EXPECT_EQ(rows[2].teamCount, 1);
+    EXPECT_EQ(rows[2].oppCount, 1);
+
+    const GapReport report = Insights::ComputeGapTrends(rows, "All");
+    EXPECT_EQ(report.games, 2);
+    EXPECT_EQ(report.wins, 2);
+}

@@ -1100,6 +1100,46 @@ void DatabaseManager::GetMatchOutcomes(const std::string& primaryId, std::vector
     sqlite3_finalize(stmt);
 }
 
+void DatabaseManager::GetMatchMmrContext(const std::string& primaryId, std::vector<MatchMmrContext>& out) {
+    std::lock_guard<std::mutex> lock(m_dbMutex);
+    out.clear();
+    if (!m_db || primaryId.empty()) return;
+
+    const char* sql = R"(
+        SELECT m.id, m.playlist_id, m.gamemode, m.player_count, m.win, strftime('%s', m.timestamp),
+               COALESCE(me.mmr, 0) AS my_mmr, COALESCE(me.mmr_estimated, 0),
+               COALESCE(AVG(CASE WHEN p.is_opponent = 0 AND p.mmr > 0 THEN p.mmr END), 0.0) AS team_avg,
+               COALESCE(AVG(CASE WHEN p.is_opponent = 1 AND p.mmr > 0 THEN p.mmr END), 0.0) AS opp_avg,
+               SUM(CASE WHEN p.is_opponent = 0 AND p.mmr > 0 THEN 1 ELSE 0 END) AS team_n,
+               SUM(CASE WHEN p.is_opponent = 1 AND p.mmr > 0 THEN 1 ELSE 0 END) AS opp_n
+        FROM Matches m
+        JOIN MatchPlayers me ON me.match_id = m.id AND me.primary_id = ?1
+        JOIN MatchPlayers p  ON p.match_id = m.id
+        GROUP BY m.id
+        ORDER BY m.timestamp ASC, m.id ASC;
+    )";
+
+    sqlite3_stmt* stmt = nullptr;
+    if (sqlite3_prepare_v2(m_db, sql, -1, &stmt, nullptr) != SQLITE_OK) return;
+    sqlite3_bind_text(stmt, 1, primaryId.c_str(), -1, SQLITE_TRANSIENT);
+    while (sqlite3_step(stmt) == SQLITE_ROW) {
+        MatchMmrContext ctx;
+        bool ranked = false;
+        std::string playlist = DescribeMatchPlaylist(stmt, 2, 3, 1, ranked);
+        ctx.playlist = ranked ? std::move(playlist) : "Casual";
+        ctx.win = sqlite3_column_int(stmt, 4) != 0;
+        ctx.endedAtUnix = sqlite3_column_int64(stmt, 5);
+        ctx.myMmr = sqlite3_column_int(stmt, 6);
+        ctx.mmrEstimated = sqlite3_column_int(stmt, 7) != 0;
+        ctx.teamAvg = sqlite3_column_double(stmt, 8);
+        ctx.oppAvg = sqlite3_column_double(stmt, 9);
+        ctx.teamCount = sqlite3_column_int(stmt, 10);
+        ctx.oppCount = sqlite3_column_int(stmt, 11);
+        out.push_back(std::move(ctx));
+    }
+    sqlite3_finalize(stmt);
+}
+
 bool DatabaseManager::ExportLocalData(std::string& exportPath, std::string& error) {
     std::lock_guard<std::mutex> lock(m_dbMutex);
     if (!m_db) {
@@ -2189,13 +2229,16 @@ void DatabaseManager::AsyncLoadInsights(const std::string& primaryId) {
     (void)EnqueueDbJob([this, pid]() {
         std::vector<PersonRecord> people;
         std::vector<MatchOutcome> outcomes;
+        std::vector<MatchMmrContext> mmrContext;
         GetPeopleRecords(pid, people);
         GetMatchOutcomes(pid, outcomes);
+        GetMatchMmrContext(pid, mmrContext);
         if (!m_state) return;
         std::lock_guard<std::mutex> lock(m_state->insights.mutex);
         m_state->insights.primaryId = pid;
         m_state->insights.people = std::move(people);
         m_state->insights.outcomes = std::move(outcomes);
+        m_state->insights.mmrContext = std::move(mmrContext);
         m_state->insights.loaded = true;
         m_state->insights.version.fetch_add(1, std::memory_order_relaxed);
     },
