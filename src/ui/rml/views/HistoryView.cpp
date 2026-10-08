@@ -77,7 +77,11 @@ namespace {
     HistoryDetailPlayerRow FormatDetailPlayer(const MatchDetailPlayer& p) {
         HistoryDetailPlayerRow row;
         row.name = p.name.empty() ? p.primaryId : p.name;
-        row.platform = p.platform;
+        if (!p.platform.empty()) {
+            const PlatformKind kind = PlatformKindFor(p.platform);
+            row.platform = PlatformBadgeLabel(kind, p.platform);
+            row.platform_class = std::string("badge ") + PlatformClass(kind);
+        }
         row.is_me = p.isMe;
         if (p.mmr > 0) {
             row.mmr = (p.mmrEstimated ? "~" : "") + std::to_string(p.mmr);
@@ -130,6 +134,7 @@ bool HistoryView::Create(Rml::Context* context) {
     if (auto player = constructor.RegisterStruct<HistoryDetailPlayerRow>()) {
         player.RegisterMember("name", &HistoryDetailPlayerRow::name);
         player.RegisterMember("platform", &HistoryDetailPlayerRow::platform);
+        player.RegisterMember("platform_class", &HistoryDetailPlayerRow::platform_class);
         player.RegisterMember("is_me", &HistoryDetailPlayerRow::is_me);
         player.RegisterMember("mmr", &HistoryDetailPlayerRow::mmr);
         player.RegisterMember("tier", &HistoryDetailPlayerRow::tier);

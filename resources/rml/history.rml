@@ -128,7 +128,7 @@
                                 <div class="history-sb-player">
                                     <div class="row gap-sm" style="align-items:center">
                                         <span class="value">{{p.name}}</span>
-                                        <span class="label" data-if="p.platform != ''">{{p.platform}}</span>
+                                        <span class="badge" data-attr-class="p.platform_class" data-if="p.platform != ''">{{p.platform}}</span>
                                     </div>
                                     <div class="label history-sb-met">{{p.met_before}}</div>
                                 </div>
@@ -162,7 +162,7 @@
                                 <div class="history-sb-player">
                                     <div class="row gap-sm" style="align-items:center">
                                         <span class="value">{{p.name}}</span>
-                                        <span class="label" data-if="p.platform != ''">{{p.platform}}</span>
+                                        <span class="badge" data-attr-class="p.platform_class" data-if="p.platform != ''">{{p.platform}}</span>
                                     </div>
                                     <div class="label history-sb-met">{{p.met_before}}</div>
                                 </div>

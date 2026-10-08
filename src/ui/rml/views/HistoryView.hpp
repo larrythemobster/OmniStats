@@ -35,6 +35,7 @@ struct HistoryMatchRow {
 struct HistoryDetailPlayerRow {
     Rml::String name;
     Rml::String platform;
+    Rml::String platform_class;
     bool is_me = false;
     Rml::String mmr;
     Rml::String tier;
