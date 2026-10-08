@@ -159,6 +159,8 @@ void RmlUiController::UpdateThemeProperties() {
     for (const char* selector : {".dim", ".lobby-rank-matches", ".dashboard-edit-zone", ".setting-help", ".match-time"})
         rule(selector, "color", dim);
     rule(".lobby-rank-header", "background-color", scaledColor(m_config.themeBg, 0.70f, 0.80f));
+    rule(".overlay-visibility-bar", "background-color", scaledColor(m_config.themeBg, 0.85f, 0.90f));
+    rule(".overlay-visibility-bar", "border-color", scaledColor(m_config.themeText, 1.0f, 0.12f));
     for (const char* selector : {".accent", ".setting-title", ".badge.accent"})
         rule(selector, "color", accent);
     rule(".overlay-edit", "border-color", accent);

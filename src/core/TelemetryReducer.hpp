@@ -91,6 +91,7 @@ class TelemetryReducer {
     void UpdateLifecycleSignalsLocked(const nlohmann::json& data);
     static bool HasExplicitLocalForfeitSignal(const nlohmann::json& data, int localTeam);
     bool AttachTerminalGuidToCurrentLocked(const std::string& eventMatchGuid);
+    void ObserveUiEventMatchGuidLocked(const nlohmann::json& data, int64_t nowMs);
 
     struct MatchEndDecision {
         bool shouldCount = false;
@@ -122,6 +123,8 @@ class TelemetryReducer {
     std::unordered_map<std::string, std::chrono::steady_clock::time_point> m_lastPlayerSeen;
 
     bool m_roundActive = true;
+    std::string m_uiMatchGuid;
+    bool m_countdownSeenThisRound = false;
     std::unordered_set<std::string> m_identityCandidates;
     int m_missedMyIdCount = 0;
     MmrCategory m_autoSwitchedPlaylistCategory = MmrCategory::Best;

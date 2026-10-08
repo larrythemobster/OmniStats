@@ -173,6 +173,9 @@ void TelemetryReducer::HandleUpdateState(const nlohmann::json& data, SideEffects
     bool gameReplayActive = false;
     bool isSpectator = false;
 
+    if (!m_nonLiveReplayActive) {
+        ObserveUiEventMatchGuidLocked(data, SteadyNowMs());
+    }
     if (data.contains("Game") && data["Game"].is_object()) {
         auto game = data["Game"];
         std::optional<int> incomingPlaylistId;
@@ -227,12 +230,32 @@ void TelemetryReducer::HandleUpdateState(const nlohmann::json& data, SideEffects
                             std::move(snapshotIt->second);
                         hasPreservedMmrSnapshot = true;
                     }
+                    const int64_t savedMatchStartMs = m_state->ui.lastMatchStartMs.load(std::memory_order_relaxed);
+                    const int64_t savedFirstCountdownMs = m_state->ui.firstCountdownOfMatchMs.load(std::memory_order_relaxed);
+                    const int64_t savedLastCountdownMs = m_state->ui.lastCountdownMs.load(std::memory_order_relaxed);
+                    const int64_t savedLastGoalMs = m_state->ui.lastGoalMs.load(std::memory_order_relaxed);
+                    const int64_t savedLastMatchEndMs = m_state->ui.lastMatchEndMs.load(std::memory_order_relaxed);
+                    const int64_t savedLastPodiumMs = m_state->ui.lastPodiumMs.load(std::memory_order_relaxed);
+                    const bool savedInGoalReplay = m_state->ui.inGoalReplay.load(std::memory_order_relaxed);
                     m_state->resetMatch(currentArena, currentArenaAsset);
                     if (startsNewLifecycle) {
                         m_state->game.activeMatchGeneration =
                             ++m_nextMatchGeneration;
                         m_missingGuidAssociationBlockedByReconnect =
                             false;
+                        m_state->ui.ResetMatchTimestamps(SteadyNowMs());
+                        m_uiMatchGuid.clear();
+                        m_countdownSeenThisRound = false;
+                    } else {
+                        m_state->ui.lastMatchStartMs.store(
+                            savedMatchStartMs > 0 ? savedMatchStartMs : SteadyNowMs(),
+                            std::memory_order_relaxed);
+                        m_state->ui.firstCountdownOfMatchMs.store(savedFirstCountdownMs, std::memory_order_relaxed);
+                        m_state->ui.lastCountdownMs.store(savedLastCountdownMs, std::memory_order_relaxed);
+                        m_state->ui.lastGoalMs.store(savedLastGoalMs, std::memory_order_relaxed);
+                        m_state->ui.lastMatchEndMs.store(savedLastMatchEndMs, std::memory_order_relaxed);
+                        m_state->ui.lastPodiumMs.store(savedLastPodiumMs, std::memory_order_relaxed);
+                        m_state->ui.inGoalReplay.store(savedInGoalReplay, std::memory_order_relaxed);
                     }
                     if (!startsNewLifecycle &&
                         hasPreservedMmrSnapshot) {
@@ -242,7 +265,6 @@ void TelemetryReducer::HandleUpdateState(const nlohmann::json& data, SideEffects
                     } else if (startsNewLifecycle) {
                         m_state->game.matchGuid.clear();
                     }
-
                     // resetMatch intentionally clears playlist state for a new
                     // lifecycle. During same-lifecycle arena initialization,
                     // preserve an already-authoritative ID if this telemetry
@@ -320,9 +342,11 @@ void TelemetryReducer::HandleUpdateState(const nlohmann::json& data, SideEffects
                     const std::string currentArena = m_state->game.arenaName;
                     const std::string currentArenaAsset = m_state->game.arenaAsset;
                     m_state->resetMatch(currentArena, currentArenaAsset);
+                    m_state->ui.ResetMatchTimestamps(SteadyNowMs());
                     m_state->game.activeMatchGeneration =
                         ++m_nextMatchGeneration;
                     m_state->game.matchGuid = matchGuid;
+                    m_uiMatchGuid = matchGuid;
                     m_missingGuidAssociationBlockedByReconnect = false;
                     if (hasInitialMmrSnapshot) {
                         m_state->game.preMatchMmrByGuid.emplace(
@@ -330,6 +354,7 @@ void TelemetryReducer::HandleUpdateState(const nlohmann::json& data, SideEffects
                             std::move(initialMmrSnapshot));
                     }
                     m_roundActive = false;
+                    m_countdownSeenThisRound = false;
                     m_autoSwitchedPlaylistCategory = MmrCategory::Best;
                     m_followedGraphPlaylistCategory = MmrCategory::Best;
                     m_lastPlayerBoost.clear();

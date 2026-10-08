@@ -133,6 +133,7 @@ void SessionState::resetMatch(const std::string& newArena, const std::string& ne
     game.matchFinalized = false;
     ui.showOverlay = false;
     ui.showMatchSummary = false;
+    ui.ResetMatchTimestamps(0);
 }
 
 void SessionState::clearActiveMatchOnDisconnect() {
@@ -164,6 +165,11 @@ void SessionState::clearActiveMatchOnDisconnect() {
     game.matchRoster.clear();
     game.preMatchMmrByGuid.clear();
     game.matchFinalized = false;
+    ui.inGoalReplay.store(false, std::memory_order_relaxed);
+    ui.firstCountdownOfMatchMs.store(0, std::memory_order_relaxed);
+    ui.lastCountdownMs.store(0, std::memory_order_relaxed);
+    ui.lastGoalMs.store(0, std::memory_order_relaxed);
+    ui.lastMatchStartMs.store(0, std::memory_order_relaxed);
 }
 
 bool SessionState::startNewSessionLocked(int64_t endedAtUnix) {

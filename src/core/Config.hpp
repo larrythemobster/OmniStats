@@ -64,6 +64,7 @@ struct ConfigData {
 
     bool require_rl_focus = true;
     bool show_match_summary = true;
+    int match_summary_seconds = 20;
     bool discord_rpc_enabled = false;
     bool enable_mmr_tracking = false;
     bool auto_switch_mmr_category = true;

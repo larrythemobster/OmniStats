@@ -10,6 +10,7 @@
 #include <map>
 #include <limits>
 #include <memory>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <unordered_map>
@@ -83,6 +84,9 @@ class RmlUiController final : public Rml::EventListener {
     void Render();
     bool ShouldRender() const;
     void RequestRender();
+    std::optional<int64_t> NextVisibilityWakeMs() const noexcept {
+        return m_nextVisibilityWakeMs;
+    }
     bool WantsInteraction() const;
     // Insights and onboarding are modal documents that must be seen even when
     // the overlay would otherwise hide (Rocket League not focused or closed).
@@ -200,6 +204,7 @@ class RmlUiController final : public Rml::EventListener {
     std::string FloatingCardClass() const;
     std::string FloatingCardStyle(float x, float y, float widthDp) const;
     std::string RenderOverlayContainer(const OverlayLayout::ContainerConfig& container, bool editMode);
+    std::string RenderOverlayContainerVisibilityControls(const OverlayLayout::ContainerConfig& container) const;
     std::string RenderOverlayToolbox(bool editMode);
 
     std::string RenderSettingsGeneral();
@@ -376,6 +381,8 @@ class RmlUiController final : public Rml::EventListener {
     bool m_rebuildingUi = false;
     bool m_renderDirty = true;
     std::chrono::steady_clock::time_point m_nextRmlUpdateAt = std::chrono::steady_clock::time_point::max();
+    std::optional<int64_t> m_nextVisibilityWakeMs;
+    bool m_deferredSelectRebuild = false;
     uint64_t m_lastLocalConfigRevision = 0;
 
     // Replayed after an overlay DOM rebuild so RmlUi immediately resolves the

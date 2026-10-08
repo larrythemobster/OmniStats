@@ -60,7 +60,7 @@ RmlUi documents are kept alive instead of being recreated each frame. `RmlUiCont
 
 On first run (`onboarding_completed` unset) the wizard replaces the old startup message boxes for the Stats API fix and the optional integrations. When `reset_session_on_close` resets a session with at least one game, `StatsClient` stores the totals in `GameState::lastSessionRecap` and Insights opens on the recap. While the wizard or Insights is open, the overlay window stays drawn and interactive even if Rocket League is closed or unfocused.
 
-The editable dashboard and transparent overlay keep separate persisted layouts. Dashboard drag/drop updates `DashboardLayoutConfig`; overlay move/resize/widget docking updates `OverlayLayoutConfig`. Settings controls write through `Config::Update` and continue using the existing persistence and side-effect paths.
+The editable dashboard and transparent overlay keep separate persisted layouts. Dashboard drag/drop updates `DashboardLayoutConfig`; overlay move/resize/widget docking and per-container visibility rules (`KeyHeld`, `AlwaysInMatch`, `AfterEvent`, `MenusOnly`, plus `alsoWhileKeyHeld` and `hideDuringReplay`) update `OverlayLayoutConfig`. Timed visibility windows schedule an exact wake deadline on `RmlUiController` so the on-demand renderer wakes when a window opens or closes without rendering extra idle frames. Settings controls write through `Config::Update` and continue using the existing persistence and side-effect paths.
 
 ## External network requests
 

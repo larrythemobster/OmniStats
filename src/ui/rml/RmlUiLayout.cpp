@@ -106,10 +106,50 @@ std::string RmlUiController::RenderWidget(DashboardLayout::WidgetId id, bool das
     return {};
 }
 
+std::string RmlUiController::RenderOverlayContainerVisibilityControls(const OverlayLayout::ContainerConfig& container) const {
+    auto vis = container.visibility;
+    OverlayLayout::Sanitize(vis);
+
+    const std::string id = Escape(container.id);
+    const std::string modeKey = "overlay_vis_mode:" + container.id;
+    const std::string eventKey = "overlay_vis_event:" + container.id;
+    const std::string secondsKey = "overlay_vis_seconds:" + container.id;
+    const std::string keyHeldKey = "overlay_vis_key_held:" + container.id;
+    const std::string hideReplayKey = "overlay_vis_hide_replay:" + container.id;
+
+    std::ostringstream out;
+    out << "<div class='overlay-visibility-bar' data-action='overlay-visibility' data-container='" << id << "'>"
+        << "<div class='row gap-xs overlay-visibility-row'><span class='label overlay-vis-label'>Visibility</span>"
+        << SelectControl(modeKey, OverlayVisibilityModeOptions(), OverlayLayout::ToConfigString(vis.mode), "compact-select overlay-vis-mode grow")
+        << "</div>";
+    if (vis.mode == OverlayLayout::Visibility::AfterEvent) {
+        out << "<div class='row gap-xs overlay-visibility-row'>"
+            << SelectControl(eventKey, OverlayVisibilityEventOptions(), OverlayLayout::ToConfigString(vis.event), "compact-select overlay-vis-event grow")
+            << SelectControl(secondsKey, OverlayVisibilitySecondsOptions(), std::to_string(vis.seconds), "compact-select overlay-vis-seconds")
+            << "</div>";
+    }
+    out << "<div class='row wrap gap-sm overlay-visibility-toggles'>"
+        << "<div class='row gap-xs overlay-vis-toggle'><div class='toggle-switch compact-toggle'>"
+        << "<input type='checkbox' class='checkbox' data-setting='" << Escape(keyHeldKey) << "' data-container='" << id << "'";
+    if (vis.alsoWhileKeyHeld) out << " checked='checked'";
+    out << "/><span class='toggle-thumb'></span></div><span class='label overlay-vis-toggle-label'>Also while key held</span></div>"
+        << "<div class='row gap-xs overlay-vis-toggle'><div class='toggle-switch compact-toggle'>"
+        << "<input type='checkbox' class='checkbox' data-setting='" << Escape(hideReplayKey) << "' data-container='" << id << "'";
+    if (vis.hideDuringReplay) out << " checked='checked'";
+    out << "/><span class='toggle-thumb'></span></div><span class='label overlay-vis-toggle-label'>Hide during goal replays</span></div>"
+        << "</div></div>";
+    return out.str();
+}
+
 std::string RmlUiController::RenderOverlayContainer(const OverlayLayout::ContainerConfig& container, bool editMode) {
     const bool settingsOpen = m_state && m_state->ui.showMenu.load();
-    const bool showOverlay = m_state && m_state->ui.showOverlay.load();
     const bool expanded = m_state && m_state->ui.h2hExpanded.load();
+    const int64_t nowMs = SteadyNowMs();
+    const OverlayLayout::VisibilityState visState =
+        m_state ? OverlayLayout::SnapshotVisibilityState(*m_state, editMode)
+                : OverlayLayout::VisibilityState{.editMode = editMode};
+    const bool containerVisible = OverlayLayout::ContainerVisible(container, visState, nowMs);
+    const bool replayHidden = container.visibility.hideDuringReplay && visState.inReplay;
     auto visible = [&](DashboardLayout::WidgetId widget) {
         if (editMode) return true;
         if (settingsOpen) {
@@ -122,29 +162,32 @@ std::string RmlUiController::RenderOverlayContainer(const OverlayLayout::Contain
         }
         switch (widget) {
         case DashboardLayout::WidgetId::LiveRoster:
-            return showOverlay;
+            return containerVisible;
         case DashboardLayout::WidgetId::MmrGraph:
-            return showOverlay;
+            return containerVisible;
         case DashboardLayout::WidgetId::LiveMatchStats:
-            return showOverlay && expanded;
+            return containerVisible && expanded;
         case DashboardLayout::WidgetId::SessionStats:
-            // Session stats follow the overlay key like every other roster card;
-            // they are not a permanent HUD element.
-            return showOverlay;
+            // Session stats follow the container visibility rule like every other
+            // roster card; they are not a permanent HUD element by default.
+            return containerVisible;
         case DashboardLayout::WidgetId::StreaksStats:
-            return showOverlay && m_config.show_streaks_stats;
+            return containerVisible && m_config.show_streaks_stats;
         case DashboardLayout::WidgetId::GamemodeBreakdown:
-            return showOverlay && m_config.show_gamemode_breakdown;
+            return containerVisible && m_config.show_gamemode_breakdown;
         case DashboardLayout::WidgetId::LobbyRanks:
-            return showOverlay && m_config.show_lobby_ranks_overlay;
+            return containerVisible && m_config.show_lobby_ranks_overlay;
         case DashboardLayout::WidgetId::DemoTracker:
-            return m_config.show_demo_tracker_overlay && m_snap.inMatch;
+            if (!m_config.show_demo_tracker_overlay || replayHidden) return false;
+            if (container.visibility.mode == OverlayLayout::Visibility::KeyHeld) {
+                return m_snap.inMatch;
+            }
+            return containerVisible;
         case DashboardLayout::WidgetId::PreviousGames:
-            return showOverlay && m_config.show_previous_games_summary;
+            return containerVisible && m_config.show_previous_games_summary;
         }
         return false;
     };
-
     std::vector<DashboardLayout::WidgetId> widgets;
     for (auto widget : container.widgets)
         if (visible(widget)) widgets.push_back(widget);
@@ -213,9 +256,15 @@ std::string RmlUiController::RenderOverlayContainer(const OverlayLayout::Contain
     // auto-size vertically to their currently visible widgets. Keeping the saved
     // default height as a permanent min-height is what produced the huge empty
     // main_stack panel after the RmlUi migration.
-    if (editMode) out << "height:" << toDp(std::min(h, 900.0f * dpi)) << "dp;";
+    if (editMode) out << "min-height:" << toDp(std::min(h, 900.0f * dpi)) << "dp;";
     out << "'>";
-    if (editMode) out << "<div class='row overlay-drag' data-action='overlay-drag' data-container='" << Escape(container.id) << "'><span class='badge accent'>MOVE</span><div class='grow'></div><span class='label'>" << Escape(container.id) << "</span><button class='widget-close' data-action='overlay-remove-container' data-container='" << Escape(container.id) << "' title='Remove this overlay container'>×</button></div>";
+    if (editMode) {
+        out << "<div class='row overlay-drag' data-action='overlay-drag' data-container='" << Escape(container.id)
+            << "'><span class='badge accent'>MOVE</span><div class='grow'></div><span class='label'>" << Escape(container.id)
+            << "</span><button class='widget-close' data-action='overlay-remove-container' data-container='" << Escape(container.id)
+            << "' title='Remove this overlay container'>×</button></div>"
+            << RenderOverlayContainerVisibilityControls(container);
+    }
     for (size_t i = 0; i < widgets.size(); ++i) {
         const auto widget = widgets[i];
         if (editMode) {
@@ -275,8 +324,8 @@ void RmlUiController::RebuildOverlay() {
     if (m_config.show_running_indicator) out << "<div class='running-indicator'><span class='win'>●</span> OmniStats</div>";
 
     if (m_state && m_state->ui.showMatchSummary.load() && m_config.show_match_summary) {
-        const int64_t elapsed = SteadyNowMs() - m_state->ui.matchSummaryStartMs.load();
-        if (elapsed < 30000)
+        const int64_t elapsed = SteadyNowMs() - EffectiveMatchSummaryStartMs(*m_state);
+        if (elapsed < MatchSummaryDurationMs(m_config))
             out << "<div class='live-special' data-live-special='match-summary'>" << RenderMatchSummary() << "</div>";
         else
             m_state->ui.showMatchSummary.store(false);

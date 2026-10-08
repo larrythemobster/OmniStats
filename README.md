@@ -21,13 +21,25 @@ releases.
 - Session and match statistics including score, goals, assists, saves, shots, demos, streaks, and records.
 - Optional live rank lookup through your OmniStats account with one-click browser device approval, or through Tracker Network.
 - Local SQLite and JSONL history.
-- Click-through overlay and second-monitor dashboard.
+- Click-through overlay and second-monitor dashboard, with per-container visibility rules.
 - Player roster context and browser links to public player profiles.
 - Insights window with a session recap card you can save as a PNG, win rates with and against the people you play with most, and trends by playlist, time of day, session length, loss streaks, and lobby MMR gap.
 - First-run setup that fixes the Stats API config, picks overlay or dashboard, and asks about each optional integration.
 - Required startup diagnostics and update checks, plus optional Discord Rich Presence, Ballchasing replay uploads, automatic update installation, and crash reports.
 
 OmniStats does not inject into Rocket League. Tracker rank lookup is an optional third-party integration and may stop working when Tracker Network changes its service.
+
+## Overlay visibility rules
+
+In overlay edit mode (**Settings > Cards > Edit overlay layout**), each overlay container has its own **Visibility** rule:
+
+- **While scoreboard key held**: shows the container while holding the overlay key or controller button.
+- **Always during match**: keeps the container visible throughout an active match.
+- **For N s after event**: shows the container for 5 to 30 seconds after match start, the first kickoff countdown, each kickoff countdown, a goal, match end, or the podium screen.
+- **In menus only**: shows the container only outside matches.
+- **Also while key held** and **Hide during goal replays** toggles per container.
+
+New installs default the Lobby Ranks container to **8 s after the first kickoff countdown** (plus while the key is held), the post-match summary to **20 s after the podium**, and all other containers to **While scoreboard key held**. Existing configs keep their previous behavior on upgrade unless changed in edit mode.
 
 ## Screenshots
 

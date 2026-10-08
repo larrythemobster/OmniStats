@@ -278,6 +278,83 @@ div.value { display: block; }
 .overlay-drag { cursor: move; }
 .overlay-widget-handle { cursor: move; min-height: 24dp; padding: 2dp 0; }
 .widget-close { min-width: 24dp; width: 24dp; min-height: 22dp; height: 22dp; padding: 0; margin-left: 6dp; background-color: #35171a; border-color: #743238; color: #ffb2b7; }
+.overlay-visibility-bar {
+    display: flex;
+    flex-direction: column;
+    gap: 4dp;
+    margin-top: 5dp;
+    margin-bottom: 4dp;
+    padding: 5dp 6dp;
+    border: 1dp #2a2a2acc;
+    border-radius: 6dp;
+    background-color: #151515d9;
+    cursor: default;
+}
+.overlay-card.interactive .overlay-visibility-bar,
+.overlay-card.interactive .overlay-visibility-bar * {
+    cursor: default;
+}
+.overlay-card.interactive .overlay-visibility-bar select,
+.overlay-card.interactive .overlay-visibility-bar input {
+    cursor: pointer;
+}
+.overlay-visibility-row {
+    min-height: 24dp;
+}
+.overlay-vis-label {
+    flex-shrink: 0;
+    font-size: 11dp;
+    margin-right: 4dp;
+}
+.overlay-visibility-bar select.compact-select {
+    min-width: 0;
+    height: 24dp;
+    font-size: 11dp;
+}
+.overlay-visibility-bar select.compact-select selectvalue {
+    height: 22dp;
+    padding: 2dp 24dp 2dp 6dp;
+}
+.overlay-visibility-bar select.compact-select selectarrow {
+    width: 22dp;
+    height: 22dp;
+}
+.overlay-visibility-bar select.overlay-vis-seconds {
+    width: 66dp;
+    flex-shrink: 0;
+}
+.overlay-visibility-toggles {
+    margin-top: 2dp;
+    align-items: center;
+}
+.overlay-vis-toggle {
+    align-items: center;
+}
+.toggle-switch.compact-toggle {
+    width: 32dp;
+    min-width: 32dp;
+    height: 18dp;
+    margin-left: 0;
+}
+.toggle-switch.compact-toggle input.checkbox {
+    width: 32dp;
+    min-width: 32dp;
+    height: 18dp;
+    border-radius: 9dp;
+}
+.toggle-switch.compact-toggle .toggle-thumb {
+    left: 3dp;
+    top: 3dp;
+    width: 10dp;
+    height: 10dp;
+    border-radius: 5dp;
+}
+.toggle-switch.compact-toggle input.checkbox:checked ~ .toggle-thumb {
+    left: 19dp;
+}
+.overlay-vis-toggle-label {
+    font-size: 11dp;
+}
 .overlay-resize {
     position: absolute;
     width: 14dp;

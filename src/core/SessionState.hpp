@@ -258,6 +258,25 @@ struct UIState {
     // Set when a finished session was captured into game.lastSessionRecap.
     std::atomic<bool> showSessionRecap{false};
 
+    // Steady-clock millisecond timestamps for event-driven overlay visibility.
+    std::atomic<int64_t> lastMatchStartMs{0};
+    std::atomic<int64_t> firstCountdownOfMatchMs{0};
+    std::atomic<int64_t> lastCountdownMs{0};
+    std::atomic<int64_t> lastGoalMs{0};
+    std::atomic<int64_t> lastMatchEndMs{0};
+    std::atomic<int64_t> lastPodiumMs{0};
+    std::atomic<bool> inGoalReplay{false};
+
+    void ResetMatchTimestamps(int64_t matchStartMs = 0) noexcept {
+        lastMatchStartMs.store(matchStartMs, std::memory_order_relaxed);
+        firstCountdownOfMatchMs.store(0, std::memory_order_relaxed);
+        lastCountdownMs.store(0, std::memory_order_relaxed);
+        lastGoalMs.store(0, std::memory_order_relaxed);
+        lastMatchEndMs.store(0, std::memory_order_relaxed);
+        lastPodiumMs.store(0, std::memory_order_relaxed);
+        inGoalReplay.store(false, std::memory_order_relaxed);
+    }
+
     // Dashboard layout edit mode
     std::atomic<bool> dashboardLayoutEditMode{false};
 

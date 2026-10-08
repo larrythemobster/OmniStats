@@ -104,6 +104,11 @@ namespace RmlUiDetail {
     std::vector<SelectOption> MmrCategoryOptions(bool includeBest, bool extras);
     std::vector<SelectOption> GamemodeScopeOptions();
     std::string GamemodeScopeValue(const ConfigData& config);
+    std::vector<SelectOption> OverlayVisibilityModeOptions();
+    std::vector<SelectOption> OverlayVisibilityEventOptions();
+    std::vector<SelectOption> OverlayVisibilitySecondsOptions();
+    int64_t EffectiveMatchSummaryStartMs(const SessionState& state) noexcept;
+    int64_t MatchSummaryDurationMs(const ConfigData& config) noexcept;
     std::string StatCell(std::string_view label, std::string_view value, std::string_view valueClass = {});
     std::string StatGrid(std::string_view title, const std::vector<std::pair<std::string, std::string>>& rows);
     std::string SectionStart(std::string_view title);

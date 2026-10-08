@@ -377,3 +377,154 @@ TEST_F(ConfigTest, AccountDpapiFieldsRoundTripWithoutPlaintextOnDisk) {
     EXPECT_EQ(loaded.account_refresh_token, secretRefresh);
     EXPECT_EQ(loaded.account_device_key, secretDeviceKey);
 }
+
+TEST_F(ConfigTest, OverlayVisibilityRoundTripAndSanitization) {
+    Config::Update([](ConfigData& c) {
+        c.match_summary_seconds = 25;
+        c.overlay_layout.containers.clear();
+
+        OverlayLayout::ContainerConfig afterGoal;
+        afterGoal.id = "goal_box";
+        afterGoal.x = 100.0f;
+        afterGoal.y = 200.0f;
+        afterGoal.widgets = {DashboardLayout::WidgetId::LiveMatchStats};
+        afterGoal.visibility = {
+            .mode = OverlayLayout::Visibility::AfterEvent,
+            .event = OverlayLayout::Visibility::Goal,
+            .seconds = 12,
+            .alsoWhileKeyHeld = false,
+            .hideDuringReplay = true};
+        c.overlay_layout.containers.push_back(afterGoal);
+
+        OverlayLayout::ContainerConfig menusCard;
+        menusCard.id = "menus_box";
+        menusCard.widgets = {DashboardLayout::WidgetId::PreviousGames};
+        menusCard.visibility = {
+            .mode = OverlayLayout::Visibility::MenusOnly,
+            .event = OverlayLayout::Visibility::Podium,
+            .seconds = 20,
+            .alsoWhileKeyHeld = true,
+            .hideDuringReplay = false};
+        c.overlay_layout.containers.push_back(menusCard);
+    });
+    Config::Save();
+
+    Config::Update([](ConfigData& c) {
+        c.match_summary_seconds = 10;
+        c.overlay_layout.containers.clear();
+    },
+                   false);
+
+    Config::Load();
+    const ConfigData loaded = Config::Read();
+    EXPECT_EQ(loaded.match_summary_seconds, 25);
+    EXPECT_EQ(loaded.overlay_layout.version, OverlayLayout::kCurrentLayoutVersion);
+    ASSERT_EQ(loaded.overlay_layout.containers.size(), 2u);
+
+    const auto& c0 = loaded.overlay_layout.containers[0];
+    EXPECT_EQ(c0.id, "goal_box");
+    EXPECT_EQ(c0.visibility.mode, OverlayLayout::Visibility::AfterEvent);
+    EXPECT_EQ(c0.visibility.event, OverlayLayout::Visibility::Goal);
+    EXPECT_EQ(c0.visibility.seconds, 12);
+    EXPECT_FALSE(c0.visibility.alsoWhileKeyHeld);
+    EXPECT_TRUE(c0.visibility.hideDuringReplay);
+
+    const auto& c1 = loaded.overlay_layout.containers[1];
+    EXPECT_EQ(c1.id, "menus_box");
+    EXPECT_EQ(c1.visibility.mode, OverlayLayout::Visibility::MenusOnly);
+    EXPECT_EQ(c1.visibility.event, OverlayLayout::Visibility::Podium);
+    EXPECT_EQ(c1.visibility.seconds, 20);
+    EXPECT_TRUE(c1.visibility.alsoWhileKeyHeld);
+    EXPECT_FALSE(c1.visibility.hideDuringReplay);
+}
+
+TEST_F(ConfigTest, OldLayoutMigratesToKeyHeldEverywhereAndInvalidValuesSanitize) {
+    const std::string configPath = Storage::GetDataDirectory() + "config.json";
+    {
+        std::ofstream file(configPath);
+        file << nlohmann::json{
+            {"onboarding_completed", true},
+            {"overlay_layout",
+             {{"version", 3},
+              {"toolbox_open", false},
+              {"containers",
+               nlohmann::json::array({
+                   {{"id", "lobby_ranks"},
+                    {"x", 743.5},
+                    {"y", 774.0},
+                    {"w", 0.0},
+                    {"h", 0.0},
+                    {"widgets", nlohmann::json::array({"lobby_ranks"})}},
+                   {{"id", "main_stack"},
+                    {"x", 1490.0},
+                    {"y", 0.0},
+                    {"w", 430.0},
+                    {"h", 759.0},
+                    {"widgets", nlohmann::json::array({"live_roster"})},
+                    {"visibility",
+                     {{"mode", "not_a_valid_mode"},
+                      {"event", "not_a_valid_event"},
+                      {"seconds", 999},
+                      {"also_while_key_held", false},
+                      {"hide_during_replay", true}}}},
+                   {{"id", "demo_tracker"},
+                    {"x", 1270.0},
+                    {"y", 0.0},
+                    {"w", 220.0},
+                    {"h", 489.0},
+                    {"widgets", nlohmann::json::array({"demo_tracker"})},
+                    {"visibility",
+                     {{"mode", 99},
+                      {"event", -5},
+                      {"seconds", 1}}}},
+               })}}}}
+                    .dump(2);
+    }
+
+    Config::Load();
+    const ConfigData loaded = Config::Read();
+    EXPECT_EQ(loaded.overlay_layout.version, OverlayLayout::kCurrentLayoutVersion);
+    EXPECT_EQ(loaded.match_summary_seconds, 30);
+    ASSERT_EQ(loaded.overlay_layout.containers.size(), 3u);
+
+    // Missing visibility in old v3 layout => KeyHeld everywhere (including lobby_ranks).
+    EXPECT_EQ(loaded.overlay_layout.containers[0].id, "lobby_ranks");
+    EXPECT_EQ(loaded.overlay_layout.containers[0].visibility.mode, OverlayLayout::Visibility::KeyHeld);
+
+    // Invalid strings/numbers sanitized and seconds clamped to [5, 30].
+    EXPECT_EQ(loaded.overlay_layout.containers[1].visibility.mode, OverlayLayout::Visibility::KeyHeld);
+    EXPECT_EQ(loaded.overlay_layout.containers[1].visibility.event, OverlayLayout::Visibility::FirstCountdown);
+    EXPECT_EQ(loaded.overlay_layout.containers[1].visibility.seconds, 30);
+    EXPECT_FALSE(loaded.overlay_layout.containers[1].visibility.alsoWhileKeyHeld);
+    EXPECT_TRUE(loaded.overlay_layout.containers[1].visibility.hideDuringReplay);
+
+    EXPECT_EQ(loaded.overlay_layout.containers[2].visibility.mode, OverlayLayout::Visibility::KeyHeld);
+    EXPECT_EQ(loaded.overlay_layout.containers[2].visibility.event, OverlayLayout::Visibility::FirstCountdown);
+    EXPECT_EQ(loaded.overlay_layout.containers[2].visibility.seconds, 5);
+}
+
+TEST_F(ConfigTest, NewInstallDefaultsLobbyRanksToFirstCountdown8sAndMatchSummaryTo20s) {
+    const std::string configPath = Storage::GetDataDirectory() + "config.json";
+    std::error_code ec;
+    std::filesystem::remove(configPath, ec);
+
+    Config::Load();
+    const ConfigData fresh = Config::Read();
+    EXPECT_EQ(fresh.match_summary_seconds, 20);
+    EXPECT_EQ(fresh.overlay_layout.version, OverlayLayout::kCurrentLayoutVersion);
+
+    bool foundLobby = false;
+    for (const auto& c : fresh.overlay_layout.containers) {
+        if (c.id == "lobby_ranks") {
+            foundLobby = true;
+            EXPECT_EQ(c.visibility.mode, OverlayLayout::Visibility::AfterEvent);
+            EXPECT_EQ(c.visibility.event, OverlayLayout::Visibility::FirstCountdown);
+            EXPECT_EQ(c.visibility.seconds, 8);
+            EXPECT_TRUE(c.visibility.alsoWhileKeyHeld);
+            EXPECT_FALSE(c.visibility.hideDuringReplay);
+        } else {
+            EXPECT_EQ(c.visibility.mode, OverlayLayout::Visibility::KeyHeld) << c.id;
+        }
+    }
+    EXPECT_TRUE(foundLobby);
+}

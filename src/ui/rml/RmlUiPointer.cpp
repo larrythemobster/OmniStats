@@ -48,10 +48,16 @@
 using namespace RmlUiDetail;
 
 void RmlUiController::HandleMouseDown(Rml::Element* target, Rml::Event& event) {
-    if (target) {
-        std::string tag = target->GetTagName();
-        std::string targetAction = Attribute(target, "data-action");
-        if (tag == "button" || targetAction == "overlay-remove-widget" || targetAction == "overlay-remove-container") {
+    for (Rml::Element* cur = target; cur; cur = cur->GetParentNode()) {
+        const std::string tag = cur->GetTagName();
+        if (tag == "button" || tag == "select" || tag == "option" || tag == "selectvalue" ||
+            tag == "selectarrow" || tag == "selectbox" || tag == "input" || tag == "label") {
+            return;
+        }
+        if (cur->HasAttribute("data-setting")) return;
+        const std::string curAction = Attribute(cur, "data-action");
+        if (curAction == "overlay-remove-widget" || curAction == "overlay-remove-container" ||
+            curAction == "overlay-visibility") {
             return;
         }
     }

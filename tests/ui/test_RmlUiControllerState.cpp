@@ -1957,3 +1957,133 @@ TEST_F(RmlUiControllerStateTest, IntegrationsRendersAccountSectionAndCollapsedAd
     EXPECT_NE(html.find("data-action='toggle-advanced-api-key'"), std::string::npos);
     EXPECT_EQ(html.find("data-setting='custom_api_key'"), std::string::npos);
 }
+
+TEST_F(RmlUiControllerStateTest, IdleOverlayLayoutRequestsNoWakeDeadlineAndDoesNotRenderExtraFrames) {
+    WarpDevice warp;
+    if (!warp.Create(1280, 800)) GTEST_SKIP() << "WARP not available.";
+
+    auto state = std::make_shared<SessionState>();
+    RmlUiController controller(state, nullptr);
+    ASSERT_TRUE(controller.Initialize(nullptr, warp.device.Get(), warp.context.Get(), 1280, 800, 1.0f));
+
+    ConfigData config = Config::Read();
+    config.second_monitor_mode = false;
+    config.show_lobby_ranks_overlay = true;
+    controller.Update(config, true);
+    controller.Render();
+
+    // With no timed windows active, no wake deadline is scheduled and ShouldRender is false.
+    EXPECT_EQ(controller.NextVisibilityWakeMs(), std::nullopt);
+    EXPECT_FALSE(controller.ShouldRender());
+
+    // Trigger FirstCountdown in match: lobby_ranks (AfterEvent FirstCountdown 8s) becomes visible
+    // and schedules a wake deadline at firstCountdownMs + 8000 without rendering extra frames in between.
+    const int64_t nowMs = RmlUiDetail::SteadyNowMs();
+    state->game.inMatch.store(true);
+    state->ui.lastMatchStartMs.store(nowMs - 500);
+    state->ui.firstCountdownOfMatchMs.store(nowMs);
+    state->game.version.fetch_add(1);
+
+    controller.Update(config, false);
+    EXPECT_EQ(controller.NextVisibilityWakeMs(), std::optional<int64_t>(nowMs + 8000));
+    EXPECT_NE(OverlayRoot(controller)->QuerySelector("[data-container='lobby_ranks']"), nullptr);
+    controller.Render();
+    EXPECT_FALSE(controller.ShouldRender());
+
+    // Once the 8s window expires, the wake deadline clears and lobby_ranks hides.
+    state->ui.lastMatchStartMs.store(nowMs - 10000);
+    state->ui.firstCountdownOfMatchMs.store(nowMs - 8000);
+    controller.Update(config, false);
+    EXPECT_EQ(controller.NextVisibilityWakeMs(), std::nullopt);
+    EXPECT_EQ(OverlayRoot(controller)->QuerySelector("[data-container='lobby_ranks']"), nullptr);
+    controller.Render();
+    EXPECT_FALSE(controller.ShouldRender());
+}
+
+TEST_F(RmlUiControllerStateTest, OldLayoutPreservesDemoTrackerInMatchWithoutTabAndHonorsReplayHide) {
+    auto state = std::make_shared<SessionState>();
+    state->game.inMatch.store(true);
+    state->ui.showOverlay.store(false);
+
+    ConfigData config = Config::Read();
+    config.show_demo_tracker_overlay = true;
+    config.show_streaks_stats = true;
+
+    OverlayLayout::ContainerConfig demoContainer;
+    demoContainer.id = "demo_tracker";
+    demoContainer.widgets = {
+        DashboardLayout::WidgetId::DemoTracker,
+        DashboardLayout::WidgetId::StreaksStats,
+        DashboardLayout::WidgetId::SessionStats};
+    demoContainer.visibility.mode = OverlayLayout::Visibility::KeyHeld;
+
+    RmlUiController controller(state, nullptr);
+    controller.Update(config, true);
+
+    // Without Tab held in a match, only DemoTracker renders in the docked container.
+    std::string html = RenderOverlayContainer(controller, demoContainer, false);
+    EXPECT_NE(html.find("data-live-widget='demos'"), std::string::npos);
+    EXPECT_EQ(html.find("data-live-widget='streaks'"), std::string::npos);
+    EXPECT_EQ(html.find("data-live-widget='session'"), std::string::npos);
+
+    // With hideDuringReplay enabled and inGoalReplay active, DemoTracker also hides.
+    demoContainer.visibility.hideDuringReplay = true;
+    state->ui.inGoalReplay.store(true);
+    html = RenderOverlayContainer(controller, demoContainer, false);
+    EXPECT_TRUE(html.empty());
+}
+
+TEST_F(RmlUiControllerStateTest, MatchSummaryPrefersPodiumStartTimestampForCurrentMatch) {
+    auto state = std::make_shared<SessionState>();
+    const int64_t nowMs = RmlUiDetail::SteadyNowMs();
+    state->ui.showMatchSummary.store(true);
+    state->ui.lastMatchStartMs.store(nowMs - 40000);
+    // MatchEnded was 25s ago (would be expired for a 20s window), but PodiumStart was 5s ago.
+    state->ui.matchSummaryStartMs.store(nowMs - 25000);
+    state->ui.lastPodiumMs.store(nowMs - 5000);
+
+    ConfigData config = Config::Read();
+    config.show_match_summary = true;
+    config.match_summary_seconds = 20;
+
+    RmlUiController controller(state, nullptr);
+    controller.Update(config, true);
+    EXPECT_TRUE(state->ui.showMatchSummary.load());
+    EXPECT_EQ(controller.NextVisibilityWakeMs(), std::optional<int64_t>(nowMs - 5000 + 20000));
+}
+
+TEST_F(RmlUiControllerStateTest, EditModeRendersVisibilityControlsAndPersistsChangesImmediately) {
+    WarpDevice warp;
+    if (!warp.Create(1280, 800)) GTEST_SKIP() << "WARP not available.";
+
+    auto state = std::make_shared<SessionState>();
+    state->ui.showMenu.store(true);
+    state->ui.dashboardLayoutEditMode.store(true);
+
+    RmlUiController controller(state, nullptr);
+    ASSERT_TRUE(controller.Initialize(nullptr, warp.device.Get(), warp.context.Get(), 1280, 800, 1.0f));
+    controller.Update(Config::Read(), false);
+    controller.Render();
+
+    auto* root = OverlayRoot(controller);
+    ASSERT_NE(root, nullptr);
+
+    // Lobby ranks has AfterEvent in default layout, so mode, event, seconds, and both checkboxes render.
+    EXPECT_NE(root->QuerySelector("[data-setting='overlay_vis_mode:lobby_ranks']"), nullptr);
+    EXPECT_NE(root->QuerySelector("[data-setting='overlay_vis_event:lobby_ranks']"), nullptr);
+    EXPECT_NE(root->QuerySelector("[data-setting='overlay_vis_seconds:lobby_ranks']"), nullptr);
+    EXPECT_NE(root->QuerySelector("[data-setting='overlay_vis_key_held:lobby_ranks']"), nullptr);
+    auto* hideReplayCheckbox = root->QuerySelector("[data-setting='overlay_vis_hide_replay:lobby_ranks']");
+    ASSERT_NE(hideReplayCheckbox, nullptr);
+
+    // Clicking the checkbox toggles hideDuringReplay and persists to Config without starting a drag.
+    hideReplayCheckbox->Click();
+    controller.Update(Config::Read(), true, Config::Revision());
+    controller.Render();
+
+    const ConfigData updated = Config::Read();
+    const auto it = std::find_if(updated.overlay_layout.containers.begin(), updated.overlay_layout.containers.end(),
+                                 [](const auto& c) { return c.id == "lobby_ranks"; });
+    ASSERT_NE(it, updated.overlay_layout.containers.end());
+    EXPECT_TRUE(it->visibility.hideDuringReplay);
+}

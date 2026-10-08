@@ -699,6 +699,32 @@ void RmlUiController::HandleChange(Rml::Element* target, Rml::Event& event) {
                     }
                 }
             }
+        } else if (key.rfind("overlay_vis_", 0) == 0) {
+            const size_t colon = key.find(':');
+            if (colon != std::string::npos && colon + 1 < key.size()) {
+                const std::string_view field(key.data(), colon);
+                const std::string containerId = key.substr(colon + 1);
+                for (auto& container : c.overlay_layout.containers) {
+                    if (container.id != containerId) continue;
+                    if (field == "overlay_vis_mode") {
+                        container.visibility.mode = OverlayLayout::VisibilityModeFromConfigString(value);
+                    } else if (field == "overlay_vis_event") {
+                        container.visibility.event = OverlayLayout::VisibilityEventFromConfigString(value);
+                    } else if (field == "overlay_vis_seconds") {
+                        container.visibility.seconds = std::clamp(
+                            std::atoi(value.c_str()),
+                            OverlayLayout::kMinVisibilitySeconds,
+                            OverlayLayout::kMaxVisibilitySeconds);
+                    } else if (field == "overlay_vis_key_held") {
+                        container.visibility.alsoWhileKeyHeld = checked;
+                    } else if (field == "overlay_vis_hide_replay") {
+                        container.visibility.hideDuringReplay = checked;
+                    }
+                    OverlayLayout::Sanitize(container.visibility);
+                    break;
+                }
+                OverlayLayout::Sanitize(c.overlay_layout);
+            }
         }
 
         // The rank table is a fixed-column layout, so enabling or disabling a
@@ -750,6 +776,7 @@ void RmlUiController::HandleChange(Rml::Element* target, Rml::Event& event) {
         // here would destroy the <select> before WidgetDropDown finishes
         // closing its selection box, causing a use-after-free crash.
         // Defer any scale update and UI rebuild to the next Update() cycle.
+        m_deferredSelectRebuild = true;
         return;
     }
     if (themeChanged) {

@@ -169,11 +169,17 @@ void TelemetryReducer::FinalizeCapturedMatchLocked(
         m_state->game.matchSummaryScore = match.score;
         m_state->game.matchSummaryMyTeam = match.myTeam;
         m_state->game.matchSummaryWinnerTeam = winnerTeam;
+        const int64_t nowMs = SteadyNowMs();
+        if (m_state->ui.lastMatchEndMs.load(std::memory_order_relaxed) <= 0) {
+            m_state->ui.lastMatchEndMs.store(nowMs, std::memory_order_relaxed);
+        }
+        m_state->ui.inGoalReplay.store(false, std::memory_order_relaxed);
         m_state->ui.showMatchSummary = true;
-        m_state->ui.matchSummaryStartMs.store(
-            std::chrono::duration_cast<std::chrono::milliseconds>(
-                std::chrono::steady_clock::now().time_since_epoch())
-                .count());
+        const int64_t podiumMs = m_state->ui.lastPodiumMs.load(std::memory_order_relaxed);
+        const int64_t matchStartMs = m_state->ui.lastMatchStartMs.load(std::memory_order_relaxed);
+        const int64_t summaryStartMs =
+            (podiumMs > 0 && (matchStartMs <= 0 || podiumMs >= matchStartMs)) ? podiumMs : nowMs;
+        m_state->ui.matchSummaryStartMs.store(summaryStartMs, std::memory_order_relaxed);
     }
 
     if (!decision.shouldCount) {
@@ -382,6 +388,13 @@ void TelemetryReducer::HandleMatchDestroyed(
         }
     }
 
+    m_state->ui.inGoalReplay.store(false, std::memory_order_relaxed);
+    m_state->ui.firstCountdownOfMatchMs.store(0, std::memory_order_relaxed);
+    m_state->ui.lastCountdownMs.store(0, std::memory_order_relaxed);
+    m_state->ui.lastGoalMs.store(0, std::memory_order_relaxed);
+    m_state->ui.lastMatchStartMs.store(0, std::memory_order_relaxed);
+    m_uiMatchGuid.clear();
+    m_countdownSeenThisRound = false;
     m_roundActive = false;
     UpdateLifecycleSignalsLocked(data);
 
@@ -742,6 +755,13 @@ void TelemetryReducer::HandleMatchEnded(
                 .matchGuid = resolvedGuid,
                 .won = won};
         return;
+    }
+    if (!hasExplicitEventGuid || !m_state->game.inMatch ||
+        m_state->game.matchGuid.empty() || targetsCurrentByGuid) {
+        const int64_t nowMs = SteadyNowMs();
+        m_state->ui.inGoalReplay.store(false, std::memory_order_relaxed);
+        m_state->ui.lastMatchEndMs.store(nowMs, std::memory_order_relaxed);
+        m_countdownSeenThisRound = false;
     }
 
     bool targetsCurrent = targetsCurrentByGuid;

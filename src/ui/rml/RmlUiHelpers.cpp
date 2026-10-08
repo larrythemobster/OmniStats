@@ -658,6 +658,46 @@ namespace RmlUiDetail {
         return config.gamemode_breakdown_scope == "all_time" ? "all_time" : "current_session";
     }
 
+    std::vector<SelectOption> OverlayVisibilityModeOptions() {
+        return {
+            {"key_held", "While scoreboard key held"},
+            {"always_in_match", "Always during match"},
+            {"after_event", "For N s after event"},
+            {"menus_only", "In menus only"}};
+    }
+
+    std::vector<SelectOption> OverlayVisibilityEventOptions() {
+        return {
+            {"match_start", "Match start"},
+            {"first_countdown", "First kickoff countdown"},
+            {"countdown", "Each kickoff countdown"},
+            {"goal", "Goal"},
+            {"match_end", "Match end"},
+            {"podium", "Podium"}};
+    }
+
+    std::vector<SelectOption> OverlayVisibilitySecondsOptions() {
+        std::vector<SelectOption> options;
+        options.reserve(OverlayLayout::kMaxVisibilitySeconds - OverlayLayout::kMinVisibilitySeconds + 1);
+        for (int s = OverlayLayout::kMinVisibilitySeconds; s <= OverlayLayout::kMaxVisibilitySeconds; ++s) {
+            options.push_back({std::to_string(s), std::to_string(s) + " s"});
+        }
+        return options;
+    }
+
+    int64_t EffectiveMatchSummaryStartMs(const SessionState& state) noexcept {
+        const int64_t podiumMs = state.ui.lastPodiumMs.load(std::memory_order_relaxed);
+        const int64_t matchStartMs = state.ui.lastMatchStartMs.load(std::memory_order_relaxed);
+        if (podiumMs > 0 && (matchStartMs <= 0 || podiumMs >= matchStartMs)) {
+            return podiumMs;
+        }
+        return state.ui.matchSummaryStartMs.load(std::memory_order_relaxed);
+    }
+
+    int64_t MatchSummaryDurationMs(const ConfigData& config) noexcept {
+        return static_cast<int64_t>(std::clamp(config.match_summary_seconds, 5, 60)) * 1000LL;
+    }
+
     std::string StatCell(std::string_view label, std::string_view value, std::string_view valueClass) {
         std::string out = "<div class='stat-cell'><div class='label'>" + Escape(label) + "</div><div class='value mono";
         if (!valueClass.empty()) {

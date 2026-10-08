@@ -222,8 +222,10 @@ bool RmlUiController::ApplyMouseCursor() {
 
 void RmlUiController::Render() {
     if (!m_context) return;
+    if (m_nextVisibilityWakeMs.has_value() && SteadyNowMs() >= *m_nextVisibilityWakeMs) {
+        RebuildVisibleUi(false, false);
+    }
     m_context->Update();
-
     // GetNextUpdateDelay() is a delay value, not a continuously decreasing
     // timer. Convert it to an absolute deadline immediately after Update().
     // Without this, a finite request such as a caret blink in 0.5 seconds would
@@ -258,6 +260,7 @@ bool RmlUiController::ShouldRender() const {
     // preserves transitions, smooth scrolling and caret blinking without
     // forcing static UI through a full Update/Render/Present every frame.
     if (m_renderDirty) return true;
+    if (m_nextVisibilityWakeMs.has_value() && SteadyNowMs() >= *m_nextVisibilityWakeMs) return true;
     return std::chrono::steady_clock::now() >= m_nextRmlUpdateAt;
 }
 
@@ -389,9 +392,9 @@ void RmlUiController::Update(const ConfigData& config, bool configChanged, uint6
         // delay after failures. Poll the gate once per minute instead of every frame.
         m_nextUpdateCheckPollMs = nowMs + 60 * 1000;
     }
-
-    RebuildVisibleUi(false, configChanged && !localConfigEcho);
-
+    const bool deferredSelect = m_deferredSelectRebuild;
+    m_deferredSelectRebuild = false;
+    RebuildVisibleUi(false, (configChanged && !localConfigEcho) || deferredSelect);
     if (m_state && m_state->ui.showSessionRecap.exchange(false)) ShowInsights(InsightsView::Tab::Recap, true);
     if (m_insightsVisible) RefreshInsights(false);
     if (m_onboardingVisible) RefreshOnboarding();
@@ -579,17 +582,38 @@ void RmlUiController::RebuildVisibleUi(bool force, bool configChanged) {
         return;
     }
 
+    const int64_t nowMs = SteadyNowMs();
     const bool showMenu = m_state && m_state->ui.showMenu.load(std::memory_order_relaxed);
     const bool showOverlay = m_state && m_state->ui.showOverlay.load(std::memory_order_relaxed);
     const bool showSession = m_state && m_state->ui.showSessionView.load(std::memory_order_relaxed);
     bool showSummary = m_state && m_state->ui.showMatchSummary.load(std::memory_order_relaxed);
-    if (showSummary && m_state && (SteadyNowMs() - m_state->ui.matchSummaryStartMs.load(std::memory_order_relaxed)) >= 30000) {
-        m_state->ui.showMatchSummary.store(false, std::memory_order_relaxed);
-        showSummary = false;
+    int64_t summaryEndMs = 0;
+    if (showSummary && m_state) {
+        const int64_t summaryStartMs = EffectiveMatchSummaryStartMs(*m_state);
+        summaryEndMs = summaryStartMs + MatchSummaryDurationMs(m_config);
+        if (nowMs >= summaryEndMs) {
+            m_state->ui.showMatchSummary.store(false, std::memory_order_relaxed);
+            showSummary = false;
+            summaryEndMs = 0;
+        }
     }
     const bool dashboardEdit = m_state && m_state->ui.dashboardLayoutEditMode.load(std::memory_order_relaxed);
+    const bool editMode = showMenu && dashboardEdit;
     const bool showGraphView = m_state && m_state->ui.showGraphView.load(std::memory_order_relaxed);
     const bool h2hExpanded = m_state && m_state->ui.h2hExpanded.load(std::memory_order_relaxed);
+    const OverlayLayout::VisibilityState visState =
+        m_state ? OverlayLayout::SnapshotVisibilityState(*m_state, editMode)
+                : OverlayLayout::VisibilityState{.editMode = editMode};
+
+    m_nextVisibilityWakeMs.reset();
+    if (!m_config.second_monitor_mode && !showMenu && !editMode) {
+        m_nextVisibilityWakeMs = OverlayLayout::NextVisibilityChangeMs(m_config.overlay_layout, visState, nowMs);
+        if (showSummary && m_config.show_match_summary && summaryEndMs > nowMs) {
+            if (!m_nextVisibilityWakeMs.has_value() || summaryEndMs < *m_nextVisibilityWakeMs) {
+                m_nextVisibilityWakeMs = summaryEndMs;
+            }
+        }
+    }
 
     // Runtime state that changes the dashboard/overlay structure but is not part
     // of Config. Keep this intentionally tiny; telemetry versions do not belong
@@ -605,6 +629,14 @@ void RmlUiController::RebuildVisibleUi(bool force, bool configChanged) {
     HashAppend(runtimeStructuralHash, static_cast<uint64_t>(h2hExpanded));
     HashAppend(runtimeStructuralHash, static_cast<uint64_t>(m_snap.inMatch));
     HashAppend(runtimeStructuralHash, static_cast<uint64_t>(m_config.second_monitor_mode));
+    if (!m_config.second_monitor_mode) {
+        for (const auto& container : m_config.overlay_layout.containers) {
+            const bool cVis = OverlayLayout::ContainerVisible(container, visState, nowMs);
+            const bool replayHidden = container.visibility.hideDuringReplay && visState.inReplay;
+            HashAppend(runtimeStructuralHash, static_cast<uint64_t>(cVis));
+            HashAppend(runtimeStructuralHash, static_cast<uint64_t>(replayHidden));
+        }
+    }
     if (m_state && m_config.second_monitor_mode) {
         const bool updateAvailable = m_state->ui.updateAvailable.load(std::memory_order_relaxed);
         HashAppend(runtimeStructuralHash, static_cast<uint64_t>(updateAvailable));
@@ -646,7 +678,7 @@ void RmlUiController::RebuildVisibleUi(bool force, bool configChanged) {
         fp << std::setprecision(9)
            << m_config.require_rl_focus << '|' << m_config.second_monitor_mode << '|'
            << m_config.second_monitor_show_roster << '|' << m_config.second_monitor_show_session << '|'
-           << m_config.show_match_summary << '|' << m_config.show_running_indicator << '|'
+           << m_config.show_match_summary << '|' << m_config.match_summary_seconds << '|' << m_config.show_running_indicator << '|'
            << m_config.enable_auto_updates << '|'
            << m_config.last_primary_id << '|'
            << m_config.show_session_record << '|' << m_config.show_session_goals << '|'
@@ -672,7 +704,10 @@ void RmlUiController::RebuildVisibleUi(bool force, bool configChanged) {
            << m_config.key_session << '|';
         fp << m_config.overlay_layout.version << '|' << m_config.overlay_layout.toolboxOpen << '|';
         for (const auto& container : m_config.overlay_layout.containers) {
-            fp << container.id << ':' << container.x << ',' << container.y << ',' << container.w << ',' << container.h << '[';
+            fp << container.id << ':' << container.x << ',' << container.y << ',' << container.w << ',' << container.h
+               << ',' << static_cast<int>(container.visibility.mode) << ',' << static_cast<int>(container.visibility.event)
+               << ',' << container.visibility.seconds << ',' << container.visibility.alsoWhileKeyHeld
+               << ',' << container.visibility.hideDuringReplay << '[';
             for (auto widget : container.widgets)
                 fp << static_cast<int>(widget) << ',';
             fp << "];";

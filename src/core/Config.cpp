@@ -210,6 +210,10 @@ namespace Config {
                 Current.known_primary_ids.push_back(Current.last_primary_id);
             }
         }
+        Current.match_summary_seconds = std::clamp(Current.match_summary_seconds, 5, 60);
+        for (auto& container : Current.overlay_layout.containers) {
+            OverlayLayout::Sanitize(container.visibility);
+        }
         s_revision.fetch_add(1, std::memory_order_release);
         if (saveToDisk) {
             s_pendingSave.store(true);
@@ -225,6 +229,7 @@ namespace Config {
         std::string configFile = GetConfigPath();
         if (!fs::exists(configFile)) {
             std::cout << "[Config] No config found. Creating default config.\n";
+            Current = ConfigData{};
             SaveInternal();
             s_revision.fetch_add(1, std::memory_order_release);
             return;
@@ -339,6 +344,21 @@ namespace Config {
                 Current.onboarding_completed = j["onboarding_completed"];
             else
                 Current.onboarding_completed = !Current.privacy_policy_accepted_version.empty();
+            const auto nonEmptyJsonString = [&](const char* key) {
+                return j.contains(key) && j[key].is_string() && !j[key].get<std::string>().empty();
+            };
+            const bool existingInstall =
+                (j.contains("onboarding_completed") && j["onboarding_completed"].is_boolean() && j["onboarding_completed"].get<bool>()) ||
+                nonEmptyJsonString("privacy_policy_accepted_version") ||
+                nonEmptyJsonString("client_uuid") ||
+                nonEmptyJsonString("last_primary_id") ||
+                j.contains("overlay_layout") ||
+                j.contains("dashboard_layout");
+            if (j.contains("match_summary_seconds") && j["match_summary_seconds"].is_number_integer()) {
+                Current.match_summary_seconds = std::clamp(j["match_summary_seconds"].get<int>(), 5, 60);
+            } else {
+                Current.match_summary_seconds = existingInstall ? 30 : 20;
+            }
             if (j.contains("position")) Current.position = j["position"];
             if (j.contains("show_running_indicator")) Current.show_running_indicator = j["show_running_indicator"];
             if (j.contains("use_roman_numerals")) Current.use_roman_numerals = j["use_roman_numerals"];
@@ -520,26 +540,74 @@ namespace Config {
 
             if (j.contains("overlay_layout")) {
                 auto& jl = j["overlay_layout"];
-                if (jl.contains("version")) Current.overlay_layout.version = jl["version"];
-                if (jl.contains("toolbox_open")) Current.overlay_layout.toolboxOpen = jl["toolbox_open"];
+                if (jl.contains("version") && jl["version"].is_number_integer()) {
+                    Current.overlay_layout.version = jl["version"].get<int>();
+                }
+                if (jl.contains("toolbox_open") && jl["toolbox_open"].is_boolean()) {
+                    Current.overlay_layout.toolboxOpen = jl["toolbox_open"].get<bool>();
+                }
                 if (jl.contains("containers") && jl["containers"].is_array()) {
                     Current.overlay_layout.containers.clear();
                     for (const auto& jc : jl["containers"]) {
+                        if (!jc.is_object()) continue;
                         OverlayLayout::ContainerConfig c;
-                        if (jc.contains("id")) c.id = jc["id"].get<std::string>();
-                        if (jc.contains("x")) c.x = jc["x"].get<float>();
-                        if (jc.contains("y")) c.y = jc["y"].get<float>();
-                        if (jc.contains("w")) c.w = jc["w"].get<float>();
-                        if (jc.contains("h")) c.h = jc["h"].get<float>();
+                        if (jc.contains("id") && jc["id"].is_string()) c.id = jc["id"].get<std::string>();
+                        if (jc.contains("x") && jc["x"].is_number()) c.x = jc["x"].get<float>();
+                        if (jc.contains("y") && jc["y"].is_number()) c.y = jc["y"].get<float>();
+                        if (jc.contains("w") && jc["w"].is_number()) c.w = jc["w"].get<float>();
+                        if (jc.contains("h") && jc["h"].is_number()) c.h = jc["h"].get<float>();
                         if (jc.contains("widgets") && jc["widgets"].is_array()) {
                             for (const auto& jw : jc["widgets"]) {
-                                c.widgets.push_back(DashboardLayout::WidgetIdFromConfigString(jw.get<std::string>()));
+                                if (jw.is_string()) {
+                                    c.widgets.push_back(DashboardLayout::WidgetIdFromConfigString(jw.get<std::string>()));
+                                }
+                            }
+                        }
+                        if (jc.contains("visibility") && jc["visibility"].is_object()) {
+                            const auto& jv = jc["visibility"];
+                            if (jv.contains("mode")) {
+                                if (jv["mode"].is_string()) {
+                                    c.visibility.mode = OverlayLayout::VisibilityModeFromConfigString(jv["mode"].get<std::string>());
+                                } else if (jv["mode"].is_number_integer()) {
+                                    c.visibility.mode = static_cast<OverlayLayout::VisibilityMode>(jv["mode"].get<int>());
+                                } else {
+                                    c.visibility.mode = OverlayLayout::Visibility::KeyHeld;
+                                }
+                            }
+                            if (jv.contains("event")) {
+                                if (jv["event"].is_string()) {
+                                    c.visibility.event = OverlayLayout::VisibilityEventFromConfigString(jv["event"].get<std::string>());
+                                } else if (jv["event"].is_number_integer()) {
+                                    c.visibility.event = static_cast<OverlayLayout::VisibilityEvent>(jv["event"].get<int>());
+                                } else {
+                                    c.visibility.event = OverlayLayout::Visibility::FirstCountdown;
+                                }
+                            }
+                            if (jv.contains("seconds") && jv["seconds"].is_number_integer()) {
+                                c.visibility.seconds = jv["seconds"].get<int>();
+                            }
+                            if (jv.contains("also_while_key_held") && jv["also_while_key_held"].is_boolean()) {
+                                c.visibility.alsoWhileKeyHeld = jv["also_while_key_held"].get<bool>();
+                            } else if (jv.contains("alsoWhileKeyHeld") && jv["alsoWhileKeyHeld"].is_boolean()) {
+                                c.visibility.alsoWhileKeyHeld = jv["alsoWhileKeyHeld"].get<bool>();
+                            }
+                            if (jv.contains("hide_during_replay") && jv["hide_during_replay"].is_boolean()) {
+                                c.visibility.hideDuringReplay = jv["hide_during_replay"].get<bool>();
+                            } else if (jv.contains("hideDuringReplay") && jv["hideDuringReplay"].is_boolean()) {
+                                c.visibility.hideDuringReplay = jv["hideDuringReplay"].get<bool>();
                             }
                         }
                         Current.overlay_layout.containers.push_back(c);
                     }
                 }
                 OverlayLayout::Sanitize(Current.overlay_layout);
+            } else {
+                Current.overlay_layout = OverlayLayout::DefaultOverlayLayout();
+                if (existingInstall) {
+                    for (auto& c : Current.overlay_layout.containers) {
+                        c.visibility = OverlayLayout::ContainerConfig::Visibility{};
+                    }
+                }
             }
 
             std::cout << "[Config] Loaded config.json successfully.\n";
@@ -600,6 +668,7 @@ namespace Config {
         j["known_primary_ids"] = Current.known_primary_ids;
         j["require_rl_focus"] = Current.require_rl_focus;
         j["show_match_summary"] = Current.show_match_summary;
+        j["match_summary_seconds"] = Current.match_summary_seconds;
         j["discord_rpc_enabled"] = Current.discord_rpc_enabled;
         j["enable_mmr_tracking"] = Current.enable_mmr_tracking;
         j["auto_switch_mmr_category"] = Current.auto_switch_mmr_category;
@@ -720,6 +789,14 @@ namespace Config {
                 jw_arr2.push_back(DashboardLayout::ToConfigString(w));
             }
             jc["widgets"] = jw_arr2;
+            auto sanitizedVis = c.visibility;
+            OverlayLayout::Sanitize(sanitizedVis);
+            jc["visibility"] = {
+                {"mode", OverlayLayout::ToConfigString(sanitizedVis.mode)},
+                {"event", OverlayLayout::ToConfigString(sanitizedVis.event)},
+                {"seconds", sanitizedVis.seconds},
+                {"also_while_key_held", sanitizedVis.alsoWhileKeyHeld},
+                {"hide_during_replay", sanitizedVis.hideDuringReplay}};
             jc_arr.push_back(jc);
         }
         jol["containers"] = jc_arr;

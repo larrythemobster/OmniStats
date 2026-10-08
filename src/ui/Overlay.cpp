@@ -412,8 +412,11 @@ void Overlay::RunLoop() {
         // removes a large amount of repeated map/string/allocation work. Config
         // commits are applied immediately regardless of this cadence.
         const auto uiNow = std::chrono::steady_clock::now();
+        const int64_t uiNowMs = RmlUiDetail::SteadyNowMs();
+        const auto nextVisibilityWakeMs = m_rmlUi->NextVisibilityWakeMs();
+        const bool visibilityWakeDue = nextVisibilityWakeMs.has_value() && uiNowMs >= *nextVisibilityWakeMs;
         constexpr auto kUiDataInterval = std::chrono::milliseconds(100);
-        if (configChanged || uiNow - lastUiDataUpdate >= kUiDataInterval) {
+        if (configChanged || visibilityWakeDue || uiNow - lastUiDataUpdate >= kUiDataInterval) {
             m_rmlUi->Update(m_frameConfig, configChanged, lastConfigRevision);
             configDirty = false;
             lastUiDataUpdate = uiNow;

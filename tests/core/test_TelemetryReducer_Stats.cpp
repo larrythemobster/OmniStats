@@ -4,6 +4,8 @@
 #include "core/Constants.hpp"
 #include "core/Storage.hpp"
 #include <memory>
+#include <thread>
+#include <chrono>
 
 TEST(TelemetryReducerStats, CountsEpicSaveAsSave) {
     Storage::InitializeEnvironment();
@@ -211,4 +213,152 @@ TEST(TelemetryReducerStats, VoidedMatchDoesNotLeakLiveBoostIntoSessionTotal) {
     EXPECT_FALSE(effects.saveMatch);
     std::shared_lock<std::shared_mutex> lock(state->game.mutex);
     EXPECT_EQ(state->game.sessionTotals.boostPickedUp, 10);
+}
+
+TEST(TelemetryReducerStats, LifecycleEventsWriteSteadyClockTimestampsAndGoalReplayFlags) {
+    Storage::InitializeEnvironment();
+    auto state = std::make_shared<SessionState>();
+    TelemetryReducer reducer(state);
+
+    reducer.Reduce(std::string(Constants::EVT_MATCH_CREATED), nlohmann::json{{"MatchGuid", "vis-guid-1"}});
+    const int64_t matchStartMs = state->ui.lastMatchStartMs.load();
+    EXPECT_GT(matchStartMs, 0);
+    EXPECT_EQ(state->ui.firstCountdownOfMatchMs.load(), 0);
+    EXPECT_EQ(state->ui.lastCountdownMs.load(), 0);
+    EXPECT_EQ(state->ui.lastGoalMs.load(), 0);
+    EXPECT_EQ(state->ui.lastMatchEndMs.load(), 0);
+    EXPECT_EQ(state->ui.lastPodiumMs.load(), 0);
+    EXPECT_FALSE(state->ui.inGoalReplay.load());
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(2));
+    reducer.Reduce(std::string(Constants::EVT_MATCH_INITIALIZED), nlohmann::json{{"MatchGuid", "vis-guid-1"}});
+    const int64_t firstCountdownMs = state->ui.firstCountdownOfMatchMs.load();
+    EXPECT_GE(firstCountdownMs, matchStartMs);
+    EXPECT_EQ(state->ui.lastCountdownMs.load(), firstCountdownMs);
+
+    // First UpdateState with Arena during initial countdown must preserve UI timestamps.
+    reducer.Reduce(
+        std::string(Constants::EVT_UPDATE_STATE),
+        nlohmann::json{{"Game", {{"Arena", "Stadium_P"}, {"bReplay", false}, {"bSpectator", false}}}});
+    EXPECT_EQ(state->ui.lastMatchStartMs.load(), matchStartMs);
+    EXPECT_EQ(state->ui.firstCountdownOfMatchMs.load(), firstCountdownMs);
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(2));
+    reducer.Reduce(std::string(Constants::EVT_COUNTDOWN_BEGIN), nlohmann::json{{"MatchGuid", "vis-guid-1"}});
+    const int64_t round1CountdownMs = state->ui.lastCountdownMs.load();
+    EXPECT_EQ(state->ui.firstCountdownOfMatchMs.load(), firstCountdownMs);
+    EXPECT_GE(round1CountdownMs, firstCountdownMs);
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(2));
+    reducer.Reduce(std::string(Constants::EVT_ROUND_STARTED), nlohmann::json{{"MatchGuid", "vis-guid-1"}});
+    EXPECT_EQ(state->ui.firstCountdownOfMatchMs.load(), firstCountdownMs);
+    EXPECT_EQ(state->ui.lastCountdownMs.load(), round1CountdownMs);
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(2));
+    reducer.Reduce(std::string(Constants::EVT_GOAL_SCORED), nlohmann::json{{"MatchGuid", "vis-guid-1"}});
+    const int64_t goalMs = state->ui.lastGoalMs.load();
+    EXPECT_GE(goalMs, round1CountdownMs);
+
+    reducer.Reduce(std::string(Constants::EVT_GOAL_REPLAY_START), nlohmann::json{{"MatchGuid", "vis-guid-1"}});
+    EXPECT_TRUE(state->ui.inGoalReplay.load());
+
+    // GoalReplayWillEnd is not a clear.
+    reducer.Reduce(std::string(Constants::EVT_GOAL_REPLAY_WILL_END), nlohmann::json{{"MatchGuid", "vis-guid-1"}});
+    EXPECT_TRUE(state->ui.inGoalReplay.load());
+
+    reducer.Reduce(std::string(Constants::EVT_GOAL_REPLAY_END), nlohmann::json{{"MatchGuid", "vis-guid-1"}});
+    EXPECT_FALSE(state->ui.inGoalReplay.load());
+
+    // Pause/unpause events are accepted without disturbing match validation or UI timestamps.
+    reducer.Reduce(std::string(Constants::EVT_MATCH_PAUSED), nlohmann::json{{"MatchGuid", "vis-guid-1"}});
+    reducer.Reduce(std::string(Constants::EVT_MATCH_UNPAUSED), nlohmann::json{{"MatchGuid", "vis-guid-1"}});
+    EXPECT_EQ(state->ui.lastGoalMs.load(), goalMs);
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(2));
+    reducer.Reduce(
+        std::string(Constants::EVT_MATCH_ENDED),
+        nlohmann::json{{"MatchGuid", "vis-guid-1"}, {"WinnerTeamNum", 0}});
+    const int64_t matchEndMs = state->ui.lastMatchEndMs.load();
+    EXPECT_GE(matchEndMs, goalMs);
+    EXPECT_FALSE(state->ui.inGoalReplay.load());
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(2));
+    reducer.Reduce(std::string(Constants::EVT_PODIUM_START), nlohmann::json{{"MatchGuid", "vis-guid-1"}});
+    const int64_t podiumMs = state->ui.lastPodiumMs.load();
+    EXPECT_GE(podiumMs, matchEndMs);
+    EXPECT_EQ(state->ui.matchSummaryStartMs.load(), podiumMs);
+}
+
+TEST(TelemetryReducerStats, SkippedGoalReplayClearsOnCountdownRoundMatchEndDestroyAndNewMatch) {
+    Storage::InitializeEnvironment();
+    auto state = std::make_shared<SessionState>();
+    TelemetryReducer reducer(state);
+
+    reducer.Reduce(std::string(Constants::EVT_MATCH_CREATED), nlohmann::json{{"MatchGuid", "replay-clear-1"}});
+
+    // Skipped replay cleared by next CountdownBegin.
+    reducer.Reduce(std::string(Constants::EVT_GOAL_REPLAY_START), nlohmann::json{});
+    EXPECT_TRUE(state->ui.inGoalReplay.load());
+    reducer.Reduce(std::string(Constants::EVT_COUNTDOWN_BEGIN), nlohmann::json{});
+    EXPECT_FALSE(state->ui.inGoalReplay.load());
+
+    // Cleared by RoundStarted.
+    reducer.Reduce(std::string(Constants::EVT_GOAL_REPLAY_START), nlohmann::json{});
+    EXPECT_TRUE(state->ui.inGoalReplay.load());
+    reducer.Reduce(std::string(Constants::EVT_ROUND_STARTED), nlohmann::json{});
+    EXPECT_FALSE(state->ui.inGoalReplay.load());
+
+    // Cleared by MatchEnded.
+    reducer.Reduce(std::string(Constants::EVT_GOAL_REPLAY_START), nlohmann::json{});
+    EXPECT_TRUE(state->ui.inGoalReplay.load());
+    reducer.Reduce(std::string(Constants::EVT_MATCH_ENDED), nlohmann::json{{"MatchGuid", "replay-clear-1"}, {"WinnerTeamNum", 0}});
+    EXPECT_FALSE(state->ui.inGoalReplay.load());
+
+    // Cleared by MatchDestroyed.
+    reducer.Reduce(std::string(Constants::EVT_GOAL_REPLAY_START), nlohmann::json{});
+    EXPECT_TRUE(state->ui.inGoalReplay.load());
+    reducer.Reduce(std::string(Constants::EVT_MATCH_DESTROYED), nlohmann::json{{"MatchGuid", "replay-clear-1"}});
+    EXPECT_FALSE(state->ui.inGoalReplay.load());
+    EXPECT_EQ(state->ui.firstCountdownOfMatchMs.load(), 0);
+
+    // Cleared by new match.
+    reducer.Reduce(std::string(Constants::EVT_GOAL_REPLAY_START), nlohmann::json{});
+    EXPECT_TRUE(state->ui.inGoalReplay.load());
+    reducer.Reduce(std::string(Constants::EVT_MATCH_CREATED), nlohmann::json{{"MatchGuid", "replay-clear-2"}});
+    EXPECT_FALSE(state->ui.inGoalReplay.load());
+}
+
+TEST(TelemetryReducerStats, FirstCountdownFallbacksAndResetPerMatch) {
+    Storage::InitializeEnvironment();
+    auto state = std::make_shared<SessionState>();
+    TelemetryReducer reducer(state);
+
+    // Fallback 1: no MatchInitialized -> first CountdownBegin sets firstCountdownOfMatchMs.
+    reducer.Reduce(std::string(Constants::EVT_MATCH_CREATED), nlohmann::json{{"MatchGuid", "fb-guid-1"}});
+    reducer.Reduce(std::string(Constants::EVT_COUNTDOWN_BEGIN), nlohmann::json{{"MatchGuid", "fb-guid-1"}});
+    const int64_t firstCd1 = state->ui.firstCountdownOfMatchMs.load();
+    ASSERT_GT(firstCd1, 0);
+    EXPECT_EQ(state->ui.lastCountdownMs.load(), firstCd1);
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(2));
+    reducer.Reduce(std::string(Constants::EVT_COUNTDOWN_BEGIN), nlohmann::json{{"MatchGuid", "fb-guid-1"}});
+    EXPECT_EQ(state->ui.firstCountdownOfMatchMs.load(), firstCd1);
+    EXPECT_GT(state->ui.lastCountdownMs.load(), firstCd1);
+
+    // Fallback 2: new match via MatchDestroyed + RoundStarted with no countdown events.
+    reducer.Reduce(std::string(Constants::EVT_MATCH_DESTROYED), nlohmann::json{{"MatchGuid", "fb-guid-1"}});
+    EXPECT_EQ(state->ui.firstCountdownOfMatchMs.load(), 0);
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(2));
+    reducer.Reduce(std::string(Constants::EVT_ROUND_STARTED), nlohmann::json{{"MatchGuid", "fb-guid-2"}});
+    const int64_t firstCd2 = state->ui.firstCountdownOfMatchMs.load();
+    EXPECT_GT(firstCd2, firstCd1);
+    EXPECT_EQ(state->ui.lastCountdownMs.load(), firstCd2);
+
+    // Reset via new GUID arriving on CountdownBegin without MatchCreated.
+    std::this_thread::sleep_for(std::chrono::milliseconds(2));
+    reducer.Reduce(std::string(Constants::EVT_COUNTDOWN_BEGIN), nlohmann::json{{"MatchGuid", "fb-guid-3"}});
+    const int64_t firstCd3 = state->ui.firstCountdownOfMatchMs.load();
+    EXPECT_GT(firstCd3, firstCd2);
+    EXPECT_EQ(state->ui.lastGoalMs.load(), 0);
 }
