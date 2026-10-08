@@ -67,19 +67,9 @@ struct GapBucket {
     std::string label;
     int games = 0;
     int wins = 0;
-    int winDeltas = 0;
-    int lossDeltas = 0;
-    double totalWinDelta = 0.0;
-    double totalLossDelta = 0.0;
 
     float WinRate() const {
         return games > 0 ? static_cast<float>(wins) / static_cast<float>(games) : 0.0f;
-    }
-    double AvgWinDelta() const {
-        return winDeltas > 0 ? totalWinDelta / static_cast<double>(winDeltas) : 0.0;
-    }
-    double AvgLossDelta() const {
-        return lossDeltas > 0 ? totalLossDelta / static_cast<double>(lossDeltas) : 0.0;
     }
 };
 
@@ -90,16 +80,11 @@ struct GapReport {
     std::vector<GapBucket> buckets;
     TrendBucket carryHigher;
     int carryGames = 0;
-    int carryWins = 0;
-    double totalCarry = 0.0;
     std::string callout;
     std::string statusMessage;
 
     float WinRate() const {
         return games > 0 ? static_cast<float>(wins) / static_cast<float>(games) : 0.0f;
-    }
-    double AvgCarry() const {
-        return carryGames > 0 ? totalCarry / static_cast<double>(carryGames) : 0.0;
     }
 };
 

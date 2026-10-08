@@ -1919,7 +1919,7 @@ TEST_F(RmlUiControllerStateTest, SettingsDataShowsDetailedStatsRecordedSummary) 
     EXPECT_NE(rendered.find("Detailed stats recorded since 2026-10-14 · 1 matches"), std::string::npos) << rendered;
 }
 
-TEST_F(RmlUiControllerStateTest, BuildTrendSectionsIncludesLobbyStrengthAndMmrDeltaSections) {
+TEST_F(RmlUiControllerStateTest, BuildTrendSectionsIncludesLobbyStrengthSection) {
     std::vector<MatchOutcome> outcomes;
     std::vector<MatchMmrContext> mmrContext;
     for (int i = 0; i < 12; ++i) {
@@ -1933,7 +1933,7 @@ TEST_F(RmlUiControllerStateTest, BuildTrendSectionsIncludesLobbyStrengthAndMmrDe
     const GapReport gap = Insights::ComputeGapTrends(mmrContext, "2v2");
     const std::vector<TrendSection> sections = InsightsView::BuildTrendSections(trends, gap);
 
-    ASSERT_EQ(sections.size(), 6u);
+    ASSERT_EQ(sections.size(), 5u);
     EXPECT_EQ(sections[0].title, "BY PLAYLIST");
     EXPECT_EQ(sections[1].title, "TIME OF DAY");
     EXPECT_EQ(sections[2].title, "GAMES INTO A SITTING");
@@ -1950,16 +1950,9 @@ TEST_F(RmlUiControllerStateTest, BuildTrendSectionsIncludesLobbyStrengthAndMmrDe
     EXPECT_EQ(sections[4].rows[3].label, "Weaker (-25 to -75)");
     EXPECT_EQ(sections[4].rows[4].label, "Much weaker (-75 or less)");
 
-    EXPECT_EQ(sections[5].title, "MMR PER RESULT BY GAP");
-    EXPECT_EQ(sections[5].subtitle, "Consecutive same-playlist matches within 2h");
-    ASSERT_GE(sections[5].rows.size(), 5u);
-    EXPECT_EQ(sections[5].rows[0].label, "Much stronger (+75 or more)");
-    EXPECT_EQ(sections[5].rows[0].rate, "+5.0 per win / +5.0 per loss");
-    EXPECT_EQ(sections[5].rows[0].games, "11 games");
-
     const GapReport emptyGap = Insights::ComputeGapTrends(mmrContext, "1v1");
     const std::vector<TrendSection> emptySections = InsightsView::BuildTrendSections(trends, emptyGap);
-    ASSERT_EQ(emptySections.size(), 6u);
+    ASSERT_EQ(emptySections.size(), 5u);
     ASSERT_EQ(emptySections[4].rows.size(), 1u);
     EXPECT_EQ(emptySections[4].rows[0].label, "Not enough ranked data");
 }

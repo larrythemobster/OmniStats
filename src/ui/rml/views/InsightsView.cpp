@@ -6,7 +6,6 @@
 #include <cmath>
 #include <ctime>
 #include <set>
-#include <cstdio>
 
 #include "ui/rml/RmlUiHelpers.hpp"
 
@@ -93,14 +92,6 @@ namespace {
         return row;
     }
 
-    std::string FormatSignedDecimal(double value) {
-        char buffer[32]{};
-        const double rounded = std::round(value * 10.0) / 10.0;
-        if (std::abs(rounded) < 0.05) return "0.0";
-        std::snprintf(buffer, sizeof(buffer), "%+.1f", rounded);
-        return buffer;
-    }
-
     TrendRow MakeGapWinRow(const GapBucket& bucket, float overallRate) {
         TrendRow row;
         row.label = bucket.label;
@@ -132,50 +123,6 @@ namespace {
         row.width = Percent(rate);
         row.tone = rate > overallRate + kTrendToneMargin ? 1 : rate < overallRate - kTrendToneMargin ? -1
                                                                                                      : 0;
-        return row;
-    }
-
-    TrendRow MakeGapDeltaRow(const GapBucket& bucket) {
-        TrendRow row;
-        row.label = bucket.label;
-        const int samples = bucket.winDeltas + bucket.lossDeltas;
-        row.games = std::to_string(samples) + (samples == 1 ? " game" : " games");
-        if (samples == 0) {
-            row.rate = "Not enough games";
-            row.width = "0%";
-            return row;
-        }
-        const std::string winText =
-            (bucket.winDeltas > 0 ? FormatSignedDecimal(bucket.AvgWinDelta()) : std::string("-")) + " per win";
-        const std::string lossText =
-            (bucket.lossDeltas > 0 ? FormatSignedDecimal(bucket.AvgLossDelta()) : std::string("-")) + " per loss";
-        row.rate = winText + " / " + lossText;
-        if (bucket.winDeltas > 0 && bucket.lossDeltas > 0) {
-            const double winMag = std::max(0.0, bucket.AvgWinDelta());
-            const double lossMag = std::abs(bucket.AvgLossDelta());
-            const double totalMag = winMag + lossMag;
-            row.width = totalMag > 0.0 ? Percent(static_cast<float>(winMag / totalMag)) : "0%";
-            const double net = bucket.AvgWinDelta() + bucket.AvgLossDelta();
-            row.tone = net > 0.5 ? 1 : net < -0.5 ? -1
-                                                  : 0;
-        } else {
-            row.width = bucket.winDeltas > 0 ? "100%" : "0%";
-            row.tone = bucket.winDeltas > 0 ? 1 : -1;
-        }
-        return row;
-    }
-
-    TrendRow MakeCarryDeltaRow(const GapReport& gap) {
-        TrendRow row;
-        row.label = "Carry factor (you vs teammates)";
-        row.games = std::to_string(gap.carryGames) + (gap.carryGames == 1 ? " game" : " games");
-        const double avgCarry = gap.AvgCarry();
-        row.rate = FormatSignedDecimal(avgCarry) + " MMR";
-        const float ratio =
-            std::clamp(0.5f + static_cast<float>(avgCarry / (2.0 * Insights::kGapStrongLimit)), 0.0f, 1.0f);
-        row.width = Percent(ratio);
-        row.tone = avgCarry > 5.0 ? 1 : avgCarry < -5.0 ? -1
-                                                        : 0;
         return row;
     }
 
@@ -487,21 +434,6 @@ std::vector<TrendSection> InsightsView::BuildTrendSections(const TrendsReport& r
             lobbySection.rows.push_back(MakeCarryWinRow(gap.carryHigher, gapOverall));
     }
     sections.push_back(std::move(lobbySection));
-
-    TrendSection deltaSection;
-    deltaSection.title = "MMR PER RESULT BY GAP";
-    deltaSection.subtitle = "Consecutive same-playlist matches within 2h";
-    deltaSection.tooltip =
-        "Deltas use the next match's recorded MMR minus this match's, excluding estimated ratings and gaps over 2 hours.";
-    if (gap.games == 0) {
-        deltaSection.rows.push_back({"Not enough ranked data", "-", "0 games", "0%", 0});
-    } else {
-        for (const auto& bucket : gap.buckets)
-            deltaSection.rows.push_back(MakeGapDeltaRow(bucket));
-        if (gap.carryGames > 0)
-            deltaSection.rows.push_back(MakeCarryDeltaRow(gap));
-    }
-    sections.push_back(std::move(deltaSection));
     return sections;
 }
 
