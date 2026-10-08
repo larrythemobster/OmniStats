@@ -3,6 +3,8 @@
 #include "core/GamemodeUtils.hpp"
 #include "core/PlaylistMetadata.hpp"
 #include "core/Storage.hpp"
+#include "network/MMRFetcher.hpp"
+#include <cctype>
 #include <iostream>
 #include <chrono>
 #include <ctime>
@@ -1041,7 +1043,7 @@ void DatabaseManager::GetRecentMatchHistory(const std::string& primaryId, std::v
     const char* sql = R"(
         SELECT Matches.our_score, Matches.their_score, Matches.win, Matches.gamemode, Matches.player_count,
                strftime('%s', Matches.timestamp), COALESCE(MatchPlayers.mmr, 0), Matches.match_guid, Matches.playlist_id,
-               COALESCE(MatchPlayers.mmr_estimated, 0)
+               COALESCE(MatchPlayers.mmr_estimated, 0), Matches.id
         FROM Matches
         LEFT JOIN MatchPlayers ON MatchPlayers.match_id = Matches.id AND MatchPlayers.primary_id = ?1
         WHERE EXISTS (SELECT 1 FROM MatchPlayers p WHERE p.match_id = Matches.id AND p.primary_id = ?1)
@@ -1059,6 +1061,7 @@ void DatabaseManager::GetRecentMatchHistory(const std::string& primaryId, std::v
 
     while (sqlite3_step(stmt) == SQLITE_ROW) {
         SessionMatchSummary summary;
+        summary.matchId = sqlite3_column_int64(stmt, 10);
         summary.mode = DescribeMatchPlaylist(stmt, 3, 4, 8, summary.ranked);
         summary.matchGuid = SqlColumnText(stmt, 7);
         summary.ourScore = sqlite3_column_int(stmt, 0);
@@ -3450,6 +3453,682 @@ void DatabaseManager::AsyncLoadInsights(const std::string& primaryId) {
         m_state->insights.version.fetch_add(1, std::memory_order_relaxed);
     },
                        DbJobPriority::Coalescable, "insights:" + pid);
+}
+
+namespace {
+    std::string ToLowerAscii(std::string_view text) {
+        std::string out(text);
+        std::transform(out.begin(), out.end(), out.begin(), [](unsigned char c) {
+            return static_cast<char>(std::tolower(c));
+        });
+        return out;
+    }
+
+    std::string EscapeLikePattern(std::string_view input) {
+        std::string out;
+        out.reserve(input.size() + 4);
+        for (char c : input) {
+            if (c == '%' || c == '_' || c == '\\') {
+                out.push_back('\\');
+            }
+            out.push_back(c);
+        }
+        return "%" + out + "%";
+    }
+
+    std::string PlatformFromPrimaryId(const std::string& primaryId) {
+        const size_t sep = primaryId.find('|');
+        if (sep == std::string::npos) return {};
+        const std::string raw = primaryId.substr(0, sep);
+        const std::string lower = ToLowerAscii(raw);
+        if (lower.empty()) return {};
+        if (lower == "epic" || lower == "epicgames") return "Epic";
+        if (lower == "steam") return "Steam";
+        if (lower.rfind("ps", 0) == 0 || lower == "playstation") return "PlayStation";
+        if (lower.rfind("xb", 0) == 0) return "Xbox";
+        if (lower == "switch" || lower == "nintendo") return "Nintendo";
+        if (lower == "unknown" || lower == "bot") return "Bot";
+        return raw;
+    }
+
+    std::string TierPlaylistKey(int playlistId, const std::string& gamemode) {
+        if (PlaylistMetadata::HasAuthoritativeId(playlistId) && PlaylistMetadata::IsKnown(playlistId)) {
+            const std::string key = PlaylistMetadata::MmrKey(playlistId);
+            if (!key.empty()) return key;
+        }
+        return gamemode;
+    }
+
+    struct BoundSqlParam {
+        enum class Kind { Text,
+                          Int,
+                          Int64 };
+        Kind kind = Kind::Text;
+        std::string text;
+        int intVal = 0;
+        int64_t int64Val = 0;
+    };
+
+    void BindParams(sqlite3_stmt* stmt, const std::vector<BoundSqlParam>& params) {
+        for (size_t i = 0; i < params.size(); ++i) {
+            const int idx = static_cast<int>(i + 1);
+            const auto& p = params[i];
+            switch (p.kind) {
+            case BoundSqlParam::Kind::Text:
+                sqlite3_bind_text(stmt, idx, p.text.c_str(), -1, SQLITE_TRANSIENT);
+                break;
+            case BoundSqlParam::Kind::Int:
+                sqlite3_bind_int(stmt, idx, p.intVal);
+                break;
+            case BoundSqlParam::Kind::Int64:
+                sqlite3_bind_int64(stmt, idx, p.int64Val);
+                break;
+            }
+        }
+    }
+}
+
+void DatabaseManager::QueryMatches(const MatchQuery& query, std::vector<MatchRow>& outRows, int& outTotalCount) {
+    outRows.clear();
+    outTotalCount = 0;
+    if (query.account.empty()) return;
+
+    std::lock_guard<std::mutex> lock(m_dbMutex);
+    if (!m_db) return;
+
+    std::vector<BoundSqlParam> params;
+    auto addText = [&](std::string val) -> int {
+        params.push_back({BoundSqlParam::Kind::Text, std::move(val), 0, 0});
+        return static_cast<int>(params.size());
+    };
+    auto addInt = [&](int val) -> int {
+        params.push_back({BoundSqlParam::Kind::Int, {}, val, 0});
+        return static_cast<int>(params.size());
+    };
+    auto addInt64 = [&](int64_t val) -> int {
+        params.push_back({BoundSqlParam::Kind::Int64, {}, 0, val});
+        return static_cast<int>(params.size());
+    };
+
+    (void)addText(query.account); // ?1
+
+    std::string whereSql;
+    if (query.playlistLabel.has_value() && !query.playlistLabel->empty()) {
+        const std::string lower = ToLowerAscii(*query.playlistLabel);
+        if (lower != "all") {
+            if (lower == "extra" || lower == "extras") {
+                whereSql += " AND m.gamemode IN ('hoops', 'rumble', 'dropshot', 'snowday', 'heatseeker')";
+            } else if (lower == "ranked") {
+                whereSql += " AND COALESCE(m.gamemode, '') != 'casual'";
+            } else if (lower == "casual") {
+                whereSql += " AND m.gamemode = 'casual'";
+            } else {
+                std::string mapped = *query.playlistLabel;
+                if (lower == "1v1" || lower == "duel")
+                    mapped = "1v1";
+                else if (lower == "2v2" || lower == "doubles")
+                    mapped = "2v2";
+                else if (lower == "3v3" || lower == "standard")
+                    mapped = "3v3";
+                else if (lower == "hoops")
+                    mapped = "hoops";
+                else if (lower == "rumble")
+                    mapped = "rumble";
+                else if (lower == "dropshot")
+                    mapped = "dropshot";
+                else if (lower == "snow day" || lower == "snowday" || lower == "snow_day")
+                    mapped = "snowday";
+                else if (lower == "heatseeker")
+                    mapped = "heatseeker";
+                else if (lower == "tournament" || lower == "tournament match" || lower == "t" || lower == "tourny")
+                    mapped = "t";
+                const int pMode = addText(std::move(mapped));
+                whereSql += " AND m.gamemode = ?" + std::to_string(pMode);
+            }
+        }
+    }
+
+    if (query.ranked.has_value()) {
+        if (*query.ranked) {
+            whereSql += " AND COALESCE(m.gamemode, '') != 'casual'";
+        } else {
+            whereSql += " AND m.gamemode = 'casual'";
+        }
+    }
+
+    if (query.win.has_value()) {
+        const int pWin = addInt(*query.win ? 1 : 0);
+        whereSql += " AND m.win = ?" + std::to_string(pWin);
+    }
+
+    if (query.fromUnix > 0) {
+        const int pFrom = addInt64(query.fromUnix);
+        whereSql += " AND CAST(strftime('%s', m.timestamp) AS INTEGER) >= ?" + std::to_string(pFrom);
+    }
+
+    if (query.toUnix > 0) {
+        const int pTo = addInt64(query.toUnix);
+        whereSql += " AND CAST(strftime('%s', m.timestamp) AS INTEGER) <= ?" + std::to_string(pTo);
+    }
+
+    if (!query.arena.empty() && ToLowerAscii(query.arena) != "all") {
+        const int pExact = addText(query.arena);
+        const int pLike = addText(EscapeLikePattern(query.arena));
+        whereSql += " AND (LOWER(m.arena) = LOWER(?" + std::to_string(pExact) +
+                    ") OR m.arena LIKE ?" + std::to_string(pLike) + " ESCAPE '\\')";
+    }
+
+    if (!query.withPlayer.empty()) {
+        const int pId = addText(query.withPlayer);
+        const int pLike = addText(EscapeLikePattern(query.withPlayer));
+        whereSql += " AND EXISTS (SELECT 1 FROM MatchPlayers wp WHERE wp.match_id = m.id"
+                    " AND COALESCE(wp.is_opponent, 0) = 0 AND wp.primary_id != ?1"
+                    " AND (wp.primary_id = ?" +
+                    std::to_string(pId) +
+                    " OR wp.name LIKE ?" + std::to_string(pLike) + " ESCAPE '\\'))";
+    }
+
+    if (!query.againstPlayer.empty()) {
+        const int pId = addText(query.againstPlayer);
+        const int pLike = addText(EscapeLikePattern(query.againstPlayer));
+        whereSql += " AND EXISTS (SELECT 1 FROM MatchPlayers ap WHERE ap.match_id = m.id"
+                    " AND COALESCE(ap.is_opponent, 0) = 1"
+                    " AND (ap.primary_id = ?" +
+                    std::to_string(pId) +
+                    " OR ap.name LIKE ?" + std::to_string(pLike) + " ESCAPE '\\'))";
+    }
+
+    if (!query.nameSearch.empty()) {
+        const int pLike = addText(EscapeLikePattern(query.nameSearch));
+        whereSql += " AND EXISTS (SELECT 1 FROM MatchPlayers np WHERE np.match_id = m.id"
+                    " AND np.name LIKE ?" +
+                    std::to_string(pLike) + " ESCAPE '\\')";
+    }
+
+    std::string orderSql;
+    switch (query.sort) {
+    case MatchQuery::Sort::Oldest:
+        orderSql = "ORDER BY timestamp ASC, id ASC";
+        break;
+    case MatchQuery::Sort::BiggestWin:
+        orderSql = "ORDER BY (mmr_delta IS NULL) ASC, mmr_delta DESC, timestamp DESC, id DESC";
+        break;
+    case MatchQuery::Sort::BiggestLoss:
+        orderSql = "ORDER BY (mmr_delta IS NULL) ASC, mmr_delta ASC, timestamp DESC, id DESC";
+        break;
+    case MatchQuery::Sort::ScoreMargin:
+        orderSql = "ORDER BY (our_score - their_score) DESC, ABS(our_score - their_score) DESC, timestamp DESC, id DESC";
+        break;
+    case MatchQuery::Sort::Newest:
+    default:
+        orderSql = "ORDER BY timestamp DESC, id DESC";
+        break;
+    }
+
+    const std::vector<BoundSqlParam> filterParams = params;
+    const int limit = query.limit > 0 ? query.limit : 100;
+    const int offset = std::max(0, query.offset);
+    const int pLimit = addInt(limit);
+    const int pOffset = addInt(offset);
+
+    const std::string sql =
+        "WITH AccountMatches AS ("
+        "    SELECT m.id, m.timestamp, m.arena, m.our_score, m.their_score, m.win,"
+        "           m.match_guid, m.playlist_id, m.gamemode, m.player_count,"
+        "           COALESCE(me.mmr, 0) AS my_mmr, COALESCE(me.mmr_estimated, 0) AS mmr_estimated,"
+        "           LAG(CASE WHEN me.mmr > 0 THEN me.mmr END) OVER ("
+        "               PARTITION BY m.gamemode"
+        "               ORDER BY m.timestamp ASC, m.id ASC"
+        "           ) AS prev_mmr"
+        "    FROM MatchPlayers me"
+        "    JOIN Matches m ON m.id = me.match_id"
+        "    WHERE me.primary_id = ?1 AND COALESCE(m.result_pending, 0) = 0"
+        "),"
+        "Filtered AS ("
+        "    SELECT id, timestamp, arena, our_score, their_score, win, match_guid,"
+        "           playlist_id, gamemode, player_count, my_mmr, mmr_estimated,"
+        "           CASE WHEN my_mmr > 0 AND prev_mmr > 0 THEN my_mmr - prev_mmr ELSE NULL END AS mmr_delta,"
+        "           COUNT(*) OVER () AS total_count"
+        "    FROM AccountMatches m"
+        "    WHERE 1=1" +
+        whereSql +
+        "),"
+        "PageRows AS ("
+        "    SELECT id, timestamp, arena, our_score, their_score, win, match_guid,"
+        "           playlist_id, gamemode, player_count, my_mmr, mmr_estimated, mmr_delta, total_count"
+        "    FROM Filtered " +
+        orderSql +
+        "    LIMIT ?" + std::to_string(pLimit) + " OFFSET ?" + std::to_string(pOffset) +
+        ") "
+        "SELECT id, CAST(strftime('%s', timestamp) AS INTEGER), arena, our_score, their_score, win,"
+        "       match_guid, playlist_id, gamemode, player_count, my_mmr, mmr_estimated, mmr_delta, total_count "
+        "FROM PageRows;";
+    sqlite3_stmt* stmt = nullptr;
+    if (sqlite3_prepare_v2(m_db, sql.c_str(), -1, &stmt, nullptr) != SQLITE_OK) {
+        return;
+    }
+    BindParams(stmt, params);
+
+    while (sqlite3_step(stmt) == SQLITE_ROW) {
+        MatchRow row;
+        row.matchId = sqlite3_column_int64(stmt, 0);
+        row.timestampUnix = sqlite3_column_int64(stmt, 1);
+        row.arena = SqlColumnText(stmt, 2);
+        row.ourScore = sqlite3_column_int(stmt, 3);
+        row.theirScore = sqlite3_column_int(stmt, 4);
+        row.win = sqlite3_column_int(stmt, 5) != 0;
+        row.matchGuid = SqlColumnText(stmt, 6);
+        row.playlistId = sqlite3_column_type(stmt, 7) == SQLITE_NULL ? -1 : sqlite3_column_int(stmt, 7);
+        row.gamemode = SqlColumnText(stmt, 8);
+        row.playlist = DescribeMatchPlaylist(stmt, 8, 9, 7, row.ranked);
+        row.myMmr = sqlite3_column_int(stmt, 10);
+        row.mmrEstimated = sqlite3_column_int(stmt, 11) != 0;
+        if (sqlite3_column_type(stmt, 12) != SQLITE_NULL) {
+            row.mmrDelta = sqlite3_column_int(stmt, 12);
+        }
+        outTotalCount = sqlite3_column_int(stmt, 13);
+        outRows.push_back(std::move(row));
+    }
+    sqlite3_finalize(stmt);
+
+    if (outRows.empty() && offset > 0) {
+        const std::string countSql =
+            "SELECT COUNT(*) FROM MatchPlayers me "
+            "JOIN Matches m ON m.id = me.match_id "
+            "WHERE me.primary_id = ?1 AND COALESCE(m.result_pending, 0) = 0" +
+            whereSql + ";";
+        sqlite3_stmt* countStmt = nullptr;
+        if (sqlite3_prepare_v2(m_db, countSql.c_str(), -1, &countStmt, nullptr) == SQLITE_OK) {
+            BindParams(countStmt, filterParams);
+            if (sqlite3_step(countStmt) == SQLITE_ROW) {
+                outTotalCount = sqlite3_column_int(countStmt, 0);
+            }
+            sqlite3_finalize(countStmt);
+        }
+    }
+
+    if (!outRows.empty()) {
+        const char* tmSql =
+            "SELECT name FROM MatchPlayers "
+            "WHERE match_id = ?1 AND COALESCE(is_opponent, 0) = 0 AND primary_id != ?2 "
+            "ORDER BY id ASC;";
+        sqlite3_stmt* tmStmt = nullptr;
+        if (sqlite3_prepare_v2(m_db, tmSql, -1, &tmStmt, nullptr) == SQLITE_OK) {
+            for (auto& row : outRows) {
+                sqlite3_reset(tmStmt);
+                sqlite3_clear_bindings(tmStmt);
+                sqlite3_bind_int64(tmStmt, 1, row.matchId);
+                sqlite3_bind_text(tmStmt, 2, query.account.c_str(), -1, SQLITE_TRANSIENT);
+                while (sqlite3_step(tmStmt) == SQLITE_ROW) {
+                    std::string tmName = SqlColumnText(tmStmt, 0);
+                    if (!tmName.empty()) row.teammates.push_back(std::move(tmName));
+                }
+            }
+            sqlite3_finalize(tmStmt);
+        }
+    }
+}
+
+void DatabaseManager::AsyncQueryMatches(MatchQuery query, uint64_t requestId, bool append) {
+    if (m_state) {
+        std::lock_guard<std::mutex> lock(m_state->historyView.mutex);
+        if (requestId >= m_state->historyView.requestId) {
+            m_state->historyView.requestId = requestId;
+            m_state->historyView.loading = true;
+            m_state->historyView.appendMode = append;
+            m_state->historyView.query = query;
+            m_state->historyView.version.fetch_add(1, std::memory_order_relaxed);
+        }
+    }
+
+    (void)EnqueueDbJob([this, q = std::move(query), requestId, append]() {
+        std::vector<MatchRow> rows;
+        int total = 0;
+        QueryMatches(q, rows, total);
+        if (!m_state) return;
+        std::lock_guard<std::mutex> lock(m_state->historyView.mutex);
+        if (requestId < m_state->historyView.requestId) {
+            return;
+        }
+        m_state->historyView.requestId = requestId;
+        m_state->historyView.query = q;
+        m_state->historyView.total = total;
+        m_state->historyView.loading = false;
+        m_state->historyView.appendMode = append;
+        if (append && q.offset > 0) {
+            for (auto& row : rows) {
+                m_state->historyView.rows.push_back(std::move(row));
+            }
+        } else {
+            m_state->historyView.rows = std::move(rows);
+        }
+        m_state->historyView.version.fetch_add(1, std::memory_order_relaxed);
+    },
+                       DbJobPriority::Normal);
+}
+
+bool DatabaseManager::GetMatchDetail(int64_t matchId, MatchDetail& outDetail, const std::string& accountPrimaryId) {
+    outDetail = {};
+    if (matchId <= 0) return false;
+
+    std::lock_guard<std::mutex> lock(m_dbMutex);
+    if (!m_db) return false;
+
+    const char* matchSql = R"(
+        SELECT id, timestamp, CAST(strftime('%s', timestamp) AS INTEGER), arena,
+               our_score, their_score, win, match_guid, playlist_id, gamemode, player_count
+        FROM Matches
+        WHERE id = ?1;
+    )";
+    sqlite3_stmt* matchStmt = nullptr;
+    if (sqlite3_prepare_v2(m_db, matchSql, -1, &matchStmt, nullptr) != SQLITE_OK) return false;
+    sqlite3_bind_int64(matchStmt, 1, matchId);
+
+    std::string rawTimestamp;
+    if (sqlite3_step(matchStmt) != SQLITE_ROW) {
+        sqlite3_finalize(matchStmt);
+        return false;
+    }
+
+    outDetail.found = true;
+    outDetail.matchId = sqlite3_column_int64(matchStmt, 0);
+    rawTimestamp = SqlColumnText(matchStmt, 1);
+    outDetail.timestampUnix = sqlite3_column_int64(matchStmt, 2);
+    outDetail.arena = SqlColumnText(matchStmt, 3);
+    outDetail.ourScore = sqlite3_column_int(matchStmt, 4);
+    outDetail.theirScore = sqlite3_column_int(matchStmt, 5);
+    outDetail.win = sqlite3_column_int(matchStmt, 6) != 0;
+    outDetail.matchGuid = SqlColumnText(matchStmt, 7);
+    outDetail.playlistId = sqlite3_column_type(matchStmt, 8) == SQLITE_NULL ? -1 : sqlite3_column_int(matchStmt, 8);
+    outDetail.gamemode = SqlColumnText(matchStmt, 9);
+    outDetail.playlist = DescribeMatchPlaylist(matchStmt, 9, 10, 8, outDetail.ranked);
+    sqlite3_finalize(matchStmt);
+
+    const bool hasStatsTables = HasStatsTablesLocked();
+    if (hasStatsTables) {
+        const char* localSql =
+            "SELECT duration_seconds, overtime_seconds FROM MatchLocalStats WHERE match_id = ?1;";
+        sqlite3_stmt* localStmt = nullptr;
+        if (sqlite3_prepare_v2(m_db, localSql, -1, &localStmt, nullptr) == SQLITE_OK) {
+            sqlite3_bind_int64(localStmt, 1, matchId);
+            if (sqlite3_step(localStmt) == SQLITE_ROW) {
+                outDetail.hasLocalStats = true;
+                if (sqlite3_column_type(localStmt, 0) != SQLITE_NULL) {
+                    outDetail.durationSeconds = static_cast<float>(sqlite3_column_double(localStmt, 0));
+                }
+                if (sqlite3_column_type(localStmt, 1) != SQLITE_NULL) {
+                    outDetail.overtimeSeconds = static_cast<float>(sqlite3_column_double(localStmt, 1));
+                }
+            }
+            sqlite3_finalize(localStmt);
+        }
+    }
+
+    const std::string tierKey = TierPlaylistKey(outDetail.playlistId, outDetail.gamemode);
+    std::string playersSql;
+    if (hasStatsTables) {
+        playersSql = R"(
+            SELECT mp.primary_id, mp.name, COALESCE(mp.team, 0), COALESCE(mp.mmr, 0),
+                   COALESCE(mp.mmr_estimated, 0), COALESCE(mp.is_opponent, 0),
+                   mps.match_id, mps.score, mps.goals, mps.assists, mps.saves, mps.shots, mps.demos,
+                   mps.touches, mps.car_touches, mps.max_goal_speed, mps.fastest_goal_time
+            FROM MatchPlayers mp
+            LEFT JOIN MatchPlayerStats mps ON mps.match_id = mp.match_id AND mps.primary_id = mp.primary_id
+            WHERE mp.match_id = ?1
+            ORDER BY COALESCE(mp.is_opponent, 0) ASC, mp.id ASC;
+        )";
+    } else {
+        playersSql = R"(
+            SELECT mp.primary_id, mp.name, COALESCE(mp.team, 0), COALESCE(mp.mmr, 0),
+                   COALESCE(mp.mmr_estimated, 0), COALESCE(mp.is_opponent, 0)
+            FROM MatchPlayers mp
+            WHERE mp.match_id = ?1
+            ORDER BY COALESCE(mp.is_opponent, 0) ASC, mp.id ASC;
+        )";
+    }
+
+    sqlite3_stmt* playerStmt = nullptr;
+    if (sqlite3_prepare_v2(m_db, playersSql.c_str(), -1, &playerStmt, nullptr) != SQLITE_OK) {
+        return true;
+    }
+    sqlite3_bind_int64(playerStmt, 1, matchId);
+
+    std::vector<MatchDetailPlayer> allPlayers;
+    while (sqlite3_step(playerStmt) == SQLITE_ROW) {
+        MatchDetailPlayer p;
+        p.primaryId = SqlColumnText(playerStmt, 0);
+        p.name = SqlColumnText(playerStmt, 1);
+        p.platform = PlatformFromPrimaryId(p.primaryId);
+        p.team = sqlite3_column_int(playerStmt, 2);
+        p.mmr = sqlite3_column_int(playerStmt, 3);
+        p.mmrEstimated = sqlite3_column_int(playerStmt, 4) != 0;
+        p.isOpponent = sqlite3_column_int(playerStmt, 5) != 0;
+        p.tier = MMRFetcher::GetRankTierForPlaylistMmr(tierKey, p.mmr);
+        if (hasStatsTables && sqlite3_column_type(playerStmt, 6) != SQLITE_NULL) {
+            p.hasStats = true;
+            outDetail.hasPlayerStats = true;
+            if (sqlite3_column_type(playerStmt, 7) != SQLITE_NULL) p.score = sqlite3_column_int(playerStmt, 7);
+            if (sqlite3_column_type(playerStmt, 8) != SQLITE_NULL) p.goals = sqlite3_column_int(playerStmt, 8);
+            if (sqlite3_column_type(playerStmt, 9) != SQLITE_NULL) p.assists = sqlite3_column_int(playerStmt, 9);
+            if (sqlite3_column_type(playerStmt, 10) != SQLITE_NULL) p.saves = sqlite3_column_int(playerStmt, 10);
+            if (sqlite3_column_type(playerStmt, 11) != SQLITE_NULL) p.shots = sqlite3_column_int(playerStmt, 11);
+            if (sqlite3_column_type(playerStmt, 12) != SQLITE_NULL) p.demos = sqlite3_column_int(playerStmt, 12);
+            if (sqlite3_column_type(playerStmt, 13) != SQLITE_NULL) p.touches = sqlite3_column_int(playerStmt, 13);
+            if (sqlite3_column_type(playerStmt, 14) != SQLITE_NULL) p.carTouches = sqlite3_column_int(playerStmt, 14);
+            if (sqlite3_column_type(playerStmt, 15) != SQLITE_NULL)
+                p.maxGoalSpeed = static_cast<float>(sqlite3_column_double(playerStmt, 15));
+            if (sqlite3_column_type(playerStmt, 16) != SQLITE_NULL)
+                p.fastestGoalTime = static_cast<float>(sqlite3_column_double(playerStmt, 16));
+        }
+        allPlayers.push_back(std::move(p));
+    }
+    sqlite3_finalize(playerStmt);
+
+    auto hasPlayerInMatch = [&](const std::string& pid) {
+        if (pid.empty()) return false;
+        return std::any_of(allPlayers.begin(), allPlayers.end(), [&](const MatchDetailPlayer& p) {
+            return p.primaryId == pid;
+        });
+    };
+
+    std::string resolvedAccount;
+    if (hasPlayerInMatch(accountPrimaryId)) {
+        resolvedAccount = accountPrimaryId;
+    } else if (m_state) {
+        std::string statePid;
+        {
+            std::shared_lock<std::shared_mutex> gLock(m_state->game.mutex);
+            statePid = m_state->game.myPrimaryId;
+        }
+        if (hasPlayerInMatch(statePid)) {
+            resolvedAccount = statePid;
+        }
+    }
+    if (resolvedAccount.empty()) {
+        const std::string cfgPid = Config::Read().last_primary_id;
+        if (hasPlayerInMatch(cfgPid)) {
+            resolvedAccount = cfgPid;
+        }
+    }
+    if (resolvedAccount.empty()) {
+        const char* inferSql = R"(
+            SELECT mp.primary_id
+            FROM MatchPlayers mp
+            WHERE mp.match_id = ?1 AND COALESCE(mp.is_opponent, 0) = 0 AND mp.primary_id != ''
+            ORDER BY (SELECT COUNT(*) FROM MatchPlayers all_mp WHERE all_mp.primary_id = mp.primary_id) DESC,
+                     mp.id ASC
+            LIMIT 1;
+        )";
+        sqlite3_stmt* inferStmt = nullptr;
+        if (sqlite3_prepare_v2(m_db, inferSql, -1, &inferStmt, nullptr) == SQLITE_OK) {
+            sqlite3_bind_int64(inferStmt, 1, matchId);
+            if (sqlite3_step(inferStmt) == SQLITE_ROW) {
+                resolvedAccount = SqlColumnText(inferStmt, 0);
+            }
+            sqlite3_finalize(inferStmt);
+        }
+    }
+    outDetail.accountPrimaryId = resolvedAccount;
+
+    sqlite3_stmt* metStmt = nullptr;
+    if (!resolvedAccount.empty()) {
+        const char* metSql = R"(
+            SELECT COUNT(DISTINCT mp1.match_id)
+            FROM MatchPlayers mp1
+            JOIN MatchPlayers mp2 ON mp2.match_id = mp1.match_id
+            JOIN Matches m2 ON m2.id = mp1.match_id
+            WHERE mp1.primary_id = ?1
+              AND mp2.primary_id = ?2
+              AND mp1.match_id != ?3
+              AND COALESCE(m2.result_pending, 0) = 0;
+        )";
+        sqlite3_prepare_v2(m_db, metSql, -1, &metStmt, nullptr);
+    }
+
+    for (auto& p : allPlayers) {
+        p.isMe = (!resolvedAccount.empty() && p.primaryId == resolvedAccount);
+        if (p.isMe) {
+            outDetail.mmrEstimated = p.mmrEstimated;
+            if (p.mmr > 0) {
+                outDetail.mmrAfter = p.mmr;
+            }
+        } else if (metStmt && !p.primaryId.empty() && p.primaryId.rfind("Unknown|", 0) != 0) {
+            sqlite3_reset(metStmt);
+            sqlite3_clear_bindings(metStmt);
+            sqlite3_bind_text(metStmt, 1, resolvedAccount.c_str(), -1, SQLITE_TRANSIENT);
+            sqlite3_bind_text(metStmt, 2, p.primaryId.c_str(), -1, SQLITE_TRANSIENT);
+            sqlite3_bind_int64(metStmt, 3, matchId);
+            if (sqlite3_step(metStmt) == SQLITE_ROW) {
+                p.metBeforeCount = sqlite3_column_int(metStmt, 0);
+            }
+        }
+
+        if (p.isOpponent) {
+            outDetail.theirTeam.push_back(std::move(p));
+        } else {
+            outDetail.ourTeam.push_back(std::move(p));
+        }
+    }
+    if (metStmt) sqlite3_finalize(metStmt);
+
+    if (!resolvedAccount.empty()) {
+        const std::string partitionKey = !outDetail.gamemode.empty()
+                                             ? outDetail.gamemode
+                                             : (outDetail.playlistId >= 0 ? std::to_string(outDetail.playlistId) : "");
+        const char* prevSql = R"(
+            SELECT me.mmr
+            FROM MatchPlayers me
+            JOIN Matches m ON m.id = me.match_id
+            WHERE me.primary_id = ?1
+              AND COALESCE(m.result_pending, 0) = 0
+              AND COALESCE(NULLIF(m.gamemode, ''), CAST(m.playlist_id AS TEXT), '') = ?2
+              AND me.mmr > 0
+              AND (m.timestamp < ?3 OR (m.timestamp = ?3 AND m.id < ?4))
+            ORDER BY m.timestamp DESC, m.id DESC
+            LIMIT 1;
+        )";
+        sqlite3_stmt* prevStmt = nullptr;
+        if (sqlite3_prepare_v2(m_db, prevSql, -1, &prevStmt, nullptr) == SQLITE_OK) {
+            sqlite3_bind_text(prevStmt, 1, resolvedAccount.c_str(), -1, SQLITE_TRANSIENT);
+            sqlite3_bind_text(prevStmt, 2, partitionKey.c_str(), -1, SQLITE_TRANSIENT);
+            sqlite3_bind_text(prevStmt, 3, rawTimestamp.c_str(), -1, SQLITE_TRANSIENT);
+            sqlite3_bind_int64(prevStmt, 4, matchId);
+            if (sqlite3_step(prevStmt) == SQLITE_ROW) {
+                const int prevMmr = sqlite3_column_int(prevStmt, 0);
+                if (prevMmr > 0) {
+                    outDetail.mmrBefore = prevMmr;
+                    if (outDetail.mmrAfter.has_value()) {
+                        outDetail.mmrDelta = *outDetail.mmrAfter - prevMmr;
+                    }
+                }
+            }
+            sqlite3_finalize(prevStmt);
+        }
+    }
+
+    return true;
+}
+
+bool DatabaseManager::GetMatchDetailByGuid(const std::string& matchGuid, MatchDetail& outDetail, const std::string& accountPrimaryId) {
+    outDetail = {};
+    if (matchGuid.empty()) return false;
+
+    int64_t matchId = 0;
+    {
+        std::lock_guard<std::mutex> lock(m_dbMutex);
+        if (!m_db) return false;
+        const char* sql = "SELECT id FROM Matches WHERE match_guid = ?1 ORDER BY id DESC LIMIT 1;";
+        sqlite3_stmt* stmt = nullptr;
+        if (sqlite3_prepare_v2(m_db, sql, -1, &stmt, nullptr) == SQLITE_OK) {
+            sqlite3_bind_text(stmt, 1, matchGuid.c_str(), -1, SQLITE_TRANSIENT);
+            if (sqlite3_step(stmt) == SQLITE_ROW) {
+                matchId = sqlite3_column_int64(stmt, 0);
+            }
+            sqlite3_finalize(stmt);
+        }
+    }
+    if (matchId <= 0) return false;
+    return GetMatchDetail(matchId, outDetail, accountPrimaryId);
+}
+
+void DatabaseManager::AsyncGetMatchDetail(int64_t matchId, uint64_t requestId, std::string accountPrimaryId) {
+    if (m_state) {
+        std::lock_guard<std::mutex> lock(m_state->historyView.mutex);
+        if (requestId == 0 || requestId >= m_state->historyView.detailRequestId) {
+            if (requestId != 0) m_state->historyView.detailRequestId = requestId;
+            m_state->historyView.detailLoading = true;
+            m_state->historyView.version.fetch_add(1, std::memory_order_relaxed);
+        }
+    }
+
+    (void)EnqueueDbJob([this, matchId, requestId, account = std::move(accountPrimaryId)]() {
+        MatchDetail detail;
+        const bool ok = GetMatchDetail(matchId, detail, account);
+        if (!m_state) return;
+        std::lock_guard<std::mutex> lock(m_state->historyView.mutex);
+        if (requestId != 0 && requestId < m_state->historyView.detailRequestId) {
+            return;
+        }
+        if (requestId != 0) m_state->historyView.detailRequestId = requestId;
+        m_state->historyView.detailLoading = false;
+        if (ok && detail.found) {
+            m_state->historyView.detail = std::move(detail);
+        } else {
+            m_state->historyView.detail.reset();
+        }
+        m_state->historyView.version.fetch_add(1, std::memory_order_relaxed);
+    },
+                       DbJobPriority::Normal);
+}
+
+void DatabaseManager::AsyncGetMatchDetailByGuid(std::string matchGuid, uint64_t requestId, std::string accountPrimaryId) {
+    if (m_state) {
+        std::lock_guard<std::mutex> lock(m_state->historyView.mutex);
+        if (requestId == 0 || requestId >= m_state->historyView.detailRequestId) {
+            if (requestId != 0) m_state->historyView.detailRequestId = requestId;
+            m_state->historyView.detailLoading = true;
+            m_state->historyView.version.fetch_add(1, std::memory_order_relaxed);
+        }
+    }
+
+    (void)EnqueueDbJob([this, guid = std::move(matchGuid), requestId, account = std::move(accountPrimaryId)]() {
+        MatchDetail detail;
+        const bool ok = GetMatchDetailByGuid(guid, detail, account);
+        if (!m_state) return;
+        std::lock_guard<std::mutex> lock(m_state->historyView.mutex);
+        if (requestId != 0 && requestId < m_state->historyView.detailRequestId) {
+            return;
+        }
+        if (requestId != 0) m_state->historyView.detailRequestId = requestId;
+        m_state->historyView.detailLoading = false;
+        if (ok && detail.found) {
+            m_state->historyView.detail = std::move(detail);
+        } else {
+            m_state->historyView.detail.reset();
+        }
+        m_state->historyView.version.fetch_add(1, std::memory_order_relaxed);
+    },
+                       DbJobPriority::Normal);
 }
 
 void DatabaseManager::AsyncSaveMatch(MatchSaveSnapshot snapshot) {

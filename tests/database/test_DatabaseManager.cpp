@@ -1628,3 +1628,568 @@ TEST_F(DatabaseManagerTest, LateConfirmationUpdatesStoredSessionTotals) {
     EXPECT_EQ(all[0].totals.goals, 5);
     EXPECT_EQ(all[0].NetMmrChange(), 11);
 }
+
+TEST_F(DatabaseManagerTest, QueryMatchesFiltersSortsAndPagesOnSeededMultiAccountDb) {
+    sqlite3* db = dbManager->GetRawDb();
+    ASSERT_NE(db, nullptr);
+
+    const std::string accA = "Steam|accA";
+    const std::string accB = "Epic|accB";
+    const std::string accC = "PS4|accC";
+
+    struct SeedAccount {
+        std::string id;
+        std::string name;
+        int count;
+    };
+    const std::vector<SeedAccount> accounts = {
+        {accA, "AlphaUser", 320},
+        {accB, "BravoUser", 120},
+        {accC, "CharlieUser", 60},
+    };
+
+    const char* arenas[4] = {"DFH Stadium", "Mannfield", "Champions Field", "Utopia Coliseum"};
+    struct ModeSpec {
+        int playlistId;
+        const char* gamemode;
+        int teamSize;
+    };
+    const ModeSpec modes[5] = {
+        {11, "2v2", 2},
+        {13, "3v3", 3},
+        {10, "1v1", 1},
+        {27, "hoops", 2},
+        {2, "casual", 2},
+    };
+
+    ASSERT_EQ(sqlite3_exec(db, "BEGIN TRANSACTION;", nullptr, nullptr, nullptr), SQLITE_OK);
+    sqlite3_stmt* matchStmt = nullptr;
+    sqlite3_stmt* playerStmt = nullptr;
+    ASSERT_EQ(sqlite3_prepare_v2(
+                  db,
+                  "INSERT INTO Matches (id, timestamp, arena, our_score, their_score, win, match_guid, playlist_id, gamemode, player_count, result_pending) "
+                  "VALUES (?, datetime(?, 'unixepoch'), ?, ?, ?, ?, ?, ?, ?, 0, 0);",
+                  -1, &matchStmt, nullptr),
+              SQLITE_OK);
+    ASSERT_EQ(sqlite3_prepare_v2(
+                  db,
+                  "INSERT INTO MatchPlayers (match_id, primary_id, name, team, mmr, mmr_estimated, is_opponent) "
+                  "VALUES (?, ?, ?, ?, ?, 0, ?);",
+                  -1, &playerStmt, nullptr),
+              SQLITE_OK);
+
+    int nextMatchId = 1;
+    const int64_t baseUnix = 1'700'000'000LL;
+    std::map<std::string, int> lastMmrByModeA;
+    std::map<int64_t, std::optional<int>> expectedDeltaByMatchA;
+
+    for (const auto& acc : accounts) {
+        for (int i = 0; i < acc.count; ++i) {
+            const int matchId = nextMatchId++;
+            const ModeSpec& mode = modes[i % 5];
+            const char* arena = arenas[i % 4];
+            const bool win = (i % 3 != 0);
+            const int ourScore = win ? (2 + (i % 5)) : (i % 2);
+            const int theirScore = win ? (i % 2) : (2 + (i % 4));
+            // Give pair of matches identical timestamps periodically to exercise stable id tiebreak
+            const int64_t ts = baseUnix + static_cast<int64_t>((i / 2) * 600 + (acc.id == accA ? 0 : 50));
+            const std::string guid = "seed-" + acc.id + "-" + std::to_string(i);
+
+            sqlite3_bind_int(matchStmt, 1, matchId);
+            sqlite3_bind_int64(matchStmt, 2, ts);
+            sqlite3_bind_text(matchStmt, 3, arena, -1, SQLITE_STATIC);
+            sqlite3_bind_int(matchStmt, 4, ourScore);
+            sqlite3_bind_int(matchStmt, 5, theirScore);
+            sqlite3_bind_int(matchStmt, 6, win ? 1 : 0);
+            sqlite3_bind_text(matchStmt, 7, guid.c_str(), -1, SQLITE_TRANSIENT);
+            sqlite3_bind_int(matchStmt, 8, mode.playlistId);
+            sqlite3_bind_text(matchStmt, 9, mode.gamemode, -1, SQLITE_STATIC);
+            ASSERT_EQ(sqlite3_step(matchStmt), SQLITE_DONE);
+            sqlite3_reset(matchStmt);
+            sqlite3_clear_bindings(matchStmt);
+
+            const int stepDelta = win ? (7 + (i % 9)) : -(6 + (i % 8));
+            int myMmr = 1100 + i * 2;
+            if (acc.id == accA) {
+                auto it = lastMmrByModeA.find(mode.gamemode);
+                if (it == lastMmrByModeA.end()) {
+                    myMmr = 1200;
+                    expectedDeltaByMatchA[matchId] = std::nullopt;
+                } else {
+                    myMmr = it->second + stepDelta;
+                    expectedDeltaByMatchA[matchId] = stepDelta;
+                }
+                lastMmrByModeA[mode.gamemode] = myMmr;
+            }
+
+            auto insertPlayer = [&](const std::string& pid, const std::string& name, int team, int mmr, bool opp) {
+                sqlite3_bind_int(playerStmt, 1, matchId);
+                sqlite3_bind_text(playerStmt, 2, pid.c_str(), -1, SQLITE_TRANSIENT);
+                sqlite3_bind_text(playerStmt, 3, name.c_str(), -1, SQLITE_TRANSIENT);
+                sqlite3_bind_int(playerStmt, 4, team);
+                sqlite3_bind_int(playerStmt, 5, mmr);
+                sqlite3_bind_int(playerStmt, 6, opp ? 1 : 0);
+                ASSERT_EQ(sqlite3_step(playerStmt), SQLITE_DONE);
+                sqlite3_reset(playerStmt);
+                sqlite3_clear_bindings(playerStmt);
+            };
+
+            insertPlayer(acc.id, acc.name, 0, myMmr, false);
+            if (mode.teamSize >= 2) {
+                const bool withZylo = (i % 2 == 0);
+                insertPlayer(withZylo ? "Steam|zylo" : "Steam|kronovi",
+                             withZylo ? "Zylo" : "Kronovi",
+                             0, myMmr - 10, false);
+            }
+            if (mode.teamSize >= 3) {
+                insertPlayer("Steam|third", "ThirdMate", 0, myMmr - 5, false);
+            }
+            for (int oppIdx = 0; oppIdx < mode.teamSize; ++oppIdx) {
+                const bool vsGarrett = (oppIdx == 0 && (i % 4 == 0));
+                insertPlayer(vsGarrett ? "Steam|garrett" : ("Steam|opp_" + std::to_string(oppIdx)),
+                             vsGarrett ? "GarrettG" : ("Opponent" + std::to_string(oppIdx)),
+                             1, myMmr + 5, true);
+            }
+        }
+    }
+    sqlite3_finalize(matchStmt);
+    sqlite3_finalize(playerStmt);
+    ASSERT_EQ(sqlite3_exec(db, "COMMIT TRANSACTION;", nullptr, nullptr, nullptr), SQLITE_OK);
+
+    // 1. Participation filter per account
+    {
+        std::vector<MatchRow> rows;
+        int total = 0;
+        MatchQuery q;
+        q.account = accA;
+        dbManager->QueryMatches(q, rows, total);
+        EXPECT_EQ(total, 320);
+        EXPECT_EQ(rows.size(), 100u);
+
+        q.account = accB;
+        dbManager->QueryMatches(q, rows, total);
+        EXPECT_EQ(total, 120);
+        EXPECT_EQ(rows.size(), 100u);
+
+        q.account = accC;
+        dbManager->QueryMatches(q, rows, total);
+        EXPECT_EQ(total, 60);
+        EXPECT_EQ(rows.size(), 60u);
+
+        q.account = "Steam|nonexistent";
+        dbManager->QueryMatches(q, rows, total);
+        EXPECT_EQ(total, 0);
+        EXPECT_TRUE(rows.empty());
+    }
+
+    // 2. Paging without duplicates or gaps + MMR delta verification
+    {
+        std::vector<MatchRow> allPaged;
+        std::set<int64_t> seenIds;
+        int total = 0;
+        for (int offset = 0; offset < 350; offset += 45) {
+            MatchQuery q;
+            q.account = accA;
+            q.offset = offset;
+            q.limit = 45;
+            q.sort = MatchQuery::Sort::Newest;
+            std::vector<MatchRow> page;
+            dbManager->QueryMatches(q, page, total);
+            EXPECT_EQ(total, 320);
+            for (const auto& r : page) {
+                EXPECT_TRUE(seenIds.insert(r.matchId).second) << "Duplicate matchId " << r.matchId;
+                allPaged.push_back(r);
+            }
+        }
+        ASSERT_EQ(allPaged.size(), 320u);
+        for (size_t i = 1; i < allPaged.size(); ++i) {
+            EXPECT_TRUE(allPaged[i - 1].timestampUnix > allPaged[i].timestampUnix ||
+                        (allPaged[i - 1].timestampUnix == allPaged[i].timestampUnix &&
+                         allPaged[i - 1].matchId > allPaged[i].matchId));
+        }
+        for (const auto& r : allPaged) {
+            ASSERT_TRUE(expectedDeltaByMatchA.count(r.matchId));
+            EXPECT_EQ(r.mmrDelta, expectedDeltaByMatchA[r.matchId]) << "matchId=" << r.matchId;
+            if (r.gamemode == "1v1") {
+                EXPECT_TRUE(r.teammates.empty());
+            } else if (r.gamemode == "3v3") {
+                EXPECT_EQ(r.teammates.size(), 2u);
+            } else {
+                EXPECT_EQ(r.teammates.size(), 1u);
+            }
+        }
+    }
+
+    // 3. Individual filters and combined filters
+    {
+        std::vector<MatchRow> rows;
+        int total = 0;
+
+        MatchQuery q;
+        q.account = accA;
+        q.playlistLabel = "2v2";
+        dbManager->QueryMatches(q, rows, total);
+        EXPECT_EQ(total, 64);
+        for (const auto& r : rows)
+            EXPECT_EQ(r.gamemode, "2v2");
+
+        q.playlistLabel = "Extra";
+        dbManager->QueryMatches(q, rows, total);
+        EXPECT_EQ(total, 64);
+        for (const auto& r : rows)
+            EXPECT_EQ(r.gamemode, "hoops");
+
+        q.playlistLabel = "Casual";
+        dbManager->QueryMatches(q, rows, total);
+        EXPECT_EQ(total, 64);
+        for (const auto& r : rows)
+            EXPECT_FALSE(r.ranked);
+
+        q.playlistLabel = std::nullopt;
+        q.ranked = true;
+        dbManager->QueryMatches(q, rows, total);
+        EXPECT_EQ(total, 256);
+
+        q.ranked = std::nullopt;
+        q.win = false;
+        dbManager->QueryMatches(q, rows, total);
+        EXPECT_EQ(total, 107);
+        for (const auto& r : rows)
+            EXPECT_FALSE(r.win);
+
+        q.win = std::nullopt;
+        q.arena = "Mannfield";
+        dbManager->QueryMatches(q, rows, total);
+        EXPECT_EQ(total, 80);
+        for (const auto& r : rows)
+            EXPECT_EQ(r.arena, "Mannfield");
+
+        q.arena.clear();
+        q.withPlayer = "Zylo";
+        dbManager->QueryMatches(q, rows, total);
+        // Zylo is on even i (160 matches), minus 1v1 matches where i % 5 == 2 (32 matches) = 128
+        EXPECT_EQ(total, 128);
+
+        // Searching own name in withPlayer must not match solo/other matches
+        q.withPlayer = "AlphaUser";
+        dbManager->QueryMatches(q, rows, total);
+        EXPECT_EQ(total, 0);
+
+        q.withPlayer.clear();
+        q.againstPlayer = "GarrettG";
+        dbManager->QueryMatches(q, rows, total);
+        EXPECT_EQ(total, 80);
+
+        // Combined filter: 2v2 + Loss + with Zylo + date range
+        q = {};
+        q.account = accA;
+        q.playlistLabel = "2v2";
+        q.win = false;
+        q.withPlayer = "Zylo";
+        q.fromUnix = baseUnix + 10 * 600;
+        q.toUnix = baseUnix + 120 * 600;
+        dbManager->QueryMatches(q, rows, total);
+        EXPECT_GT(total, 0);
+        for (const auto& r : rows) {
+            EXPECT_EQ(r.gamemode, "2v2");
+            EXPECT_FALSE(r.win);
+            ASSERT_FALSE(r.teammates.empty());
+            EXPECT_EQ(r.teammates.front(), "Zylo");
+            EXPECT_GE(r.timestampUnix, q.fromUnix);
+            EXPECT_LE(r.timestampUnix, q.toUnix);
+        }
+    }
+
+    // 4. Sort orders: Oldest, BiggestWin, BiggestLoss, ScoreMargin
+    {
+        std::vector<MatchRow> rows;
+        int total = 0;
+        MatchQuery q;
+        q.account = accA;
+        q.limit = 50;
+
+        q.sort = MatchQuery::Sort::Oldest;
+        dbManager->QueryMatches(q, rows, total);
+        ASSERT_EQ(rows.size(), 50u);
+        for (size_t i = 1; i < rows.size(); ++i) {
+            EXPECT_TRUE(rows[i - 1].timestampUnix < rows[i].timestampUnix ||
+                        (rows[i - 1].timestampUnix == rows[i].timestampUnix &&
+                         rows[i - 1].matchId < rows[i].matchId));
+        }
+
+        q.sort = MatchQuery::Sort::BiggestWin;
+        dbManager->QueryMatches(q, rows, total);
+        ASSERT_EQ(rows.size(), 50u);
+        ASSERT_TRUE(rows.front().mmrDelta.has_value());
+        for (size_t i = 1; i < rows.size(); ++i) {
+            ASSERT_TRUE(rows[i].mmrDelta.has_value());
+            EXPECT_GE(*rows[i - 1].mmrDelta, *rows[i].mmrDelta);
+        }
+
+        q.sort = MatchQuery::Sort::BiggestLoss;
+        dbManager->QueryMatches(q, rows, total);
+        ASSERT_EQ(rows.size(), 50u);
+        ASSERT_TRUE(rows.front().mmrDelta.has_value());
+        for (size_t i = 1; i < rows.size(); ++i) {
+            ASSERT_TRUE(rows[i].mmrDelta.has_value());
+            EXPECT_LE(*rows[i - 1].mmrDelta, *rows[i].mmrDelta);
+        }
+
+        q.sort = MatchQuery::Sort::ScoreMargin;
+        dbManager->QueryMatches(q, rows, total);
+        ASSERT_EQ(rows.size(), 50u);
+        for (size_t i = 1; i < rows.size(); ++i) {
+            const int marginPrev = rows[i - 1].ourScore - rows[i - 1].theirScore;
+            const int marginCur = rows[i].ourScore - rows[i].theirScore;
+            EXPECT_GE(marginPrev, marginCur);
+        }
+    }
+}
+
+TEST_F(DatabaseManagerTest, QueryMatchesEscapesWildcardAndInjectionCharactersInNames) {
+    const std::string me = "Steam|me";
+    auto saveWithNames = [&](const std::string& guid, const std::string& tmName, const std::string& oppName) {
+        MatchSaveSnapshot snap;
+        snap.arenaName = "DFH Stadium";
+        snap.matchGuid = guid;
+        snap.playlistId = 11;
+        snap.myTeam = 0;
+        snap.winnerTeam = 0;
+        snap.validResult = true;
+        snap.score[0] = 3;
+        snap.score[1] = 1;
+        snap.myPrimaryId = me;
+        snap.roster[me] = PlayerData{.primaryId = me, .name = "NormalMe", .team = 0, .mmr = 1200};
+        snap.roster["Steam|tm_" + guid] = PlayerData{.primaryId = "Steam|tm_" + guid, .name = tmName, .team = 0, .mmr = 1200};
+        snap.roster["Steam|opp_" + guid] = PlayerData{.primaryId = "Steam|opp_" + guid, .name = oppName, .team = 1, .mmr = 1200};
+        dbManager->SaveMatch(snap);
+    };
+
+    saveWithNames("inj-1", "100%_legit'--;\\player", "NormalOpp");
+    saveWithNames("inj-2", "100Xalegitplayer", " Bob'; DROP TABLE Matches; -- ");
+    saveWithNames("inj-3", " PlainTeammate ", " slash\\under_pct%quote'dash-- ");
+
+    std::vector<MatchRow> rows;
+    int total = 0;
+
+    // % and _ must match literal characters, not wildcards
+    MatchQuery q;
+    q.account = me;
+    q.nameSearch = "100%_legit";
+    dbManager->QueryMatches(q, rows, total);
+    ASSERT_EQ(total, 1);
+    EXPECT_EQ(rows[0].matchGuid, "inj-1");
+
+    // Backslash and SQL comment sequence in withPlayer
+    q = {};
+    q.account = me;
+    q.withPlayer = "'--;\\";
+    dbManager->QueryMatches(q, rows, total);
+    ASSERT_EQ(total, 1);
+    EXPECT_EQ(rows[0].matchGuid, "inj-1");
+
+    // Injection string in againstPlayer
+    q = {};
+    q.account = me;
+    q.againstPlayer = "DROP TABLE Matches; --";
+    dbManager->QueryMatches(q, rows, total);
+    ASSERT_EQ(total, 1);
+    EXPECT_EQ(rows[0].matchGuid, "inj-2");
+
+    // Literal backslash + underscore + percent in againstPlayer
+    q = {};
+    q.account = me;
+    q.againstPlayer = "slash\\under_pct%";
+    dbManager->QueryMatches(q, rows, total);
+    ASSERT_EQ(total, 1);
+    EXPECT_EQ(rows[0].matchGuid, "inj-3");
+}
+
+TEST_F(DatabaseManagerTest, GetMatchDetailReturnsFullScoreboardForV2AndReducedForV1WithMetBeforeCounts) {
+    const std::string me = "Steam|me";
+    const std::string mate = "Epic|zylo";
+    const std::string opp1 = "PS4|rival1";
+    const std::string opp2 = "XboxOne|rival2";
+
+    // Match 1 (v2): previous 2v2 match with mate and opp1
+    {
+        MatchSaveSnapshot snap;
+        snap.arenaName = "DFH Stadium";
+        snap.matchGuid = "detail-m1";
+        snap.playlistId = 11;
+        snap.myTeam = 0;
+        snap.winnerTeam = 0;
+        snap.validResult = true;
+        snap.score[0] = 2;
+        snap.score[1] = 1;
+        snap.endedAtUnixMs = 1'700'010'000'000LL;
+        snap.myPrimaryId = me;
+        snap.roster[me] = PlayerData{.primaryId = me, .name = "MePlayer", .team = 0, .mmr = 1200, .goals = 1};
+        snap.roster[mate] = PlayerData{.primaryId = mate, .name = "Zylo", .team = 0, .mmr = 1190, .goals = 1};
+        snap.roster[opp1] = PlayerData{.primaryId = opp1, .name = "RivalOne", .team = 1, .mmr = 1210, .goals = 1};
+        snap.roster["Switch|other"] = PlayerData{.primaryId = "Switch|other", .name = "OtherOpp", .team = 1, .mmr = 1180};
+        dbManager->SaveMatch(snap);
+    }
+
+    // Match 2 (v2): target 2v2 match with full stats, duration, and overtime
+    {
+        MatchSaveSnapshot snap;
+        snap.arenaName = "Mannfield";
+        snap.matchGuid = "detail-m2";
+        snap.playlistId = 11;
+        snap.myTeam = 0;
+        snap.winnerTeam = 0;
+        snap.validResult = true;
+        snap.score[0] = 4;
+        snap.score[1] = 3;
+        snap.endedAtUnixMs = 1'700'010'600'000LL;
+        snap.durationSeconds = 342.0f;
+        snap.overtimeSeconds = 42.0f;
+        snap.myPrimaryId = me;
+        snap.roster[me] = PlayerData{
+            .primaryId = me, .name = "MePlayer", .team = 0, .mmr = 1209, .goals = 2, .saves = 3, .shots = 5, .demos = 1, .assists = 1};
+        snap.roster[mate] = PlayerData{
+            .primaryId = mate, .name = "Zylo", .team = 0, .mmr = 1199, .goals = 2, .saves = 1, .shots = 4, .demos = 0, .assists = 2};
+        snap.roster[opp1] = PlayerData{
+            .primaryId = opp1, .name = "RivalOne", .team = 1, .mmr = 1201, .goals = 2, .saves = 2, .shots = 6, .demos = 2, .assists = 0};
+        snap.roster[opp2] = PlayerData{
+            .primaryId = opp2, .name = "RivalTwo", .team = 1, .mmr = 1205, .goals = 1, .saves = 0, .shots = 3, .demos = 0, .assists = 1};
+        dbManager->SaveMatch(snap);
+    }
+
+    // Match 3 (v1): legacy match with no MatchPlayerStats or MatchLocalStats rows
+    {
+        MatchSaveSnapshot snap;
+        snap.arenaName = "Champions Field";
+        snap.matchGuid = "detail-m3-v1";
+        snap.playlistId = 11;
+        snap.myTeam = 0;
+        snap.winnerTeam = 1;
+        snap.validResult = true;
+        snap.score[0] = 1;
+        snap.score[1] = 2;
+        snap.endedAtUnixMs = 1'700'011'200'000LL;
+        snap.myPrimaryId = me;
+        snap.roster[me] = PlayerData{.primaryId = me, .name = "MePlayer", .team = 0, .mmr = 1198};
+        snap.roster[mate] = PlayerData{.primaryId = mate, .name = "Zylo", .team = 0, .mmr = 1190};
+        snap.roster[opp1] = PlayerData{.primaryId = opp1, .name = "RivalOne", .team = 1, .mmr = 1210};
+        snap.roster[opp2] = PlayerData{.primaryId = opp2, .name = "RivalTwo", .team = 1, .mmr = 1215};
+        dbManager->SaveMatch(snap);
+        sqlite3_exec(dbManager->GetRawDb(),
+                     "DELETE FROM MatchPlayerStats WHERE match_id = 3; DELETE FROM MatchLocalStats WHERE match_id = 3;",
+                     nullptr, nullptr, nullptr);
+    }
+
+    // Verify Match 2 (v2) detail
+    MatchDetail d2;
+    ASSERT_TRUE(dbManager->GetMatchDetail(2, d2, me));
+    EXPECT_TRUE(d2.found);
+    EXPECT_EQ(d2.arena, "Mannfield");
+    EXPECT_EQ(d2.playlist, "Doubles");
+    EXPECT_TRUE(d2.ranked);
+    EXPECT_TRUE(d2.win);
+    EXPECT_EQ(d2.ourScore, 4);
+    EXPECT_EQ(d2.theirScore, 3);
+    EXPECT_EQ(d2.mmrBefore, std::optional<int>(1200));
+    EXPECT_EQ(d2.mmrAfter, std::optional<int>(1209));
+    EXPECT_EQ(d2.mmrDelta, std::optional<int>(9));
+    EXPECT_TRUE(d2.hasPlayerStats);
+    EXPECT_TRUE(d2.hasLocalStats);
+    ASSERT_TRUE(d2.durationSeconds.has_value());
+    EXPECT_FLOAT_EQ(*d2.durationSeconds, 342.0f);
+    ASSERT_TRUE(d2.overtimeSeconds.has_value());
+    EXPECT_FLOAT_EQ(*d2.overtimeSeconds, 42.0f);
+
+    ASSERT_EQ(d2.ourTeam.size(), 2u);
+    ASSERT_EQ(d2.theirTeam.size(), 2u);
+    EXPECT_EQ(d2.ourTeam[0].name, "MePlayer");
+    EXPECT_EQ(d2.ourTeam[0].platform, "Steam");
+    EXPECT_TRUE(d2.ourTeam[0].isMe);
+    EXPECT_EQ(d2.ourTeam[0].goals, std::optional<int>(2));
+    EXPECT_EQ(d2.ourTeam[0].assists, std::optional<int>(1));
+    EXPECT_EQ(d2.ourTeam[0].saves, std::optional<int>(3));
+    EXPECT_EQ(d2.ourTeam[0].shots, std::optional<int>(5));
+    EXPECT_EQ(d2.ourTeam[0].demos, std::optional<int>(1));
+    EXPECT_NE(d2.ourTeam[0].tier, "Unranked");
+
+    EXPECT_EQ(d2.ourTeam[1].name, "Zylo");
+    EXPECT_EQ(d2.ourTeam[1].platform, "Epic");
+    // Zylo is also in match 1 and match 3 -> 2 other matches with `me`
+    EXPECT_EQ(d2.ourTeam[1].metBeforeCount, 2);
+
+    EXPECT_EQ(d2.theirTeam[0].name, "RivalOne");
+    EXPECT_EQ(d2.theirTeam[0].platform, "PlayStation");
+    EXPECT_EQ(d2.theirTeam[0].metBeforeCount, 2);
+
+    EXPECT_EQ(d2.theirTeam[1].name, "RivalTwo");
+    EXPECT_EQ(d2.theirTeam[1].platform, "Xbox");
+    // RivalTwo is in match 2 and match 3 -> 1 other match with `me`
+    EXPECT_EQ(d2.theirTeam[1].metBeforeCount, 1);
+
+    // Verify Match 3 (v1) detail
+    MatchDetail d3;
+    ASSERT_TRUE(dbManager->GetMatchDetail(3, d3));
+    EXPECT_TRUE(d3.found);
+    EXPECT_FALSE(d3.hasPlayerStats);
+    EXPECT_FALSE(d3.hasLocalStats);
+    EXPECT_FALSE(d3.durationSeconds.has_value());
+    EXPECT_FALSE(d3.overtimeSeconds.has_value());
+    EXPECT_EQ(d3.mmrBefore, std::optional<int>(1209));
+    EXPECT_EQ(d3.mmrAfter, std::optional<int>(1198));
+    EXPECT_EQ(d3.mmrDelta, std::optional<int>(-11));
+    ASSERT_EQ(d3.ourTeam.size(), 2u);
+    EXPECT_FALSE(d3.ourTeam[0].hasStats);
+    EXPECT_FALSE(d3.ourTeam[0].goals.has_value());
+    EXPECT_FALSE(d3.ourTeam[0].saves.has_value());
+}
+
+TEST_F(DatabaseManagerTest, AsyncQueryMatchesAndAsyncGetMatchDetailIgnoreStaleRequestIds) {
+    const std::string me = "Steam|async_user";
+    for (int i = 0; i < 3; ++i) {
+        MatchSaveSnapshot snap;
+        snap.arenaName = i == 0 ? "DFH Stadium" : "Mannfield";
+        snap.matchGuid = "async-guid-" + std::to_string(i);
+        snap.playlistId = 11;
+        snap.myTeam = 0;
+        snap.winnerTeam = (i % 2 == 0) ? 0 : 1;
+        snap.validResult = true;
+        snap.score[0] = 3;
+        snap.score[1] = 1;
+        snap.endedAtUnixMs = 1'700'020'000'000LL + i * 600'000LL;
+        snap.myPrimaryId = me;
+        snap.roster[me] = PlayerData{.primaryId = me, .name = "AsyncUser", .team = 0, .mmr = 1200 + i * 10};
+        snap.roster["Steam|opp"] = PlayerData{.primaryId = "Steam|opp", .name = "Opponent", .team = 1, .mmr = 1200};
+        dbManager->SaveMatch(snap);
+    }
+
+    MatchQuery qNewer;
+    qNewer.account = me;
+    qNewer.arena = "Mannfield";
+    MatchQuery qStale;
+    qStale.account = me;
+    qStale.arena = "DFH Stadium";
+
+    dbManager->AsyncQueryMatches(qNewer, 10);
+    dbManager->AsyncQueryMatches(qStale, 5); // Stale requestId < 10 must be ignored
+    dbManager->AsyncGetMatchDetail(2, 20, me);
+    dbManager->AsyncGetMatchDetail(1, 15, me); // Stale detailRequestId < 20 must be ignored
+
+    dbManager->AsyncSetSetting("async_history_barrier", "done");
+    for (int i = 0; i < 200 && dbManager->GetSetting("async_history_barrier", "") != "done"; ++i) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    }
+    ASSERT_EQ(dbManager->GetSetting("async_history_barrier", ""), "done");
+
+    std::lock_guard<std::mutex> lock(sessionState->historyView.mutex);
+    EXPECT_EQ(sessionState->historyView.requestId, 10u);
+    EXPECT_FALSE(sessionState->historyView.loading);
+    EXPECT_EQ(sessionState->historyView.total, 2);
+    ASSERT_EQ(sessionState->historyView.rows.size(), 2u);
+    for (const auto& r : sessionState->historyView.rows) {
+        EXPECT_EQ(r.arena, "Mannfield");
+    }
+
+    EXPECT_EQ(sessionState->historyView.detailRequestId, 20u);
+    ASSERT_TRUE(sessionState->historyView.detail.has_value());
+    EXPECT_EQ(sessionState->historyView.detail->matchId, 2);
+}

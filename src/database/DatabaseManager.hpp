@@ -100,6 +100,12 @@ class DatabaseManager {
     void GetDetailedStatsSummary(int& outMatchCount, std::string& outSinceDate);
     void AsyncRefreshDetailedStatsSummary();
     int GetSchemaVersion();
+    void QueryMatches(const MatchQuery& query, std::vector<MatchRow>& outRows, int& outTotalCount);
+    void AsyncQueryMatches(MatchQuery query, uint64_t requestId, bool append = false);
+    bool GetMatchDetail(int64_t matchId, MatchDetail& outDetail, const std::string& accountPrimaryId = "");
+    bool GetMatchDetailByGuid(const std::string& matchGuid, MatchDetail& outDetail, const std::string& accountPrimaryId = "");
+    void AsyncGetMatchDetail(int64_t matchId, uint64_t requestId = 0, std::string accountPrimaryId = "");
+    void AsyncGetMatchDetailByGuid(std::string matchGuid, uint64_t requestId = 0, std::string accountPrimaryId = "");
 
     [[nodiscard]] bool SetSetting(const std::string& key, const std::string& value);
     void AsyncSetSetting(std::string key, std::string value);

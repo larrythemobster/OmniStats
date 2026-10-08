@@ -85,7 +85,8 @@ bool RmlUiController::Initialize(HWND hwnd, ID3D11Device* device, ID3D11DeviceCo
         Shutdown();
         return false;
     }
-    if (!m_liveModel.Create(m_context) || !m_insights.Create(m_context) || !m_onboarding.Create(m_context)) {
+    if (!m_liveModel.Create(m_context) || !m_insights.Create(m_context) ||
+        !m_history.Create(m_context) || !m_onboarding.Create(m_context)) {
         Shutdown();
         return false;
     }
@@ -139,10 +140,13 @@ void RmlUiController::Shutdown() {
         m_document = nullptr;
         m_insightsDoc = nullptr;
         m_onboardingDoc = nullptr;
+        m_historyDoc = nullptr;
         m_insightsVisible = false;
         m_onboardingVisible = false;
+        m_historyVisible = false;
         m_liveModel.Reset();
         m_insights.Reset();
+        m_history.Reset();
         m_onboarding.Reset();
     }
     m_baseStyleSheet.reset();
@@ -206,6 +210,15 @@ bool RmlUiController::ProcessWindowMessage(HWND hwnd, UINT message, WPARAM wPara
     }
     if (message == WM_KEYDOWN && wParam == VK_ESCAPE && m_insightsVisible && !m_onboardingVisible) {
         HideInsights();
+        return true;
+    }
+    if (message == WM_KEYDOWN && wParam == VK_ESCAPE && m_historyVisible && !m_onboardingVisible) {
+        if (m_history.IsDetailOpen()) {
+            m_history.CloseDetail();
+            m_renderDirty = true;
+        } else {
+            HideHistory();
+        }
         return true;
     }
     const bool handled = RmlInputWin32::ProcessWindowMessage(m_context, hwnd, message, wParam, lParam);
@@ -397,6 +410,7 @@ void RmlUiController::Update(const ConfigData& config, bool configChanged, uint6
     RebuildVisibleUi(false, (configChanged && !localConfigEcho) || deferredSelect);
     if (m_state && m_state->ui.showSessionRecap.exchange(false)) ShowInsights(InsightsView::Tab::Recap, true);
     if (m_insightsVisible) RefreshInsights(false);
+    if (m_historyVisible) RefreshHistory(false);
     if (m_onboardingVisible) RefreshOnboarding();
 }
 

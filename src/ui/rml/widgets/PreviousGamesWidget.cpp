@@ -56,7 +56,8 @@ std::string RmlUiController::RenderPreviousGames(bool includeHeading) {
         out << "<div class='card-title grow'>PREVIOUS GAMES</div>";
     else
         out << "<div class='grow'></div>";
-    out << "<div class='label'>last " << configuredLimit << " games</div></div>";
+    out << "<div class='label'>last " << configuredLimit << " games</div>"
+        << "<button class='ghost compact previous-games-view-all' data-action='history-open'>View all</button></div>";
     if (!m_snap.recentSavedMatchesLoaded) {
         out << "<div class='muted'>Loading saved match history...</div>";
     } else if (m_snap.recentSavedMatches.empty()) {
@@ -71,7 +72,10 @@ std::string RmlUiController::RenderPreviousGames(bool includeHeading) {
             const auto& match = m_snap.recentSavedMatches[static_cast<size_t>(i)];
             const std::string playlist = std::string(match.ranked ? "R " : "C ") + (match.mode.empty() ? "Unknown" : match.mode);
             out << "<div class='match-row match-data " << (match.win ? "match-win" : "match-loss")
-                << (i % 2 == 0 ? " match-even" : " match-odd") << "'>"
+                << (i % 2 == 0 ? " match-even" : " match-odd") << "' data-action='history-open'";
+            if (match.matchId > 0) out << " data-match-id='" << match.matchId << "'";
+            if (!match.matchGuid.empty()) out << " data-match-guid='" << Escape(match.matchGuid) << "'";
+            out << ">"
                 << "<div class='match-mode'>" << Escape(playlist) << "</div>"
                 << "<div class='match-score'>" << match.ourScore << '-' << match.theirScore << "</div>"
                 << "<div class='match-mmr'>" << (match.pendingTrackerConfirmation ? "***" : (match.mmrEstimated && match.mmr > 0 ? "~" + std::to_string(match.mmr) : (match.mmr > 0 ? std::to_string(match.mmr) : "--"))) << "</div>"

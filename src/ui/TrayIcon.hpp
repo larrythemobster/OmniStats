@@ -10,6 +10,7 @@
 // Messages posted from the tray thread to the main window
 #define WM_TOGGLE_MODE (WM_APP + 1)
 #define WM_OPEN_INSIGHTS (WM_APP + 3)
+#define WM_OPEN_HISTORY (WM_APP + 5)
 
 // Free function shared by TrayIcon and Overlay (main window icon)
 HICON LoadAppIcon(int width = 0, int height = 0);

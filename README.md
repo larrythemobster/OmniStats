@@ -24,6 +24,7 @@ releases.
 - Click-through overlay and second-monitor dashboard, with per-container visibility rules.
 - Player roster context and browser links to public player profiles.
 - Insights window with a session recap card you can save as a PNG, a persisted session archive with previous-session comparisons, win rates with and against the people you play with most, and trends by playlist, time of day, session length, loss streaks, and lobby MMR gap.
+- Match history browser with playlist, result, date, arena, teammate, opponent, and player-name filters, plus a per-match scoreboard detail view and plain-text clipboard summary.
 - First-run setup that fixes the Stats API config, picks overlay or dashboard, and asks about each optional integration.
 - Required startup diagnostics and update checks, plus optional Discord Rich Presence, Ballchasing replay uploads, automatic update installation, and crash reports.
 

@@ -39,6 +39,7 @@ HICON LoadAppIcon(int width, int height) {
 #define ID_TRAY_EXIT 1001
 #define ID_TRAY_TOGGLE_MODE 1002
 #define ID_TRAY_INSIGHTS 1003
+#define ID_TRAY_HISTORY 1004
 #define WM_TRAY_NOTIFY (WM_APP + 4)
 TrayIcon::TrayIcon(HWND mainHwnd) : m_mainHwnd(mainHwnd) {}
 
@@ -247,6 +248,7 @@ void TrayIcon::ThreadFunc() {
                 std::wstring menuText = conf.second_monitor_mode ? L"Second Monitor Dashboard: On" : L"Second Monitor Dashboard: Off";
                 AppendMenuW(hMenu, modeFlags, ID_TRAY_TOGGLE_MODE, menuText.c_str());
                 AppendMenuW(hMenu, MF_STRING, ID_TRAY_INSIGHTS, L"Insights");
+                AppendMenuW(hMenu, MF_STRING, ID_TRAY_HISTORY, L"History");
                 AppendMenuW(hMenu, MF_SEPARATOR, 0, nullptr);
                 AppendMenuW(hMenu, MF_STRING, ID_TRAY_EXIT, L"Exit");
 
@@ -276,6 +278,8 @@ void TrayIcon::ThreadFunc() {
                     }
                 } else if (cmd == ID_TRAY_INSIGHTS) {
                     if (self && self->m_mainHwnd) PostMessageW(self->m_mainHwnd, WM_OPEN_INSIGHTS, 0, 0);
+                } else if (cmd == ID_TRAY_HISTORY) {
+                    if (self && self->m_mainHwnd) PostMessageW(self->m_mainHwnd, WM_OPEN_HISTORY, 0, 0);
                 }
             }
             return 0;

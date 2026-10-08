@@ -70,6 +70,7 @@ void RmlUiController::ReloadUiResources() {
     CloseViewDocuments();
     LoadViewDocuments();
     if (m_onboardingVisible) RefreshOnboarding();
+    if (m_historyVisible) RefreshHistory(true);
     UpdateThemeProperties();
     RebuildVisibleUi(true, true);
     if (m_state && m_state->ui.showMenu.load()) RebuildSettings();
@@ -231,6 +232,13 @@ void RmlUiController::UpdateThemeProperties() {
     rule(".session-bar-track", "background-color", scaledColor(m_config.themeLoss, 1.0f, 0.85f));
     rule(".recap-compare", "border-top-color", line);
     rule(".recap-compare-row", "border-top-color", lineSoft);
+    rule(".history-toolbar", "border-bottom-color", line);
+    rule(".history-table, .history-scoreboard-table", "border-color", line);
+    rule(".history-row, .history-scoreboard-row", "border-top-color", lineSoft);
+    rule(".history-row.header, .history-scoreboard-row.header", "background-color", scaledColor(m_config.themeText, 1.0f, 0.03f));
+    rule(".history-detail-card", "background-color", panel);
+    rule(".history-detail-card", "border-color", line);
+    rule(".history-detail-header", "border-bottom-color", line);
     rule(".trend-track", "background-color", lineSoft);
     rule(".trend-bar", "background-color", muted);
     rule(".trend-bar.win", "background-color", win);
@@ -268,7 +276,7 @@ void RmlUiController::UpdateThemeProperties() {
     if (combined) {
         // The view documents link the same packaged RCSS, so one combined
         // sheet serves all of them.
-        for (Rml::ElementDocument* document : {m_document, m_insightsDoc, m_onboardingDoc})
+        for (Rml::ElementDocument* document : {m_document, m_insightsDoc, m_onboardingDoc, m_historyDoc})
             if (document) document->SetStyleSheetContainer(combined);
         m_renderDirty = true;
     }

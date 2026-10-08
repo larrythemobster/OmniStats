@@ -122,7 +122,7 @@ LRESULT WINAPI WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                     if (pt.y >= height - borderSize) return HTBOTTOM;
                 }
                 const int titleBarHeight = static_cast<int>(34.0f * overlay->m_dpiScale);
-                const int controlsWidth = static_cast<int>(350.0f * overlay->m_dpiScale);
+                const int controlsWidth = static_cast<int>(420.0f * overlay->m_dpiScale);
                 if (pt.y >= 0 && pt.y <= titleBarHeight) {
                     if (pt.x >= width - controlsWidth) return HTCLIENT;
                     return HTCAPTION;
@@ -144,6 +144,10 @@ LRESULT WINAPI WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
 
     case WM_OPEN_INSIGHTS:
         if (overlay && overlay->m_rmlUi) overlay->m_rmlUi->OpenInsights();
+        return 0;
+
+    case WM_OPEN_HISTORY:
+        if (overlay && overlay->m_rmlUi) overlay->m_rmlUi->OpenHistory();
         return 0;
 
     case WM_GETMINMAXINFO:

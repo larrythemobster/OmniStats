@@ -30,26 +30,34 @@ bool RmlUiController::WantsAttention() const {
     // A recap captured when Rocket League closed is only opened by Update(),
     // and the host skips Update() while the window is hidden, so the pending
     // flag itself has to keep the window drawn.
-    return m_insightsVisible || m_onboardingVisible || (m_state && m_state->ui.showSessionRecap.load());
+    return m_insightsVisible || m_historyVisible || m_onboardingVisible || (m_state && m_state->ui.showSessionRecap.load());
 }
 
 void RmlUiController::OpenInsights() {
     ShowInsights(m_insights.CurrentTab(), false);
 }
 
+void RmlUiController::OpenHistory() {
+    ShowHistory();
+}
+
 void RmlUiController::LoadViewDocuments() {
     if (!m_context) return;
     m_insightsDoc = m_context->LoadDocument("res://insights.rml");
     m_onboardingDoc = m_context->LoadDocument("res://onboarding.rml");
+    m_historyDoc = m_context->LoadDocument("res://history.rml");
     if (m_insightsVisible && m_insightsDoc) m_insightsDoc->Show();
     if (m_onboardingVisible && m_onboardingDoc) m_onboardingDoc->Show();
+    if (m_historyVisible && m_historyDoc) m_historyDoc->Show();
 }
 
 void RmlUiController::CloseViewDocuments() {
     if (m_insightsDoc) m_insightsDoc->Close();
     if (m_onboardingDoc) m_onboardingDoc->Close();
+    if (m_historyDoc) m_historyDoc->Close();
     m_insightsDoc = nullptr;
     m_onboardingDoc = nullptr;
+    m_historyDoc = nullptr;
     m_lastOnboardingIdentityRml.clear();
 }
 
@@ -120,6 +128,93 @@ void RmlUiController::RefreshInsights(bool force) {
     m_renderDirty = true;
 }
 
+void RmlUiController::ShowHistory(int64_t detailMatchId, const std::string& detailMatchGuid) {
+    if (!m_historyDoc) return;
+    const std::string effectivePrimary = m_snap.myPrimaryId.empty() ? m_config.last_primary_id : m_snap.myPrimaryId;
+    m_history.SetAccount(effectivePrimary);
+    if (!m_historyVisible) {
+        m_historyDoc->Show();
+        m_historyVisible = true;
+    }
+    m_historyDoc->PullToFront();
+    if (m_onboardingVisible && m_onboardingDoc) m_onboardingDoc->PullToFront();
+    TriggerHistoryQuery(false);
+    if (detailMatchId > 0 || !detailMatchGuid.empty()) {
+        OpenHistoryDetail(detailMatchId, detailMatchGuid);
+    }
+    m_renderDirty = true;
+}
+
+void RmlUiController::HideHistory() {
+    if (m_historyDoc) m_historyDoc->Hide();
+    m_historyVisible = false;
+    m_history.CloseDetail();
+    m_renderDirty = true;
+}
+
+void RmlUiController::TriggerHistoryQuery(bool append) {
+    const std::string effectivePrimary = m_snap.myPrimaryId.empty() ? m_config.last_primary_id : m_snap.myPrimaryId;
+    m_history.SetAccount(effectivePrimary);
+    const int offset = append ? m_history.LoadedRowCount() : 0;
+    const uint64_t reqId = m_history.BeginQuery(append);
+    if (m_dbManager && !effectivePrimary.empty()) {
+        MatchQuery q = m_history.BuildQuery(offset, HistoryView::kPageSize);
+        m_dbManager->AsyncQueryMatches(std::move(q), reqId, append);
+    }
+    m_renderDirty = true;
+}
+
+void RmlUiController::OpenHistoryDetail(int64_t matchId, const std::string& matchGuid) {
+    const std::string effectivePrimary = m_snap.myPrimaryId.empty() ? m_config.last_primary_id : m_snap.myPrimaryId;
+    const uint64_t reqId = m_history.BeginDetail(matchId);
+    if (m_dbManager) {
+        if (matchId > 0) {
+            m_dbManager->AsyncGetMatchDetail(matchId, reqId, effectivePrimary);
+        } else if (!matchGuid.empty()) {
+            m_dbManager->AsyncGetMatchDetailByGuid(matchGuid, reqId, effectivePrimary);
+        }
+    }
+    m_renderDirty = true;
+}
+
+void RmlUiController::RefreshHistory(bool force) {
+    if (!m_state) return;
+    const std::string effectivePrimary = m_snap.myPrimaryId.empty() ? m_config.last_primary_id : m_snap.myPrimaryId;
+    if (m_history.Account() != effectivePrimary) {
+        m_history.SetAccount(effectivePrimary);
+    }
+    const uint64_t version = m_state->historyView.version.load(std::memory_order_relaxed);
+    if (!force && version == m_lastHistoryViewVersion) return;
+    m_lastHistoryViewVersion = version;
+
+    uint64_t reqId = 0;
+    uint64_t detailReqId = 0;
+    bool loading = false;
+    bool detailLoading = false;
+    bool appendMode = false;
+    std::vector<MatchRow> rows;
+    int total = 0;
+    std::optional<MatchDetail> detail;
+    {
+        std::lock_guard lock(m_state->historyView.mutex);
+        reqId = m_state->historyView.requestId;
+        detailReqId = m_state->historyView.detailRequestId;
+        loading = m_state->historyView.loading;
+        detailLoading = m_state->historyView.detailLoading;
+        appendMode = m_state->historyView.appendMode;
+        rows = m_state->historyView.rows;
+        total = m_state->historyView.total;
+        detail = m_state->historyView.detail;
+    }
+
+    if (!loading && reqId > 0) {
+        m_history.ApplyQueryResult(reqId, rows, total, appendMode);
+    }
+    if (!detailLoading && (detailReqId > 0 || detail.has_value())) {
+        m_history.ApplyDetailResult(detailReqId, detail);
+    }
+    m_renderDirty = true;
+}
 // Runs from Render() after the frame is drawn, while the render target that
 // holds the recap card is still bound.
 void RmlUiController::ExportRecapPng() {
@@ -225,6 +320,60 @@ bool RmlUiController::HandleViewAction(const std::string& action, Rml::Element* 
     } else if (action == "sessions-load-more") {
         m_insights.LoadMoreSessions();
         m_renderDirty = true;
+    } else if (action == "history-open") {
+        const std::string idAttr = Attribute(target, "data-match-id");
+        std::string guidAttr = Attribute(target, "data-match-guid");
+        const std::string sourceAttr = Attribute(target, "data-source");
+        int64_t matchId = 0;
+        if (!idAttr.empty()) {
+            matchId = std::strtoll(idAttr.c_str(), nullptr, 10);
+        }
+        if (matchId <= 0 && sourceAttr == "match-summary") {
+            if (guidAttr.empty()) guidAttr = m_snap.matchGuid;
+            if (!guidAttr.empty()) {
+                for (const auto& m : m_snap.recentSavedMatches) {
+                    if (m.matchGuid == guidAttr && m.matchId > 0) {
+                        matchId = m.matchId;
+                        break;
+                    }
+                }
+            }
+            if (matchId <= 0 && guidAttr.empty() && !m_snap.recentSavedMatches.empty()) {
+                matchId = m_snap.recentSavedMatches.front().matchId;
+                guidAttr = m_snap.recentSavedMatches.front().matchGuid;
+            }
+        }
+        if (m_historyVisible && (matchId > 0 || !guidAttr.empty())) {
+            OpenHistoryDetail(matchId, guidAttr);
+        } else {
+            ShowHistory(matchId, guidAttr);
+        }
+    } else if (action == "history-close") {
+        HideHistory();
+    } else if (action == "history-close-detail") {
+        m_history.CloseDetail();
+        m_renderDirty = true;
+    } else if (action == "history-filter") {
+        const std::string playlist = Attribute(target, "data-playlist");
+        const std::string result = Attribute(target, "data-result");
+        const std::string date = Attribute(target, "data-date");
+        const std::string sort = Attribute(target, "data-sort");
+        if (!playlist.empty()) m_history.SetPlaylistFilter(playlist);
+        if (!result.empty()) m_history.SetResultFilter(result);
+        if (!date.empty()) m_history.SetDateFilter(date);
+        if (!sort.empty()) m_history.SetSortFilter(sort);
+        TriggerHistoryQuery(false);
+    } else if (action == "history-clear-filters") {
+        m_history.ClearFilters();
+        TriggerHistoryQuery(false);
+    } else if (action == "history-more") {
+        TriggerHistoryQuery(true);
+    } else if (action == "history-copy") {
+        const std::string text = m_history.FormatScoreboardText();
+        if (!text.empty()) {
+            m_systemInterface.SetClipboardText(text);
+            ShowToast("Copied match summary to clipboard.");
+        }
     } else if (action == "onboarding-next") {
         m_onboarding.SetStep(m_onboarding.Step() + 1);
         RefreshOnboarding();

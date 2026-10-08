@@ -1,0 +1,187 @@
+<rml>
+<head>
+    <title>OmniStats Match History</title>
+    <link type="text/rcss" href="res://omnistats.rcss" />
+</head>
+<body id="app" class="view-document" data-model="history">
+    <div class="view-backdrop">
+        <div class="view-window history-window">
+            <div class="view-header row">
+                <div class="grow">
+                    <div class="brand-title">History</div>
+                    <div class="label">{{subtitle}}</div>
+                </div>
+                <div class="row gap-sm">
+                    <button class="ghost compact" data-action="history-clear-filters">Reset filters</button>
+                    <button class="ghost compact" data-action="history-close">Close</button>
+                </div>
+            </div>
+
+            <div class="history-toolbar">
+                <div class="row gap-sm history-filter-row">
+                    <span class="label history-filter-label">Playlist</span>
+                    <button class="tab-button pill" data-for="opt : playlist_options" data-action="history-filter" data-attr-data-playlist="opt.id" data-class-active="playlist_filter == opt.id">{{opt.label}}</button>
+                    <span class="label history-filter-label">Result</span>
+                    <button class="tab-button pill" data-action="history-filter" data-result="all" data-class-active="result_filter == 'all'">All</button>
+                    <button class="tab-button pill" data-action="history-filter" data-result="win" data-class-active="result_filter == 'win'">W</button>
+                    <button class="tab-button pill" data-action="history-filter" data-result="loss" data-class-active="result_filter == 'loss'">L</button>
+                    <span class="label history-filter-label">Date</span>
+                    <button class="tab-button pill" data-action="history-filter" data-date="all" data-class-active="date_filter == 'all'">All</button>
+                    <button class="tab-button pill" data-action="history-filter" data-date="7d" data-class-active="date_filter == '7d'">7d</button>
+                    <button class="tab-button pill" data-action="history-filter" data-date="30d" data-class-active="date_filter == '30d'">30d</button>
+                    <button class="tab-button pill" data-action="history-filter" data-date="90d" data-class-active="date_filter == '90d'">90d</button>
+                </div>
+                <div class="row gap-sm history-filter-row">
+                    <span class="label history-filter-label">Sort</span>
+                    <button class="tab-button pill" data-action="history-filter" data-sort="newest" data-class-active="sort_filter == 'newest'">Newest</button>
+                    <button class="tab-button pill" data-action="history-filter" data-sort="oldest" data-class-active="sort_filter == 'oldest'">Oldest</button>
+                    <button class="tab-button pill" data-action="history-filter" data-sort="biggest_win" data-class-active="sort_filter == 'biggest_win'">+MMR</button>
+                    <button class="tab-button pill" data-action="history-filter" data-sort="biggest_loss" data-class-active="sort_filter == 'biggest_loss'">-MMR</button>
+                    <button class="tab-button pill" data-action="history-filter" data-sort="margin" data-class-active="sort_filter == 'margin'">Margin</button>
+                    <div class="grow"></div>
+                    <div class="label mono history-count">{{count_label}}</div>
+                </div>
+                <div class="row gap-sm history-filter-row">
+                    <div class="history-input-group">
+                        <span class="label">With</span>
+                        <input type="text" class="text history-input" data-setting="history_with" data-attr-value="with_player" />
+                    </div>
+                    <div class="history-input-group">
+                        <span class="label">Against</span>
+                        <input type="text" class="text history-input" data-setting="history_against" data-attr-value="against_player" />
+                    </div>
+                    <div class="history-input-group">
+                        <span class="label">Arena</span>
+                        <input type="text" class="text history-input" data-setting="history_arena" data-attr-value="arena_filter" />
+                    </div>
+                    <div class="history-input-group grow">
+                        <span class="label">Search name</span>
+                        <input type="text" class="text history-input grow" data-setting="history_search" data-attr-value="name_search" />
+                    </div>
+                </div>
+            </div>
+
+            <div class="view-body">
+                <div class="history-table" data-if="rows.size > 0">
+                    <div class="history-row header">
+                        <div class="history-cell-result">Res</div>
+                        <div class="history-cell-playlist">Playlist</div>
+                        <div class="history-cell-score">Score</div>
+                        <div class="history-cell-mmr">MMR</div>
+                        <div class="history-cell-arena">Arena</div>
+                        <div class="history-cell-teammates">Teammates</div>
+                        <div class="history-cell-time">Time</div>
+                    </div>
+                    <div class="history-row item" data-for="row : rows" data-action="history-open" data-attr-data-match-id="row.match_id">
+                        <div class="history-cell-result mono" data-class-win="row.win" data-class-loss="!row.win">{{row.result}}</div>
+                        <div class="history-cell-playlist">{{row.playlist}}</div>
+                        <div class="history-cell-score mono">{{row.score}}</div>
+                        <div class="history-cell-mmr mono" data-class-win="row.mmr_tone == 1" data-class-loss="row.mmr_tone == -1">{{row.mmr_delta}}</div>
+                        <div class="history-cell-arena">{{row.arena}}</div>
+                        <div class="history-cell-teammates label">{{row.teammates}}</div>
+                        <div class="history-cell-time label">{{row.time}}</div>
+                    </div>
+                </div>
+                <div class="history-more-wrap" data-if="has_more">
+                    <button class="ghost compact" data-action="history-more">Load more</button>
+                </div>
+                <div class="muted view-empty" data-if="rows.size == 0">{{empty_message}}</div>
+            </div>
+
+            <div id="history-detail-modal" class="history-detail-backdrop" data-if="detail_open">
+                <div class="history-detail-card">
+                    <div class="history-detail-header row">
+                        <div class="grow">
+                            <div class="row gap-sm" style="align-items:center">
+                                <span class="history-detail-result" data-class-win="detail_win" data-class-loss="!detail_win">{{detail_result}}</span>
+                                <span class="history-detail-score mono">{{detail_score}}</span>
+                                <span class="badge">{{detail_playlist}}</span>
+                                <span class="label" data-if="detail_duration != ''">{{detail_duration}}</span>
+                            </div>
+                            <div class="row gap-sm history-detail-meta">
+                                <span class="value">{{detail_arena}}</span>
+                                <span class="label">{{detail_time}}</span>
+                                <span class="mono" data-if="detail_mmr_change != ''" data-class-win="detail_mmr_tone == 1" data-class-loss="detail_mmr_tone == -1">MMR: {{detail_mmr_change}}</span>
+                            </div>
+                        </div>
+                        <div class="row gap-sm">
+                            <button class="ghost compact" data-action="history-copy">Copy summary</button>
+                            <button class="ghost compact" data-action="history-close-detail">Close</button>
+                        </div>
+                    </div>
+
+                    <div class="callout" data-if="detail_v1_note != ''">{{detail_v1_note}}</div>
+
+                    <div class="history-scoreboard-block">
+                        <div class="stat-section-title">OUR TEAM</div>
+                        <div class="history-scoreboard-table">
+                            <div class="history-scoreboard-row header">
+                                <div class="history-sb-player">Player</div>
+                                <div class="history-sb-tier">Tier</div>
+                                <div class="history-sb-mmr">MMR</div>
+                                <div class="history-sb-stat">Score</div>
+                                <div class="history-sb-stat">G</div>
+                                <div class="history-sb-stat">A</div>
+                                <div class="history-sb-stat">S</div>
+                                <div class="history-sb-stat">Sh</div>
+                                <div class="history-sb-stat">D</div>
+                            </div>
+                            <div class="history-scoreboard-row" data-for="p : detail_our_team" data-class-self="p.is_me">
+                                <div class="history-sb-player">
+                                    <div class="row gap-sm" style="align-items:center">
+                                        <span class="value">{{p.name}}</span>
+                                        <span class="label" data-if="p.platform != ''">{{p.platform}}</span>
+                                    </div>
+                                    <div class="label history-sb-met">{{p.met_before}}</div>
+                                </div>
+                                <div class="history-sb-tier label">{{p.tier}}</div>
+                                <div class="history-sb-mmr mono">{{p.mmr}}</div>
+                                <div class="history-sb-stat mono">{{p.score}}</div>
+                                <div class="history-sb-stat mono">{{p.goals}}</div>
+                                <div class="history-sb-stat mono">{{p.assists}}</div>
+                                <div class="history-sb-stat mono">{{p.saves}}</div>
+                                <div class="history-sb-stat mono">{{p.shots}}</div>
+                                <div class="history-sb-stat mono">{{p.demos}}</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="history-scoreboard-block">
+                        <div class="stat-section-title">OPPONENTS</div>
+                        <div class="history-scoreboard-table">
+                            <div class="history-scoreboard-row header">
+                                <div class="history-sb-player">Player</div>
+                                <div class="history-sb-tier">Tier</div>
+                                <div class="history-sb-mmr">MMR</div>
+                                <div class="history-sb-stat">Score</div>
+                                <div class="history-sb-stat">G</div>
+                                <div class="history-sb-stat">A</div>
+                                <div class="history-sb-stat">S</div>
+                                <div class="history-sb-stat">Sh</div>
+                                <div class="history-sb-stat">D</div>
+                            </div>
+                            <div class="history-scoreboard-row" data-for="p : detail_their_team">
+                                <div class="history-sb-player">
+                                    <div class="row gap-sm" style="align-items:center">
+                                        <span class="value">{{p.name}}</span>
+                                        <span class="label" data-if="p.platform != ''">{{p.platform}}</span>
+                                    </div>
+                                    <div class="label history-sb-met">{{p.met_before}}</div>
+                                </div>
+                                <div class="history-sb-tier label">{{p.tier}}</div>
+                                <div class="history-sb-mmr mono">{{p.mmr}}</div>
+                                <div class="history-sb-stat mono">{{p.score}}</div>
+                                <div class="history-sb-stat mono">{{p.goals}}</div>
+                                <div class="history-sb-stat mono">{{p.assists}}</div>
+                                <div class="history-sb-stat mono">{{p.saves}}</div>
+                                <div class="history-sb-stat mono">{{p.shots}}</div>
+                                <div class="history-sb-stat mono">{{p.demos}}</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</body>
+</rml>

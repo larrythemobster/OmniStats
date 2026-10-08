@@ -221,6 +221,15 @@ class RmlUiControllerStateTest : public ::testing::Test {
     Rml::ElementDocument* InsightsDocument(RmlUiController& controller) {
         return controller.m_insightsDoc;
     }
+    Rml::ElementDocument* HistoryDocument(RmlUiController& controller) {
+        return controller.m_historyDoc;
+    }
+    HistoryView& HistoryModel(RmlUiController& controller) {
+        return controller.m_history;
+    }
+    bool IsHistoryVisible(const RmlUiController& controller) const {
+        return controller.m_historyVisible;
+    }
     void Click(RmlUiController& controller, Rml::Element* element) {
         controller.HandleClick(element);
     }
@@ -2195,4 +2204,173 @@ TEST_F(RmlUiControllerStateTest, SessionsTabRendersRowsOpensArchivedRecapAndComp
     Click(controller, nextBtns.front());
     controller.Render();
     EXPECT_NE(card->GetInnerRML().find("-12"), std::string::npos);
+}
+
+TEST_F(RmlUiControllerStateTest, HistoryViewOpensClosesIgnoresStaleResponsesAndOpensDetail) {
+    WarpDevice warp;
+    if (!warp.Create(1280, 800)) GTEST_SKIP() << "WARP not available.";
+
+    auto state = std::make_shared<SessionState>();
+    auto db = std::make_shared<DatabaseManager>(state);
+    ASSERT_TRUE(db->Initialize(":memory:"));
+
+    const std::string me = "Steam|hist_ui_user";
+    {
+        std::unique_lock lock(state->game.mutex);
+        state->game.myPrimaryId = me;
+        state->game.version.fetch_add(1);
+    }
+
+    for (int i = 0; i < 2; ++i) {
+        MatchSaveSnapshot snap;
+        snap.arenaName = i == 0 ? "DFH Stadium" : "Mannfield";
+        snap.matchGuid = "ui-hist-guid-" + std::to_string(i + 1);
+        snap.playlistId = 11;
+        snap.myTeam = 0;
+        snap.winnerTeam = i == 0 ? 0 : 1;
+        snap.validResult = true;
+        snap.score[0] = i == 0 ? 3 : 1;
+        snap.score[1] = i == 0 ? 1 : 2;
+        snap.endedAtUnixMs = 1'700'100'000'000LL + i * 600'000LL;
+        snap.durationSeconds = 300.0f;
+        snap.myPrimaryId = me;
+        snap.roster[me] = PlayerData{.primaryId = me, .name = "Me", .team = 0, .mmr = 1200 + i * 9, .goals = 2, .saves = 1, .shots = 4};
+        snap.roster["Epic|zylo"] = PlayerData{.primaryId = "Epic|zylo", .name = "Zylo", .team = 0, .mmr = 1190, .goals = 1, .assists = 1};
+        snap.roster["PS4|opp1"] = PlayerData{.primaryId = "PS4|opp1", .name = "Opp1", .team = 1, .mmr = 1205, .goals = 1};
+        snap.roster["XboxOne|opp2"] = PlayerData{.primaryId = "XboxOne|opp2", .name = "Opp2", .team = 1, .mmr = 1195, .saves = 2};
+        db->SaveMatch(snap);
+    }
+
+    RmlUiController controller(state, db);
+    ASSERT_TRUE(controller.Initialize(nullptr, warp.device.Get(), warp.context.Get(), 1280, 800, 1.0f));
+    controller.Update(Config::Read(), false);
+    EXPECT_FALSE(controller.WantsAttention());
+    EXPECT_FALSE(IsHistoryVisible(controller));
+
+    // 1. Open History view; overlay stays drawn and interactive while open
+    controller.OpenHistory();
+    EXPECT_TRUE(IsHistoryVisible(controller));
+    EXPECT_TRUE(controller.WantsAttention());
+    EXPECT_TRUE(controller.WantsInteraction());
+
+    db->AsyncSetSetting("ui_hist_barrier_1", "done");
+    for (int i = 0; i < 200 && db->GetSetting("ui_hist_barrier_1", "") != "done"; ++i) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    }
+    controller.Update(Config::Read(), false);
+    controller.Render();
+
+    EXPECT_EQ(HistoryModel(controller).TotalCount(), 2);
+    ASSERT_EQ(HistoryModel(controller).Rows().size(), 2u);
+    EXPECT_EQ(HistoryModel(controller).Rows()[0].arena, "Mannfield");
+    EXPECT_EQ(HistoryModel(controller).Rows()[0].mmr_delta, "+9");
+
+    // 2. Stale response with older requestId must be ignored
+    const uint64_t activeReq = HistoryModel(controller).ActiveRequestId();
+    ASSERT_GT(activeReq, 0u);
+    MatchRow fakeStaleRow;
+    fakeStaleRow.matchId = 999;
+    fakeStaleRow.arena = "StaleArena";
+    EXPECT_FALSE(HistoryModel(controller).ApplyQueryResult(activeReq - 1, {fakeStaleRow}, 1, false));
+    EXPECT_EQ(HistoryModel(controller).TotalCount(), 2);
+    EXPECT_EQ(HistoryModel(controller).Rows()[0].arena, "Mannfield");
+
+    {
+        std::lock_guard<std::mutex> lock(state->historyView.mutex);
+        state->historyView.requestId = activeReq - 1;
+        state->historyView.rows = {fakeStaleRow};
+        state->historyView.total = 1;
+        state->historyView.loading = false;
+        state->historyView.version.fetch_add(1, std::memory_order_relaxed);
+    }
+    controller.Update(Config::Read(), false);
+    EXPECT_EQ(HistoryModel(controller).TotalCount(), 2);
+    EXPECT_EQ(HistoryModel(controller).Rows()[0].arena, "Mannfield");
+
+    // 3. Click a row in HistoryDocument to open Match Detail modal
+    Rml::ElementList rowElements;
+    ASSERT_NE(HistoryDocument(controller), nullptr);
+    HistoryDocument(controller)->QuerySelectorAll(rowElements, ".history-row.item");
+    ASSERT_FALSE(rowElements.empty());
+    Click(controller, rowElements.front());
+
+    db->AsyncSetSetting("ui_hist_barrier_2", "done");
+    for (int i = 0; i < 200 && db->GetSetting("ui_hist_barrier_2", "") != "done"; ++i) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    }
+    controller.Update(Config::Read(), false);
+    controller.Render();
+
+    EXPECT_TRUE(HistoryModel(controller).IsDetailOpen());
+    ASSERT_TRUE(HistoryModel(controller).Detail().has_value());
+    EXPECT_EQ(HistoryModel(controller).Detail()->matchId, 2);
+    EXPECT_NE(HistoryDocument(controller)->GetElementById("history-detail-modal"), nullptr);
+
+    const std::string summaryText = HistoryModel(controller).FormatScoreboardText();
+    EXPECT_NE(summaryText.find("Mannfield"), std::string::npos);
+    EXPECT_NE(summaryText.find("1200 -> 1209 (+9)"), std::string::npos);
+    EXPECT_NE(summaryText.find("Zylo"), std::string::npos);
+    EXPECT_NE(summaryText.find("Met before: 1"), std::string::npos);
+
+    // 4. First Escape closes detail modal; second Escape closes History view
+    EXPECT_TRUE(controller.ProcessWindowMessage(nullptr, WM_KEYDOWN, VK_ESCAPE, 0));
+    EXPECT_FALSE(HistoryModel(controller).IsDetailOpen());
+    EXPECT_TRUE(IsHistoryVisible(controller));
+
+    EXPECT_TRUE(controller.ProcessWindowMessage(nullptr, WM_KEYDOWN, VK_ESCAPE, 0));
+    EXPECT_FALSE(IsHistoryVisible(controller));
+    EXPECT_FALSE(controller.WantsAttention());
+
+    // 5. Previous Games widget has "View all" and row click action, and Match Summary has "Details"
+    {
+        std::unique_lock lock(state->history.mutex);
+        SessionMatchSummary recent;
+        recent.matchId = 2;
+        recent.matchGuid = "ui-hist-guid-2";
+        recent.mode = "Doubles";
+        recent.ranked = true;
+        recent.ourScore = 1;
+        recent.theirScore = 2;
+        recent.mmr = 1209;
+        recent.win = false;
+        recent.endedAtUnix = 1'700'100'600LL;
+        state->history.recentSavedMatches = {recent};
+        state->history.recentSavedMatchesLoaded = true;
+        state->history.version.fetch_add(1);
+    }
+    controller.Update(Config::Read(), false);
+    const std::string prevGamesHtml = RenderPreviousGames(controller);
+    EXPECT_NE(prevGamesHtml.find("previous-games-view-all"), std::string::npos);
+    EXPECT_NE(prevGamesHtml.find("data-action='history-open' data-match-id='2'"), std::string::npos);
+
+    {
+        std::unique_lock lock(state->game.mutex);
+        state->game.matchGuid = "ui-hist-guid-2";
+        state->game.lastMatchWasVoid = false;
+        state->game.matchSummaryMyTeam = 0;
+        state->game.matchSummaryWinnerTeam = 1;
+        state->game.matchSummaryScore = {1, 2};
+        state->game.version.fetch_add(1);
+    }
+    state->ui.showMatchSummary.store(true);
+    state->ui.matchSummaryStartMs.store(RmlUiDetail::SteadyNowMs());
+    controller.Update(Config::Read(), true);
+    controller.Render();
+    ASSERT_NE(OverlayRoot(controller), nullptr);
+    auto* detailsBtn = OverlayRoot(controller)->QuerySelector("[data-action='history-open'][data-source='match-summary']");
+    ASSERT_NE(detailsBtn, nullptr);
+    Click(controller, detailsBtn);
+
+    db->AsyncSetSetting("ui_hist_barrier_3", "done");
+    for (int i = 0; i < 200 && db->GetSetting("ui_hist_barrier_3", "") != "done"; ++i) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    }
+    controller.Update(Config::Read(), false);
+    EXPECT_TRUE(IsHistoryVisible(controller));
+    EXPECT_TRUE(HistoryModel(controller).IsDetailOpen());
+    ASSERT_TRUE(HistoryModel(controller).Detail().has_value());
+    EXPECT_EQ(HistoryModel(controller).Detail()->matchId, 2);
+    controller.OpenHistory();
+    EXPECT_TRUE(controller.ProcessWindowMessage(nullptr, WM_KEYDOWN, VK_ESCAPE, 0));
+    EXPECT_TRUE(controller.ProcessWindowMessage(nullptr, WM_KEYDOWN, VK_ESCAPE, 0));
 }

@@ -10,6 +10,7 @@
 #include <memory>
 #include <cstdint>
 #include <cstddef>
+#include <optional>
 #include "core/Insights.hpp"
 #include "core/StatsApiConfig.hpp"
 
@@ -164,6 +165,7 @@ struct LocalPreMatchMmrSnapshot {
 };
 
 struct SessionMatchSummary {
+    int64_t matchId = 0;
     bool ranked = true;
     std::string mode;
     std::string matchGuid;
@@ -250,6 +252,112 @@ struct InsightsState {
     std::vector<MatchOutcome> outcomes;
     std::vector<MatchMmrContext> mmrContext;
     std::vector<SessionRecap> sessions;
+};
+
+struct MatchQuery {
+    enum Sort {
+        Newest = 0,
+        Oldest = 1,
+        BiggestWin = 2,
+        BiggestLoss = 3,
+        ScoreMargin = 4,
+    };
+
+    std::string account;
+    std::optional<std::string> playlistLabel;
+    std::optional<bool> ranked;
+    std::optional<bool> win;
+    int64_t fromUnix = 0;
+    int64_t toUnix = 0;
+    std::string arena;
+    std::string withPlayer;
+    std::string againstPlayer;
+    std::string nameSearch;
+    int offset = 0;
+    int limit = 100;
+    Sort sort = Sort::Newest;
+};
+
+struct MatchRow {
+    int64_t matchId = 0;
+    std::string matchGuid;
+    int64_t timestampUnix = 0;
+    std::string playlist;
+    std::string gamemode;
+    int playlistId = -1;
+    bool ranked = true;
+    bool win = false;
+    int ourScore = 0;
+    int theirScore = 0;
+    int myMmr = 0;
+    bool mmrEstimated = false;
+    std::optional<int> mmrDelta;
+    std::string arena;
+    std::vector<std::string> teammates;
+};
+
+struct MatchDetailPlayer {
+    std::string primaryId;
+    std::string name;
+    std::string platform;
+    int team = 0;
+    bool isOpponent = false;
+    bool isMe = false;
+    int mmr = 0;
+    bool mmrEstimated = false;
+    std::string tier = "Unranked";
+    bool hasStats = false;
+    std::optional<int> score;
+    std::optional<int> goals;
+    std::optional<int> assists;
+    std::optional<int> saves;
+    std::optional<int> shots;
+    std::optional<int> demos;
+    std::optional<int> touches;
+    std::optional<int> carTouches;
+    std::optional<float> maxGoalSpeed;
+    std::optional<float> fastestGoalTime;
+    int metBeforeCount = 0;
+};
+
+struct MatchDetail {
+    bool found = false;
+    int64_t matchId = 0;
+    std::string matchGuid;
+    int64_t timestampUnix = 0;
+    std::string arena;
+    std::string playlist;
+    std::string gamemode;
+    int playlistId = -1;
+    bool ranked = true;
+    bool win = false;
+    int ourScore = 0;
+    int theirScore = 0;
+    std::string accountPrimaryId;
+    std::optional<int> mmrBefore;
+    std::optional<int> mmrAfter;
+    std::optional<int> mmrDelta;
+    bool mmrEstimated = false;
+    bool hasPlayerStats = false;
+    bool hasLocalStats = false;
+    std::optional<float> durationSeconds;
+    std::optional<float> overtimeSeconds;
+    std::vector<MatchDetailPlayer> ourTeam;
+    std::vector<MatchDetailPlayer> theirTeam;
+};
+
+struct HistoryViewState {
+    mutable std::mutex mutex;
+    std::atomic<uint64_t> version{0};
+    uint64_t requestId = 0;
+    uint64_t detailRequestId = 0;
+    bool loading = false;
+    bool detailLoading = false;
+    bool appendMode = false;
+    MatchQuery query;
+    std::vector<MatchRow> rows;
+    int total = 0;
+    std::optional<MatchDetail> detail;
 };
 
 // Decomposed state sections
@@ -443,6 +551,7 @@ class SessionState : public std::enable_shared_from_this<SessionState> {
     GameState game;
     HistoryState history;
     InsightsState insights;
+    HistoryViewState historyView;
 
     void resetMatch(const std::string& newArena, const std::string& newArenaAsset = "");
     void clearActiveMatchOnDisconnect();

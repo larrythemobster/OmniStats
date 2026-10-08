@@ -440,6 +440,7 @@ void RmlUiController::RebuildDashboard() {
     }
     out << "</div><div id='dashboard-match-status' class='match-status'>{{dashboard_status}}</div></div>"
         << "<div class='topbar-actions'>"
+        << Button("history-open", "History", "ghost compact")
         << Button("insights-open", "Insights", "ghost compact")
         << Button("dashboard-edit", editMode ? "Done Editing" : "Edit Layout", editMode ? "primary compact" : "ghost compact")
         << Button("open-settings", "Settings", "ghost compact")

@@ -1364,3 +1364,112 @@ body.view-document { pointer-events: none; }
     letter-spacing: 2dp;
     color: #eef1f5;
 }
+.history-window { width: 880dp; height: 680dp; position: relative; }
+.history-toolbar {
+    display: flex;
+    flex-direction: column;
+    flex-shrink: 0;
+    gap: 8dp;
+    padding: 10dp 16dp;
+    border-bottom: 1dp #eef1f517;
+}
+.history-filter-row { align-items: center; flex-wrap: wrap; }
+.history-filter-label { margin-left: 6dp; margin-right: 2dp; font-size: 11dp; font-weight: 600; }
+.history-filter-row .history-filter-label:first-child { margin-left: 0; }
+.history-count { font-size: 12dp; font-weight: 600; }
+.history-input-group { display: flex; flex-direction: row; align-items: center; gap: 6dp; }
+.history-input { width: 120dp; min-height: 26dp; padding: 3dp 8dp; font-size: 12dp; }
+.history-input.grow { width: auto; flex-grow: 1; }
+
+.history-table { display: block; border: 1dp #eef1f51a; border-radius: 6dp; overflow: hidden; }
+.history-row {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    min-height: 32dp;
+    padding: 4dp 10dp;
+    border-top: 1dp #eef1f50f;
+    font-size: 12dp;
+    gap: 8dp;
+}
+.history-row:first-child { border-top: 0; }
+.history-row.header {
+    min-height: 26dp;
+    background-color: #eef1f508;
+    color: #9da6b3;
+    font-size: 10dp;
+    font-weight: 700;
+    letter-spacing: 0.3dp;
+}
+.history-row.item { cursor: pointer; }
+.history-row.item:hover { background-color: #eef1f50d; }
+.history-cell-result { width: 32dp; flex-shrink: 0; font-weight: 700; text-align: center; }
+.history-cell-playlist { width: 82dp; flex-shrink: 0; font-weight: 600; }
+.history-cell-score { width: 52dp; flex-shrink: 0; text-align: center; }
+.history-cell-mmr { width: 56dp; flex-shrink: 0; text-align: right; font-weight: 700; }
+.history-cell-arena { width: 165dp; flex-shrink: 0; }
+.history-cell-teammates { flex-grow: 1; min-width: 0; }
+.history-cell-time { width: 110dp; flex-shrink: 0; text-align: right; }
+.history-more-wrap { display: flex; justify-content: center; padding: 12dp 0 4dp 0; }
+
+.history-detail-backdrop {
+    position: absolute;
+    left: 0;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 20dp;
+    background-color: #000000cc;
+}
+.history-detail-card {
+    display: flex;
+    flex-direction: column;
+    width: 100%;
+    max-height: 100%;
+    padding: 16dp 18dp;
+    background-color: #101010;
+    border: 1dp #eef1f526;
+    border-radius: 10dp;
+    overflow-y: auto;
+}
+.history-detail-header {
+    align-items: flex-start;
+    padding-bottom: 12dp;
+    margin-bottom: 12dp;
+    border-bottom: 1dp #eef1f517;
+}
+.history-detail-result { font-family: "Russo One"; font-size: 20dp; }
+.history-detail-score { font-size: 20dp; font-weight: 700; }
+.history-detail-meta { margin-top: 4dp; font-size: 12dp; align-items: center; }
+.history-scoreboard-block { display: block; margin-bottom: 12dp; }
+.history-scoreboard-table { display: block; border: 1dp #eef1f51a; border-radius: 6dp; overflow: hidden; }
+.history-scoreboard-row {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    min-height: 36dp;
+    padding: 4dp 10dp;
+    border-top: 1dp #eef1f50f;
+    font-size: 12dp;
+    gap: 6dp;
+}
+.history-scoreboard-row:first-child { border-top: 0; }
+.history-scoreboard-row.header {
+    min-height: 26dp;
+    background-color: #eef1f508;
+    color: #9da6b3;
+    font-size: 10dp;
+    font-weight: 700;
+}
+.history-scoreboard-row.self { background-color: #eef1f50d; }
+.history-sb-player { display: flex; flex-direction: column; flex-grow: 1; min-width: 0; }
+.history-sb-met { font-size: 10dp; margin-top: 1dp; }
+.history-sb-tier { width: 130dp; flex-shrink: 0; text-align: right; }
+.history-sb-mmr { width: 64dp; flex-shrink: 0; text-align: right; }
+.history-sb-stat { width: 44dp; flex-shrink: 0; text-align: right; }
+
+.previous-games-view-all { margin-left: 8dp; padding: 2dp 8dp; min-height: 22dp; font-size: 11dp; }
+.match-summary-actions { justify-content: flex-end; margin-top: 8dp; }

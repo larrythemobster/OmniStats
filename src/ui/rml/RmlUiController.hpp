@@ -24,6 +24,7 @@
 #include "ui/rml/RmlUiHelpers.hpp"
 #include "ui/rml/RmlLiveModel.hpp"
 #include "ui/rml/views/InsightsView.hpp"
+#include "ui/rml/views/HistoryView.hpp"
 #include "ui/rml/views/OnboardingView.hpp"
 #include "ui/rml/RmlSystemInterfaceWin32.hpp"
 
@@ -92,6 +93,7 @@ class RmlUiController final : public Rml::EventListener {
     // the overlay would otherwise hide (Rocket League not focused or closed).
     bool WantsAttention() const;
     void OpenInsights();
+    void OpenHistory();
 
     void ProcessEvent(Rml::Event& event) override;
     static const char* DemoKdClass(int demos, int demoed);
@@ -255,6 +257,11 @@ class RmlUiController final : public Rml::EventListener {
     void ShowInsights(InsightsView::Tab tab, bool endedSession);
     void HideInsights();
     void RefreshInsights(bool force);
+    void ShowHistory(int64_t detailMatchId = 0, const std::string& detailMatchGuid = "");
+    void HideHistory();
+    void RefreshHistory(bool force);
+    void TriggerHistoryQuery(bool append);
+    void OpenHistoryDetail(int64_t matchId, const std::string& matchGuid = "");
     void ExportRecapPng();
     void ShowOnboarding();
     void FinishOnboarding();
@@ -293,15 +300,19 @@ class RmlUiController final : public Rml::EventListener {
     ID3D11DeviceContext* m_d3dContext = nullptr;
     InsightsView m_insights;
     OnboardingView m_onboarding;
+    HistoryView m_history;
     Rml::ElementDocument* m_insightsDoc = nullptr;
     Rml::ElementDocument* m_onboardingDoc = nullptr;
+    Rml::ElementDocument* m_historyDoc = nullptr;
     bool m_insightsVisible = false;
     bool m_onboardingVisible = false;
+    bool m_historyVisible = false;
     // True while the recap tab shows a session captured when it ended rather
     // than the live one.
     bool m_insightsShowsEndedSession = false;
     uint64_t m_lastInsightsVersion = std::numeric_limits<uint64_t>::max();
     uint64_t m_lastRecapGameVersion = std::numeric_limits<uint64_t>::max();
+    uint64_t m_lastHistoryViewVersion = std::numeric_limits<uint64_t>::max();
     std::string m_lastOnboardingIdentityRml;
     bool m_recapCapturePending = false;
 

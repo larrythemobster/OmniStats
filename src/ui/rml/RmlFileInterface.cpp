@@ -26,6 +26,7 @@ std::string RmlFileInterface::ResourceNameForPath(const std::string& rawPath) {
     if (path == "omnistats.rcss") return "RML_STYLE";
     if (path == "onboarding.rml") return "RML_ONBOARDING";
     if (path == "insights.rml") return "RML_INSIGHTS";
+    if (path == "history.rml") return "RML_HISTORY";
     return {};
 }
 

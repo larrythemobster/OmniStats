@@ -415,6 +415,22 @@ void RmlUiController::HandleInput(Rml::Element* target) {
     } else if (key == "statsapi_path") {
         // Validate the completed path on blur, not after each character.
         return;
+    } else if (key == "history_with") {
+        m_history.SetWithPlayer(value);
+        TriggerHistoryQuery(false);
+        return;
+    } else if (key == "history_against") {
+        m_history.SetAgainstPlayer(value);
+        TriggerHistoryQuery(false);
+        return;
+    } else if (key == "history_arena") {
+        m_history.SetArenaFilter(value);
+        TriggerHistoryQuery(false);
+        return;
+    } else if (key == "history_search") {
+        m_history.SetNameSearch(value);
+        TriggerHistoryQuery(false);
+        return;
     } else if (key.rfind("theme_", 0) == 0) {
         std::string_view componentColorKey;
         char component = 0;
@@ -484,7 +500,9 @@ void RmlUiController::HandleChange(Rml::Element* target, Rml::Event& event) {
     const std::string key = Attribute(target, "data-setting");
     if (key.empty()) return;
     if (event.GetType() != "blur" &&
-        (key == "ballchasing_token" || key == "custom_api_key" || key == "statsapi_path" || key.rfind("theme_", 0) == 0)) {
+        (key == "ballchasing_token" || key == "custom_api_key" || key == "statsapi_path" ||
+         key == "history_with" || key == "history_against" || key == "history_arena" || key == "history_search" ||
+         key.rfind("theme_", 0) == 0)) {
         HandleInput(target);
         return;
     }

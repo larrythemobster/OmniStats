@@ -119,7 +119,13 @@ std::string RmlUiController::RenderMatchSummary() {
         << FloatingCardStyle(m_config.match_summary_x, m_config.match_summary_y, 420.0f)
         << "><div class='row'><div class='grow value " << resultClass << "' style='font-size:20dp'>" << result << "</div>"
         << "<div class='value mono' style='font-size:20dp'>" << myScore << '-' << theirScore << "</div></div>";
-    out << StatGrid("PLAY", play) << StatGrid("FUN", fun) << "</div>";
+    out << StatGrid("PLAY", play) << StatGrid("FUN", fun);
+    if (!m_snap.lastMatchWasVoid) {
+        out << "<div class='row match-summary-actions'><button class='ghost compact' data-action='history-open' data-source='match-summary'";
+        if (!m_snap.matchGuid.empty()) out << " data-match-guid='" << Escape(m_snap.matchGuid) << "'";
+        out << ">Details</button></div>";
+    }
+    out << "</div>";
     return out.str();
 }
 
