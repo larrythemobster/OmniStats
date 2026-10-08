@@ -356,6 +356,27 @@ bool TelemetryReducer::IsSelfById(const std::string& pid) const {
     return !pid.empty() && pid == m_state->game.myPrimaryId;
 }
 
+std::string TelemetryReducer::ResolveRosterPlayerIdLocked(const nlohmann::json& target) const {
+    if (!target.is_object()) return {};
+    const std::string name = target.contains("Name") && target["Name"].is_string() ? target["Name"].get<std::string>() : std::string{};
+    if (target.contains("PrimaryId") && target["PrimaryId"].is_string()) {
+        const std::string id = target["PrimaryId"].get<std::string>();
+        if (id == "Unknown" || id.rfind("Unknown|", 0) == 0) return "Unknown|" + name;
+        return id;
+    }
+    // Event payloads identify players by Name/TeamNum only; map them back to the roster.
+    if (name.empty()) return {};
+    const bool hasTeam = target.contains("TeamNum") && target["TeamNum"].is_number_integer();
+    const int team = hasTeam ? target["TeamNum"].get<int>() : -1;
+    std::string match;
+    for (const auto& [pid, player] : m_state->game.roster) {
+        if (player.name != name || (hasTeam && player.team != team)) continue;
+        if (!match.empty()) return {};
+        match = pid;
+    }
+    return match;
+}
+
 DiscordPresenceSnapshot TelemetryReducer::BuildDiscordSnapshotLocked() const {
     DiscordPresenceSnapshot snapshot;
     snapshot.showPresence = true;

@@ -36,6 +36,54 @@ TEST(TelemetryReducerStats, CountsEpicSaveAsSave) {
     EXPECT_EQ(state->game.roster["Steam|1"].saves, 1);
 }
 
+TEST(TelemetryReducerStats, AttributesNameOnlyEventPayloadsToRosterPlayersByNameAndTeam) {
+    Storage::InitializeEnvironment();
+    auto state = std::make_shared<SessionState>();
+    TelemetryReducer reducer(state);
+
+    {
+        std::unique_lock<std::shared_mutex> lock(state->game.mutex);
+        state->game.myPrimaryId = "Steam|1";
+        state->game.roster["Steam|1"] = PlayerData{.primaryId = "Steam|1", .name = "Me", .team = 0};
+        state->game.roster["Epic|2"] = PlayerData{.primaryId = "Epic|2", .name = "Twin", .team = 0};
+        state->game.roster["PS4|3"] = PlayerData{.primaryId = "PS4|3", .name = "Twin", .team = 1};
+        state->game.roster["Unknown|Bot"] = PlayerData{.primaryId = "Unknown|Bot", .name = "Bot", .team = 1};
+    }
+
+    const auto statfeed = [&](const char* eventName, const char* name, int team) {
+        nlohmann::json data;
+        data["EventName"] = eventName;
+        data["MainTarget"] = {{"Name", name}, {"Shortcut", 1}, {"TeamNum", team}};
+        reducer.Reduce(std::string(Constants::EVT_STATFEED), data);
+    };
+    statfeed("Shot", "Me", 0);
+    statfeed("Save", "Twin", 1);
+    statfeed("Assist", "Twin", 0);
+    statfeed("Demolish", "Bot", 1);
+
+    nlohmann::json goal;
+    goal["GoalSpeed"] = 80.0;
+    goal["Scorer"] = {{"Name", "Me"}, {"Shortcut", 1}, {"TeamNum", 0}};
+    reducer.Reduce(std::string(Constants::EVT_GOAL_SCORED), goal);
+
+    nlohmann::json ambiguous;
+    ambiguous["EventName"] = "Shot";
+    ambiguous["MainTarget"] = {{"Name", "Twin"}};
+    reducer.Reduce(std::string(Constants::EVT_STATFEED), ambiguous);
+
+    std::shared_lock<std::shared_mutex> lock(state->game.mutex);
+    EXPECT_EQ(state->game.roster["Steam|1"].shots, 1);
+    EXPECT_EQ(state->game.roster["Steam|1"].goals, 1);
+    EXPECT_EQ(state->game.currentMatch.shotsSelf, 1);
+    EXPECT_EQ(state->game.currentMatch.goalsSelf, 1);
+    EXPECT_EQ(state->game.roster["PS4|3"].saves, 1);
+    EXPECT_EQ(state->game.roster["PS4|3"].shots, 0);
+    EXPECT_EQ(state->game.roster["Epic|2"].assists, 1);
+    EXPECT_EQ(state->game.roster["Epic|2"].shots, 0);
+    EXPECT_EQ(state->game.roster["Unknown|Bot"].demos, 1);
+    EXPECT_EQ(state->game.currentMatch.shots, 2);
+}
+
 TEST(TelemetryReducerStats, AddsDemoedSelfToSessionTotalsOnMatchEnd) {
     Storage::InitializeEnvironment();
     auto state = std::make_shared<SessionState>();

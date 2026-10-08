@@ -29,6 +29,7 @@ class TelemetryReducer {
     void HandleMatchDestroyed(const nlohmann::json& data, SideEffects& effects);
     bool IsSelf(const std::string& name) const;
     bool IsSelfById(const std::string& pid) const;
+    std::string ResolveRosterPlayerIdLocked(const nlohmann::json& target) const;
     DiscordPresenceSnapshot BuildDiscordSnapshotLocked() const;
 
     enum class MatchFinalizeSource {

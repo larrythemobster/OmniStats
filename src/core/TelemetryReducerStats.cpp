@@ -19,22 +19,21 @@ void TelemetryReducer::HandleStatFeed(const nlohmann::json& data) {
     std::string feedEvent = data["EventName"].get<std::string>();
     std::string mainName = "", mainId = "", secName = "", secId = "";
 
+    const nlohmann::json* mainTarget = nullptr;
     if (data.contains("MainTarget") && data["MainTarget"].is_object()) {
-        auto mt = data["MainTarget"];
-        if (mt.contains("Name") && mt["Name"].is_string()) mainName = mt["Name"].get<std::string>();
-        if (mt.contains("PrimaryId") && mt["PrimaryId"].is_string()) mainId = mt["PrimaryId"].get<std::string>();
+        mainTarget = &data["MainTarget"];
     } else if (data.contains("Player") && data["Player"].is_object()) {
-        auto p = data["Player"];
-        if (p.contains("Name") && p["Name"].is_string()) mainName = p["Name"].get<std::string>();
-        if (p.contains("PrimaryId") && p["PrimaryId"].is_string()) mainId = p["PrimaryId"].get<std::string>();
+        mainTarget = &data["Player"];
     }
-    if (mainId == "Unknown" || mainId.rfind("Unknown|", 0) == 0) mainId = "Unknown|" + mainName;
+    if (mainTarget) {
+        if (mainTarget->contains("Name") && (*mainTarget)["Name"].is_string()) mainName = (*mainTarget)["Name"].get<std::string>();
+        mainId = ResolveRosterPlayerIdLocked(*mainTarget);
+    }
     if (data.contains("SecondaryTarget") && data["SecondaryTarget"].is_object()) {
-        auto st = data["SecondaryTarget"];
+        const auto& st = data["SecondaryTarget"];
         if (st.contains("Name") && st["Name"].is_string()) secName = st["Name"].get<std::string>();
-        if (st.contains("PrimaryId") && st["PrimaryId"].is_string()) secId = st["PrimaryId"].get<std::string>();
+        secId = ResolveRosterPlayerIdLocked(st);
     }
-    if (secId == "Unknown" || secId.rfind("Unknown|", 0) == 0) secId = "Unknown|" + secName;
 
     bool isMainSelf = !mainId.empty() ? IsSelfById(mainId) : IsSelf(mainName);
     bool isSecSelf = !secId.empty() ? IsSelfById(secId) : IsSelf(secName);
@@ -73,15 +72,13 @@ void TelemetryReducer::HandleGoalScored(const nlohmann::json& data, SideEffects&
     m_roundActive = false;
     m_state->game.currentMatch.goals++;
     std::string scorerName = "", scorerId = "";
-    nlohmann::json scorer;
     bool hasScorer = false;
     if (data.contains("Scorer") && data["Scorer"].is_object()) {
-        scorer = data["Scorer"];
+        const auto& scorer = data["Scorer"];
         if (scorer.contains("Name") && scorer["Name"].is_string()) scorerName = scorer["Name"].get<std::string>();
-        if (scorer.contains("PrimaryId") && scorer["PrimaryId"].is_string()) scorerId = scorer["PrimaryId"].get<std::string>();
+        scorerId = ResolveRosterPlayerIdLocked(scorer);
         hasScorer = true;
     }
-    if (scorerId == "Unknown" || scorerId.rfind("Unknown|", 0) == 0) scorerId = "Unknown|" + scorerName;
     bool isScorerSelf = !scorerId.empty() ? IsSelfById(scorerId) : IsSelf(scorerName);
     if (hasScorer) {
         if (isScorerSelf) m_state->game.currentMatch.goalsSelf++;
