@@ -381,12 +381,11 @@ uint64_t HistoryView::BeginDetail(int64_t /*matchId*/) {
 }
 
 bool HistoryView::ApplyDetailResult(uint64_t requestId, const std::optional<MatchDetail>& detail) {
-    if (requestId != 0 && requestId < m_activeDetailRequestId) {
+    // History state republishes the last detail with every list query; only a new detail request may open the panel.
+    if (requestId == 0 || requestId != m_activeDetailRequestId || requestId == m_appliedDetailRequestId) {
         return false;
     }
-    if (requestId != 0) {
-        m_activeDetailRequestId = requestId;
-    }
+    m_appliedDetailRequestId = requestId;
     m_detailLoading = false;
     m_detailSource = detail;
     m_detailOpen = detail.has_value() && detail->found;

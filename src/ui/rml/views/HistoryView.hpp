@@ -150,6 +150,7 @@ class HistoryView {
     std::string m_account;
     uint64_t m_activeRequestId = 0;
     uint64_t m_activeDetailRequestId = 0;
+    uint64_t m_appliedDetailRequestId = 0;
 
     std::vector<MatchRow> m_sourceRows;
     int m_totalCount = 0;

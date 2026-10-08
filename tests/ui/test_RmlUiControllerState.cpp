@@ -2348,10 +2348,22 @@ TEST_F(RmlUiControllerStateTest, HistoryViewOpensClosesIgnoresStaleResponsesAndO
     EXPECT_NE(summaryText.find("Zylo"), std::string::npos);
     EXPECT_NE(summaryText.find("Met before: 1"), std::string::npos);
 
-    // 4. First Escape closes detail modal; second Escape closes History view
+    // 4. First Escape closes detail modal; a later filter query must not reopen it; second Escape closes History view
     EXPECT_TRUE(controller.ProcessWindowMessage(nullptr, WM_KEYDOWN, VK_ESCAPE, 0));
     EXPECT_FALSE(HistoryModel(controller).IsDetailOpen());
     EXPECT_TRUE(IsHistoryVisible(controller));
+
+    auto* lossFilter = HistoryDocument(controller)->QuerySelector("[data-action='history-filter'][data-result='loss']");
+    ASSERT_NE(lossFilter, nullptr);
+    Click(controller, lossFilter);
+    db->AsyncSetSetting("ui_hist_barrier_3", "done");
+    for (int i = 0; i < 200 && db->GetSetting("ui_hist_barrier_3", "") != "done"; ++i) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    }
+    controller.Update(Config::Read(), false);
+    controller.Render();
+    EXPECT_EQ(HistoryModel(controller).TotalCount(), 1);
+    EXPECT_FALSE(HistoryModel(controller).IsDetailOpen());
 
     EXPECT_TRUE(controller.ProcessWindowMessage(nullptr, WM_KEYDOWN, VK_ESCAPE, 0));
     EXPECT_FALSE(IsHistoryVisible(controller));
