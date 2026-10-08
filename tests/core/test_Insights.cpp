@@ -177,27 +177,25 @@ TEST(InsightsTest, GapTrendsExcludeIncompleteLobbiesAndUnmatchedPlaylists) {
     EXPECT_EQ(standardOnly.statusMessage, "Not enough ranked data");
 }
 
-TEST(InsightsTest, GapDeltasRequireConsecutiveUnestimatedMatchesWithinTwoHours) {
+TEST(InsightsTest, GapDeltasCreditEachMatchWithItsOwnPostMatchChange) {
+    const int64_t late = kStart + 2400 + Insights::kSessionGapSeconds + 1;
     std::vector<MatchMmrContext> matches = {
-        // Match 1: win in Stronger bucket (+40 gap), followed 10m later by Match 2 (+12 MMR)
         {kStart, "2v2", true, 1000, false, 1000.0, 1040.0, 2, 2},
-        // Match 2: loss in Stronger bucket, followed 10m later by Match 3 (-8 MMR)
-        {kStart + 600, "2v2", false, 1012, false, 1012.0, 1050.0, 2, 2},
-        // Match 3: win in Stronger bucket, but Match 4 is >2h later -> skipped
-        {kStart + 1200, "2v2", true, 1004, false, 1004.0, 1045.0, 2, 2},
-        // Match 4 (>2h gap): win in Stronger bucket, followed by estimated Match 5 -> skipped
-        {kStart + 1200 + Insights::kSessionGapSeconds + 1, "2v2", true, 1050, false, 1050.0, 1090.0, 2, 2},
-        // Match 5 (estimated): loss in Stronger bucket, followed by Match 6 -> skipped for both pairs
-        {kStart + 1800 + Insights::kSessionGapSeconds + 1, "2v2", false, 1060, true, 1060.0, 1100.0, 2, 2},
-        // Match 6: terminal match
-        {kStart + 2400 + Insights::kSessionGapSeconds + 1, "2v2", true, 1052, false, 1052.0, 1090.0, 2, 2},
+        {kStart + 600, "2v2", true, 1012, false, 1012.0, 1052.0, 2, 2},
+        {kStart + 1200, "2v2", false, 1004, false, 1004.0, 1044.0, 2, 2},
+        // Incomplete lobby: not bucketed, but still the baseline for the next match's change.
+        {kStart + 1800, "2v2", false, 995, false, 995.0, 1035.0, 2, 1},
+        {kStart + 2400, "2v2", true, 1005, false, 1005.0, 1045.0, 2, 2},
+        {late, "2v2", true, 1050, false, 1050.0, 1090.0, 2, 2},
+        {late + 600, "2v2", false, 1060, true, 1060.0, 1100.0, 2, 2},
+        {late + 1200, "2v2", true, 1052, false, 1052.0, 1092.0, 2, 2},
     };
 
     const GapReport report = Insights::ComputeGapTrends(matches, "2v2");
     const GapBucket& stronger = report.buckets[1];
-    EXPECT_EQ(stronger.games, 6);
-    EXPECT_EQ(stronger.winDeltas, 1);
-    EXPECT_DOUBLE_EQ(stronger.AvgWinDelta(), 12.0);
+    EXPECT_EQ(stronger.games, 7);
+    EXPECT_EQ(stronger.winDeltas, 2);
+    EXPECT_DOUBLE_EQ(stronger.AvgWinDelta(), 11.0);
     EXPECT_EQ(stronger.lossDeltas, 1);
     EXPECT_DOUBLE_EQ(stronger.AvgLossDelta(), -8.0);
 }

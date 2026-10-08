@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cmath>
 #include <map>
+#include <optional>
 #include <string>
 #include <string_view>
 
@@ -202,11 +203,9 @@ namespace Insights {
         }
 
         struct PrevMatch {
-            size_t bucketIndex = 0;
             int64_t endedAtUnix = 0;
             int myMmr = 0;
             bool mmrEstimated = false;
-            bool win = false;
         };
         std::map<std::string, PrevMatch, std::less<>> prevByPlaylist;
 
@@ -214,6 +213,23 @@ namespace Insights {
             const CanonicalPlaylist pl = NormalizePlaylist(match.playlist);
             if (pl.teamSize <= 0) continue;
             if (!matchAll && pl.key != targetPl.key) continue;
+
+            // Stored local MMR is post-match, so a match's change is its MMR minus the previous one's.
+            std::optional<double> delta;
+            const std::string playlistKey(pl.key);
+            if (match.myMmr > 0) {
+                if (auto it = prevByPlaylist.find(playlistKey); it != prevByPlaylist.end()) {
+                    const PrevMatch& prev = it->second;
+                    const int64_t elapsed = match.endedAtUnix - prev.endedAtUnix;
+                    if (!prev.mmrEstimated && !match.mmrEstimated && elapsed >= 0 && elapsed <= kSessionGapSeconds) {
+                        delta = static_cast<double>(match.myMmr - prev.myMmr);
+                    }
+                }
+                prevByPlaylist[playlistKey] = {match.endedAtUnix, match.myMmr, match.mmrEstimated};
+            } else {
+                prevByPlaylist.erase(playlistKey);
+            }
+
             if (match.teamCount != pl.teamSize || match.oppCount != pl.teamSize) continue;
             if (match.teamAvg <= 0.0 || match.oppAvg <= 0.0 || match.myMmr <= 0) continue;
 
@@ -238,22 +254,15 @@ namespace Insights {
                 }
             }
 
-            if (auto it = prevByPlaylist.find(pl.key); it != prevByPlaylist.end()) {
-                const PrevMatch& prev = it->second;
-                const int64_t elapsed = match.endedAtUnix - prev.endedAtUnix;
-                if (!prev.mmrEstimated && !match.mmrEstimated && elapsed >= 0 && elapsed <= kSessionGapSeconds) {
-                    const double delta = static_cast<double>(match.myMmr - prev.myMmr);
-                    GapBucket& prevBucket = report.buckets[prev.bucketIndex];
-                    if (prev.win) {
-                        ++prevBucket.winDeltas;
-                        prevBucket.totalWinDelta += delta;
-                    } else {
-                        ++prevBucket.lossDeltas;
-                        prevBucket.totalLossDelta += delta;
-                    }
+            if (delta) {
+                if (match.win) {
+                    ++bucket.winDeltas;
+                    bucket.totalWinDelta += *delta;
+                } else {
+                    ++bucket.lossDeltas;
+                    bucket.totalLossDelta += *delta;
                 }
             }
-            prevByPlaylist[std::string(pl.key)] = {idx, match.endedAtUnix, match.myMmr, match.mmrEstimated, match.win};
         }
 
         if (report.games == 0) {
