@@ -98,6 +98,7 @@ class RmlUiController final : public Rml::EventListener {
     void ProcessEvent(Rml::Event& event) override;
     static const char* DemoKdClass(int demos, int demoed);
     static std::string FormatDemoKd(int demos, int demoed);
+    static std::string CssColor(const ColorRGBA& color);
 
   private:
     enum class SettingsPage {
@@ -238,7 +239,6 @@ class RmlUiController final : public Rml::EventListener {
     void CheckStatsApi(bool repair, bool showToast = true);
     void ShowToast(std::string message, bool error = false);
 
-    static std::string CssColor(const ColorRGBA& color);
     static bool ValidateStatsApiPath(std::string input, std::string& normalized, std::string& error);
     static const char* SettingsPageName(SettingsPage page);
     static const char* ZoneName(DashboardLayout::Zone zone);

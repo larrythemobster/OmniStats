@@ -8,6 +8,8 @@
 #include <ctime>
 #include <sstream>
 
+#include "ui/Formatting.hpp"
+#include "ui/rml/RmlUiController.hpp"
 #include "ui/rml/RmlUiHelpers.hpp"
 
 using namespace RmlUiDetail;
@@ -83,6 +85,7 @@ namespace {
             row.mmr = "--";
         }
         row.tier = p.tier.empty() ? "Unranked" : p.tier;
+        row.tier_color = RmlUiController::CssColor(Format::RankColor(p.tier));
         if (p.isMe) {
             row.met_before = "You";
         } else {
@@ -130,6 +133,7 @@ bool HistoryView::Create(Rml::Context* context) {
         player.RegisterMember("is_me", &HistoryDetailPlayerRow::is_me);
         player.RegisterMember("mmr", &HistoryDetailPlayerRow::mmr);
         player.RegisterMember("tier", &HistoryDetailPlayerRow::tier);
+        player.RegisterMember("tier_color", &HistoryDetailPlayerRow::tier_color);
         player.RegisterMember("met_before", &HistoryDetailPlayerRow::met_before);
         player.RegisterMember("score", &HistoryDetailPlayerRow::score);
         player.RegisterMember("goals", &HistoryDetailPlayerRow::goals);
@@ -471,7 +475,7 @@ void HistoryView::RebuildDetail() {
                                 " (" + SignedDelta(delta) + ")";
             m_detailMmrTone = DeltaTone(delta);
         } else if (d.mmrAfter.has_value()) {
-            m_detailMmrChange = (d.mmrEstimated ? "~" : "") + std::to_string(*d.mmrAfter) + " MMR";
+            m_detailMmrChange = (d.mmrEstimated ? "~" : "") + std::to_string(*d.mmrAfter);
             m_detailMmrTone = 0;
         } else {
             m_detailMmrChange.clear();
@@ -519,7 +523,7 @@ std::string HistoryView::BuildScoreboardSummary(const MatchDetail& detail) {
 
     auto writeTeam = [&](const char* heading, const std::vector<MatchDetailPlayer>& team) {
         out << "\n"
-            << heading << " (Name | Platform | Tier | MMR | Score | G | A | S | Sh | D | Met)\n";
+            << heading << " (Name | Platform | Tier | MMR | Score | Goals | Assists | Saves | Shots | Demos | Met)\n";
         for (const auto& p : team) {
             const HistoryDetailPlayerRow r = FormatDetailPlayer(p);
             out << "- " << r.name;

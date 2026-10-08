@@ -114,15 +114,15 @@
                         <div class="stat-section-title">OUR TEAM</div>
                         <div class="history-scoreboard-table">
                             <div class="history-scoreboard-row header">
-                                <div class="history-sb-player">Player</div>
+                                <div class="history-sb-player"><span>Player</span></div>
                                 <div class="history-sb-tier">Tier</div>
                                 <div class="history-sb-mmr">MMR</div>
                                 <div class="history-sb-stat">Score</div>
-                                <div class="history-sb-stat">G</div>
-                                <div class="history-sb-stat">A</div>
-                                <div class="history-sb-stat">S</div>
-                                <div class="history-sb-stat">Sh</div>
-                                <div class="history-sb-stat">D</div>
+                                <div class="history-sb-stat">Goals</div>
+                                <div class="history-sb-stat">Assists</div>
+                                <div class="history-sb-stat">Saves</div>
+                                <div class="history-sb-stat">Shots</div>
+                                <div class="history-sb-stat">Demos</div>
                             </div>
                             <div class="history-scoreboard-row" data-for="p : detail_our_team" data-class-self="p.is_me">
                                 <div class="history-sb-player">
@@ -132,7 +132,7 @@
                                     </div>
                                     <div class="label history-sb-met">{{p.met_before}}</div>
                                 </div>
-                                <div class="history-sb-tier label">{{p.tier}}</div>
+                                <div class="history-sb-tier" data-style-color="p.tier_color">{{p.tier}}</div>
                                 <div class="history-sb-mmr mono">{{p.mmr}}</div>
                                 <div class="history-sb-stat mono">{{p.score}}</div>
                                 <div class="history-sb-stat mono">{{p.goals}}</div>
@@ -148,15 +148,15 @@
                         <div class="stat-section-title">OPPONENTS</div>
                         <div class="history-scoreboard-table">
                             <div class="history-scoreboard-row header">
-                                <div class="history-sb-player">Player</div>
+                                <div class="history-sb-player"><span>Player</span></div>
                                 <div class="history-sb-tier">Tier</div>
                                 <div class="history-sb-mmr">MMR</div>
                                 <div class="history-sb-stat">Score</div>
-                                <div class="history-sb-stat">G</div>
-                                <div class="history-sb-stat">A</div>
-                                <div class="history-sb-stat">S</div>
-                                <div class="history-sb-stat">Sh</div>
-                                <div class="history-sb-stat">D</div>
+                                <div class="history-sb-stat">Goals</div>
+                                <div class="history-sb-stat">Assists</div>
+                                <div class="history-sb-stat">Saves</div>
+                                <div class="history-sb-stat">Shots</div>
+                                <div class="history-sb-stat">Demos</div>
                             </div>
                             <div class="history-scoreboard-row" data-for="p : detail_their_team">
                                 <div class="history-sb-player">
@@ -166,7 +166,7 @@
                                     </div>
                                     <div class="label history-sb-met">{{p.met_before}}</div>
                                 </div>
-                                <div class="history-sb-tier label">{{p.tier}}</div>
+                                <div class="history-sb-tier" data-style-color="p.tier_color">{{p.tier}}</div>
                                 <div class="history-sb-mmr mono">{{p.mmr}}</div>
                                 <div class="history-sb-stat mono">{{p.score}}</div>
                                 <div class="history-sb-stat mono">{{p.goals}}</div>

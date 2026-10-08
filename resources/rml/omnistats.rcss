@@ -1478,7 +1478,7 @@ body.view-document { pointer-events: none; }
 .history-sb-met { font-size: 10dp; margin-top: 1dp; }
 .history-sb-tier { width: 130dp; flex-shrink: 0; text-align: right; }
 .history-sb-mmr { width: 64dp; flex-shrink: 0; text-align: right; }
-.history-sb-stat { width: 44dp; flex-shrink: 0; text-align: right; }
+.history-sb-stat { width: 52dp; flex-shrink: 0; text-align: right; }
 
 .previous-games-view-all { margin-left: 8dp; padding: 2dp 8dp; min-height: 22dp; font-size: 11dp; }
 .match-summary-actions { justify-content: flex-end; margin-top: 8dp; }

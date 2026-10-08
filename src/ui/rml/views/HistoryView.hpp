@@ -38,6 +38,7 @@ struct HistoryDetailPlayerRow {
     bool is_me = false;
     Rml::String mmr;
     Rml::String tier;
+    Rml::String tier_color;
     Rml::String met_before;
     Rml::String score;
     Rml::String goals;
