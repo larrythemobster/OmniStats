@@ -535,7 +535,11 @@ bool DatabaseManager::UpsertMatchStatsLocked(sqlite3_int64 matchId, const MatchS
 
         sqlite3_bind_int64(stmtPlayerStats, 1, matchId);
         sqlite3_bind_text(stmtPlayerStats, 2, primaryId.c_str(), -1, SQLITE_TRANSIENT);
-        sqlite3_bind_null(stmtPlayerStats, 3);
+        if (p.score >= 0) {
+            sqlite3_bind_int(stmtPlayerStats, 3, p.score);
+        } else {
+            sqlite3_bind_null(stmtPlayerStats, 3);
+        }
         sqlite3_bind_int(stmtPlayerStats, 4, p.goals);
         sqlite3_bind_int(stmtPlayerStats, 5, p.assists);
         sqlite3_bind_int(stmtPlayerStats, 6, p.saves);

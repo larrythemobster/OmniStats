@@ -462,6 +462,9 @@ void TelemetryReducer::HandleUpdateState(const nlohmann::json& data, SideEffects
                         existing.name = p["Name"].get<std::string>();
                         existing.team = team;
                     }
+                    if (p.contains("Score") && p["Score"].is_number_integer()) {
+                        m_state->game.roster[pid].score = p["Score"].get<int>();
+                    }
                     m_state->game.matchRoster[pid] = m_state->game.roster[pid];
                 }
             }

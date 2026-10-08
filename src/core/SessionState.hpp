@@ -45,6 +45,7 @@ struct PlayerData {
     // Per-player goal metrics
     float maxGoalSpeed = 0.0f;
     float fastestGoalTime = 0.0f;
+    int score = -1; // Scoreboard points from UpdateState; -1 until observed.
 };
 
 // Real-time telemetry for the active match

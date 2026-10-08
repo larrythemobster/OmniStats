@@ -84,6 +84,28 @@ TEST(TelemetryReducerStats, AttributesNameOnlyEventPayloadsToRosterPlayersByName
     EXPECT_EQ(state->game.currentMatch.shots, 2);
 }
 
+TEST(TelemetryReducerStats, CapturesScoreboardScoreFromUpdateStateAndLeavesUnseenScoresUnknown) {
+    Storage::InitializeEnvironment();
+    auto state = std::make_shared<SessionState>();
+    TelemetryReducer reducer(state);
+
+    const auto update = [&](int myScore) {
+        reducer.Reduce(std::string(Constants::EVT_UPDATE_STATE),
+                       nlohmann::json{{"Game", {{"Arena", "Stadium_P"}, {"bReplay", false}, {"bSpectator", false}}},
+                                      {"Players",
+                                       {{{"PrimaryId", "Steam|1"}, {"Name", "Me"}, {"TeamNum", 0}, {"Score", myScore}},
+                                        {{"PrimaryId", "Epic|2"}, {"Name", "Opp"}, {"TeamNum", 1}}}}});
+    };
+    update(120);
+    update(412);
+
+    std::shared_lock<std::shared_mutex> lock(state->game.mutex);
+    ASSERT_TRUE(state->game.matchRoster.count("Steam|1"));
+    EXPECT_EQ(state->game.matchRoster["Steam|1"].score, 412);
+    ASSERT_TRUE(state->game.matchRoster.count("Epic|2"));
+    EXPECT_EQ(state->game.matchRoster["Epic|2"].score, -1);
+}
+
 TEST(TelemetryReducerStats, AddsDemoedSelfToSessionTotalsOnMatchEnd) {
     Storage::InitializeEnvironment();
     auto state = std::make_shared<SessionState>();
