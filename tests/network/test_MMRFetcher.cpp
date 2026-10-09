@@ -2,8 +2,11 @@
 #include "network/MMRFetcher.hpp"
 #include "network/CurlImpersonate.hpp"
 #include "network/AccountClient.hpp"
+#include "network/MMRFetcherDetail.hpp"
 #include "core/SessionState.hpp"
 #include "core/Config.hpp"
+
+using namespace MMRFetcherDetail;
 #include <chrono>
 #include <thread>
 #include <cstdarg>
@@ -19,6 +22,7 @@ static std::string g_mock_response = "";
 static std::string g_mock_headers = "";
 static long g_mock_response_code = 200;
 static std::string g_mock_url = "";
+static std::string g_mock_post_fields = "";
 static long g_mock_custom_api_response_code = 0;
 static std::string g_mock_custom_api_response = "";
 static int g_mock_perform_res = 0;
@@ -34,6 +38,9 @@ static int mock_easy_setopt(void* curl, int option, ...) {
     if (option == CI_CURLOPT_URL) {
         const char* u = va_arg(args, const char*);
         if (u) g_mock_url = u;
+    } else if (option == CI_CURLOPT_POSTFIELDS) {
+        const char* p = va_arg(args, const char*);
+        if (p) g_mock_post_fields = p;
     } else if (option == CI_CURLOPT_WRITEFUNCTION) {
         g_write_callback = va_arg(args, WriteCallbackType);
     } else if (option == CI_CURLOPT_WRITEDATA) {
@@ -125,6 +132,7 @@ class MMRFetcherTest : public ::testing::Test {
         g_mock_response_code = 200;
         g_mock_headers.clear();
         g_mock_response.clear();
+        g_mock_post_fields.clear();
         g_mock_impersonation_profile.clear();
         g_mock_user_agent_header.clear();
         g_mock_request_headers.clear();
@@ -175,6 +183,7 @@ class MMRFetcherTest : public ::testing::Test {
         curl.easy_impersonate = original_easy_impersonate;
         curl.SetReadyForTests(original_ready);
         g_mock_url.clear();
+        g_mock_post_fields.clear();
         g_mock_custom_api_response_code = 0;
         g_mock_custom_api_response.clear();
         g_mock_request_headers.clear();
@@ -1877,4 +1886,263 @@ TEST_F(MMRFetcherTest, SignedInCustomApiFailureOnlyFallsBackToTrackerWhenMmrTrac
         EXPECT_EQ(sessionState->game.roster.at("Steam|76561198000000099").mmr, 1350);
         EXPECT_EQ(sessionState->game.roster.at("Steam|76561198000000099").rankVerificationSource, "Tracker");
     }
+}
+TEST(MMRFetcherBatchTest, SixRosterRequestsFormSingleBatchWithSixPlayers) {
+    std::vector<MMRRequest> requests;
+    for (int i = 1; i <= 6; ++i) {
+        MMRRequest req;
+        req.primaryId = "Epic|epic_player_" + std::to_string(i) + "|0";
+        req.name = "Player" + std::to_string(i);
+        req.reason = MMRRequestReason::Roster;
+        requests.push_back(std::move(req));
+    }
+
+    const auto now = std::chrono::steady_clock::now();
+    const auto batch = AssembleCustomApiBatch(requests, now, 16);
+    EXPECT_EQ(batch.requests.size(), 6u);
+    EXPECT_TRUE(batch.playlist.empty());
+    EXPECT_EQ(batch.playlistId, 0);
+
+    const nlohmann::json body = BuildCustomApiBatchJson(batch);
+    ASSERT_TRUE(body.is_object());
+    ASSERT_TRUE(body.contains("players"));
+    ASSERT_TRUE(body["players"].is_array());
+    EXPECT_EQ(body["players"].size(), 6u);
+    EXPECT_FALSE(body.contains("playlist"));
+
+    for (int i = 0; i < 6; ++i) {
+        const auto& p = body["players"][i];
+        EXPECT_EQ(p["platform"], "Epic");
+        EXPECT_EQ(p["account_id"], "epic_player_" + std::to_string(i + 1));
+    }
+}
+
+TEST(MMRFetcherBatchTest, TwentyRosterRequestsSplitIntoSixteenAndFour) {
+    std::vector<MMRRequest> all20;
+    for (int i = 1; i <= 20; ++i) {
+        MMRRequest req;
+        req.primaryId = "Steam|765611980000000" + (i < 10 ? "0" + std::to_string(i) : std::to_string(i)) + "|0";
+        req.name = "SteamPlayer" + std::to_string(i);
+        req.reason = MMRRequestReason::Roster;
+        all20.push_back(std::move(req));
+    }
+
+    const auto now = std::chrono::steady_clock::now();
+    const auto batch1 = AssembleCustomApiBatch(all20, now, 16);
+    EXPECT_EQ(batch1.requests.size(), 16u);
+    EXPECT_EQ(batch1.requests.front().name, "SteamPlayer1");
+    EXPECT_EQ(batch1.requests.back().name, "SteamPlayer16");
+
+    const std::vector<MMRRequest> remaining4(all20.begin() + 16, all20.end());
+    const auto batch2 = AssembleCustomApiBatch(remaining4, now, 16);
+    EXPECT_EQ(batch2.requests.size(), 4u);
+    EXPECT_EQ(batch2.requests.front().name, "SteamPlayer17");
+    EXPECT_EQ(batch2.requests.back().name, "SteamPlayer20");
+}
+
+TEST(MMRFetcherBatchTest, MixedPlaylistsSplitIntoDistinctBatches) {
+    std::vector<MMRRequest> mixed;
+
+    MMRRequest r1;
+    r1.primaryId = "Epic|p1|0";
+    r1.playlist = "2v2";
+    r1.reason = MMRRequestReason::Roster;
+    mixed.push_back(r1);
+
+    MMRRequest r2;
+    r2.primaryId = "Epic|p2|0";
+    r2.playlist = "3v3";
+    r2.reason = MMRRequestReason::Roster;
+    mixed.push_back(r2);
+
+    MMRRequest r3;
+    r3.primaryId = "Epic|p3|0";
+    r3.playlist = "2v2";
+    r3.reason = MMRRequestReason::Roster;
+    mixed.push_back(r3);
+
+    MMRRequest r4;
+    r4.primaryId = "Epic|p4|0";
+    r4.playlist = "";
+    r4.reason = MMRRequestReason::Roster;
+    mixed.push_back(r4);
+
+    const auto now = std::chrono::steady_clock::now();
+    const auto batch2v2 = AssembleCustomApiBatch(mixed, now, 16);
+    EXPECT_EQ(batch2v2.requests.size(), 2u);
+    EXPECT_EQ(batch2v2.playlist, "2v2");
+    EXPECT_EQ(batch2v2.playlistId, 11);
+    EXPECT_EQ(batch2v2.requests[0].primaryId, "Epic|p1|0");
+    EXPECT_EQ(batch2v2.requests[1].primaryId, "Epic|p3|0");
+
+    const nlohmann::json body = BuildCustomApiBatchJson(batch2v2);
+    ASSERT_TRUE(body.contains("playlist"));
+    EXPECT_EQ(body["playlist"], 11);
+    EXPECT_EQ(body["players"].size(), 2u);
+}
+
+TEST(MMRFetcherBatchTest, LocalFastLaneRequestNotBatchedOrDelayed) {
+    std::vector<MMRRequest> candidates;
+
+    MMRRequest postMatch;
+    postMatch.primaryId = "Epic|local_hero|0";
+    postMatch.matchGuid = "match_fast_lane_guid";
+    postMatch.reason = MMRRequestReason::PostMatch;
+    candidates.push_back(postMatch);
+
+    MMRRequest roster1;
+    roster1.primaryId = "Epic|opp_1|0";
+    roster1.reason = MMRRequestReason::Roster;
+    candidates.push_back(roster1);
+
+    MMRRequest roster2;
+    roster2.primaryId = "Epic|opp_2|0";
+    roster2.reason = MMRRequestReason::Roster;
+    candidates.push_back(roster2);
+
+    const auto now = std::chrono::steady_clock::now();
+    const auto batch = AssembleCustomApiBatch(candidates, now, 16);
+    EXPECT_EQ(batch.requests.size(), 2u);
+    for (const auto& req : batch.requests) {
+        EXPECT_EQ(req.reason, MMRRequestReason::Roster);
+        EXPECT_NE(req.matchGuid, "match_fast_lane_guid");
+    }
+}
+
+TEST(MMRFetcherBatchTest, ResponseParsingMapsEachPlayerIncludingMissingAndErrored) {
+    std::vector<MMRRequest> requests;
+
+    MMRRequest r1;
+    r1.primaryId = "Epic|player_success|0";
+    r1.name = "SuccessPlayer";
+    r1.reason = MMRRequestReason::Roster;
+    requests.push_back(r1);
+
+    MMRRequest r2;
+    r2.primaryId = "Steam|76561198000000002|0";
+    r2.name = "ErroredPlayer";
+    r2.reason = MMRRequestReason::Roster;
+    requests.push_back(r2);
+
+    MMRRequest r3;
+    r3.primaryId = "Xbox|2535421607154237|0";
+    r3.name = "MissingPlayer";
+    r3.reason = MMRRequestReason::Roster;
+    requests.push_back(r3);
+
+    const nlohmann::json jsonResp = {
+        {"players", nlohmann::json::array({{{"platform", "Epic"},
+                                            {"account_id", "player_success"},
+                                            {"skills", nlohmann::json::array({{{"playlist", 11}, {"mmr", 1250.4}, {"tier", 14}, {"division", 2}, {"matches_played", 80}}})},
+                                            {"wins", 450}},
+                                           {{"platform", "Steam"},
+                                            {"account_id", "76561198000000002"},
+                                            {"error", {{"code", "not_found"}, {"message", "Player has not played competitive matches"}}}}})}};
+
+    const auto results = ParseCustomApiBatchResponse(requests, jsonResp);
+    ASSERT_EQ(results.size(), 3u);
+
+    EXPECT_EQ(results[0].request.primaryId, "Epic|player_success|0");
+    EXPECT_EQ(results[0].status, BatchPlayerStatus::Success);
+    EXPECT_EQ(results[0].profile.bestMmr, 1250);
+    EXPECT_EQ(results[0].profile.totalWins, 450);
+    EXPECT_EQ(results[0].profile.rankVerificationSource, "ServerA");
+
+    EXPECT_EQ(results[1].request.primaryId, "Steam|76561198000000002|0");
+    EXPECT_EQ(results[1].status, BatchPlayerStatus::NotFound);
+    EXPECT_EQ(results[1].errorCode, "not_found");
+
+    EXPECT_EQ(results[2].request.primaryId, "Xbox|2535421607154237|0");
+    EXPECT_EQ(results[2].status, BatchPlayerStatus::NotFound);
+    EXPECT_EQ(results[2].errorCode, "not_found");
+}
+
+TEST_F(MMRFetcherTest, WholeBatchHttpFailureYieldsPerPlayerFailures) {
+    Config::Update([](ConfigData& c) {
+        c.custom_api_enabled = true;
+        c.custom_api_key = "test_key";
+        c.enable_mmr_tracking = false;
+    },
+                   false);
+
+    AssembledBatch batch;
+    for (int i = 1; i <= 3; ++i) {
+        const std::string id = "Epic|fail_player_" + std::to_string(i) + "|0";
+        sessionState->game.roster[id] = PlayerData{.primaryId = id, .name = "FailPlayer" + std::to_string(i)};
+        MMRRequest req;
+        req.primaryId = id;
+        req.name = "FailPlayer" + std::to_string(i);
+        req.reason = MMRRequestReason::Roster;
+        req.retriesRemaining = 0;
+        batch.requests.push_back(std::move(req));
+    }
+
+    g_mock_custom_api_response_code = 500;
+    fetcher->ProcessCustomApiBatchForTests(batch);
+
+    std::shared_lock<std::shared_mutex> lock(sessionState->game.mutex);
+    for (int i = 1; i <= 3; ++i) {
+        const std::string id = "Epic|fail_player_" + std::to_string(i) + "|0";
+        ASSERT_TRUE(sessionState->game.roster.count(id));
+        EXPECT_TRUE(sessionState->game.roster.at(id).fetched);
+        EXPECT_TRUE(sessionState->game.roster.at(id).fetchFailed);
+    }
+}
+
+TEST_F(MMRFetcherTest, EndToEndCoalescesQueuedRosterRequestsIntoSingleHttpCall) {
+    Config::Update([](ConfigData& c) {
+        c.custom_api_enabled = true;
+        c.custom_api_key = "test_key";
+        c.enable_mmr_tracking = false;
+    },
+                   false);
+
+    nlohmann::json playersArray = nlohmann::json::array();
+    for (int i = 1; i <= 6; ++i) {
+        playersArray.push_back({{"platform", "Epic"},
+                                {"account_id", "batch_player_" + std::to_string(i)},
+                                {"skills", nlohmann::json::array({{{"playlist", 11}, {"mmr", 1000.0 + i * 50}, {"tier", 10 + i}, {"division", 1}, {"matches_played", 20}}})},
+                                {"wins", 100 * i}});
+    }
+
+    const nlohmann::json respJson = {{"players", playersArray}};
+    g_mock_custom_api_response = respJson.dump();
+    g_mock_custom_api_response_code = 200;
+
+    for (int i = 1; i <= 6; ++i) {
+        const std::string id = "Epic|batch_player_" + std::to_string(i) + "|0";
+        sessionState->game.roster[id] = PlayerData{.primaryId = id, .name = "LobbyPlayer" + std::to_string(i)};
+        fetcher->Enqueue(id, "LobbyPlayer" + std::to_string(i));
+    }
+
+    fetcher->Start();
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    fetcher->Stop();
+
+    EXPECT_EQ(g_mock_perform_count.load(), 1);
+
+    ASSERT_FALSE(g_mock_post_fields.empty());
+    const nlohmann::json postedJson = nlohmann::json::parse(g_mock_post_fields);
+    ASSERT_TRUE(postedJson.contains("players"));
+    EXPECT_EQ(postedJson["players"].size(), 6u);
+
+    std::shared_lock<std::shared_mutex> lock(sessionState->game.mutex);
+    for (int i = 1; i <= 6; ++i) {
+        const std::string id = "Epic|batch_player_" + std::to_string(i) + "|0";
+        ASSERT_TRUE(sessionState->game.roster.count(id));
+        EXPECT_TRUE(sessionState->game.roster.at(id).fetched);
+        EXPECT_FALSE(sessionState->game.roster.at(id).fetchFailed);
+        EXPECT_EQ(sessionState->game.roster.at(id).mmr, 1000 + i * 50);
+        EXPECT_EQ(sessionState->game.roster.at(id).rankVerificationSource, "ServerA");
+    }
+}
+
+TEST_F(MMRFetcherTest, TrackerPathRemainsSingleRequestWhenCustomApiNotActive) {
+    Config::Update([](ConfigData& c) {
+        c.custom_api_enabled = false;
+        c.enable_mmr_tracking = true;
+    },
+                   false);
+
+    EXPECT_FALSE(fetcher->IsCustomApiActiveSourceForTests());
 }

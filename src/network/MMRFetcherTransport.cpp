@@ -78,21 +78,45 @@ namespace {
     }
 }
 
-CustomApiFetchResult MMRFetcher::FetchProfileFromCustomApi(const MMRRequest& req) {
+bool MMRFetcher::IsCustomApiActiveSource() const {
+    const auto config = Config::Read();
+    if (!config.custom_api_enabled) return false;
+    const bool signedIn = AccountClient::Instance().IsSignedIn();
+    const bool hasKey = !config.custom_api_key.empty();
+    if (!signedIn && !hasKey) return false;
+
+    if (signedIn) return true;
+    if (!config.enable_mmr_tracking) return true;
+    if (m_useCustomApiFallback.load()) return true;
+
+    return false;
+}
+
+MMRFetcherDetail::CustomApiBatchResult MMRFetcher::FetchBatchFromCustomApi(const AssembledBatch& batch) {
+    CustomApiBatchResult result;
+    if (batch.requests.empty()) {
+        result.httpResult = CustomApiFetchResult::DisabledOrNotReady;
+        return result;
+    }
+
     auto& ci = CurlImpersonate::Instance();
     if (!ci.IsReady()) {
-        return CustomApiFetchResult::DisabledOrNotReady;
+        result.httpResult = CustomApiFetchResult::DisabledOrNotReady;
+        return result;
     }
 
     const auto config = Config::Read();
     if (!config.custom_api_enabled) {
-        return CustomApiFetchResult::DisabledOrNotReady;
+        result.httpResult = CustomApiFetchResult::DisabledOrNotReady;
+        return result;
     }
     auto& accountClient = AccountClient::Instance();
     const bool signedIn = accountClient.IsSignedIn();
     if (!signedIn && config.custom_api_key.empty()) {
-        return CustomApiFetchResult::DisabledOrNotReady;
+        result.httpResult = CustomApiFetchResult::DisabledOrNotReady;
+        return result;
     }
+
     if (!signedIn) {
         std::lock_guard<std::mutex> lock(m_queueMutex);
         if (!m_rejectedCustomApiKey.empty()) {
@@ -100,7 +124,8 @@ CustomApiFetchResult MMRFetcher::FetchProfileFromCustomApi(const MMRRequest& req
                 if (!m_state->ui.customApiKeyRejected.exchange(true)) {
                     m_state->ui.customApiKeyRejectedVersion.fetch_add(1);
                 }
-                return CustomApiFetchResult::AuthFailure;
+                result.httpResult = CustomApiFetchResult::AuthFailure;
+                return result;
             }
             m_rejectedCustomApiKey.clear();
             m_state->ui.customApiKeyRejected.store(false);
@@ -112,6 +137,7 @@ CustomApiFetchResult MMRFetcher::FetchProfileFromCustomApi(const MMRRequest& req
             m_state->ui.customApiKeyRejected.store(false);
         }
     }
+
     std::string baseUrl = config.custom_api_base_url;
     if (baseUrl.empty()) {
         baseUrl = "https://api.omnistats.org";
@@ -120,77 +146,7 @@ CustomApiFetchResult MMRFetcher::FetchProfileFromCustomApi(const MMRRequest& req
         baseUrl.pop_back();
     }
 
-    const size_t delim = req.primaryId.find('|');
-    if (delim == std::string::npos) {
-        std::cout << "[MMRFetcher] Custom API skipped for "
-                  << PrivacyLog::Sensitive(req.name, "player name")
-                  << ": invalid primaryId format.\n";
-        return CustomApiFetchResult::UnusableData;
-    }
-
-    std::string rawPlat = req.primaryId.substr(0, delim);
-    rawPlat.erase(0, rawPlat.find_first_not_of(" \t\r\n"));
-    rawPlat.erase(rawPlat.find_last_not_of(" \t\r\n") + 1);
-    std::string platLower = rawPlat;
-    std::transform(platLower.begin(), platLower.end(), platLower.begin(), ::tolower);
-
-    std::string platform;
-    if (platLower == "epic" || platLower == "epicgames")
-        platform = "Epic";
-    else if (platLower == "steam")
-        platform = "Steam";
-    else if (platLower == "ps4" || platLower == "ps5" || platLower == "psn" || platLower == "playstation")
-        platform = "PS4";
-    else if (platLower == "xbox" || platLower == "xboxone" || platLower == "xbl")
-        platform = "Xbox";
-    else if (platLower == "switch" || platLower == "nintendo")
-        platform = "Switch";
-    else {
-        std::cout << "[MMRFetcher] Custom API skipped for "
-                  << PrivacyLog::Sensitive(req.name, "player name")
-                  << ": unsupported platform '" << rawPlat << "'.\n";
-        return CustomApiFetchResult::UnusableData;
-    }
-
-    std::string accountId = req.primaryId.substr(delim + 1);
-    const size_t secondDelim = accountId.find('|');
-    if (secondDelim != std::string::npos) {
-        accountId = accountId.substr(0, secondDelim);
-    }
-    accountId.erase(0, accountId.find_first_not_of(" \t\r\n"));
-    accountId.erase(accountId.find_last_not_of(" \t\r\n") + 1);
-    if (accountId.empty()) {
-        std::cout << "[MMRFetcher] Custom API skipped for "
-                  << PrivacyLog::Sensitive(req.name, "player name")
-                  << ": empty account ID in primaryId.\n";
-        return CustomApiFetchResult::UnusableData;
-    }
-
-    nlohmann::json reqBody = {
-        {"players", nlohmann::json::array({{{"platform", platform}, {"account_id", accountId}}})}};
-    if (req.reason == MMRRequestReason::PostMatch && !req.playlist.empty()) {
-        int pid = -1;
-        if (req.playlist == "1v1")
-            pid = 10;
-        else if (req.playlist == "2v2")
-            pid = 11;
-        else if (req.playlist == "3v3")
-            pid = 13;
-        else if (req.playlist == "hoops")
-            pid = 27;
-        else if (req.playlist == "rumble")
-            pid = 28;
-        else if (req.playlist == "dropshot")
-            pid = 29;
-        else if (req.playlist == "snowday")
-            pid = 30;
-        else if (req.playlist == "t")
-            pid = 34;
-        else if (req.playlist == "heatseeker")
-            pid = 43;
-        if (pid > 0) reqBody["playlist"] = pid;
-    }
-
+    nlohmann::json reqBody = BuildCustomApiBatchJson(batch);
     const std::string reqBodyStr = reqBody.dump();
     const std::string url = baseUrl + "/v1/ranks";
 
@@ -245,46 +201,55 @@ CustomApiFetchResult MMRFetcher::FetchProfileFromCustomApi(const MMRRequest& req
         std::string deviceId = accountClient.DevicePublicId();
         if (accessToken.empty() || deviceId.empty()) {
             if (!accountClient.IsSignedIn()) {
-                return CustomApiFetchResult::AuthFailure;
+                result.httpResult = CustomApiFetchResult::AuthFailure;
+                return result;
             }
-            return CustomApiFetchResult::TransientError;
+            result.httpResult = CustomApiFetchResult::TransientError;
+            return result;
         }
         if (!performRequest(accessToken, deviceId)) {
-            return CustomApiFetchResult::DisabledOrNotReady;
+            result.httpResult = CustomApiFetchResult::DisabledOrNotReady;
+            return result;
         }
         if (res == 0 && httpCode == 401) {
             if (!accountClient.Refresh()) {
                 if (accountClient.IsSignedIn()) {
                     accountClient.MarkSignedOut("Your OmniStats session expired or this device was revoked. Sign in again in Settings > Integrations.");
                 }
-                return CustomApiFetchResult::AuthFailure;
+                result.httpResult = CustomApiFetchResult::AuthFailure;
+                return result;
             }
             accessToken = accountClient.AccessToken();
             deviceId = accountClient.DevicePublicId();
             if (accessToken.empty() || deviceId.empty()) {
                 accountClient.MarkSignedOut("Your OmniStats session expired or this device was revoked. Sign in again in Settings > Integrations.");
-                return CustomApiFetchResult::AuthFailure;
+                result.httpResult = CustomApiFetchResult::AuthFailure;
+                return result;
             }
             if (!performRequest(accessToken, deviceId)) {
-                return CustomApiFetchResult::DisabledOrNotReady;
+                result.httpResult = CustomApiFetchResult::DisabledOrNotReady;
+                return result;
             }
             if (res == 0 && httpCode == 401) {
                 accountClient.MarkSignedOut("Your OmniStats session expired or this device was revoked. Sign in again in Settings > Integrations.");
                 std::cout << "[MMRFetcher] Custom API rejected refreshed device token (HTTP 401). Signed out.\n";
-                return CustomApiFetchResult::AuthFailure;
+                result.httpResult = CustomApiFetchResult::AuthFailure;
+                return result;
             }
         }
     } else {
         if (!performRequest("", "")) {
-            return CustomApiFetchResult::DisabledOrNotReady;
+            result.httpResult = CustomApiFetchResult::DisabledOrNotReady;
+            return result;
         }
     }
 
+    result.httpCode = httpCode;
+
     if (res != 0) {
-        std::cout << "[MMRFetcher] Custom API network error for "
-                  << PrivacyLog::Sensitive(req.name, "player name")
-                  << ": curl error " << res << ".\n";
-        return CustomApiFetchResult::TransientError;
+        std::cout << "[MMRFetcher] Custom API network error: curl error " << res << ".\n";
+        result.httpResult = CustomApiFetchResult::TransientError;
+        return result;
     }
     if (httpCode == 401) {
         {
@@ -294,208 +259,190 @@ CustomApiFetchResult MMRFetcher::FetchProfileFromCustomApi(const MMRRequest& req
         if (!m_state->ui.customApiKeyRejected.exchange(true)) {
             m_state->ui.customApiKeyRejectedVersion.fetch_add(1);
         }
-        std::cout << "[MMRFetcher] Custom API rejected the configured API key (HTTP 401). "
-                  << "Custom API lookups are paused until the key is changed.\n";
-        return CustomApiFetchResult::AuthFailure;
+        std::cout << "[MMRFetcher] Custom API rejected the configured API key (HTTP 401).\n";
+        result.httpResult = CustomApiFetchResult::AuthFailure;
+        return result;
     }
     if (httpCode == 403) {
-        std::cout << "[MMRFetcher] Custom API authentication failed (HTTP 403) for "
-                  << PrivacyLog::Sensitive(req.name, "player name")
-                  << ".\n";
-        return CustomApiFetchResult::AuthFailure;
+        std::cout << "[MMRFetcher] Custom API authentication failed (HTTP 403).\n";
+        result.httpResult = CustomApiFetchResult::AuthFailure;
+        return result;
     }
     if (httpCode == 429) {
-        std::cout << "[MMRFetcher] Custom API rate limited (HTTP 429) for "
-                  << PrivacyLog::Sensitive(req.name, "player name") << ".\n";
-        return CustomApiFetchResult::TransientError;
+        std::cout << "[MMRFetcher] Custom API rate limited (HTTP 429).\n";
+        result.httpResult = CustomApiFetchResult::TransientError;
+        std::chrono::steady_clock::duration lockout = kRateLimitLockoutMinimum;
+        if (headerState.retryAfterSeconds > 0) {
+            lockout = (std::max)(lockout,
+                                 std::chrono::duration_cast<std::chrono::steady_clock::duration>(
+                                     std::chrono::seconds(headerState.retryAfterSeconds)));
+        }
+        result.rateLimitLockout = lockout;
+        return result;
     }
     if (httpCode == 404) {
-        std::cout << "[MMRFetcher] Custom API returned HTTP 404 (not found) for "
-                  << PrivacyLog::Sensitive(req.name, "player name") << ".\n";
-        return CustomApiFetchResult::UnusableData;
+        std::cout << "[MMRFetcher] Custom API returned HTTP 404 (not found).\n";
+        result.httpResult = CustomApiFetchResult::UnusableData;
+        return result;
     }
     if (httpCode >= 500 && httpCode <= 599) {
-        std::cout << "[MMRFetcher] Custom API server error (HTTP "
-                  << httpCode << ") for "
-                  << PrivacyLog::Sensitive(req.name, "player name") << ".\n";
-        return CustomApiFetchResult::TransientError;
+        std::cout << "[MMRFetcher] Custom API server error (HTTP " << httpCode << ").\n";
+        result.httpResult = CustomApiFetchResult::TransientError;
+        return result;
     }
     if (httpCode != 200) {
-        std::cout << "[MMRFetcher] Custom API returned unexpected HTTP "
-                  << httpCode << " for "
-                  << PrivacyLog::Sensitive(req.name, "player name") << ".\n";
-        return CustomApiFetchResult::UnusableData;
+        std::cout << "[MMRFetcher] Custom API returned unexpected HTTP " << httpCode << ".\n";
+        result.httpResult = CustomApiFetchResult::UnusableData;
+        return result;
     }
 
     nlohmann::json jsonResp;
     try {
         jsonResp = nlohmann::json::parse(readBuffer);
     } catch (...) {
-        std::cout << "[MMRFetcher] Custom API returned malformed JSON for "
-                  << PrivacyLog::Sensitive(req.name, "player name") << ".\n";
-        return CustomApiFetchResult::UnusableData;
+        std::cout << "[MMRFetcher] Custom API returned malformed JSON.\n";
+        result.httpResult = CustomApiFetchResult::UnusableData;
+        return result;
     }
 
-    if (jsonResp.contains("error") && jsonResp["error"].is_object()) {
+    if (jsonResp.is_object() && jsonResp.contains("error") && jsonResp["error"].is_object()) {
         std::string errCode = jsonResp["error"].value("code", "unknown");
         std::string errMsg = jsonResp["error"].value("message", "");
-        std::cout << "[MMRFetcher] Custom API error for "
-                  << PrivacyLog::Sensitive(req.name, "player name")
-                  << ": " << errCode;
-        if (!errMsg.empty()) {
-            std::cout << " (" << errMsg << ")";
-        }
+        std::cout << "[MMRFetcher] Custom API error: " << errCode;
+        if (!errMsg.empty()) std::cout << " (" << errMsg << ")";
         std::cout << ".\n";
-        return CustomApiFetchResult::UnusableData;
+        result.httpResult = CustomApiFetchResult::UnusableData;
+        result.playerResults = ParseCustomApiBatchResponse(batch.requests, jsonResp);
+        return result;
     }
 
-    if (!jsonResp.contains("players") || !jsonResp["players"].is_array() || jsonResp["players"].empty()) {
-        std::cout << "[MMRFetcher] Custom API returned HTTP 200 but missing player data for "
-                  << PrivacyLog::Sensitive(req.name, "player name") << ".\n";
-        return CustomApiFetchResult::UnusableData;
-    }
+    result.playerResults = ParseCustomApiBatchResponse(batch.requests, jsonResp);
+    result.httpResult = CustomApiFetchResult::SuccessFinished;
+    return result;
+}
 
-    const nlohmann::json* matchedPlayer = nullptr;
-    for (const auto& p : jsonResp["players"]) {
-        if (!p.is_object()) continue;
-        if (p.contains("account_id") && p["account_id"].is_string()) {
-            if (CaseInsensitiveEquals(p["account_id"].get<std::string>(), accountId)) {
-                matchedPlayer = &p;
-                break;
-            }
-        }
-    }
-    if (!matchedPlayer) {
-        if (jsonResp["players"].size() == 1 && jsonResp["players"][0].is_object()) {
-            matchedPlayer = &jsonResp["players"][0];
-            if (matchedPlayer->contains("account_id") && (*matchedPlayer)["account_id"].is_string()) {
-                const std::string respId = (*matchedPlayer)["account_id"].get<std::string>();
-                if (!respId.empty() && !CaseInsensitiveEquals(respId, accountId)) {
-                    matchedPlayer = nullptr;
+void MMRFetcher::ProcessCustomApiBatch(const AssembledBatch& batch) {
+    if (batch.requests.empty()) return;
+
+    CustomApiBatchResult res = FetchBatchFromCustomApi(batch);
+    const auto now = std::chrono::steady_clock::now();
+    const auto config = Config::Read();
+
+    if (res.httpResult == CustomApiFetchResult::AuthFailure) {
+        m_useCustomApiFallback.store(false);
+        for (const auto& req : batch.requests) {
+            if (config.enable_mmr_tracking && m_rateLimitedUntil <= now) {
+                const bool requeued = FetchProfileTracker(req);
+                if (!requeued) FinishRequest(req);
+            } else {
+                std::unique_lock<std::shared_mutex> gameLock(m_state->game.mutex);
+                if (m_state->game.roster.count(req.primaryId)) {
+                    auto& p = m_state->game.roster[req.primaryId];
+                    p.fetched = true;
+                    p.fetchFailed = true;
+                    m_state->game.version++;
                 }
+                FinishRequest(req);
+            }
+        }
+        return;
+    }
+
+    if (res.httpResult == CustomApiFetchResult::TransientError) {
+        const auto delay = (res.httpCode == 429 && res.rateLimitLockout > std::chrono::steady_clock::duration::zero())
+                               ? std::chrono::duration_cast<std::chrono::milliseconds>(res.rateLimitLockout)
+                               : kTransientRetryDelay;
+        const char* reason = (res.httpCode == 429) ? "custom API rate limited" : "transient custom API failure";
+        if (res.httpCode == 429) {
+            std::lock_guard<std::mutex> lock(m_queueMutex);
+            m_rateLimitedUntil = now + res.rateLimitLockout;
+        }
+        for (const auto& req : batch.requests) {
+            if (!ScheduleRetry(req, delay, reason)) {
+                std::unique_lock<std::shared_mutex> gameLock(m_state->game.mutex);
+                if (m_state->game.roster.count(req.primaryId)) {
+                    auto& p = m_state->game.roster[req.primaryId];
+                    p.fetched = true;
+                    p.fetchFailed = true;
+                    m_state->game.version++;
+                }
+                FinishRequest(req);
+            }
+        }
+        return;
+    }
+
+    if (res.httpResult == CustomApiFetchResult::UnusableData || res.httpResult == CustomApiFetchResult::DisabledOrNotReady) {
+        for (const auto& req : batch.requests) {
+            if (config.enable_mmr_tracking && m_rateLimitedUntil <= now) {
+                const bool requeued = FetchProfileTracker(req);
+                if (!requeued) FinishRequest(req);
+            } else {
+                std::unique_lock<std::shared_mutex> gameLock(m_state->game.mutex);
+                if (m_state->game.roster.count(req.primaryId)) {
+                    auto& p = m_state->game.roster[req.primaryId];
+                    p.fetched = true;
+                    p.fetchFailed = true;
+                    m_state->game.version++;
+                }
+                FinishRequest(req);
+            }
+        }
+        return;
+    }
+
+    for (const auto& pRes : res.playerResults) {
+        const auto& req = pRes.request;
+        if (pRes.status == BatchPlayerStatus::Success) {
+            const bool requeued = PublishProfileResult(req, pRes.profile);
+            if (!requeued) FinishRequest(req);
+        } else {
+            if (config.enable_mmr_tracking && m_rateLimitedUntil <= now) {
+                const bool requeued = FetchProfileTracker(req);
+                if (!requeued) FinishRequest(req);
+            } else {
+                std::unique_lock<std::shared_mutex> gameLock(m_state->game.mutex);
+                if (m_state->game.roster.count(req.primaryId)) {
+                    auto& p = m_state->game.roster[req.primaryId];
+                    p.fetched = true;
+                    p.fetchFailed = true;
+                    m_state->game.version++;
+                }
+                FinishRequest(req);
             }
         }
     }
+}
 
-    if (!matchedPlayer) {
-        std::cout << "[MMRFetcher] Custom API returned HTTP 200 but player "
+CustomApiFetchResult MMRFetcher::FetchProfileFromCustomApi(const MMRRequest& req) {
+    CustomApiPlayerTarget target;
+    if (!TryParseCustomApiTarget(req.primaryId, target)) {
+        std::cout << "[MMRFetcher] Custom API skipped for "
                   << PrivacyLog::Sensitive(req.name, "player name")
-                  << " was not in response.\n";
+                  << ": invalid primaryId format.\n";
         return CustomApiFetchResult::UnusableData;
     }
 
-    if (matchedPlayer->contains("error") && !(*matchedPlayer)["error"].is_null()) {
-        std::cout << "[MMRFetcher] Custom API returned player-level error for "
-                  << PrivacyLog::Sensitive(req.name, "player name") << ".\n";
+    AssembledBatch batch;
+    batch.requests = {req};
+    batch.playlist = req.playlist;
+    batch.playlistId = CustomApiPlaylistIdForName(req.playlist);
+
+    CustomApiBatchResult bRes = FetchBatchFromCustomApi(batch);
+    if (bRes.httpResult != CustomApiFetchResult::SuccessFinished) {
+        return bRes.httpResult;
+    }
+
+    if (bRes.playerResults.empty()) {
         return CustomApiFetchResult::UnusableData;
     }
 
-    if (!matchedPlayer->contains("skills") || !(*matchedPlayer)["skills"].is_array() ||
-        (*matchedPlayer)["skills"].empty()) {
-        std::cout << "[MMRFetcher] Custom API returned HTTP 200 but no skills for "
-                  << PrivacyLog::Sensitive(req.name, "player name") << ".\n";
-        return CustomApiFetchResult::UnusableData;
+    const auto& pRes = bRes.playerResults.front();
+    if (pRes.status == BatchPlayerStatus::Success) {
+        const bool requeued = PublishProfileResult(req, pRes.profile);
+        return requeued ? CustomApiFetchResult::SuccessRequeued : CustomApiFetchResult::SuccessFinished;
     }
-
-    const size_t totalSkills = (*matchedPlayer)["skills"].size();
-    size_t unrecognizedPlaylists = 0;
-    size_t invalidMmrCount = 0;
-    int bestMmr = 0;
-    std::string bestTier = "Unranked";
-    std::string bestPlaylistName = "best";
-    std::map<std::string, int> playlistMMRs;
-    std::map<std::string, std::string> playlistTiers;
-    std::map<std::string, int> playlistMatches;
-
-    for (const auto& skill : (*matchedPlayer)["skills"]) {
-        if (!skill.is_object()) continue;
-        if (!skill.contains("playlist") || !skill["playlist"].is_number_integer()) {
-            unrecognizedPlaylists++;
-            continue;
-        }
-        int pid = skill["playlist"].get<int>();
-        std::string plName = PlaylistNameForTrackerId(pid);
-        if (plName.empty()) {
-            unrecognizedPlaylists++;
-            continue;
-        }
-
-        if (!skill.contains("mmr") || !skill["mmr"].is_number()) {
-            invalidMmrCount++;
-            continue;
-        }
-        double mmrDouble = skill["mmr"].get<double>();
-        int mmrInt = static_cast<int>(std::lround(mmrDouble));
-        if (mmrInt <= 0) {
-            invalidMmrCount++;
-            continue;
-        }
-
-        int tier = skill.value("tier", 0);
-        int div = skill.value("division", 0);
-        int matches = skill.value("matches_played", -1);
-
-        std::string tierName = (plName == "t") ? GetTournamentTierForMmr(mmrInt) : RankTierName(tier, div);
-
-        if (ShouldReplacePlaylistBucket(playlistMMRs, plName, mmrInt)) {
-            playlistMMRs[plName] = mmrInt;
-            playlistTiers[plName] = tierName;
-        }
-        if (matches >= 0) {
-            playlistMatches[plName] += matches;
-        }
-
-        if (plName != "casual" && plName != "t" && mmrInt > bestMmr) {
-            bestMmr = mmrInt;
-            bestTier = tierName;
-            bestPlaylistName = plName;
-        }
-    }
-
-    if (playlistMMRs.empty()) {
-        if (unrecognizedPlaylists == totalSkills) {
-            std::cout << "[MMRFetcher] Custom API returned HTTP 200 but no recognized playlist IDs for "
-                      << PrivacyLog::Sensitive(req.name, "player name") << ".\n";
-        } else if (invalidMmrCount == totalSkills) {
-            std::cout << "[MMRFetcher] Custom API returned HTTP 200 but invalid/missing MMR for "
-                      << PrivacyLog::Sensitive(req.name, "player name") << ".\n";
-        } else {
-            std::cout << "[MMRFetcher] Custom API returned HTTP 200 but no usable rank data for "
-                      << PrivacyLog::Sensitive(req.name, "player name") << ".\n";
-        }
-        return CustomApiFetchResult::UnusableData;
-    }
-
-    playlistMMRs["best"] = bestMmr;
-    playlistTiers["best"] = bestTier;
-    if (playlistMatches.count(bestPlaylistName)) {
-        playlistMatches["best"] = playlistMatches[bestPlaylistName];
-    }
-
-    std::cout << "[MMRFetcher] Custom API updated "
-              << PrivacyLog::Sensitive(req.name, "player name")
-              << ": skills=" << totalSkills
-              << ", usable=" << (playlistMMRs.size() - 1)
-              << ", best=" << bestMmr << "\n";
-
-    NormalizedProfileResult profile;
-    profile.bestMmr = bestMmr;
-    profile.bestTier = bestTier;
-    profile.bestPlaylistName = bestPlaylistName;
-    profile.playlistMMRs = std::move(playlistMMRs);
-    profile.playlistTiers = std::move(playlistTiers);
-    profile.playlistMatches = std::move(playlistMatches);
-    int totalWins = -1;
-    if (matchedPlayer->contains("wins") && (*matchedPlayer)["wins"].is_number_integer()) {
-        totalWins = (*matchedPlayer)["wins"].get<int>();
-    } else if (matchedPlayer->contains("total_wins") && (*matchedPlayer)["total_wins"].is_number_integer()) {
-        totalWins = (*matchedPlayer)["total_wins"].get<int>();
-    }
-    profile.totalWins = totalWins;
-    profile.rankVerificationSource = "ServerA";
-
-    const bool requeued = PublishProfileResult(req, profile);
-    return requeued ? CustomApiFetchResult::SuccessRequeued : CustomApiFetchResult::SuccessFinished;
+    return CustomApiFetchResult::UnusableData;
 }
 
 bool MMRFetcher::FetchProfile(MMRRequest req) {
@@ -564,6 +511,13 @@ bool MMRFetcher::FetchProfile(MMRRequest req) {
             }
         }
     }
+    return FetchProfileTracker(req);
+}
+
+bool MMRFetcher::FetchProfileTracker(MMRRequest req) {
+    const ConfigData config = Config::Read();
+    const bool signedInPrimary = config.custom_api_enabled && AccountClient::Instance().IsSignedIn();
+    const bool tryCustomApiFirst = signedInPrimary || m_useCustomApiFallback.load();
     if (!config.enable_mmr_tracking) {
         if (req.reason == MMRRequestReason::PostMatch) {
             EnsureProvisionalPoint(req, req.previousMmr);
@@ -894,3 +848,18 @@ bool MMRFetcher::FetchProfile(MMRRequest req) {
         return false;
     }
 }
+
+#ifdef OMNISTATS_TEST_ENVIRONMENT
+std::vector<MMRFetcherDetail::BatchPlayerResult> MMRFetcher::FetchBatchFromCustomApiForTests(const MMRFetcherDetail::AssembledBatch& batch) {
+    auto res = FetchBatchFromCustomApi(batch);
+    return res.playerResults;
+}
+
+void MMRFetcher::ProcessCustomApiBatchForTests(const MMRFetcherDetail::AssembledBatch& batch) {
+    ProcessCustomApiBatch(batch);
+}
+
+bool MMRFetcher::IsCustomApiActiveSourceForTests() const {
+    return IsCustomApiActiveSource();
+}
+#endif

@@ -52,6 +52,11 @@ enum class CustomApiFetchResult {
     UnusableData,
     DisabledOrNotReady
 };
+namespace MMRFetcherDetail {
+    struct AssembledBatch;
+    struct BatchPlayerResult;
+    struct CustomApiBatchResult;
+}
 
 struct NormalizedProfileResult {
     int bestMmr = 0;
@@ -151,6 +156,9 @@ class MMRFetcher {
     bool IsRateLimitedForTests() const;
     CustomApiFetchResult FetchProfileFromCustomApiForTests(const MMRRequest& req);
     bool PublishProfileResultForTests(const MMRRequest& req, const NormalizedProfileResult& profile);
+    std::vector<MMRFetcherDetail::BatchPlayerResult> FetchBatchFromCustomApiForTests(const MMRFetcherDetail::AssembledBatch& batch);
+    void ProcessCustomApiBatchForTests(const MMRFetcherDetail::AssembledBatch& batch);
+    bool IsCustomApiActiveSourceForTests() const;
 #endif
 
   private:
@@ -170,6 +178,10 @@ class MMRFetcher {
     bool FetchProfile(MMRRequest req);
     CustomApiFetchResult FetchProfileFromCustomApi(const MMRRequest& req);
     bool PublishProfileResult(const MMRRequest& req, const NormalizedProfileResult& profile);
+    bool IsCustomApiActiveSource() const;
+    MMRFetcherDetail::CustomApiBatchResult FetchBatchFromCustomApi(const MMRFetcherDetail::AssembledBatch& batch);
+    void ProcessCustomApiBatch(const MMRFetcherDetail::AssembledBatch& batch);
+    bool FetchProfileTracker(MMRRequest req);
     bool ScheduleRetry(MMRRequest req, std::chrono::milliseconds delay, const char* reason);
     std::string GetTRNPlatform(const std::string& primaryId);
     void FinishRequest(const MMRRequest& req);

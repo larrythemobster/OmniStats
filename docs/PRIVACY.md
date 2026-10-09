@@ -12,7 +12,7 @@ The startup diagnostic is required to use OmniStats and cannot be disabled in Se
 
 | Feature | Destination and fields | Default |
 | --- | --- | --- |
-| OmniStats account sign-in and rank lookup | Signing in sends the device public key, derived device ID, computer name, `windows` platform string, and app version to `api.omnistats.org/v1/auth/device/*`, then opens the approval page in the default browser. When signed in and enabled, rank lookups send lobby platform and account IDs with a short-lived device bearer token and device ID to `api.omnistats.org/v1/ranks`. | Off until signed in |
+| OmniStats account sign-in and rank lookup | Signing in sends the device public key, derived device ID, computer name, `windows` platform string, and app version to `api.omnistats.org/v1/auth/device/*`, then opens the approval page in the default browser. When enabled, rank lookups coalesce up to 16 lobby player platform and account IDs per request to `api.omnistats.org/v1/ranks` using device bearer token and device ID or configured API key. | Off until signed in |
 | Tracker rank lookup | Tracker Network receives the lobby player's public name and platform identifier needed to request public Rocket League rank information. | Off |
 | Discord Rich Presence | Match/session presence is sent to the user's local Discord client. | Off |
 | Ballchasing replay upload | Selected replay files are uploaded to ballchasing.com using the user's token. | Off |

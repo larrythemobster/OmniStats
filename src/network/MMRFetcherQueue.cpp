@@ -25,7 +25,7 @@ namespace {
     bool IsRankLookupEnabled() {
         const ConfigData conf = Config::Read();
         if (conf.enable_mmr_tracking) return true;
-        return conf.custom_api_enabled && AccountClient::Instance().IsSignedIn();
+        return conf.custom_api_enabled && (AccountClient::Instance().IsSignedIn() || !conf.custom_api_key.empty());
     }
 }
 
@@ -374,15 +374,36 @@ void MMRFetcher::WorkerLoop() {
     }
 
     while (m_isRunning) {
-        MMRRequest req;
-        {
-            std::unique_lock<std::mutex> lock(m_queueMutex);
-            while (m_isRunning && m_queue.empty()) {
-                m_cv.wait(lock);
-            }
-            if (!m_isRunning && m_queue.empty()) break;
+        std::unique_lock<std::mutex> lock(m_queueMutex);
+        while (m_isRunning && m_queue.empty()) {
+            m_cv.wait(lock);
+        }
+        if (!m_isRunning && m_queue.empty()) break;
 
-            const auto now = std::chrono::steady_clock::now();
+        const auto now = std::chrono::steady_clock::now();
+        const bool customApiActive = IsCustomApiActiveSource();
+
+        auto postMatchIt = std::find_if(
+            m_queue.begin(), m_queue.end(),
+            [](const MMRRequest& r) {
+                return r.reason == MMRRequestReason::PostMatch;
+            });
+
+        if (postMatchIt != m_queue.end() && postMatchIt->notBefore <= now) {
+            MMRRequest req = std::move(*postMatchIt);
+            m_queue.erase(postMatchIt);
+            req.sessionGeneration = m_state->game.sessionGeneration.load();
+            lock.unlock();
+
+            const bool requeued = FetchProfile(req);
+            if (!requeued) FinishRequest(req);
+
+            std::unique_lock<std::mutex> sleepLock(m_queueMutex);
+            m_cv.wait_for(sleepLock, kQueueSpacing, [this] { return !m_isRunning; });
+            continue;
+        }
+
+        if (!customApiActive) {
             if (m_rateLimitedUntil > now &&
                 !m_useCustomApiFallback.load()) {
                 const auto wakeAt = m_rateLimitedUntil;
@@ -402,16 +423,104 @@ void MMRFetcher::WorkerLoop() {
                 continue;
             }
 
-            req = std::move(*nextIt);
+            MMRRequest req = std::move(*nextIt);
             m_queue.erase(nextIt);
             req.sessionGeneration = m_state->game.sessionGeneration.load();
+            lock.unlock();
+
+            const bool requeued = FetchProfile(req);
+            if (!requeued) FinishRequest(req);
+
+            std::unique_lock<std::mutex> sleepLock(m_queueMutex);
+            m_cv.wait_for(sleepLock, kQueueSpacing, [this] { return !m_isRunning; });
+            continue;
         }
 
-        const bool requeued = FetchProfile(req);
-        if (!requeued) FinishRequest(req);
+        if (m_rateLimitedUntil > now) {
+            const auto wakeAt = m_rateLimitedUntil;
+            m_cv.wait_until(lock, wakeAt);
+            continue;
+        }
 
-        std::unique_lock<std::mutex> lock(m_queueMutex);
-        m_cv.wait_for(lock, kQueueSpacing, [this] { return !m_isRunning; });
+        auto firstEligibleIt = std::find_if(
+            m_queue.begin(), m_queue.end(),
+            [&](const MMRRequest& r) {
+                return r.reason == MMRRequestReason::Roster && r.notBefore <= now;
+            });
+
+        if (firstEligibleIt == m_queue.end()) {
+            auto earliestIt = std::min_element(
+                m_queue.begin(), m_queue.end(),
+                [](const MMRRequest& lhs, const MMRRequest& rhs) {
+                    return lhs.notBefore < rhs.notBefore;
+                });
+            if (earliestIt != m_queue.end()) {
+                m_cv.wait_until(lock, earliestIt->notBefore);
+            }
+            continue;
+        }
+
+        const std::string targetPlaylist = firstEligibleIt->playlist;
+        size_t matchingCount = 0;
+        for (const auto& r : m_queue) {
+            if (r.reason == MMRRequestReason::Roster && r.playlist == targetPlaylist && r.notBefore <= now) {
+                if (++matchingCount >= kMaxCustomApiBatchSize) break;
+            }
+        }
+
+        if (matchingCount < kMaxCustomApiBatchSize) {
+            const auto coalesceDeadline = now + kBatchCoalesceWindow;
+            m_cv.wait_until(lock, coalesceDeadline, [&] {
+                if (!m_isRunning) return true;
+                for (const auto& r : m_queue) {
+                    if (r.reason == MMRRequestReason::PostMatch && r.notBefore <= std::chrono::steady_clock::now()) {
+                        return true;
+                    }
+                }
+                size_t count = 0;
+                const auto curTime = std::chrono::steady_clock::now();
+                for (const auto& r : m_queue) {
+                    if (r.reason == MMRRequestReason::Roster && r.playlist == targetPlaylist && r.notBefore <= curTime) {
+                        if (++count >= kMaxCustomApiBatchSize) return true;
+                    }
+                }
+                return false;
+            });
+
+            if (!m_isRunning && m_queue.empty()) break;
+
+            auto readyPostMatch = std::find_if(
+                m_queue.begin(), m_queue.end(),
+                [](const MMRRequest& r) {
+                    return r.reason == MMRRequestReason::PostMatch && r.notBefore <= std::chrono::steady_clock::now();
+                });
+            if (readyPostMatch != m_queue.end()) {
+                continue;
+            }
+        }
+
+        AssembledBatch batch;
+        batch.playlist = targetPlaylist;
+        batch.playlistId = CustomApiPlaylistIdForName(targetPlaylist);
+        const auto drainNow = std::chrono::steady_clock::now();
+        const uint64_t sessionGen = m_state->game.sessionGeneration.load();
+
+        for (auto it = m_queue.begin(); it != m_queue.end() && batch.requests.size() < kMaxCustomApiBatchSize;) {
+            if (it->reason == MMRRequestReason::Roster && it->playlist == targetPlaylist && it->notBefore <= drainNow) {
+                MMRRequest item = std::move(*it);
+                item.sessionGeneration = sessionGen;
+                batch.requests.push_back(std::move(item));
+                it = m_queue.erase(it);
+            } else {
+                ++it;
+            }
+        }
+
+        lock.unlock();
+
+        if (!batch.requests.empty()) {
+            ProcessCustomApiBatch(batch);
+        }
     }
 }
 
