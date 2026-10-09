@@ -42,6 +42,17 @@ These tables remain on your machine and are never uploaded by OmniStats. **Expor
 In Settings, **Integrations** controls OmniStats account sign-in, the OmniStats rank API toggle, and optional third-party services. Signing in generates an Ed25519 device keypair and stores the private key and rotating refresh token in `config.json` encrypted with Windows DPAPI `CryptProtectData` bound to the current Windows user, alongside the signed-in display name and derived device public ID. Signing out revokes the device session and clears the stored refresh token and display name. **Data** contains crash report sharing, history exports, and **Delete History & Identity**. Deletion requires confirmation and keeps settings and tokens. Ballchasing tokens are hidden unless **Show** is selected.
 
 Deleting `%APPDATA%\omnistats` while OmniStats is closed removes local configuration, history, logs, crash dumps, and the installation ID. Back up anything you want to keep first.
+## Local logs and support bundles
+
+OmniStats rotates local logs on launch and keeps up to 5 previous sessions (`omnistats_log.1.txt` through `omnistats_log.5.txt`). Older logs are deleted automatically.
+
+In Settings, **Troubleshooting** provides **Create support bundle** and **Copy diagnostics summary**. A support bundle is created only on explicit user action and is never uploaded automatically. The bundle archives:
+- Current and rotated application logs with sensitive secrets, authorization tokens, and the installation ID redacted.
+- A sanitized copy of `config.json` with all credentials, API keys, tokens, device keys, and the installation ID removed.
+- Database statistics (schema version and row counts per table only, with no player names or identifiers).
+- The application version, Windows build, Rocket League Stats API connection status, and service announcement metadata.
+- A plain-text diagnostics summary that matches the clipboard export.
+
 
 Normal HTTPS infrastructure may process the connecting IP address. Current retention details and the contact method for privacy requests are published at <https://omnistats.org/privacy>.
 

@@ -11,6 +11,7 @@
 #include "core/InputManager.hpp"
 #include "core/SessionState.hpp"
 #include "core/Storage.hpp"
+#include "core/LogRotation.hpp"
 #include "database/DatabaseManager.hpp"
 #include "network/DiscordManager.hpp"
 #include "network/AccountClient.hpp"
@@ -176,6 +177,7 @@ int main(int argc, char* argv[]) {
     Storage::InitializeEnvironment();
     std::string crashFile = Storage::GetDataDirectory() + "crash_pending.dmp";
     MultiByteToWideChar(CP_UTF8, 0, crashFile.c_str(), -1, g_crashDumpPath, MAX_PATH);
+    LogRotation::RotateLogs(Storage::GetDataDirectory(), Storage::APP_NAME + std::string("_log.txt"), 5);
     // Redirect stdout to a log file in APPDATA
     std::string logPath =
         Storage::GetDataDirectory() + Storage::APP_NAME + "_log.txt";

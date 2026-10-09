@@ -69,6 +69,11 @@ std::string RmlUiController::RenderSettingsTroubleshooting() {
     out << SectionEnd();
     out << SectionStart("Diagnostics & Logs")
         << ToggleControl("debug_logging", "Verbose debug logging", "Off by default; sensitive identifiers are redacted when disabled.", m_config.debug_logging)
-        << "<div class='row gap-sm' style='margin-top:8dp'>" << Button("show-log", "Show Log File") << "</div>" << SectionEnd();
+        << "<div class='setting-help' style='margin-top:6dp'>Create a redacted ZIP archive with recent logs and system diagnostics for support, or copy a quick text summary.</div>"
+        << "<div class='row gap-sm' style='margin-top:8dp'>"
+        << Button("create-support-bundle", "Create Support Bundle", "primary")
+        << Button("copy-diagnostics-summary", "Copy Diagnostics Summary")
+        << Button("show-log", "Show Log File")
+        << "</div>" << SectionEnd();
     return out.str();
 }

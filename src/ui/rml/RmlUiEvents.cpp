@@ -35,6 +35,7 @@
 #include "core/AppVersion.hpp"
 #include "core/Storage.hpp"
 #include "core/StatsApiConfig.hpp"
+#include "core/SupportBundle.hpp"
 #include "database/DatabaseManager.hpp"
 #include "network/ExternalUpdaterLauncher.hpp"
 #include "network/MMRFetcher.hpp"
@@ -383,6 +384,19 @@ void RmlUiController::HandleClick(Rml::Element* target) {
         const std::string path = Storage::GetDataDirectory() + Storage::APP_NAME + "_log.txt";
         const std::string arg = "/select,\"" + path + "\"";
         ShellExecuteA(nullptr, "open", "explorer.exe", arg.c_str(), nullptr, SW_SHOWNORMAL);
+    } else if (action == "create-support-bundle") {
+        std::string bundlePath, error;
+        if (SupportBundle::CreateSupportBundle(bundlePath, error)) {
+            ShowToast("Saved support bundle to Desktop.");
+            const std::string arg = "/select,\"" + bundlePath + "\"";
+            ShellExecuteA(nullptr, "open", "explorer.exe", arg.c_str(), nullptr, SW_SHOWNORMAL);
+        } else {
+            ShowToast("Failed to create support bundle: " + (error.empty() ? "unknown error" : error), true);
+        }
+    } else if (action == "copy-diagnostics-summary") {
+        const std::string summary = SupportBundle::BuildDiagnosticsSummary();
+        m_systemInterface.SetClipboardText(summary);
+        ShowToast("Copied diagnostics summary to clipboard.");
     } else if (action == "statsapi-check") {
         CheckStatsApi(false);
         RebuildSettings();
