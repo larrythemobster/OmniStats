@@ -65,3 +65,26 @@ inline void ComputeWindowStyles(bool secondMonitorMode, bool showMenu, LONG& sty
 inline bool ShouldRaiseSecondMonitorWindow(bool secondMonitorMode, bool isRLActive, bool wasRLActive, bool isWindowVisible) {
     return secondMonitorMode && isRLActive && !wasRLActive && isWindowVisible;
 }
+
+enum class ForegroundKind { None,
+                            Overlay,
+                            RocketLeague,
+                            Other };
+
+// Windows activates the topmost overlay when Rocket League minimizes or the overlay is clicked after
+// tabbing out, so the overlay only inherits focus while Rocket League was the last external foreground.
+inline bool ResolveRocketLeagueFocus(ForegroundKind foreground, bool rlUnavailable, bool& lastExternalForegroundWasRL) {
+    switch (foreground) {
+    case ForegroundKind::None:
+        return false;
+    case ForegroundKind::Overlay:
+        return lastExternalForegroundWasRL && !rlUnavailable;
+    case ForegroundKind::RocketLeague:
+        lastExternalForegroundWasRL = !rlUnavailable;
+        return lastExternalForegroundWasRL;
+    case ForegroundKind::Other:
+        lastExternalForegroundWasRL = false;
+        return false;
+    }
+    return false;
+}

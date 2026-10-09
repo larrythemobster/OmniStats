@@ -80,6 +80,30 @@ TEST(WindowUtils, ShouldRaiseSecondMonitorWindow_SimulatedFocusLifecycle) {
     wasRLActive = isRLActive;
 }
 
+TEST(WindowUtils, ResolveRocketLeagueFocus_OverlayInheritsFocusOnlyFromRocketLeague) {
+    bool lastWasRL = false;
+
+    EXPECT_TRUE(ResolveRocketLeagueFocus(ForegroundKind::RocketLeague, false, lastWasRL));
+    // Opening Settings activates the overlay from inside Rocket League.
+    EXPECT_TRUE(ResolveRocketLeagueFocus(ForegroundKind::Overlay, false, lastWasRL));
+
+    // Tabbing out to another app hides it.
+    EXPECT_FALSE(ResolveRocketLeagueFocus(ForegroundKind::Other, false, lastWasRL));
+    // Clicking the overlay afterwards must not bring it back.
+    EXPECT_FALSE(ResolveRocketLeagueFocus(ForegroundKind::Overlay, false, lastWasRL));
+
+    EXPECT_TRUE(ResolveRocketLeagueFocus(ForegroundKind::RocketLeague, false, lastWasRL));
+    // Rocket League minimizes on alt-tab and Windows hands activation to the topmost overlay.
+    EXPECT_FALSE(ResolveRocketLeagueFocus(ForegroundKind::Overlay, true, lastWasRL));
+
+    EXPECT_FALSE(ResolveRocketLeagueFocus(ForegroundKind::RocketLeague, true, lastWasRL));
+    EXPECT_FALSE(ResolveRocketLeagueFocus(ForegroundKind::Overlay, false, lastWasRL));
+
+    EXPECT_TRUE(ResolveRocketLeagueFocus(ForegroundKind::RocketLeague, false, lastWasRL));
+    EXPECT_FALSE(ResolveRocketLeagueFocus(ForegroundKind::None, false, lastWasRL));
+    EXPECT_TRUE(ResolveRocketLeagueFocus(ForegroundKind::Overlay, false, lastWasRL));
+}
+
 TEST(WindowUtils, SecondMonitorMinimumSize_ScalesWithDpi) {
     SIZE normal = GetSecondMonitorMinimumSize(1.0f);
     EXPECT_EQ(normal.cx, 800);

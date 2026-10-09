@@ -241,6 +241,7 @@ void Overlay::RunLoop() {
     bool isClickThrough = (GetWindowLong(m_hwnd, GWL_EXSTYLE) & WS_EX_TRANSPARENT) != 0;
     HWND cachedRlHwnd = nullptr;
     bool wasRLActive = false;
+    bool lastExternalForegroundWasRL = false;
     auto lastRescan = std::chrono::steady_clock::now() - std::chrono::seconds(2);
     auto rlFocusReadyAt = (std::chrono::steady_clock::time_point::min)();
     bool validateDeviceAfterFocus = false;
@@ -330,32 +331,44 @@ void Overlay::RunLoop() {
                 if (!cachedRlHwnd) cachedRlHwnd = FindWindowA(nullptr, "Rocket League");
             }
 
-            if (HWND fg = GetForegroundWindow()) {
-                if (fg == m_hwnd || (cachedRlHwnd && fg == cachedRlHwnd)) {
-                    isRLActive = true;
+            HWND fg = GetForegroundWindow();
+            ForegroundKind kind = ForegroundKind::None;
+            bool rlUnavailable = !cachedRlHwnd || !IsWindow(cachedRlHwnd) || IsIconic(cachedRlHwnd);
+            if (!fg) {
+                kind = ForegroundKind::None;
+            } else if (fg == m_hwnd) {
+                kind = ForegroundKind::Overlay;
+            } else if (cachedRlHwnd && fg == cachedRlHwnd) {
+                kind = ForegroundKind::RocketLeague;
+            } else {
+                char className[256]{};
+                char title[256]{};
+                GetClassNameA(fg, className, sizeof(className));
+                DWORD_PTR textLength = 0;
+                SendMessageTimeoutA(fg, WM_GETTEXT, sizeof(title),
+                                    reinterpret_cast<LPARAM>(title),
+                                    SMTO_ABORTIFHUNG | SMTO_BLOCK, 50, &textLength);
+                const std::string cls(className);
+                const std::string windowTitle(title);
+                bool isRL = cls == "LaunchUnrealUWindowsClient";
+                if (!isRL) {
+                    const bool browserOrExplorer = cls.find("Chrome") != std::string::npos ||
+                                                   cls.find("Mozilla") != std::string::npos ||
+                                                   cls.find("IEFrame") != std::string::npos ||
+                                                   cls.find("CabinetWClass") != std::string::npos;
+                    isRL = !browserOrExplorer && (windowTitle == "Rocket League (64-bit, DX11)" ||
+                                                  windowTitle == "Rocket League (32-bit, DX11)" ||
+                                                  windowTitle == "Rocket League");
+                }
+                if (isRL) {
+                    cachedRlHwnd = fg;
+                    rlUnavailable = IsIconic(fg) != FALSE;
+                    kind = ForegroundKind::RocketLeague;
                 } else {
-                    char className[256]{};
-                    char title[256]{};
-                    GetClassNameA(fg, className, sizeof(className));
-                    DWORD_PTR textLength = 0;
-                    SendMessageTimeoutA(fg, WM_GETTEXT, sizeof(title),
-                                        reinterpret_cast<LPARAM>(title),
-                                        SMTO_ABORTIFHUNG | SMTO_BLOCK, 50, &textLength);
-                    const std::string cls(className);
-                    const std::string windowTitle(title);
-                    bool isRL = cls == "LaunchUnrealUWindowsClient";
-                    if (!isRL) {
-                        const bool browserOrExplorer = cls.find("Chrome") != std::string::npos ||
-                                                       cls.find("Mozilla") != std::string::npos ||
-                                                       cls.find("IEFrame") != std::string::npos ||
-                                                       cls.find("CabinetWClass") != std::string::npos;
-                        isRL = !browserOrExplorer && (windowTitle == "Rocket League (64-bit, DX11)" ||
-                                                      windowTitle == "Rocket League (32-bit, DX11)" ||
-                                                      windowTitle == "Rocket League");
-                    }
-                    isRLActive = isRL;
+                    kind = ForegroundKind::Other;
                 }
             }
+            isRLActive = ResolveRocketLeagueFocus(kind, rlUnavailable, lastExternalForegroundWasRL);
         }
 
         bool shouldDraw = true;
