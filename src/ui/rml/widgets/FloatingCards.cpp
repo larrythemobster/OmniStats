@@ -134,7 +134,19 @@ std::string RmlUiController::RenderMatchSummary() {
     if (!m_snap.lastMatchWasVoid) {
         out << "<div class='row match-summary-actions'><button class='ghost compact' data-action='history-open' data-source='match-summary'";
         if (!m_snap.matchGuid.empty()) out << " data-match-guid='" << Escape(m_snap.matchGuid) << "'";
-        out << ">Details</button></div>";
+        out << ">Details</button>";
+        if (m_state && !m_snap.matchGuid.empty()) {
+            std::string bcUrl;
+            {
+                std::lock_guard lock(m_state->ui.replayUploadMutex);
+                if (m_state->ui.lastBallchasingMatchGuid == m_snap.matchGuid) bcUrl = m_state->ui.lastBallchasingUrl;
+            }
+            if (bcUrl.rfind("https://ballchasing.com/", 0) == 0) {
+                out << "<button class='ghost compact' data-action='open-ballchasing-url' data-url='"
+                    << Escape(bcUrl) << "'>Ballchasing</button>";
+            }
+        }
+        out << "</div>";
     }
     out << "</div>";
     return out.str();

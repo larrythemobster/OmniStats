@@ -279,7 +279,7 @@ int main(int argc, char* argv[]) {
     std::unique_ptr<ReplayUploader> uploader;
     ConfigData mainConf = Config::Read();
     if (mainConf.auto_upload_replays || mainConf.auto_save_replays) {
-        uploader = std::make_unique<ReplayUploader>(g_state);
+        uploader = std::make_unique<ReplayUploader>(g_state, dbManager);
         uploader->Start();
     }
     Overlay overlay(g_state, dbManager);

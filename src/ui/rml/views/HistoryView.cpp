@@ -128,6 +128,7 @@ bool HistoryView::Create(Rml::Context* context) {
         row.RegisterMember("arena", &HistoryMatchRow::arena);
         row.RegisterMember("teammates", &HistoryMatchRow::teammates);
         row.RegisterMember("time", &HistoryMatchRow::time);
+        row.RegisterMember("has_replay", &HistoryMatchRow::has_replay);
     }
     constructor.RegisterArray<std::vector<HistoryMatchRow>>();
 
@@ -177,6 +178,7 @@ bool HistoryView::Create(Rml::Context* context) {
     constructor.Bind("detail_v1_note", &m_detailV1Note);
     constructor.Bind("detail_our_team", &m_detailOurTeam);
     constructor.Bind("detail_their_team", &m_detailTheirTeam);
+    constructor.Bind("detail_ballchasing_url", &m_detailBallchasingUrl);
 
     m_handle = constructor.GetModelHandle();
     m_bound = true;
@@ -429,6 +431,7 @@ void HistoryView::RebuildRows() {
             row.teammates = "Solo";
         }
         row.time = FormatClock(src.timestampUnix);
+        row.has_replay = src.hasBallchasing;
         m_rows.push_back(std::move(row));
     }
 
@@ -463,6 +466,7 @@ void HistoryView::RebuildDetail() {
         m_detailMmrTone = 0;
         m_detailDuration.clear();
         m_detailV1Note.clear();
+        m_detailBallchasingUrl.clear();
     } else {
         const MatchDetail& d = *m_detailSource;
         m_detailResult = d.win ? "WIN" : "LOSS";
@@ -488,6 +492,7 @@ void HistoryView::RebuildDetail() {
 
         m_detailDuration = FormatDurationAndOvertime(d.durationSeconds, d.overtimeSeconds);
         m_detailV1Note = d.hasPlayerStats ? "" : "Per-player scoreboard stats were not recorded for this match.";
+        m_detailBallchasingUrl = d.ballchasingUrl;
 
         for (const auto& p : d.ourTeam) {
             m_detailOurTeam.push_back(FormatDetailPlayer(p));
@@ -500,7 +505,7 @@ void HistoryView::RebuildDetail() {
     for (const char* name : {"detail_open", "detail_loading", "detail_result", "detail_win", "detail_score",
                              "detail_playlist", "detail_arena", "detail_time", "detail_mmr_change",
                              "detail_mmr_tone", "detail_duration", "detail_v1_note",
-                             "detail_our_team", "detail_their_team"}) {
+                             "detail_our_team", "detail_their_team", "detail_ballchasing_url"}) {
         Dirty(name);
     }
 }

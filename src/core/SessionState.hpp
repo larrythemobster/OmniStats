@@ -297,6 +297,8 @@ struct MatchRow {
     std::optional<int> mmrDelta;
     std::string arena;
     std::vector<std::string> teammates;
+    bool hasBallchasing = false;
+    std::string ballchasingUrl;
 };
 
 struct MatchDetailPlayer {
@@ -345,6 +347,8 @@ struct MatchDetail {
     bool hasLocalStats = false;
     std::optional<float> durationSeconds;
     std::optional<float> overtimeSeconds;
+    std::string ballchasingId;
+    std::string ballchasingUrl;
     std::vector<MatchDetailPlayer> ourTeam;
     std::vector<MatchDetailPlayer> theirTeam;
 };
@@ -361,6 +365,15 @@ struct HistoryViewState {
     std::vector<MatchRow> rows;
     int total = 0;
     std::optional<MatchDetail> detail;
+};
+
+struct ReplayUploadStatus {
+    int uploadedToday = 0;
+    int retrying = 0;
+    int failed = 0;
+    int total = 0;
+
+    bool operator==(const ReplayUploadStatus&) const = default;
 };
 
 // Decomposed state sections
@@ -443,6 +456,12 @@ struct UIState {
     std::atomic<bool> statsApiChecked{false};
     std::atomic<bool> customApiKeyRejected{false};
     std::atomic<uint64_t> customApiKeyRejectedVersion{0};
+    std::atomic<bool> ballchasingTokenRejected{false};
+    mutable std::mutex replayUploadMutex;
+    ReplayUploadStatus replayUploadStatus;
+    std::string lastBallchasingMatchGuid;
+    std::string lastBallchasingUrl;
+    std::atomic<uint64_t> replayUploadVersion{0};
 };
 
 struct GameState {

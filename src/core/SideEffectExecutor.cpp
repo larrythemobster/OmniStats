@@ -46,7 +46,6 @@ bool SideEffectExecutor::Enqueue(std::function<void()> job, bool critical) {
 }
 
 void SideEffectExecutor::Stop() {
-    m_replayKeyCancelled = true;
     {
         std::lock_guard<std::mutex> lock(m_mutex);
         m_stop = true;
@@ -112,17 +111,5 @@ void SideEffectExecutor::Execute(SideEffects&& effects,
         for (const auto& pid : effects.fetchEncounterQueue) {
             dbManager->AsyncGetPlayerEncounterRecord(pid);
         }
-    }
-    if (effects.replayKeyToPress != -1) {
-        int reqId = ++m_replayKeyRequestId;
-        int key = effects.replayKeyToPress;
-        Enqueue([this, key, reqId]() {
-            for (int i = 0; i < 30; ++i) {
-                if (m_replayKeyCancelled || m_replayKeyRequestId != reqId) return;
-                std::this_thread::sleep_for(std::chrono::milliseconds(100));
-            }
-            if (m_replayKeyCancelled || m_replayKeyRequestId != reqId) return;
-            SimulateSaveReplayKeyPress(key, 1500);
-        });
     }
 }

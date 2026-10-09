@@ -25,6 +25,22 @@ struct DbMergeResult {
     std::string error;
 };
 
+struct ReplayUploadRecord {
+    int64_t id = 0;
+    std::string filePath;
+    std::string fileName;
+    std::string matchGuid;
+    std::string state; // pending, uploading, done, duplicate, failed, skipped
+    int attempts = 0;
+    int64_t nextAttemptAt = 0;
+    int lastHttpStatus = 0;
+    std::string lastError;
+    std::string ballchasingId;
+    std::string ballchasingUrl;
+    int64_t createdAt = 0;
+    int64_t updatedAt = 0;
+};
+
 struct PlayerStatRow {
     int64_t matchId = 0;
     std::string matchGuid;
@@ -105,6 +121,16 @@ class DatabaseManager {
     bool GetMatchDetailByGuid(const std::string& matchGuid, MatchDetail& outDetail, const std::string& accountPrimaryId = "");
     void AsyncGetMatchDetail(int64_t matchId, uint64_t requestId = 0, std::string accountPrimaryId = "");
     void AsyncGetMatchDetailByGuid(std::string matchGuid, uint64_t requestId = 0, std::string accountPrimaryId = "");
+
+    bool RecordDiscoveredReplay(const std::string& filePath, const std::string& fileName, const std::string& matchGuid = "", const std::string& initialState = "pending", const std::string& error = "");
+    bool UpdateReplayUploadState(int64_t id, const std::string& state, int attempts, int64_t nextAttemptAt, int lastHttpStatus, const std::string& lastError, const std::string& ballchasingId = "", const std::string& ballchasingUrl = "");
+    bool SetReplayUploading(int64_t id);
+    bool RecoverStuckUploadingReplays();
+    std::vector<ReplayUploadRecord> GetPendingReplayUploads(int limit = 10);
+    std::optional<ReplayUploadRecord> GetReplayUploadByPath(const std::string& filePath);
+    ReplayUploadStatus GetReplayUploadStatus();
+    bool RetryFailedReplayUploads();
+    bool QueryMatchReplayInfo(const std::string& matchGuid, bool& outFound, bool& outRanked, bool& outWin, bool& outResultPending, int& outPlaylistId);
 
     [[nodiscard]] bool SetSetting(const std::string& key, const std::string& value);
     void AsyncSetSetting(std::string key, std::string value);

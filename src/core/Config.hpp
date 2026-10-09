@@ -104,6 +104,8 @@ struct ConfigData {
     bool auto_upload_replays = false;   // Toggle background auto-uploading of replays
     bool ballchasing_upload_notice_accepted = false;
     std::string ballchasing_visibility = "unlisted";
+    bool ballchasing_filter_ranked_only = false;
+    bool ballchasing_filter_wins_only = false;
 
     // Replay auto-save settings
     bool auto_save_replays = false; // Automatically trigger the "Save Replay" keybind mid-game

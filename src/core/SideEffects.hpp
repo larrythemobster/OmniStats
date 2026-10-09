@@ -59,5 +59,4 @@ struct SideEffects {
     std::optional<MatchSaveSnapshot> provisionalSaveSnapshot;
     std::optional<SessionRecap> persistSession;
     std::optional<SessionRecap> updateSession;
-    int replayKeyToPress = -1;
 };

@@ -829,15 +829,6 @@ void TelemetryReducer::HandleUpdateState(const nlohmann::json& data, SideEffects
             m_state->game.localPlayerPresentInLatestUpdate =
                 localPlayerPresent;
         }
-
         CapturePreMatchMmrLocked();
-    }
-
-    if (m_cachedConf.auto_save_replays && !m_state->game.matchGuid.empty() && m_state->game.myTeam != -1) {
-        if (m_lastQueuedReplayGuid != m_state->game.matchGuid) {
-            m_lastQueuedReplayGuid = m_state->game.matchGuid;
-            effects.replayKeyToPress = m_cachedConf.key_save_replay;
-            std::cout << "[StatsClient] Auto-Save Replay: Queueing save replay keybind (VK: " << effects.replayKeyToPress << ") in 3 seconds...\n";
-        }
     }
 }

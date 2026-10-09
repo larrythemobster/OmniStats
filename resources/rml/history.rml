@@ -72,7 +72,7 @@
                     </div>
                     <div class="history-row item" data-for="row : rows" data-action="history-open" data-attr-data-match-id="row.match_id">
                         <div class="history-cell-result mono" data-class-win="row.win" data-class-loss="!row.win">{{row.result}}</div>
-                        <div class="history-cell-playlist">{{row.playlist}}</div>
+                        <div class="history-cell-playlist"><span>{{row.playlist}}</span><span class="badge" style="font-size:9dp;margin-left:4dp;padding:0 3dp;" data-if="row.has_replay">BC</span></div>
                         <div class="history-cell-score mono">{{row.score}}</div>
                         <div class="history-cell-mmr mono" data-class-win="row.mmr_tone == 1" data-class-loss="row.mmr_tone == -1">{{row.mmr_delta}}</div>
                         <div class="history-cell-arena">{{row.arena}}</div>
@@ -103,6 +103,7 @@
                             </div>
                         </div>
                         <div class="row gap-sm">
+                            <button class="ghost compact" data-if="detail_ballchasing_url != ''" data-action="open-ballchasing-url" data-attr-data-url="detail_ballchasing_url">Open on ballchasing</button>
                             <button class="ghost compact" data-action="history-copy">Copy summary</button>
                             <button class="ghost compact" data-action="history-close-detail">Close</button>
                         </div>

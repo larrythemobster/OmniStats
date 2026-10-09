@@ -30,6 +30,7 @@ struct HistoryMatchRow {
     Rml::String arena;
     Rml::String teammates;
     Rml::String time;
+    bool has_replay = false;
 };
 
 struct HistoryDetailPlayerRow {
@@ -184,6 +185,7 @@ class HistoryView {
     int m_detailMmrTone = 0;
     Rml::String m_detailDuration;
     Rml::String m_detailV1Note;
+    Rml::String m_detailBallchasingUrl;
     std::vector<HistoryDetailPlayerRow> m_detailOurTeam;
     std::vector<HistoryDetailPlayerRow> m_detailTheirTeam;
 };

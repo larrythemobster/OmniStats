@@ -640,6 +640,9 @@ void RmlUiController::RebuildVisibleUi(bool force, bool configChanged) {
     HashAppend(runtimeStructuralHash, static_cast<uint64_t>(showOverlay));
     HashAppend(runtimeStructuralHash, static_cast<uint64_t>(showSession));
     HashAppend(runtimeStructuralHash, static_cast<uint64_t>(showSummary));
+    if (showSummary && m_state) {
+        HashAppend(runtimeStructuralHash, m_state->ui.replayUploadVersion.load(std::memory_order_relaxed));
+    }
     HashAppend(runtimeStructuralHash, static_cast<uint64_t>(dashboardEdit));
     HashAppend(runtimeStructuralHash, static_cast<uint64_t>(showGraphView));
     HashAppend(runtimeStructuralHash, static_cast<uint64_t>(h2hExpanded));
@@ -815,6 +818,10 @@ void RmlUiController::RebuildVisibleUi(bool force, bool configChanged) {
         }
         if (m_settingsPage == SettingsPage::Data && m_state) {
             HashAppend(settingsHash, m_state->ui.dbStatsVersion.load(std::memory_order_relaxed));
+        }
+        if (m_settingsPage == SettingsPage::Integrations && m_state) {
+            HashAppend(settingsHash, m_state->ui.replayUploadVersion.load(std::memory_order_relaxed));
+            HashAppend(settingsHash, static_cast<uint64_t>(m_state->ui.ballchasingTokenRejected.load(std::memory_order_relaxed)));
         }
         if (m_settingsPage == SettingsPage::General || m_settingsPage == SettingsPage::Ranks) {
             // game.version also advances for ordinary match counters. Hash only

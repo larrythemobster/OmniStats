@@ -105,10 +105,34 @@ std::string RmlUiController::RenderSettingsIntegrations() {
     out << SectionStart("Ballchasing Uploader")
         << "<div class='setting-help'>Upload saved replay files to your Ballchasing account. Add your API token from Ballchasing.com.</div>"
         << "<div class='setting-row'><div class='setting-info'><div class='setting-name'>API token</div></div><input type='" << (m_showBallchasingToken ? "text" : "password") << "' class='text' data-setting='ballchasing_token' value='" << Escape(m_pendingBallchasingToken) << "'/><button class='ghost' data-action='toggle-token'>" << (m_showBallchasingToken ? "Hide" : "Show") << "</button></div>";
-    if (m_config.ballchasing_token.empty()) out << "<div class='setting-help loss'>An API token is required before replay uploads can succeed.</div>";
+    if (m_config.ballchasing_token.empty()) {
+        out << "<div class='setting-help loss'>An API token is required before replay uploads can succeed.</div>";
+    } else if (m_state && m_state->ui.ballchasingTokenRejected.load()) {
+        out << "<div class='setting-help loss'>The Ballchasing API token was rejected (401/403). Uploads are paused until a valid token is entered.</div>";
+    }
+
+    if (m_state) {
+        ReplayUploadStatus status;
+        {
+            std::lock_guard lock(m_state->ui.replayUploadMutex);
+            status = m_state->ui.replayUploadStatus;
+        }
+        out << "<div class='setting-row'><div class='setting-info'>"
+            << "<div class='setting-name'>Queue status</div>"
+            << "<div class='setting-help'>" << status.uploadedToday << " uploaded today · "
+            << status.retrying << " retrying · "
+            << status.failed << " failed</div></div>";
+        if (status.failed > 0) {
+            out << "<button class='ghost' data-action='retry-failed-uploads'>Retry failed</button>";
+        }
+        out << "</div>";
+    }
+
     out
         << ToggleControl("auto_upload_replays", "Auto-upload new replays", "Uploads saved replay files using the selected privacy level.", m_config.auto_upload_replays)
         << SelectRow("ballchasing_visibility", "Upload visibility", "", {{"private", "private"}, {"unlisted", "unlisted"}, {"public", "public"}}, m_config.ballchasing_visibility)
+        << ToggleControl("ballchasing_filter_ranked_only", "Upload ranked only", "Only upload replays from competitive matches.", m_config.ballchasing_filter_ranked_only)
+        << ToggleControl("ballchasing_filter_wins_only", "Upload wins only", "Only upload replays from matches you won.", m_config.ballchasing_filter_wins_only)
         << SectionEnd();
     out << SectionStart("Replay Saving")
         << ToggleControl("auto_save_replays", "Auto-save replays", "EAC-friendly: triggers your configured Rocket League save-replay key.", m_config.auto_save_replays);

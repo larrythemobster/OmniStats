@@ -243,11 +243,32 @@ static bool ApplyMigrationV3(sqlite3* db, std::string& error) {
     return true;
 }
 
+static constexpr const char* kMigrationV4Sql = R"(
+    CREATE TABLE IF NOT EXISTS ReplayUploads (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        file_path TEXT NOT NULL UNIQUE,
+        file_name TEXT NOT NULL,
+        match_guid TEXT,
+        state TEXT NOT NULL DEFAULT 'pending',
+        attempts INTEGER NOT NULL DEFAULT 0,
+        next_attempt_at INTEGER NOT NULL DEFAULT 0,
+        last_http_status INTEGER NOT NULL DEFAULT 0,
+        last_error TEXT,
+        ballchasing_id TEXT,
+        ballchasing_url TEXT,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_replay_uploads_match_guid ON ReplayUploads(match_guid);
+    CREATE INDEX IF NOT EXISTS idx_replay_uploads_state ON ReplayUploads(state);
+)";
+
 // Append new migrations in ascending version order; each runs in its own BEGIN IMMEDIATE transaction.
 static const std::vector<Migration> kMigrations = {
     {1, kMigrationV1Sql, ApplyMigrationV1},
     {2, kMigrationV2Sql},
     {3, kMigrationV3Sql, ApplyMigrationV3},
+    {4, kMigrationV4Sql},
 };
 
 static std::string CsvEscape(const std::string& value) {
@@ -1474,6 +1495,71 @@ bool DatabaseManager::ExportLocalData(std::string& exportPath, std::string& erro
             sessJsonFile << sessionsJson.dump(2);
         }
     }
+    if (SqliteTableExists(m_db, "ReplayUploads")) {
+        nlohmann::json replaysJson = nlohmann::json::array();
+        std::ofstream replaysCsv(exportPath + "replay_uploads.csv", std::ios::trunc);
+        if (replaysCsv.is_open()) {
+            replaysCsv << "id,file_path,file_name,match_guid,state,attempts,next_attempt_at,last_http_status,last_error,ballchasing_id,ballchasing_url,created_at,updated_at\n";
+        }
+        sqlite3_stmt* ruStmt = nullptr;
+        const char* ruSql =
+            "SELECT id, file_path, file_name, COALESCE(match_guid, ''), state, attempts, next_attempt_at, last_http_status, COALESCE(last_error, ''), COALESCE(ballchasing_id, ''), COALESCE(ballchasing_url, ''), created_at, updated_at "
+            "FROM ReplayUploads ORDER BY id ASC;";
+        if (sqlite3_prepare_v2(m_db, ruSql, -1, &ruStmt, nullptr) == SQLITE_OK) {
+            while (sqlite3_step(ruStmt) == SQLITE_ROW) {
+                int64_t rId = sqlite3_column_int64(ruStmt, 0);
+                std::string filePath = SqlColumnText(ruStmt, 1);
+                std::string fileName = SqlColumnText(ruStmt, 2);
+                std::string matchGuid = SqlColumnText(ruStmt, 3);
+                std::string state = SqlColumnText(ruStmt, 4);
+                int attempts = sqlite3_column_int(ruStmt, 5);
+                int64_t nextAttemptAt = sqlite3_column_int64(ruStmt, 6);
+                int lastHttpStatus = sqlite3_column_int(ruStmt, 7);
+                std::string lastError = SqlColumnText(ruStmt, 8);
+                std::string ballchasingId = SqlColumnText(ruStmt, 9);
+                std::string ballchasingUrl = SqlColumnText(ruStmt, 10);
+                int64_t createdAt = sqlite3_column_int64(ruStmt, 11);
+                int64_t updatedAt = sqlite3_column_int64(ruStmt, 12);
+
+                nlohmann::json rObj;
+                rObj["id"] = rId;
+                rObj["file_path"] = filePath;
+                rObj["file_name"] = fileName;
+                rObj["match_guid"] = matchGuid;
+                rObj["state"] = state;
+                rObj["attempts"] = attempts;
+                rObj["next_attempt_at"] = nextAttemptAt;
+                rObj["last_http_status"] = lastHttpStatus;
+                rObj["last_error"] = lastError;
+                rObj["ballchasing_id"] = ballchasingId;
+                rObj["ballchasing_url"] = ballchasingUrl;
+                rObj["created_at"] = createdAt;
+                rObj["updated_at"] = updatedAt;
+                replaysJson.push_back(std::move(rObj));
+
+                if (replaysCsv.is_open()) {
+                    replaysCsv << rId << ","
+                               << CsvEscape(filePath) << ","
+                               << CsvEscape(fileName) << ","
+                               << CsvEscape(matchGuid) << ","
+                               << CsvEscape(state) << ","
+                               << attempts << ","
+                               << nextAttemptAt << ","
+                               << lastHttpStatus << ","
+                               << CsvEscape(lastError) << ","
+                               << CsvEscape(ballchasingId) << ","
+                               << CsvEscape(ballchasingUrl) << ","
+                               << createdAt << ","
+                               << updatedAt << "\n";
+                }
+            }
+            sqlite3_finalize(ruStmt);
+        }
+        std::ofstream ruJsonFile(exportPath + "replay_uploads.json", std::ios::trunc);
+        if (ruJsonFile.is_open()) {
+            ruJsonFile << replaysJson.dump(2);
+        }
+    }
     error.clear();
     return true;
 }
@@ -1491,6 +1577,7 @@ bool DatabaseManager::DeleteLocalMatchHistory(std::string& error) {
     if (SqliteTableExists(m_db, "MatchLocalStats")) sql += "DELETE FROM MatchLocalStats;";
     sql += "DELETE FROM MatchPlayers; DELETE FROM Matches; ";
     if (SqliteTableExists(m_db, "Sessions")) sql += "DELETE FROM Sessions; ";
+    if (SqliteTableExists(m_db, "ReplayUploads")) sql += "UPDATE ReplayUploads SET match_guid = NULL; ";
     sql += "DELETE FROM sqlite_sequence WHERE name IN ('Matches', 'MatchPlayers', 'Sessions'); COMMIT;";
     if (sqlite3_exec(m_db, sql.c_str(), nullptr, nullptr, &errMsg) != SQLITE_OK) {
         error = errMsg ? errMsg : "Failed to delete local history.";
@@ -1883,6 +1970,38 @@ DbMergeResult DatabaseManager::MergeDatabase(const std::string& sourceDbPath) {
     sqlite3_finalize(checkFallbackStmt);
     sqlite3_finalize(insertMatchStmt);
     sqlite3_finalize(insertPlayerStmt);
+    if (loopOk && tableExists(srcDb, "ReplayUploads") && SqliteTableExists(m_db, "ReplayUploads")) {
+        const char* selReplaySql =
+            "SELECT file_path, file_name, match_guid, state, attempts, next_attempt_at, last_http_status, last_error, ballchasing_id, ballchasing_url, created_at, updated_at FROM ReplayUploads;";
+        sqlite3_stmt* selReplayStmt = nullptr;
+        if (sqlite3_prepare_v2(srcDb, selReplaySql, -1, &selReplayStmt, nullptr) == SQLITE_OK) {
+            const char* insReplaySql =
+                "INSERT OR IGNORE INTO ReplayUploads (file_path, file_name, match_guid, state, attempts, next_attempt_at, last_http_status, last_error, ballchasing_id, ballchasing_url, created_at, updated_at) "
+                "VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12);";
+            sqlite3_stmt* insReplayStmt = nullptr;
+            if (sqlite3_prepare_v2(m_db, insReplaySql, -1, &insReplayStmt, nullptr) == SQLITE_OK) {
+                while (sqlite3_step(selReplayStmt) == SQLITE_ROW) {
+                    for (int i = 0; i < 12; ++i) {
+                        if (sqlite3_column_type(selReplayStmt, i) == SQLITE_NULL) {
+                            sqlite3_bind_null(insReplayStmt, i + 1);
+                        } else if (i == 4 || i == 6) {
+                            sqlite3_bind_int(insReplayStmt, i + 1, sqlite3_column_int(selReplayStmt, i));
+                        } else if (i == 5 || i == 10 || i == 11) {
+                            sqlite3_bind_int64(insReplayStmt, i + 1, sqlite3_column_int64(selReplayStmt, i));
+                        } else {
+                            std::string txt = SqlColumnText(selReplayStmt, i);
+                            sqlite3_bind_text(insReplayStmt, i + 1, txt.c_str(), -1, SQLITE_TRANSIENT);
+                        }
+                    }
+                    sqlite3_step(insReplayStmt);
+                    sqlite3_reset(insReplayStmt);
+                    sqlite3_clear_bindings(insReplayStmt);
+                }
+                sqlite3_finalize(insReplayStmt);
+            }
+            sqlite3_finalize(selReplayStmt);
+        }
+    }
     sqlite3_close(srcDb);
 
     if (!loopOk) {
@@ -2052,6 +2171,218 @@ void DatabaseManager::AsyncRefreshDetailedStatsSummary() {
         }
     },
                        DbJobPriority::Coalescable, "detailed_stats_summary");
+}
+
+bool DatabaseManager::RecordDiscoveredReplay(const std::string& filePath, const std::string& fileName, const std::string& matchGuid, const std::string& initialState, const std::string& error) {
+    std::lock_guard<std::mutex> lock(m_dbMutex);
+    if (!m_db || filePath.empty() || !SqliteTableExists(m_db, "ReplayUploads")) return false;
+    const char* sql =
+        "INSERT OR IGNORE INTO ReplayUploads (file_path, file_name, match_guid, state, attempts, next_attempt_at, last_http_status, last_error, created_at, updated_at) "
+        "VALUES (?1, ?2, NULLIF(?3, ''), ?4, 0, 0, 0, NULLIF(?5, ''), ?6, ?6);";
+    sqlite3_stmt* stmt = nullptr;
+    if (sqlite3_prepare_v2(m_db, sql, -1, &stmt, nullptr) != SQLITE_OK) return false;
+    sqlite3_bind_text(stmt, 1, filePath.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 2, fileName.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 3, matchGuid.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 4, initialState.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 5, error.c_str(), -1, SQLITE_TRANSIENT);
+    int64_t nowUnix = std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count();
+    sqlite3_bind_int64(stmt, 6, nowUnix);
+    bool ok = (sqlite3_step(stmt) == SQLITE_DONE);
+    int changes = sqlite3_changes(m_db);
+    sqlite3_finalize(stmt);
+    return ok && changes > 0;
+}
+
+bool DatabaseManager::UpdateReplayUploadState(int64_t id, const std::string& state, int attempts, int64_t nextAttemptAt, int lastHttpStatus, const std::string& lastError, const std::string& ballchasingId, const std::string& ballchasingUrl) {
+    std::lock_guard<std::mutex> lock(m_dbMutex);
+    if (!m_db || id <= 0 || !SqliteTableExists(m_db, "ReplayUploads")) return false;
+    const char* sql =
+        "UPDATE ReplayUploads SET state = ?1, attempts = ?2, next_attempt_at = ?3, last_http_status = ?4, "
+        "last_error = NULLIF(?5, ''), ballchasing_id = COALESCE(NULLIF(?6, ''), ballchasing_id), "
+        "ballchasing_url = COALESCE(NULLIF(?7, ''), ballchasing_url), updated_at = ?8 WHERE id = ?9;";
+    sqlite3_stmt* stmt = nullptr;
+    if (sqlite3_prepare_v2(m_db, sql, -1, &stmt, nullptr) != SQLITE_OK) return false;
+    sqlite3_bind_text(stmt, 1, state.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_int(stmt, 2, attempts);
+    sqlite3_bind_int64(stmt, 3, nextAttemptAt);
+    sqlite3_bind_int(stmt, 4, lastHttpStatus);
+    sqlite3_bind_text(stmt, 5, lastError.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 6, ballchasingId.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 7, ballchasingUrl.c_str(), -1, SQLITE_TRANSIENT);
+    int64_t nowUnix = std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count();
+    sqlite3_bind_int64(stmt, 8, nowUnix);
+    sqlite3_bind_int64(stmt, 9, id);
+    bool ok = (sqlite3_step(stmt) == SQLITE_DONE);
+    sqlite3_finalize(stmt);
+    return ok;
+}
+
+bool DatabaseManager::SetReplayUploading(int64_t id) {
+    std::lock_guard<std::mutex> lock(m_dbMutex);
+    if (!m_db || id <= 0 || !SqliteTableExists(m_db, "ReplayUploads")) return false;
+    const char* sql = "UPDATE ReplayUploads SET state = 'uploading', updated_at = ?1 WHERE id = ?2;";
+    sqlite3_stmt* stmt = nullptr;
+    if (sqlite3_prepare_v2(m_db, sql, -1, &stmt, nullptr) != SQLITE_OK) return false;
+    int64_t nowUnix = std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count();
+    sqlite3_bind_int64(stmt, 1, nowUnix);
+    sqlite3_bind_int64(stmt, 2, id);
+    bool ok = (sqlite3_step(stmt) == SQLITE_DONE);
+    sqlite3_finalize(stmt);
+    return ok;
+}
+
+bool DatabaseManager::RecoverStuckUploadingReplays() {
+    std::lock_guard<std::mutex> lock(m_dbMutex);
+    if (!m_db || !SqliteTableExists(m_db, "ReplayUploads")) return false;
+    const char* sql = "UPDATE ReplayUploads SET state = 'pending', next_attempt_at = 0 WHERE state = 'uploading';";
+    return sqlite3_exec(m_db, sql, nullptr, nullptr, nullptr) == SQLITE_OK;
+}
+
+std::vector<ReplayUploadRecord> DatabaseManager::GetPendingReplayUploads(int limit) {
+    std::vector<ReplayUploadRecord> records;
+    std::lock_guard<std::mutex> lock(m_dbMutex);
+    if (!m_db || !SqliteTableExists(m_db, "ReplayUploads")) return records;
+    if (limit <= 0) limit = 10;
+    const char* sql =
+        "SELECT id, file_path, file_name, COALESCE(match_guid, ''), state, attempts, next_attempt_at, "
+        "last_http_status, COALESCE(last_error, ''), COALESCE(ballchasing_id, ''), COALESCE(ballchasing_url, ''), created_at, updated_at "
+        "FROM ReplayUploads WHERE state = 'pending' AND next_attempt_at <= ?1 ORDER BY id ASC LIMIT ?2;";
+    sqlite3_stmt* stmt = nullptr;
+    if (sqlite3_prepare_v2(m_db, sql, -1, &stmt, nullptr) != SQLITE_OK) return records;
+    int64_t nowUnix = std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count();
+    sqlite3_bind_int64(stmt, 1, nowUnix);
+    sqlite3_bind_int(stmt, 2, limit);
+    while (sqlite3_step(stmt) == SQLITE_ROW) {
+        ReplayUploadRecord r;
+        r.id = sqlite3_column_int64(stmt, 0);
+        r.filePath = SqlColumnText(stmt, 1);
+        r.fileName = SqlColumnText(stmt, 2);
+        r.matchGuid = SqlColumnText(stmt, 3);
+        r.state = SqlColumnText(stmt, 4);
+        r.attempts = sqlite3_column_int(stmt, 5);
+        r.nextAttemptAt = sqlite3_column_int64(stmt, 6);
+        r.lastHttpStatus = sqlite3_column_int(stmt, 7);
+        r.lastError = SqlColumnText(stmt, 8);
+        r.ballchasingId = SqlColumnText(stmt, 9);
+        r.ballchasingUrl = SqlColumnText(stmt, 10);
+        r.createdAt = sqlite3_column_int64(stmt, 11);
+        r.updatedAt = sqlite3_column_int64(stmt, 12);
+        records.push_back(std::move(r));
+    }
+    sqlite3_finalize(stmt);
+    return records;
+}
+
+std::optional<ReplayUploadRecord> DatabaseManager::GetReplayUploadByPath(const std::string& filePath) {
+    std::lock_guard<std::mutex> lock(m_dbMutex);
+    if (!m_db || filePath.empty() || !SqliteTableExists(m_db, "ReplayUploads")) return std::nullopt;
+    const char* sql =
+        "SELECT id, file_path, file_name, COALESCE(match_guid, ''), state, attempts, next_attempt_at, "
+        "last_http_status, COALESCE(last_error, ''), COALESCE(ballchasing_id, ''), COALESCE(ballchasing_url, ''), created_at, updated_at "
+        "FROM ReplayUploads WHERE file_path = ?1 LIMIT 1;";
+    sqlite3_stmt* stmt = nullptr;
+    if (sqlite3_prepare_v2(m_db, sql, -1, &stmt, nullptr) != SQLITE_OK) return std::nullopt;
+    sqlite3_bind_text(stmt, 1, filePath.c_str(), -1, SQLITE_TRANSIENT);
+    std::optional<ReplayUploadRecord> result;
+    if (sqlite3_step(stmt) == SQLITE_ROW) {
+        ReplayUploadRecord r;
+        r.id = sqlite3_column_int64(stmt, 0);
+        r.filePath = SqlColumnText(stmt, 1);
+        r.fileName = SqlColumnText(stmt, 2);
+        r.matchGuid = SqlColumnText(stmt, 3);
+        r.state = SqlColumnText(stmt, 4);
+        r.attempts = sqlite3_column_int(stmt, 5);
+        r.nextAttemptAt = sqlite3_column_int64(stmt, 6);
+        r.lastHttpStatus = sqlite3_column_int(stmt, 7);
+        r.lastError = SqlColumnText(stmt, 8);
+        r.ballchasingId = SqlColumnText(stmt, 9);
+        r.ballchasingUrl = SqlColumnText(stmt, 10);
+        r.createdAt = sqlite3_column_int64(stmt, 11);
+        r.updatedAt = sqlite3_column_int64(stmt, 12);
+        result = std::move(r);
+    }
+    sqlite3_finalize(stmt);
+    return result;
+}
+
+ReplayUploadStatus DatabaseManager::GetReplayUploadStatus() {
+    ReplayUploadStatus status;
+    std::lock_guard<std::mutex> lock(m_dbMutex);
+    if (!m_db || !SqliteTableExists(m_db, "ReplayUploads")) return status;
+
+    auto now = std::chrono::system_clock::now();
+    std::time_t nowTime = std::chrono::system_clock::to_time_t(now);
+    std::tm tmNow{};
+    localtime_s(&tmNow, &nowTime);
+    tmNow.tm_hour = 0;
+    tmNow.tm_min = 0;
+    tmNow.tm_sec = 0;
+    int64_t startOfToday = static_cast<int64_t>(std::mktime(&tmNow));
+
+    const char* sql =
+        "SELECT "
+        "SUM(CASE WHEN state IN ('done', 'duplicate') AND updated_at >= ?1 THEN 1 ELSE 0 END), "
+        "SUM(CASE WHEN state = 'pending' AND attempts > 0 THEN 1 ELSE 0 END), "
+        "SUM(CASE WHEN state = 'failed' THEN 1 ELSE 0 END), "
+        "COUNT(*) "
+        "FROM ReplayUploads;";
+    sqlite3_stmt* stmt = nullptr;
+    if (sqlite3_prepare_v2(m_db, sql, -1, &stmt, nullptr) == SQLITE_OK) {
+        sqlite3_bind_int64(stmt, 1, startOfToday);
+        if (sqlite3_step(stmt) == SQLITE_ROW) {
+            status.uploadedToday = sqlite3_column_int(stmt, 0);
+            status.retrying = sqlite3_column_int(stmt, 1);
+            status.failed = sqlite3_column_int(stmt, 2);
+            status.total = sqlite3_column_int(stmt, 3);
+        }
+        sqlite3_finalize(stmt);
+    }
+    return status;
+}
+
+bool DatabaseManager::RetryFailedReplayUploads() {
+    std::lock_guard<std::mutex> lock(m_dbMutex);
+    if (!m_db || !SqliteTableExists(m_db, "ReplayUploads")) return false;
+    const char* sql = "UPDATE ReplayUploads SET state = 'pending', next_attempt_at = 0, last_error = NULL WHERE state = 'failed';";
+    return sqlite3_exec(m_db, sql, nullptr, nullptr, nullptr) == SQLITE_OK;
+}
+
+bool DatabaseManager::QueryMatchReplayInfo(const std::string& matchGuid, bool& outFound, bool& outRanked, bool& outWin, bool& outResultPending, int& outPlaylistId) {
+    outFound = false;
+    outRanked = false;
+    outWin = false;
+    outResultPending = false;
+    outPlaylistId = -1;
+    if (matchGuid.empty()) return false;
+
+    std::lock_guard<std::mutex> lock(m_dbMutex);
+    if (!m_db) return false;
+
+    const char* sql = "SELECT playlist_id, win, COALESCE(result_pending, 0), gamemode FROM Matches WHERE match_guid = ?1 ORDER BY id DESC LIMIT 1;";
+    sqlite3_stmt* stmt = nullptr;
+    if (sqlite3_prepare_v2(m_db, sql, -1, &stmt, nullptr) != SQLITE_OK) return false;
+    sqlite3_bind_text(stmt, 1, matchGuid.c_str(), -1, SQLITE_TRANSIENT);
+    if (sqlite3_step(stmt) == SQLITE_ROW) {
+        outFound = true;
+        bool hasPlaylistId = (sqlite3_column_type(stmt, 0) != SQLITE_NULL);
+        outPlaylistId = hasPlaylistId ? sqlite3_column_int(stmt, 0) : -1;
+        outWin = sqlite3_column_int(stmt, 1) != 0;
+        outResultPending = sqlite3_column_int(stmt, 2) != 0;
+        std::string gamemode = SqlColumnText(stmt, 3);
+        if (hasPlaylistId) {
+            if (const auto* info = PlaylistMetadata::Find(outPlaylistId)) {
+                outRanked = (info->playlistClass == PlaylistMetadata::PlaylistClass::Ranked ||
+                             info->playlistClass == PlaylistMetadata::PlaylistClass::Tournament);
+            } else {
+                outRanked = false;
+            }
+        } else {
+            outRanked = (gamemode != "casual");
+        }
+    }
+    sqlite3_finalize(stmt);
+    return outFound;
 }
 
 void DatabaseManager::GetGamemodeStats(const std::string& primaryId, const std::string& gamemode, int& wins, int& losses, int& gamesPlayed) {
@@ -3645,7 +3976,7 @@ void DatabaseManager::QueryMatches(const MatchQuery& query, std::vector<MatchRow
     const int pLimit = addInt(limit);
     const int pOffset = addInt(offset);
 
-    const std::string sql =
+    std::string sql =
         "WITH AccountMatches AS ("
         "    SELECT m.id, m.timestamp, m.arena, m.our_score, m.their_score, m.win,"
         "           m.match_guid, m.playlist_id, m.gamemode, m.player_count,"
@@ -3673,16 +4004,26 @@ void DatabaseManager::QueryMatches(const MatchQuery& query, std::vector<MatchRow
         "    FROM Filtered " +
         orderSql +
         "    LIMIT ?" + std::to_string(pLimit) + " OFFSET ?" + std::to_string(pOffset) +
-        ") "
-        "SELECT id, CAST(strftime('%s', timestamp) AS INTEGER), arena, our_score, their_score, win,"
-        "       match_guid, playlist_id, gamemode, player_count, my_mmr, mmr_estimated, mmr_delta, total_count "
-        "FROM PageRows;";
+        ") ";
+    const bool hasReplayUploads = SqliteTableExists(m_db, "ReplayUploads");
+    if (hasReplayUploads) {
+        sql +=
+            "SELECT p.id, CAST(strftime('%s', p.timestamp) AS INTEGER), p.arena, p.our_score, p.their_score, p.win,"
+            "       p.match_guid, p.playlist_id, p.gamemode, p.player_count, p.my_mmr, p.mmr_estimated, p.mmr_delta, p.total_count,"
+            "       COALESCE(ru.ballchasing_url, '') "
+            "FROM PageRows p "
+            "LEFT JOIN (SELECT match_guid, ballchasing_url FROM ReplayUploads WHERE match_guid IS NOT NULL AND match_guid != '' AND ballchasing_url IS NOT NULL AND ballchasing_url != '' GROUP BY match_guid) ru ON ru.match_guid = p.match_guid;";
+    } else {
+        sql +=
+            "SELECT id, CAST(strftime('%s', timestamp) AS INTEGER), arena, our_score, their_score, win,"
+            "       match_guid, playlist_id, gamemode, player_count, my_mmr, mmr_estimated, mmr_delta, total_count, '' "
+            "FROM PageRows;";
+    }
     sqlite3_stmt* stmt = nullptr;
     if (sqlite3_prepare_v2(m_db, sql.c_str(), -1, &stmt, nullptr) != SQLITE_OK) {
         return;
     }
     BindParams(stmt, params);
-
     while (sqlite3_step(stmt) == SQLITE_ROW) {
         MatchRow row;
         row.matchId = sqlite3_column_int64(stmt, 0);
@@ -3701,6 +4042,10 @@ void DatabaseManager::QueryMatches(const MatchQuery& query, std::vector<MatchRow
             row.mmrDelta = sqlite3_column_int(stmt, 12);
         }
         outTotalCount = sqlite3_column_int(stmt, 13);
+        if (sqlite3_column_count(stmt) > 14) {
+            row.ballchasingUrl = SqlColumnText(stmt, 14);
+            row.hasBallchasing = !row.ballchasingUrl.empty();
+        }
         outRows.push_back(std::move(row));
     }
     sqlite3_finalize(stmt);
@@ -3817,6 +4162,19 @@ bool DatabaseManager::GetMatchDetail(int64_t matchId, MatchDetail& outDetail, co
     outDetail.gamemode = SqlColumnText(matchStmt, 9);
     outDetail.playlist = DescribeMatchPlaylist(matchStmt, 9, 10, 8, outDetail.ranked);
     sqlite3_finalize(matchStmt);
+    if (!outDetail.matchGuid.empty() && SqliteTableExists(m_db, "ReplayUploads")) {
+        const char* bcSql =
+            "SELECT ballchasing_id, ballchasing_url FROM ReplayUploads WHERE match_guid = ?1 AND ballchasing_url IS NOT NULL AND ballchasing_url != '' ORDER BY id DESC LIMIT 1;";
+        sqlite3_stmt* bcStmt = nullptr;
+        if (sqlite3_prepare_v2(m_db, bcSql, -1, &bcStmt, nullptr) == SQLITE_OK) {
+            sqlite3_bind_text(bcStmt, 1, outDetail.matchGuid.c_str(), -1, SQLITE_TRANSIENT);
+            if (sqlite3_step(bcStmt) == SQLITE_ROW) {
+                outDetail.ballchasingId = SqlColumnText(bcStmt, 0);
+                outDetail.ballchasingUrl = SqlColumnText(bcStmt, 1);
+            }
+            sqlite3_finalize(bcStmt);
+        }
+    }
 
     const bool hasStatsTables = HasStatsTablesLocked();
     if (hasStatsTables) {

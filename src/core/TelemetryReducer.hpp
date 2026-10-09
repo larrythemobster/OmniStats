@@ -119,7 +119,6 @@ class TelemetryReducer {
     ConfigData m_cachedConf;
     std::chrono::steady_clock::time_point m_lastConfigReadTime;
 
-    std::string m_lastQueuedReplayGuid;
     std::string m_lastSavedMatchGuid;
     std::unordered_map<std::string, int> m_lastPlayerBoost;
     std::unordered_map<std::string, CapturedMatch> m_pendingDestroyedMatches;

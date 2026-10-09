@@ -185,6 +185,20 @@ void RmlUiController::HandleClick(Rml::Element* target) {
         if (url.rfind("https://rocketleague.tracker.network/rocket-league/profile/", 0) == 0) {
             ShellExecuteA(nullptr, "open", url.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
         }
+    } else if (action == "open-ballchasing-url") {
+        const std::string url = Attribute(target, "data-url");
+        if (url.rfind("https://ballchasing.com/", 0) == 0) {
+            ShellExecuteA(nullptr, "open", url.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+        }
+    } else if (action == "retry-failed-uploads") {
+        if (m_dbManager) {
+            m_dbManager->RetryFailedReplayUploads();
+        }
+        if (m_state) {
+            m_state->ui.ballchasingTokenRejected.store(false);
+        }
+        ShowToast("Retrying failed replay uploads.");
+        RebuildSettings();
     } else if (action == "update-app") {
         m_showUpdatePrompt = false;
         if (m_state && !m_state->ui.updateDownloading.load()) ExternalUpdaterLauncher::StartInteractiveUpdate(m_state);
@@ -436,6 +450,7 @@ void RmlUiController::HandleInput(Rml::Element* target) {
     if (key == "ballchasing_token") {
         m_pendingBallchasingToken = value;
         Config::Update([&](ConfigData& c) { c.ballchasing_token = value; });
+        if (m_state) m_state->ui.ballchasingTokenRejected.store(false);
     } else if (key == "custom_api_key") {
         Config::Update([&](ConfigData& c) { c.custom_api_key = value; });
         if (m_state) m_state->ui.customApiKeyRejected.store(false);
@@ -712,8 +727,13 @@ void RmlUiController::HandleChange(Rml::Element* target, Rml::Event& event) {
         else if (key == "ballchasing_token") {
             c.ballchasing_token = value;
             m_pendingBallchasingToken = value;
+            if (m_state) m_state->ui.ballchasingTokenRejected.store(false);
         } else if (key == "auto_upload_replays")
             c.auto_upload_replays = checked;
+        else if (key == "ballchasing_filter_ranked_only")
+            c.ballchasing_filter_ranked_only = checked;
+        else if (key == "ballchasing_filter_wins_only")
+            c.ballchasing_filter_wins_only = checked;
         else if (key == "ballchasing_visibility")
             c.ballchasing_visibility = value;
         else if (key == "auto_save_replays")

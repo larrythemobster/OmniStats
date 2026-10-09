@@ -30,6 +30,4 @@ class SideEffectExecutor {
     std::condition_variable m_cv;
     std::jthread m_worker;
     bool m_stop = false;
-    std::atomic<bool> m_replayKeyCancelled{false};
-    std::atomic<int> m_replayKeyRequestId{0};
 };

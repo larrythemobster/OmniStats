@@ -422,6 +422,8 @@ namespace Config {
                     Current.ballchasing_visibility = visibility;
                 }
             }
+            if (j.contains("ballchasing_filter_ranked_only")) Current.ballchasing_filter_ranked_only = j["ballchasing_filter_ranked_only"];
+            if (j.contains("ballchasing_filter_wins_only")) Current.ballchasing_filter_wins_only = j["ballchasing_filter_wins_only"];
             if (j.contains("auto_save_replays")) Current.auto_save_replays = j["auto_save_replays"];
             if (j.contains("key_save_replay")) Current.key_save_replay = j["key_save_replay"];
 
@@ -704,6 +706,8 @@ namespace Config {
         j["auto_upload_replays"] = Current.auto_upload_replays;
         j["ballchasing_upload_notice_accepted"] = Current.ballchasing_upload_notice_accepted;
         j["ballchasing_visibility"] = Current.ballchasing_visibility;
+        j["ballchasing_filter_ranked_only"] = Current.ballchasing_filter_ranked_only;
+        j["ballchasing_filter_wins_only"] = Current.ballchasing_filter_wins_only;
         j["auto_save_replays"] = Current.auto_save_replays;
         j["key_save_replay"] = Current.key_save_replay;
 

@@ -929,7 +929,7 @@ TEST_F(DatabaseManagerTest, MigratesAllHistoricalSchemasToV2WithBackupsAndIdempo
         {
             auto db = std::make_shared<DatabaseManager>(sessionState);
             ASSERT_TRUE(db->Initialize(path)) << tc.label;
-            EXPECT_EQ(db->GetSchemaVersion(), 3) << tc.label;
+            EXPECT_EQ(db->GetSchemaVersion(), 4) << tc.label;
             EXPECT_EQ(QueryIntScalar(db->GetRawDb(), "SELECT COUNT(*) FROM Matches;"), 2) << tc.label;
             EXPECT_EQ(QueryIntScalar(db->GetRawDb(), "SELECT COUNT(*) FROM MatchPlayers;"), 3) << tc.label;
             EXPECT_EQ(QueryIntScalar(db->GetRawDb(),
@@ -947,7 +947,7 @@ TEST_F(DatabaseManagerTest, MigratesAllHistoricalSchemasToV2WithBackupsAndIdempo
         {
             auto db = std::make_shared<DatabaseManager>(sessionState);
             ASSERT_TRUE(db->Initialize(path)) << tc.label;
-            EXPECT_EQ(db->GetSchemaVersion(), 3) << tc.label;
+            EXPECT_EQ(db->GetSchemaVersion(), 4) << tc.label;
             EXPECT_EQ(QueryIntScalar(db->GetRawDb(), "SELECT COUNT(*) FROM Matches;"), 2) << tc.label;
             EXPECT_EQ(QueryIntScalar(db->GetRawDb(), "SELECT COUNT(*) FROM MatchPlayers;"), 3) << tc.label;
         }
@@ -1517,7 +1517,7 @@ TEST_F(DatabaseManagerTest, MigrationV2ToV3CreatesSessionsTableAndMatchSessionIn
     {
         auto db = std::make_shared<DatabaseManager>(sessionState);
         ASSERT_TRUE(db->Initialize(path));
-        EXPECT_EQ(db->GetSchemaVersion(), 3);
+        EXPECT_EQ(db->GetSchemaVersion(), 4);
         EXPECT_TRUE(std::filesystem::exists(backupPath));
         EXPECT_EQ(QueryIntScalar(db->GetRawDb(), "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='Sessions';"), 1);
         EXPECT_EQ(QueryIntScalar(db->GetRawDb(), "SELECT COUNT(*) FROM sqlite_master WHERE type='index' AND name='idx_matches_session';"), 1);
@@ -2192,4 +2192,147 @@ TEST_F(DatabaseManagerTest, AsyncQueryMatchesAndAsyncGetMatchDetailIgnoreStaleRe
     EXPECT_EQ(sessionState->historyView.detailRequestId, 20u);
     ASSERT_TRUE(sessionState->historyView.detail.has_value());
     EXPECT_EQ(sessionState->historyView.detail->matchId, 2);
+}
+
+TEST_F(DatabaseManagerTest, MigrationV3ToV4CreatesReplayUploadsTable) {
+    const std::string path = "test_mig_v3_to_v4.db";
+    const std::string backupPath = path + ".bak-v3";
+    RemoveTestDbFiles(path);
+    std::filesystem::remove(backupPath);
+
+    sqlite3* raw = nullptr;
+    ASSERT_EQ(sqlite3_open(path.c_str(), &raw), SQLITE_OK);
+    ASSERT_EQ(sqlite3_exec(raw, R"(
+        CREATE TABLE Matches (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+            arena TEXT,
+            our_score INTEGER,
+            their_score INTEGER,
+            win BOOLEAN,
+            match_guid TEXT,
+            playlist_id INTEGER,
+            gamemode TEXT,
+            player_count INTEGER,
+            result_pending BOOLEAN DEFAULT 0,
+            session_id INTEGER
+        );
+        CREATE TABLE MatchPlayers (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            match_id INTEGER,
+            primary_id TEXT,
+            name TEXT,
+            team INTEGER,
+            mmr INTEGER,
+            mmr_estimated BOOLEAN DEFAULT 0,
+            is_opponent BOOLEAN DEFAULT 0
+        );
+        CREATE TABLE Settings (key TEXT PRIMARY KEY, value TEXT);
+        CREATE TABLE MatchPlayerStats (
+            match_id INTEGER NOT NULL REFERENCES Matches(id) ON DELETE CASCADE,
+            primary_id TEXT NOT NULL,
+            score INTEGER, goals INTEGER, assists INTEGER, saves INTEGER, shots INTEGER, demos INTEGER,
+            touches INTEGER, car_touches INTEGER, max_goal_speed REAL, fastest_goal_time REAL,
+            PRIMARY KEY (match_id, primary_id)
+        );
+        CREATE TABLE MatchLocalStats (
+            match_id INTEGER PRIMARY KEY REFERENCES Matches(id) ON DELETE CASCADE,
+            boost_collected INTEGER, demoed INTEGER, crossbars INTEGER, hardest_crossbar REAL,
+            max_ball_speed REAL, own_goals INTEGER, duration_seconds REAL, overtime_seconds REAL,
+            stats_version INTEGER NOT NULL DEFAULT 1
+        );
+        CREATE TABLE Sessions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            account TEXT NOT NULL,
+            started_at INTEGER,
+            ended_at INTEGER,
+            wins INTEGER,
+            losses INTEGER,
+            mmr_change_json TEXT,
+            totals_json TEXT,
+            source TEXT NOT NULL DEFAULT 'live'
+        );
+        PRAGMA user_version = 3;
+        INSERT INTO Matches (timestamp, arena, our_score, their_score, win, match_guid, playlist_id, gamemode, player_count, result_pending)
+        VALUES ('2026-01-10 18:00:00', 'DFH Stadium', 3, 1, 1, 'v3-m1', 11, '2v2', 0, 0);
+        INSERT INTO MatchPlayers (match_id, primary_id, name, team, mmr, mmr_estimated, is_opponent)
+        VALUES (1, 'Steam|v3user', 'Hero', 0, 1100, 0, 0);
+    )",
+                           nullptr, nullptr, nullptr),
+              SQLITE_OK);
+    sqlite3_close(raw);
+
+    {
+        auto db = std::make_shared<DatabaseManager>(sessionState);
+        ASSERT_TRUE(db->Initialize(path));
+        EXPECT_EQ(db->GetSchemaVersion(), 4);
+        EXPECT_TRUE(std::filesystem::exists(backupPath));
+        EXPECT_EQ(QueryIntScalar(db->GetRawDb(), "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='ReplayUploads';"), 1);
+        EXPECT_EQ(QueryIntScalar(db->GetRawDb(), "SELECT COUNT(*) FROM sqlite_master WHERE type='index' AND name='idx_replay_uploads_match_guid';"), 1);
+        EXPECT_EQ(QueryIntScalar(db->GetRawDb(), "SELECT COUNT(*) FROM sqlite_master WHERE type='index' AND name='idx_replay_uploads_state';"), 1);
+
+        EXPECT_EQ(QueryIntScalar(db->GetRawDb(), "SELECT COUNT(*) FROM Matches WHERE match_guid = 'v3-m1';"), 1);
+        EXPECT_EQ(QueryIntScalar(db->GetRawDb(), "SELECT COUNT(*) FROM MatchPlayers WHERE primary_id = 'Steam|v3user';"), 1);
+    }
+
+    RemoveTestDbFiles(path);
+    std::filesystem::remove(backupPath);
+}
+
+TEST_F(DatabaseManagerTest, RecoverStuckUploadingReplaysRestoresPending) {
+    ASSERT_TRUE(dbManager->RecordDiscoveredReplay("path/to/demo1.replay", "demo1.replay", "guid-1", "pending"));
+    ASSERT_TRUE(dbManager->RecordDiscoveredReplay("path/to/demo2.replay", "demo2.replay", "guid-2", "pending"));
+
+    auto rec1 = dbManager->GetReplayUploadByPath("path/to/demo1.replay");
+    ASSERT_TRUE(rec1.has_value());
+    EXPECT_TRUE(dbManager->SetReplayUploading(rec1->id));
+
+    auto rec1After = dbManager->GetReplayUploadByPath("path/to/demo1.replay");
+    ASSERT_TRUE(rec1After.has_value());
+    EXPECT_EQ(rec1After->state, "uploading");
+
+    EXPECT_TRUE(dbManager->RecoverStuckUploadingReplays());
+
+    auto rec1Recovered = dbManager->GetReplayUploadByPath("path/to/demo1.replay");
+    ASSERT_TRUE(rec1Recovered.has_value());
+    EXPECT_EQ(rec1Recovered->state, "pending");
+}
+
+TEST_F(DatabaseManagerTest, MatchDetailAndQueryMatchesReturnBallchasingInfoWhenJoinedByGuid) {
+    const std::string pid = "Steam|bc_user";
+    const std::string guid = "bc-guid-123";
+
+    MatchSaveSnapshot snap;
+    snap.arenaName = "Champions Field";
+    snap.matchGuid = guid;
+    snap.playlistId = 11;
+    snap.myTeam = 0;
+    snap.winnerTeam = 0;
+    snap.validResult = true;
+    snap.score[0] = 4;
+    snap.score[1] = 2;
+    snap.endedAtUnixMs = 1'700'020'000'000LL;
+    snap.myPrimaryId = pid;
+    snap.roster[pid] = PlayerData{.primaryId = pid, .name = "Hero", .team = 0, .mmr = 1100};
+    dbManager->SaveMatch(snap);
+
+    ASSERT_TRUE(dbManager->RecordDiscoveredReplay("C:\\Demos\\bc123.replay", "bc123.replay", guid, "pending"));
+    auto rec = dbManager->GetReplayUploadByPath("C:\\Demos\\bc123.replay");
+    ASSERT_TRUE(rec.has_value());
+    EXPECT_TRUE(dbManager->UpdateReplayUploadState(rec->id, "done", 1, 0, 201, "", "bc-upload-id-999", "https://ballchasing.com/replay/bc-upload-id-999"));
+
+    MatchDetail detail;
+    EXPECT_TRUE(dbManager->GetMatchDetailByGuid(guid, detail, pid));
+    EXPECT_TRUE(detail.found);
+    EXPECT_EQ(detail.ballchasingId, "bc-upload-id-999");
+    EXPECT_EQ(detail.ballchasingUrl, "https://ballchasing.com/replay/bc-upload-id-999");
+
+    MatchQuery query;
+    query.account = pid;
+    std::vector<MatchRow> rows;
+    int total = 0;
+    dbManager->QueryMatches(query, rows, total);
+    ASSERT_EQ(rows.size(), 1u);
+    EXPECT_TRUE(rows[0].hasBallchasing);
+    EXPECT_EQ(rows[0].ballchasingUrl, "https://ballchasing.com/replay/bc-upload-id-999");
 }
