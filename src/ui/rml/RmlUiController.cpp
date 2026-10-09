@@ -477,6 +477,7 @@ void RmlUiController::SnapshotState() {
             m_snap.matchSummaryScore[1] = m_state->game.matchSummaryScore[1];
             m_snap.matchSummaryMyTeam = m_state->game.matchSummaryMyTeam;
             m_snap.matchSummaryWinnerTeam = m_state->game.matchSummaryWinnerTeam;
+            m_snap.matchSummaryOvertimeSeconds = m_state->game.matchSummaryOvertimeSeconds;
         }
     }
     {

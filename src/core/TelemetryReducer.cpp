@@ -19,6 +19,10 @@ TelemetryReducer::TelemetryReducer(std::shared_ptr<SessionState> state)
     m_lastConfigReadTime = std::chrono::steady_clock::now();
 }
 
+void TelemetryReducer::SetClockForTests(std::function<std::chrono::steady_clock::time_point()> clockFn) {
+    m_clockFn = std::move(clockFn);
+}
+
 void TelemetryReducer::OnTelemetryDisconnected() {
     std::unique_lock<std::shared_mutex> lock(m_state->game.mutex);
     if (m_state->game.inMatch && !m_state->game.matchFinalized) {
@@ -188,6 +192,7 @@ SideEffects TelemetryReducer::Reduce(const std::string& eventName, const nlohman
             m_followedGraphPlaylistCategory = MmrCategory::Best;
             m_lastPlayerBoost.clear();
             m_lastPlayerSeen.clear();
+            ResetMatchTimingState();
         } else if (attachesGuid) {
             action = "attach-guid";
             reason = "late-guid-enrichment";
@@ -284,6 +289,21 @@ SideEffects TelemetryReducer::Reduce(const std::string& eventName, const nlohman
         }
         m_roundActive = true;
         m_state->game.roundEverStarted = true;
+        return effects;
+    }
+
+    if (eventName == Constants::EVT_MATCH_PAUSED) {
+        if (!m_currentPauseStart.has_value()) {
+            m_currentPauseStart = Now();
+        }
+        return effects;
+    }
+
+    if (eventName == Constants::EVT_MATCH_UNPAUSED) {
+        if (m_currentPauseStart.has_value()) {
+            m_pauseIntervals.push_back({*m_currentPauseStart, Now()});
+            m_currentPauseStart.reset();
+        }
         return effects;
     }
 
@@ -388,4 +408,32 @@ DiscordPresenceSnapshot TelemetryReducer::BuildDiscordSnapshotLocked() const {
     snapshot.sessionWins = m_state->game.sessionTotals.wins;
     snapshot.sessionLosses = m_state->game.sessionTotals.losses;
     return snapshot;
+}
+
+float TelemetryReducer::PausedSecondsWithin(std::chrono::steady_clock::time_point windowStart,
+                                            std::chrono::steady_clock::time_point windowEnd) const {
+    if (windowEnd <= windowStart) return 0.0f;
+    auto total = std::chrono::steady_clock::duration::zero();
+    auto addInterval = [&](std::chrono::steady_clock::time_point pStart, std::chrono::steady_clock::time_point pEnd) {
+        auto s = std::max(windowStart, pStart);
+        auto e = std::min(windowEnd, pEnd);
+        if (e > s) {
+            total += (e - s);
+        }
+    };
+    for (const auto& pi : m_pauseIntervals) {
+        addInterval(pi.start, pi.end);
+    }
+    if (m_currentPauseStart.has_value()) {
+        addInterval(*m_currentPauseStart, windowEnd);
+    }
+    return std::chrono::duration<float>(total).count();
+}
+
+void TelemetryReducer::ResetMatchTimingState() {
+    m_regulationClockStart.reset();
+    m_regulationClockLatest = 0.0f;
+    m_overtimeStartedAt.reset();
+    m_currentPauseStart.reset();
+    m_pauseIntervals.clear();
 }

@@ -60,6 +60,18 @@ TelemetryReducer::CapturedMatch TelemetryReducer::CaptureMatchLocked() const {
         match.preMatchMmr = snapshotIt->second;
         match.hasPreMatchMmr = true;
     }
+    const auto now = Now();
+    if (m_overtimeStartedAt.has_value()) {
+        // Overtime ends on the first goal, so its wall time contains no replays or kickoffs.
+        const float rawOt = std::chrono::duration<float>(now - *m_overtimeStartedAt).count();
+        const float pausedOt = PausedSecondsWithin(*m_overtimeStartedAt, now);
+        match.overtimeSeconds = std::max(0.0f, rawOt - pausedOt);
+    } else {
+        match.overtimeSeconds = 0.0f;
+    }
+    const float regulationSeconds =
+        m_regulationClockStart.has_value() ? std::max(0.0f, *m_regulationClockStart - m_regulationClockLatest) : 0.0f;
+    match.durationSeconds = regulationSeconds > 0.0f ? regulationSeconds + match.overtimeSeconds : 0.0f;
     match.endedAtUnixMs =
         std::chrono::duration_cast<std::chrono::milliseconds>(
             std::chrono::system_clock::now().time_since_epoch())

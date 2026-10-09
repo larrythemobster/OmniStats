@@ -29,6 +29,7 @@ void TelemetryReducer::MarkDestroyedMatchVoidLocked(
     m_state->game.matchSummaryScore = m_state->game.score;
     m_state->game.matchSummaryMyTeam = m_state->game.myTeam;
     m_state->game.matchSummaryWinnerTeam = -1;
+    m_state->game.matchSummaryOvertimeSeconds = 0.0f;
     m_state->game.matchFinalized = true;
     std::cout << "[Event] MATCH VOIDED: " << reason << "\n";
     effects.pushDiscord = true;
@@ -169,6 +170,7 @@ void TelemetryReducer::FinalizeCapturedMatchLocked(
         m_state->game.matchSummaryScore = match.score;
         m_state->game.matchSummaryMyTeam = match.myTeam;
         m_state->game.matchSummaryWinnerTeam = winnerTeam;
+        m_state->game.matchSummaryOvertimeSeconds = match.overtimeSeconds;
         const int64_t nowMs = SteadyNowMs();
         if (m_state->ui.lastMatchEndMs.load(std::memory_order_relaxed) <= 0) {
             m_state->ui.lastMatchEndMs.store(nowMs, std::memory_order_relaxed);
@@ -318,6 +320,7 @@ void TelemetryReducer::FinalizeCapturedMatchLocked(
         effects.pushDiscord = true;
         effects.discordSnapshot = BuildDiscordSnapshotLocked();
     }
+    ResetMatchTimingState();
 }
 
 MatchSaveSnapshot TelemetryReducer::BuildMatchSaveSnapshot(
@@ -425,6 +428,7 @@ void TelemetryReducer::HandleMatchDestroyed(
     m_state->ui.lastMatchStartMs.store(0, std::memory_order_relaxed);
     m_uiMatchGuid.clear();
     m_countdownSeenThisRound = false;
+    ResetMatchTimingState();
     if (data.contains("Teams") && data["Teams"].is_array()) {
         for (const auto& team : data["Teams"]) {
             if (!team.contains("TeamNum") ||

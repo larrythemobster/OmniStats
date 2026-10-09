@@ -545,8 +545,16 @@ bool DatabaseManager::UpsertMatchStatsLocked(sqlite3_int64 matchId, const MatchS
         sqlite3_bind_int(stmtPlayerStats, 6, p.saves);
         sqlite3_bind_int(stmtPlayerStats, 7, p.shots);
         sqlite3_bind_int(stmtPlayerStats, 8, p.demos);
-        sqlite3_bind_null(stmtPlayerStats, 9);
-        sqlite3_bind_null(stmtPlayerStats, 10);
+        if (p.touches.has_value()) {
+            sqlite3_bind_int(stmtPlayerStats, 9, *p.touches);
+        } else {
+            sqlite3_bind_null(stmtPlayerStats, 9);
+        }
+        if (p.carTouches.has_value()) {
+            sqlite3_bind_int(stmtPlayerStats, 10, *p.carTouches);
+        } else {
+            sqlite3_bind_null(stmtPlayerStats, 10);
+        }
         if (p.maxGoalSpeed > 0.0f) {
             sqlite3_bind_double(stmtPlayerStats, 11, static_cast<double>(p.maxGoalSpeed));
         } else {
@@ -610,12 +618,9 @@ bool DatabaseManager::UpsertMatchStatsLocked(sqlite3_int64 matchId, const MatchS
     sqlite3_bind_int(stmtLocalStats, 7, local.ownGoalsSelf);
     if (snapshot.durationSeconds > 0.0f) {
         sqlite3_bind_double(stmtLocalStats, 8, static_cast<double>(snapshot.durationSeconds));
+        sqlite3_bind_double(stmtLocalStats, 9, static_cast<double>(std::max(0.0f, snapshot.overtimeSeconds)));
     } else {
         sqlite3_bind_null(stmtLocalStats, 8);
-    }
-    if (snapshot.overtimeSeconds > 0.0f) {
-        sqlite3_bind_double(stmtLocalStats, 9, static_cast<double>(snapshot.overtimeSeconds));
-    } else {
         sqlite3_bind_null(stmtLocalStats, 9);
     }
 

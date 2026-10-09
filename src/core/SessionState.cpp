@@ -126,6 +126,9 @@ void SessionState::resetMatch(const std::string& newArena, const std::string& ne
     game.matchSummaryScore = {0, 0};
     game.matchSummaryMyTeam = -1;
     game.matchSummaryWinnerTeam = -1;
+    game.matchSummaryOvertimeSeconds = 0.0f;
+    game.timeSeconds = 0.0f;
+    game.bOvertime = false;
 
     game.currentMatch = MatchStats{};
     game.roster.clear();
@@ -161,6 +164,9 @@ void SessionState::clearActiveMatchOnDisconnect() {
     game.legacyLobbyWasEverFull = false;
     game.legacyCurrentTeamPlayersSeen = {0, 0};
     game.legacyMaxTeamPlayersSeen = {0, 0};
+    game.timeSeconds = 0.0f;
+    game.bOvertime = false;
+    game.matchSummaryOvertimeSeconds = 0.0f;
     game.currentMatch = MatchStats{};
     game.roster.clear();
     game.matchRoster.clear();

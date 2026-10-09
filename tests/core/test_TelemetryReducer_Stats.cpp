@@ -497,3 +497,196 @@ TEST(TelemetryReducerStats, RejectedOrDuplicateTerminalEventsDoNotRestartVisibil
     EXPECT_EQ(state->ui.lastMatchEndMs.load(), endMs);
     EXPECT_EQ(state->ui.lastPodiumMs.load(), podiumMs);
 }
+
+TEST(TelemetryReducerStats, AuthoritativeUpdateStateCountersOverrideStatfeedAndAbsentFieldsFallBack) {
+    Storage::InitializeEnvironment();
+    auto state = std::make_shared<SessionState>();
+    TelemetryReducer reducer(state);
+
+    reducer.Reduce(std::string(Constants::EVT_MATCH_CREATED), nlohmann::json{{"MatchGuid", "override-guid-1"}});
+    reducer.Reduce(std::string(Constants::EVT_ROUND_STARTED), nlohmann::json{{"MatchGuid", "override-guid-1"}});
+    {
+        std::unique_lock<std::shared_mutex> lock(state->game.mutex);
+        state->game.myPrimaryId = "Steam|1";
+        state->game.myTeam = 0;
+        state->game.roster["Steam|1"] = PlayerData{.primaryId = "Steam|1", .name = "Me", .team = 0};
+        state->game.roster["Epic|2"] = PlayerData{.primaryId = "Epic|2", .name = "Opp", .team = 1};
+    }
+
+    reducer.Reduce(std::string(Constants::EVT_STATFEED),
+                   nlohmann::json{{"EventName", "Shot"}, {"MainTarget", {{"Name", "Me"}, {"PrimaryId", "Steam|1"}, {"TeamNum", 0}}}});
+    reducer.Reduce(std::string(Constants::EVT_STATFEED),
+                   nlohmann::json{{"EventName", "Assist"}, {"MainTarget", {{"Name", "Me"}, {"PrimaryId", "Steam|1"}, {"TeamNum", 0}}}});
+    reducer.Reduce(std::string(Constants::EVT_STATFEED),
+                   nlohmann::json{{"EventName", "Save"}, {"MainTarget", {{"Name", "Opp"}, {"PrimaryId", "Epic|2"}, {"TeamNum", 1}}}});
+
+    {
+        std::shared_lock<std::shared_mutex> lock(state->game.mutex);
+        EXPECT_EQ(state->game.roster["Steam|1"].shots, 1);
+        EXPECT_EQ(state->game.roster["Steam|1"].assists, 1);
+        EXPECT_EQ(state->game.currentMatch.shotsSelf, 1);
+        EXPECT_EQ(state->game.currentMatch.assistsSelf, 1);
+        EXPECT_EQ(state->game.roster["Epic|2"].saves, 1);
+    }
+
+    // Assists (Steam|1) and Saves (Epic|2) are absent and must keep statfeed values.
+    reducer.Reduce(
+        std::string(Constants::EVT_UPDATE_STATE),
+        nlohmann::json{{"Game", {{"Arena", "Stadium_P"}, {"bReplay", false}, {"bSpectator", false}, {"PlaylistId", 11}}},
+                       {"Players",
+                        {{{"PrimaryId", "Steam|1"},
+                          {"Name", "Me"},
+                          {"TeamNum", 0},
+                          {"Goals", 2},
+                          {"Shots", 4},
+                          {"Touches", 32},
+                          {"CarTouches", 28},
+                          {"Score", 420}},
+                         {{"PrimaryId", "Epic|2"},
+                          {"Name", "Opp"},
+                          {"TeamNum", 1},
+                          {"Touches", 19},
+                          {"CarTouches", 15},
+                          {"Score", 180}}}}});
+
+    {
+        std::shared_lock<std::shared_mutex> lock(state->game.mutex);
+        const auto& me = state->game.roster["Steam|1"];
+        EXPECT_EQ(me.goals, 2);
+        EXPECT_EQ(me.shots, 4);
+        EXPECT_EQ(me.assists, 1);
+        EXPECT_EQ(state->game.currentMatch.goalsSelf, 2);
+        EXPECT_EQ(state->game.currentMatch.shotsSelf, 4);
+        EXPECT_EQ(state->game.currentMatch.assistsSelf, 1);
+        ASSERT_TRUE(me.touches.has_value());
+        EXPECT_EQ(*me.touches, 32);
+        ASSERT_TRUE(me.carTouches.has_value());
+        EXPECT_EQ(*me.carTouches, 28);
+        EXPECT_EQ(me.score, 420);
+
+        const auto& opp = state->game.roster["Epic|2"];
+        EXPECT_EQ(opp.saves, 1);
+        ASSERT_TRUE(opp.touches.has_value());
+        EXPECT_EQ(*opp.touches, 19);
+        ASSERT_TRUE(opp.carTouches.has_value());
+        EXPECT_EQ(*opp.carTouches, 15);
+        EXPECT_EQ(opp.score, 180);
+    }
+
+    SideEffects endEffects = reducer.Reduce(
+        std::string(Constants::EVT_MATCH_ENDED),
+        nlohmann::json{{"MatchGuid", "override-guid-1"}, {"WinnerTeamNum", 0}});
+
+    EXPECT_TRUE(endEffects.saveMatch);
+    ASSERT_TRUE(endEffects.saveSnapshot.roster.count("Steam|1"));
+    ASSERT_TRUE(endEffects.saveSnapshot.roster["Steam|1"].touches.has_value());
+    EXPECT_EQ(*endEffects.saveSnapshot.roster["Steam|1"].touches, 32);
+    ASSERT_TRUE(endEffects.saveSnapshot.roster["Steam|1"].carTouches.has_value());
+    EXPECT_EQ(*endEffects.saveSnapshot.roster["Steam|1"].carTouches, 28);
+
+    ASSERT_TRUE(endEffects.saveSnapshot.roster.count("Epic|2"));
+    ASSERT_TRUE(endEffects.saveSnapshot.roster["Epic|2"].touches.has_value());
+    EXPECT_EQ(*endEffects.saveSnapshot.roster["Epic|2"].touches, 19);
+    ASSERT_TRUE(endEffects.saveSnapshot.roster["Epic|2"].carTouches.has_value());
+    EXPECT_EQ(*endEffects.saveSnapshot.roster["Epic|2"].carTouches, 15);
+}
+
+namespace {
+    void SendClock(TelemetryReducer& reducer, float clock, bool overtime) {
+        reducer.Reduce(
+            std::string(Constants::EVT_UPDATE_STATE),
+            nlohmann::json{{"Game",
+                            {{"Arena", "Stadium_P"},
+                             {"bReplay", false},
+                             {"bSpectator", false},
+                             {"bOvertime", overtime},
+                             {"PlaylistId", 11},
+                             {"TimeSeconds", clock}}},
+                           {"Players",
+                            {{{"PrimaryId", "Steam|1"}, {"Name", "Me"}, {"TeamNum", 0}},
+                             {{"PrimaryId", "Epic|2"}, {"Name", "Opp"}, {"TeamNum", 1}}}}});
+    }
+
+    void StartTimedMatch(TelemetryReducer& reducer, SessionState& state, const std::string& guid) {
+        reducer.Reduce(std::string(Constants::EVT_MATCH_CREATED), nlohmann::json{{"MatchGuid", guid}});
+        {
+            std::unique_lock<std::shared_mutex> lock(state.game.mutex);
+            state.game.myPrimaryId = "Steam|1";
+            state.game.myTeam = 0;
+            state.game.roster["Steam|1"] = PlayerData{.primaryId = "Steam|1", .name = "Me", .team = 0};
+            state.game.roster["Epic|2"] = PlayerData{.primaryId = "Epic|2", .name = "Opp", .team = 1};
+        }
+        reducer.Reduce(std::string(Constants::EVT_ROUND_STARTED), nlohmann::json{{"MatchGuid", guid}});
+    }
+} // namespace
+
+TEST(TelemetryReducerStats, RegulationDurationFollowsGameClockNotWallTime) {
+    Storage::InitializeEnvironment();
+    auto state = std::make_shared<SessionState>();
+    TelemetryReducer reducer(state);
+    auto now = std::chrono::steady_clock::time_point{std::chrono::seconds(2000)};
+    reducer.SetClockForTests([&]() { return now; });
+
+    StartTimedMatch(reducer, *state, "regular-guid-1");
+    SendClock(reducer, 300.0f, false);
+    now += std::chrono::seconds(200);
+    SendClock(reducer, 150.0f, false);
+    // Goal replays and kickoff countdowns add wall time while the clock is frozen.
+    now += std::chrono::seconds(60);
+    SendClock(reducer, 150.0f, false);
+    now += std::chrono::seconds(160);
+    SendClock(reducer, 0.0f, false);
+
+    SideEffects endEffects = reducer.Reduce(std::string(Constants::EVT_MATCH_ENDED),
+                                            nlohmann::json{{"MatchGuid", "regular-guid-1"}, {"WinnerTeamNum", 0}});
+
+    EXPECT_TRUE(endEffects.saveMatch);
+    EXPECT_NEAR(endEffects.saveSnapshot.durationSeconds, 300.0f, 0.01f);
+    EXPECT_FLOAT_EQ(endEffects.saveSnapshot.overtimeSeconds, 0.0f);
+    EXPECT_FLOAT_EQ(state->game.matchSummaryOvertimeSeconds, 0.0f);
+}
+
+TEST(TelemetryReducerStats, ForfeitDurationIsClockElapsed) {
+    Storage::InitializeEnvironment();
+    auto state = std::make_shared<SessionState>();
+    TelemetryReducer reducer(state);
+
+    StartTimedMatch(reducer, *state, "forfeit-guid-1");
+    SendClock(reducer, 300.0f, false);
+    SendClock(reducer, 172.0f, false);
+
+    SideEffects endEffects = reducer.Reduce(std::string(Constants::EVT_MATCH_ENDED),
+                                            nlohmann::json{{"MatchGuid", "forfeit-guid-1"}, {"WinnerTeamNum", 0}});
+
+    EXPECT_TRUE(endEffects.saveMatch);
+    EXPECT_NEAR(endEffects.saveSnapshot.durationSeconds, 128.0f, 0.01f);
+}
+
+TEST(TelemetryReducerStats, OvertimeAddsUnpausedTimeAfterFlip) {
+    Storage::InitializeEnvironment();
+    auto state = std::make_shared<SessionState>();
+    TelemetryReducer reducer(state);
+    auto now = std::chrono::steady_clock::time_point{std::chrono::seconds(1000)};
+    reducer.SetClockForTests([&]() { return now; });
+
+    StartTimedMatch(reducer, *state, "timing-guid-1");
+    SendClock(reducer, 300.0f, false);
+    now += std::chrono::seconds(400);
+    SendClock(reducer, 0.0f, false);
+    SendClock(reducer, 0.0f, true);
+    EXPECT_TRUE(state->game.bOvertime);
+
+    now += std::chrono::seconds(20);
+    reducer.Reduce(std::string(Constants::EVT_MATCH_PAUSED), nlohmann::json{});
+    now += std::chrono::seconds(15);
+    reducer.Reduce(std::string(Constants::EVT_MATCH_UNPAUSED), nlohmann::json{});
+    now += std::chrono::seconds(25);
+
+    SideEffects endEffects = reducer.Reduce(std::string(Constants::EVT_MATCH_ENDED),
+                                            nlohmann::json{{"MatchGuid", "timing-guid-1"}, {"WinnerTeamNum", 0}});
+
+    EXPECT_TRUE(endEffects.saveMatch);
+    EXPECT_NEAR(endEffects.saveSnapshot.overtimeSeconds, 45.0f, 0.01f);
+    EXPECT_NEAR(endEffects.saveSnapshot.durationSeconds, 345.0f, 0.01f);
+    EXPECT_NEAR(state->game.matchSummaryOvertimeSeconds, 45.0f, 0.01f);
+}

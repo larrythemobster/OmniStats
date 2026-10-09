@@ -183,6 +183,22 @@ void TelemetryReducer::HandleUpdateState(const nlohmann::json& data, SideEffects
             game["PlaylistId"].is_number_integer()) {
             incomingPlaylistId = game["PlaylistId"].get<int>();
         }
+        if (game.contains("bOvertime") && game["bOvertime"].is_boolean()) {
+            const bool ot = game["bOvertime"].get<bool>();
+            m_state->game.bOvertime = ot;
+            if (ot && !m_overtimeStartedAt.has_value()) {
+                m_overtimeStartedAt = Now();
+            }
+        }
+        if (game.contains("TimeSeconds") && game["TimeSeconds"].is_number()) {
+            const float clock = game["TimeSeconds"].get<float>();
+            m_state->game.timeSeconds = clock;
+            if (!m_state->game.bOvertime) {
+                m_regulationClockStart = std::max(m_regulationClockStart.value_or(clock), clock);
+                m_regulationClockLatest = clock;
+            }
+        }
+        if (m_state->game.bOvertime) m_regulationClockLatest = 0.0f;
 
         if (game.contains("bReplay") && game["bReplay"].is_boolean()) {
             gameReplayActive = game["bReplay"].get<bool>();
@@ -246,6 +262,7 @@ void TelemetryReducer::HandleUpdateState(const nlohmann::json& data, SideEffects
                         m_state->ui.ResetMatchTimestamps(SteadyNowMs());
                         m_uiMatchGuid.clear();
                         m_countdownSeenThisRound = false;
+                        ResetMatchTimingState();
                     } else {
                         m_state->ui.lastMatchStartMs.store(
                             savedMatchStartMs > 0 ? savedMatchStartMs : SteadyNowMs(),
@@ -353,6 +370,7 @@ void TelemetryReducer::HandleUpdateState(const nlohmann::json& data, SideEffects
                             matchGuid,
                             std::move(initialMmrSnapshot));
                     }
+                    ResetMatchTimingState();
                     m_roundActive = false;
                     m_countdownSeenThisRound = false;
                     m_autoSwitchedPlaylistCategory = MmrCategory::Best;
@@ -464,6 +482,27 @@ void TelemetryReducer::HandleUpdateState(const nlohmann::json& data, SideEffects
                     }
                     if (p.contains("Score") && p["Score"].is_number_integer()) {
                         m_state->game.roster[pid].score = p["Score"].get<int>();
+                    }
+                    if (p.contains("Goals") && p["Goals"].is_number_integer()) {
+                        m_state->game.roster[pid].goals = p["Goals"].get<int>();
+                    }
+                    if (p.contains("Shots") && p["Shots"].is_number_integer()) {
+                        m_state->game.roster[pid].shots = p["Shots"].get<int>();
+                    }
+                    if (p.contains("Assists") && p["Assists"].is_number_integer()) {
+                        m_state->game.roster[pid].assists = p["Assists"].get<int>();
+                    }
+                    if (p.contains("Saves") && p["Saves"].is_number_integer()) {
+                        m_state->game.roster[pid].saves = p["Saves"].get<int>();
+                    }
+                    if (p.contains("Demos") && p["Demos"].is_number_integer()) {
+                        m_state->game.roster[pid].demos = p["Demos"].get<int>();
+                    }
+                    if (p.contains("Touches") && p["Touches"].is_number_integer()) {
+                        m_state->game.roster[pid].touches = p["Touches"].get<int>();
+                    }
+                    if (p.contains("CarTouches") && p["CarTouches"].is_number_integer()) {
+                        m_state->game.roster[pid].carTouches = p["CarTouches"].get<int>();
                     }
                     m_state->game.matchRoster[pid] = m_state->game.roster[pid];
                 }
@@ -767,6 +806,22 @@ void TelemetryReducer::HandleUpdateState(const nlohmann::json& data, SideEffects
                 }
                 if (playerId == m_state->game.myPrimaryId) {
                     localPlayerPresent = true;
+                    auto& match = m_state->game.currentMatch;
+                    if (player.contains("Goals") && player["Goals"].is_number_integer()) {
+                        match.goalsSelf = player["Goals"].get<int>();
+                    }
+                    if (player.contains("Shots") && player["Shots"].is_number_integer()) {
+                        match.shotsSelf = player["Shots"].get<int>();
+                    }
+                    if (player.contains("Assists") && player["Assists"].is_number_integer()) {
+                        match.assistsSelf = player["Assists"].get<int>();
+                    }
+                    if (player.contains("Saves") && player["Saves"].is_number_integer()) {
+                        match.savesSelf = player["Saves"].get<int>();
+                    }
+                    if (player.contains("Demos") && player["Demos"].is_number_integer()) {
+                        match.demosSelf = player["Demos"].get<int>();
+                    }
                     break;
                 }
             }

@@ -46,6 +46,8 @@ struct PlayerData {
     float maxGoalSpeed = 0.0f;
     float fastestGoalTime = 0.0f;
     int score = -1; // Scoreboard points from UpdateState; -1 until observed.
+    std::optional<int> touches;
+    std::optional<int> carTouches;
 };
 
 // Real-time telemetry for the active match
@@ -486,6 +488,9 @@ struct GameState {
     std::array<int, 2> matchSummaryScore{};
     int matchSummaryMyTeam = -1;
     int matchSummaryWinnerTeam = -1;
+    float matchSummaryOvertimeSeconds = 0.0f;
+    float timeSeconds = 0.0f;
+    bool bOvertime = false;
 
     // Global Collections
     MatchStats currentMatch;

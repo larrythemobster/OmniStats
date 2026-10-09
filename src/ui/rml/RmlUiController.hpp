@@ -56,6 +56,7 @@ struct RmlRenderSnapshot {
     int matchSummaryScore[2] = {0, 0};
     int matchSummaryMyTeam = -1;
     int matchSummaryWinnerTeam = -1;
+    float matchSummaryOvertimeSeconds = 0.0f;
 
     float initialMmr = -1.0f;
     std::map<std::string, int> playlistInitialMmr;

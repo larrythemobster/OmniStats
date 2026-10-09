@@ -4,6 +4,9 @@
 #include <unordered_map>
 #include <unordered_set>
 #include <chrono>
+#include <functional>
+#include <vector>
+#include <optional>
 #include <nlohmann/json.hpp>
 #include "core/SessionState.hpp"
 #include "core/Config.hpp"
@@ -12,6 +15,8 @@
 class TelemetryReducer {
   public:
     explicit TelemetryReducer(std::shared_ptr<SessionState> state);
+
+    void SetClockForTests(std::function<std::chrono::steady_clock::time_point()> clockFn);
 
     SideEffects Reduce(const std::string& eventName, const nlohmann::json& data);
     void OnConfigChanged();
@@ -131,4 +136,23 @@ class TelemetryReducer {
     int m_missedMyIdCount = 0;
     MmrCategory m_autoSwitchedPlaylistCategory = MmrCategory::Best;
     MmrCategory m_followedGraphPlaylistCategory = MmrCategory::Best;
+    struct PauseInterval {
+        std::chrono::steady_clock::time_point start;
+        std::chrono::steady_clock::time_point end;
+    };
+    // Regulation time comes from the game clock so goal replays and kickoff countdowns are excluded.
+    std::optional<float> m_regulationClockStart;
+    float m_regulationClockLatest = 0.0f;
+    std::optional<std::chrono::steady_clock::time_point> m_overtimeStartedAt;
+    std::optional<std::chrono::steady_clock::time_point> m_currentPauseStart;
+    std::vector<PauseInterval> m_pauseIntervals;
+
+    std::function<std::chrono::steady_clock::time_point()> m_clockFn;
+    std::chrono::steady_clock::time_point Now() const {
+        if (m_clockFn) return m_clockFn();
+        return std::chrono::steady_clock::now();
+    }
+    float PausedSecondsWithin(std::chrono::steady_clock::time_point windowStart,
+                              std::chrono::steady_clock::time_point windowEnd) const;
+    void ResetMatchTimingState();
 };

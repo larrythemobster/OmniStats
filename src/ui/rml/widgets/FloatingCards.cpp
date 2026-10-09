@@ -114,10 +114,21 @@ std::string RmlUiController::RenderMatchSummary() {
     if (s.fastestGoalTime > 0) fun.push_back({"Fastest goal", Format::PairFastest(s.fastestGoalTime, s.fastestGoalTimeSelf)});
     if (s.ownGoals > 0) fun.push_back({"Own goals", Format::PairCount(s.ownGoals, s.ownGoalsSelf)});
 
+    std::string otTag;
+    if (m_snap.matchSummaryOvertimeSeconds > 0.0f) {
+        int total = static_cast<int>(std::round(m_snap.matchSummaryOvertimeSeconds));
+        if (total < 0) total = 0;
+        int m = total / 60;
+        int sec = total % 60;
+        char buf[32];
+        std::snprintf(buf, sizeof(buf), "OT %d:%02d", m, sec);
+        otTag = std::string(" <span class='muted' style='font-size:13dp;font-weight:normal'>\xC2\xB7 ") + buf + "</span>";
+    }
+
     std::ostringstream out;
     out << "<div class='card match-summary" << FloatingCardClass() << "' data-action='floating-card-drag' data-card='match-summary'"
         << FloatingCardStyle(m_config.match_summary_x, m_config.match_summary_y, 420.0f)
-        << "><div class='row'><div class='grow value " << resultClass << "' style='font-size:20dp'>" << result << "</div>"
+        << "><div class='row'><div class='grow value " << resultClass << "' style='font-size:20dp'>" << result << otTag << "</div>"
         << "<div class='value mono' style='font-size:20dp'>" << myScore << '-' << theirScore << "</div></div>";
     out << StatGrid("PLAY", play) << StatGrid("FUN", fun);
     if (!m_snap.lastMatchWasVoid) {
