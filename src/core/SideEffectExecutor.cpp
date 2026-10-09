@@ -77,12 +77,7 @@ void SideEffectExecutor::Execute(SideEffects&& effects,
     // Queue the committed match before its post-match fetch can enqueue an MMR
     // correction. DatabaseManager preserves critical-job FIFO ordering.
     if (effects.saveMatch) {
-        auto matchRecord = std::move(effects.matchRecord);
         if (dbManager) dbManager->AsyncSaveMatch(std::move(effects.saveSnapshot));
-        Enqueue([matchRecord = std::move(matchRecord)]() {
-            Storage::AppendMatchSync(matchRecord);
-        },
-                true);
     }
     if (effects.provisionalSaveSnapshot && dbManager) {
         dbManager->AsyncSaveMatch(std::move(*effects.provisionalSaveSnapshot));

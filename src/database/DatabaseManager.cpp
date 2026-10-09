@@ -2049,41 +2049,6 @@ void DatabaseManager::AsyncRefreshDetailedStatsSummary() {
                        DbJobPriority::Coalescable, "detailed_stats_summary");
 }
 
-void DatabaseManager::GetOpponentRecord(const std::string& primaryId, const std::string& opponentId, int& wins, int& losses) {
-    std::lock_guard<std::mutex> lock(m_dbMutex);
-    wins = 0;
-    losses = 0;
-    if (!m_db) return;
-
-    const char* sql = R"(
-        SELECT
-            SUM(CASE WHEN Matches.win = 1 THEN 1 ELSE 0 END),
-            SUM(CASE WHEN Matches.win = 0 THEN 1 ELSE 0 END)
-        FROM Matches
-        WHERE Matches.id IN (
-            SELECT DISTINCT match_id FROM MatchPlayers WHERE primary_id = ?
-        )
-        AND Matches.id IN (
-            SELECT DISTINCT match_id FROM MatchPlayers WHERE primary_id = ?
-        );
-    )";
-
-    sqlite3_stmt* stmt;
-    if (sqlite3_prepare_v2(m_db, sql, -1, &stmt, nullptr) != SQLITE_OK) {
-        return;
-    }
-
-    sqlite3_bind_text(stmt, 1, primaryId.c_str(), -1, SQLITE_TRANSIENT);
-    sqlite3_bind_text(stmt, 2, opponentId.c_str(), -1, SQLITE_TRANSIENT);
-
-    if (sqlite3_step(stmt) == SQLITE_ROW) {
-        wins = sqlite3_column_int(stmt, 0);
-        losses = sqlite3_column_int(stmt, 1);
-    }
-
-    sqlite3_finalize(stmt);
-}
-
 void DatabaseManager::GetGamemodeStats(const std::string& primaryId, const std::string& gamemode, int& wins, int& losses, int& gamesPlayed) {
     std::lock_guard<std::mutex> lock(m_dbMutex);
     wins = 0;

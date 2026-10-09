@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <thread>
 #include <atomic>
+#include <nlohmann/json.hpp>
 #include "Storage.hpp"
 
 #include <windows.h>

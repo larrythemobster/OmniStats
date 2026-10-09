@@ -1,6 +1,5 @@
 #include "Storage.hpp"
 #include <cstdlib>
-#include <fstream>
 #include <filesystem>
 #include <iostream>
 
@@ -31,23 +30,4 @@ namespace Storage {
         }
     }
 
-    void AppendLineToFile(const std::string& filename, const nlohmann::json& data) {
-        // Open file in append mode (std::ios::app)
-        std::string filepath = GetDataDirectory() + filename;
-        std::ofstream file(filepath, std::ios::app);
-        if (file.is_open()) {
-            file << data.dump() << "\n";
-            file.flush();
-        } else {
-            std::cout << "[Storage] Failed to open data file for writing: " << filename << "\n";
-        }
-    }
-
-    void AppendMatchSync(const nlohmann::json& record) {
-        AppendLineToFile("matches.jsonl", record);
-    }
-
-    void AppendMMRHistory(const nlohmann::json& entry) {
-        AppendLineToFile("mmr_history.jsonl", entry);
-    }
 }

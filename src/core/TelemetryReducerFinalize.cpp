@@ -303,20 +303,6 @@ void TelemetryReducer::FinalizeCapturedMatchLocked(
         }
     }
 
-    nlohmann::json matchRecord = {
-        {"match_guid", match.matchGuid},
-        {"arena", match.arenaName},
-        {"playlist_id", match.playlistId},
-        {"result", iWon ? "Win" : "Loss"},
-        {"score", {match.score[0], match.score[1]}},
-        {"stats",
-         {{"goals", currentMatch.goalsSelf},
-          {"saves", currentMatch.savesSelf},
-          {"demos", currentMatch.demosSelf},
-          {"fastest_goal", currentMatch.fastestGoalTimeSelf},
-          {"max_ball_speed", currentMatch.maxGoalSpeedSelf}}},
-        {"timestamp", match.endedAtUnixMs / 1000}};
-
     MatchSaveSnapshot snapshot =
         BuildMatchSaveSnapshot(match, winnerTeam, decision);
     snapshot.roster = std::move(match.roster);
@@ -326,7 +312,6 @@ void TelemetryReducer::FinalizeCapturedMatchLocked(
          (m_cachedConf.custom_api_enabled && !m_cachedConf.account_refresh_token.empty()));
 
     effects.saveMatch = true;
-    effects.matchRecord = std::move(matchRecord);
     effects.saveSnapshot = std::move(snapshot);
 
     if (isCurrentMatch) {

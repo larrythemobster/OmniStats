@@ -55,7 +55,6 @@ struct SideEffects {
     std::optional<ResolvedDestroyedMatch> resolvedDestroyedMatch;
     std::vector<std::string> fetchEncounterQueue;
     bool saveMatch = false;
-    nlohmann::json matchRecord;
     MatchSaveSnapshot saveSnapshot;
     std::optional<MatchSaveSnapshot> provisionalSaveSnapshot;
     std::optional<SessionRecap> persistSession;
