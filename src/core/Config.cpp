@@ -49,9 +49,60 @@ static std::string HexToString(const std::string& input) {
     return output;
 }
 
-static std::string EncryptToken(const std::string& plainText) {
-    if (plainText.empty()) return "";
+struct CryptResult {
+    bool success = false;
+    std::string value;
+    DWORD errorCode = 0;
+};
 
+struct DecryptResult {
+    bool success = false;
+    std::string value;
+    bool isLegacyPlaintext = false;
+    DWORD errorCode = 0;
+};
+
+#ifdef OMNISTATS_TEST_ENVIRONMENT
+static Config::CryptProtectHook s_protectHook = nullptr;
+static Config::CryptUnprotectHook s_unprotectHook = nullptr;
+
+namespace Config {
+    void SetCryptProtectHookForTests(CryptProtectHook hook) {
+        s_protectHook = std::move(hook);
+    }
+    void SetCryptUnprotectHookForTests(CryptUnprotectHook hook) {
+        s_unprotectHook = std::move(hook);
+    }
+    void ResetCryptHooksForTests() {
+        s_protectHook = nullptr;
+        s_unprotectHook = nullptr;
+    }
+}
+#endif
+
+static std::unordered_map<std::string, std::string> s_savedCiphertexts;
+static std::unordered_map<std::string, std::string> s_encryptedPlaintexts;
+
+static bool HasDpapiSignature(std::string_view bytes) {
+    if (bytes.size() < 20) return false;
+    static const unsigned char kDpapiHeader[8] = {0x01, 0x00, 0x00, 0x00, 0xd0, 0x02, 0x9a, 0xdf};
+    return std::memcmp(bytes.data(), kDpapiHeader, sizeof(kDpapiHeader)) == 0;
+}
+
+static CryptResult EncryptSecret(const std::string& plainText) {
+    if (plainText.empty()) {
+        return {true, "", 0};
+    }
+#ifdef OMNISTATS_TEST_ENVIRONMENT
+    if (s_protectHook) {
+        std::string cipher;
+        DWORD err = 0;
+        if (s_protectHook(plainText, cipher, err)) {
+            return {true, cipher, 0};
+        }
+        return {false, "", err ? err : static_cast<DWORD>(ERROR_ENCRYPTION_FAILED)};
+    }
+#endif
     DATA_BLOB inputBlob;
     inputBlob.pbData = (BYTE*)plainText.data();
     inputBlob.cbData = (DWORD)plainText.size();
@@ -60,65 +111,48 @@ static std::string EncryptToken(const std::string& plainText) {
     if (CryptProtectData(&inputBlob, L"OmniStats Token", nullptr, nullptr, nullptr, 0, &outputBlob)) {
         std::string encryptedBytes((char*)outputBlob.pbData, outputBlob.cbData);
         LocalFree(outputBlob.pbData);
-        return StringToHex(encryptedBytes);
+        return {true, StringToHex(encryptedBytes), 0};
     }
-    std::cerr << "[Config] DPAPI encryption failed with error: " << GetLastError() << "\n";
-    return plainText;
+    const DWORD err = GetLastError();
+    std::cerr << "[Config] DPAPI encryption failed with error: " << err << "\n";
+    return {false, "", err};
 }
 
-static std::string DecryptToken(const std::string& hexCipher) {
-    if (hexCipher.empty()) return "";
-
-    std::string cipherBytes = HexToString(hexCipher);
-    if (cipherBytes.empty()) return hexCipher;
-
-    DATA_BLOB inputBlob;
-    inputBlob.pbData = (BYTE*)cipherBytes.data();
-    inputBlob.cbData = (DWORD)cipherBytes.size();
-
-    DATA_BLOB outputBlob;
-    if (CryptUnprotectData(&inputBlob, nullptr, nullptr, nullptr, nullptr, 0, &outputBlob)) {
-        std::string decryptedBytes((char*)outputBlob.pbData, outputBlob.cbData);
-        LocalFree(outputBlob.pbData);
-        return decryptedBytes;
+static DecryptResult DecryptSecret(const std::string& raw) {
+    if (raw.empty()) {
+        return {true, "", false, 0};
     }
-    return hexCipher; // Fallback to raw if decryption fails (plain text from older version)
-}
-
-static std::string EncryptSecretStrict(const std::string& plainText) {
-    if (plainText.empty()) return "";
-
-    DATA_BLOB inputBlob;
-    inputBlob.pbData = (BYTE*)plainText.data();
-    inputBlob.cbData = (DWORD)plainText.size();
-
-    DATA_BLOB outputBlob;
-    if (CryptProtectData(&inputBlob, L"OmniStats Token", nullptr, nullptr, nullptr, 0, &outputBlob)) {
-        std::string encryptedBytes((char*)outputBlob.pbData, outputBlob.cbData);
-        LocalFree(outputBlob.pbData);
-        return StringToHex(encryptedBytes);
+#ifdef OMNISTATS_TEST_ENVIRONMENT
+    if (s_unprotectHook) {
+        std::string plain;
+        DWORD err = 0;
+        if (s_unprotectHook(raw, plain, err)) {
+            return {true, plain, false, 0};
+        }
+        return {false, "", false, err ? err : static_cast<DWORD>(ERROR_DECRYPTION_FAILED)};
     }
-    std::cerr << "[Config] DPAPI encryption failed with error: " << GetLastError() << "\n";
-    return "";
-}
+#endif
+    if (IsHexString(raw)) {
+        std::string cipherBytes = HexToString(raw);
+        if (!cipherBytes.empty()) {
+            DATA_BLOB inputBlob;
+            inputBlob.pbData = (BYTE*)cipherBytes.data();
+            inputBlob.cbData = (DWORD)cipherBytes.size();
 
-static std::string DecryptSecretStrict(const std::string& hexCipher) {
-    if (hexCipher.empty()) return "";
-
-    std::string cipherBytes = HexToString(hexCipher);
-    if (cipherBytes.empty()) return "";
-
-    DATA_BLOB inputBlob;
-    inputBlob.pbData = (BYTE*)cipherBytes.data();
-    inputBlob.cbData = (DWORD)cipherBytes.size();
-
-    DATA_BLOB outputBlob;
-    if (CryptUnprotectData(&inputBlob, nullptr, nullptr, nullptr, nullptr, 0, &outputBlob)) {
-        std::string decryptedBytes((char*)outputBlob.pbData, outputBlob.cbData);
-        LocalFree(outputBlob.pbData);
-        return decryptedBytes;
+            DATA_BLOB outputBlob;
+            if (CryptUnprotectData(&inputBlob, nullptr, nullptr, nullptr, nullptr, 0, &outputBlob)) {
+                std::string decryptedBytes((char*)outputBlob.pbData, outputBlob.cbData);
+                LocalFree(outputBlob.pbData);
+                return {true, decryptedBytes, false, 0};
+            }
+            const DWORD err = GetLastError();
+            if (HasDpapiSignature(cipherBytes)) {
+                std::cerr << "[Config] DPAPI decryption failed for ciphertext with error: " << err << "\n";
+                return {false, "", false, err};
+            }
+        }
     }
-    return "";
+    return {true, raw, true, 0};
 }
 
 // Helper: serialize ColorRGBA to JSON array [r, g, b, a]
@@ -237,9 +271,11 @@ namespace Config {
         }
 
         try {
-            std::ifstream file(configFile);
             nlohmann::json j;
-            file >> j;
+            {
+                std::ifstream file(configFile);
+                file >> j;
+            }
             bool needsSave = false;
 
             // Safely load values, falling back to defaults if keys are missing
@@ -384,10 +420,42 @@ namespace Config {
             } else {
                 Current.custom_api_base_url = "https://api.omnistats.org";
             }
+            bool needsLegacyMigration = false;
+            const auto loadSecretField = [&](const std::string& fieldName, std::string& target) {
+                if (j.contains(fieldName) && j[fieldName].is_string()) {
+                    const std::string raw = j[fieldName].get<std::string>();
+                    const auto dec = DecryptSecret(raw);
+                    if (dec.success) {
+                        target = dec.value;
+                        if (dec.isLegacyPlaintext) {
+                            needsLegacyMigration = true;
+                        } else {
+                            s_savedCiphertexts[fieldName] = raw;
+                            s_encryptedPlaintexts[fieldName] = dec.value;
+                        }
+                    } else {
+                        target.clear();
+                        s_savedCiphertexts[fieldName] = raw;
+                        std::cerr << "[Config] Failed to decrypt " << fieldName << ". Preserving ciphertext.\n";
+                    }
+                } else {
+                    target.clear();
+                    s_savedCiphertexts.erase(fieldName);
+                    s_encryptedPlaintexts.erase(fieldName);
+                }
+            };
+
             if (j.contains("custom_api_key") && j["custom_api_key"].is_string()) {
-                Current.custom_api_key = DecryptToken(j["custom_api_key"].get<std::string>());
+                loadSecretField("custom_api_key", Current.custom_api_key);
             } else if (j.contains("pro_api_key") && j["pro_api_key"].is_string()) {
-                Current.custom_api_key = DecryptToken(j["pro_api_key"].get<std::string>());
+                loadSecretField("pro_api_key", Current.custom_api_key);
+                if (!Current.custom_api_key.empty()) {
+                    needsLegacyMigration = true;
+                }
+            } else {
+                Current.custom_api_key.clear();
+                s_savedCiphertexts.erase("custom_api_key");
+                s_encryptedPlaintexts.erase("custom_api_key");
             }
             if (j.contains("account_signed_in_name") && j["account_signed_in_name"].is_string()) {
                 Current.account_signed_in_name = j["account_signed_in_name"].get<std::string>();
@@ -399,21 +467,11 @@ namespace Config {
             } else {
                 Current.account_device_public_id.clear();
             }
-            if (j.contains("account_refresh_token") && j["account_refresh_token"].is_string()) {
-                Current.account_refresh_token = DecryptSecretStrict(j["account_refresh_token"].get<std::string>());
-            } else {
-                Current.account_refresh_token.clear();
-            }
-            if (j.contains("account_device_key") && j["account_device_key"].is_string()) {
-                Current.account_device_key = DecryptSecretStrict(j["account_device_key"].get<std::string>());
-            } else {
-                Current.account_device_key.clear();
-            }
+            loadSecretField("account_refresh_token", Current.account_refresh_token);
+            loadSecretField("account_device_key", Current.account_device_key);
             if (j.contains("rocket_league_stats_api_config_path")) Current.rocket_league_stats_api_config_path = j["rocket_league_stats_api_config_path"];
             if (j.contains("check_stats_api_config_on_startup")) Current.check_stats_api_config_on_startup = j["check_stats_api_config_on_startup"];
-            if (j.contains("ballchasing_token") && j["ballchasing_token"].is_string()) {
-                Current.ballchasing_token = DecryptToken(j["ballchasing_token"].get<std::string>());
-            }
+            loadSecretField("ballchasing_token", Current.ballchasing_token);
             if (j.contains("auto_upload_replays")) Current.auto_upload_replays = j["auto_upload_replays"];
             if (j.contains("ballchasing_upload_notice_accepted")) Current.ballchasing_upload_notice_accepted = j["ballchasing_upload_notice_accepted"];
             if (j.contains("ballchasing_visibility") && j["ballchasing_visibility"].is_string()) {
@@ -614,6 +672,30 @@ namespace Config {
             }
 
             std::cout << "[Config] Loaded config.json successfully.\n";
+            if (needsLegacyMigration) {
+                bool migrationOk = true;
+                const auto checkMigration = [&](const std::string& fieldName, const std::string& plainVal) {
+                    if (!plainVal.empty() && s_savedCiphertexts.find(fieldName) == s_savedCiphertexts.end()) {
+                        const auto enc = EncryptSecret(plainVal);
+                        if (enc.success) {
+                            s_savedCiphertexts[fieldName] = enc.value;
+                            s_encryptedPlaintexts[fieldName] = plainVal;
+                        } else {
+                            migrationOk = false;
+                        }
+                    }
+                };
+                checkMigration("custom_api_key", Current.custom_api_key);
+                checkMigration("account_refresh_token", Current.account_refresh_token);
+                checkMigration("account_device_key", Current.account_device_key);
+                checkMigration("ballchasing_token", Current.ballchasing_token);
+
+                if (migrationOk) {
+                    SaveInternal();
+                } else {
+                    std::cerr << "[Config] Legacy credential migration encryption failed. Plaintext will not be rewritten.\n";
+                }
+            }
 
             if (needsSave) {
                 s_pendingSave.store(true);
@@ -697,12 +779,44 @@ namespace Config {
         j["rocket_league_stats_api_config_path"] = Current.rocket_league_stats_api_config_path;
         j["custom_api_enabled"] = Current.custom_api_enabled;
         j["custom_api_base_url"] = Current.custom_api_base_url;
-        j["custom_api_key"] = EncryptToken(Current.custom_api_key);
+        const auto saveSecretField = [&](const std::string& fieldName, const std::string& currentVal) {
+            if (currentVal.empty()) {
+                if (s_savedCiphertexts.count(fieldName) && !s_savedCiphertexts[fieldName].empty() &&
+                    s_encryptedPlaintexts.find(fieldName) == s_encryptedPlaintexts.end()) {
+                    j[fieldName] = s_savedCiphertexts[fieldName];
+                    return;
+                }
+                j[fieldName] = "";
+                s_savedCiphertexts.erase(fieldName);
+                s_encryptedPlaintexts.erase(fieldName);
+                return;
+            }
+            if (s_encryptedPlaintexts.count(fieldName) && s_encryptedPlaintexts[fieldName] == currentVal &&
+                s_savedCiphertexts.count(fieldName) && !s_savedCiphertexts[fieldName].empty()) {
+                j[fieldName] = s_savedCiphertexts[fieldName];
+                return;
+            }
+            const auto enc = EncryptSecret(currentVal);
+            if (enc.success) {
+                s_savedCiphertexts[fieldName] = enc.value;
+                s_encryptedPlaintexts[fieldName] = currentVal;
+                j[fieldName] = enc.value;
+            } else {
+                std::cerr << "[Config] Encryption failed for " << fieldName << ". Secret will not be written to disk in plaintext.\n";
+                if (s_savedCiphertexts.count(fieldName) && !s_savedCiphertexts[fieldName].empty()) {
+                    j[fieldName] = s_savedCiphertexts[fieldName];
+                } else {
+                    j[fieldName] = "";
+                }
+            }
+        };
+
+        saveSecretField("custom_api_key", Current.custom_api_key);
         j["account_signed_in_name"] = Current.account_signed_in_name;
         j["account_device_public_id"] = Current.account_device_public_id;
-        j["account_refresh_token"] = EncryptSecretStrict(Current.account_refresh_token);
-        j["account_device_key"] = EncryptSecretStrict(Current.account_device_key);
-        j["ballchasing_token"] = EncryptToken(Current.ballchasing_token);
+        saveSecretField("account_refresh_token", Current.account_refresh_token);
+        saveSecretField("account_device_key", Current.account_device_key);
+        saveSecretField("ballchasing_token", Current.ballchasing_token);
         j["auto_upload_replays"] = Current.auto_upload_replays;
         j["ballchasing_upload_notice_accepted"] = Current.ballchasing_upload_notice_accepted;
         j["ballchasing_visibility"] = Current.ballchasing_visibility;

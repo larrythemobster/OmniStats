@@ -273,4 +273,11 @@ namespace Config {
 
     // Sets or removes the Windows registry key for running on startup
     void SetWindowsAutoStart(bool enable);
+#ifdef OMNISTATS_TEST_ENVIRONMENT
+    using CryptProtectHook = std::function<bool(const std::string&, std::string&, DWORD&)>;
+    using CryptUnprotectHook = std::function<bool(const std::string&, std::string&, DWORD&)>;
+    void SetCryptProtectHookForTests(CryptProtectHook hook);
+    void SetCryptUnprotectHookForTests(CryptUnprotectHook hook);
+    void ResetCryptHooksForTests();
+#endif
 }
