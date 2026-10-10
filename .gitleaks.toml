@@ -1,0 +1,16 @@
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Known OmniStats synthetic test API key"
+regexTarget = "match"
+regexes = [
+    '''omni_key_9876543210'''
+]
+
+[[allowlists]]
+description = "Known OmniStats synthetic test device key placeholder"
+regexTarget = "match"
+regexes = [
+    '''ed25519_private_key_hex'''
+]
