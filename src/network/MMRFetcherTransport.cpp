@@ -19,12 +19,14 @@
 #include <optional>
 #include <string_view>
 #include "network/MMRFetcherDetail.hpp"
+#include "network/HttpSecurity.hpp"
 
 using namespace MMRFetcherDetail;
 
 namespace {
     struct FetchHeaderState {
         long retryAfterSeconds = 0;
+        std::string location;
     };
 
     size_t HeaderCallback(char* buffer, size_t size, size_t nitems, void* userdata) {
@@ -58,6 +60,23 @@ namespace {
                     }
                 } catch (...) {
                 }
+            }
+        }
+        constexpr std::string_view kLocation = "location:";
+        if (line.size() >= kLocation.size()) {
+            bool match = true;
+            for (size_t i = 0; i < kLocation.size(); ++i) {
+                if (std::tolower(static_cast<unsigned char>(line[i])) != kLocation[i]) {
+                    match = false;
+                    break;
+                }
+            }
+            if (match) {
+                std::string_view val = line.substr(kLocation.size());
+                while (!val.empty() && (val.front() == ' ' || val.front() == '\t')) {
+                    val.remove_prefix(1);
+                }
+                state->location = std::string(val);
             }
         }
         return total;
@@ -149,50 +168,82 @@ MMRFetcherDetail::CustomApiBatchResult MMRFetcher::FetchBatchFromCustomApi(const
     nlohmann::json reqBody = BuildCustomApiBatchJson(batch);
     const std::string reqBodyStr = reqBody.dump();
     const std::string url = baseUrl + "/v1/ranks";
-
+    const auto parsedUrl = HttpSecurity::ParseUrl(url);
+    std::string urlError;
+    if (!HttpSecurity::IsAllowedSensitiveUrl(parsedUrl, &urlError)) {
+        std::cout << "[MMRFetcher] Custom API URL rejected: " << urlError << "\n";
+        result.httpResult = CustomApiFetchResult::DisabledOrNotReady;
+        return result;
+    }
     std::string readBuffer;
     FetchHeaderState headerState;
     int res = 0;
     long httpCode = 0;
 
     const auto performRequest = [&](const std::string& bearerToken, const std::string& deviceId) -> bool {
-        readBuffer.clear();
-        headerState = {};
-        res = 0;
-        httpCode = 0;
+        std::string currentUrl = url;
+        constexpr int kMaxRedirects = 5;
 
-        void* ci_curl = ci.easy_init();
-        if (!ci_curl) return false;
+        for (int redirectCount = 0; redirectCount <= kMaxRedirects; ++redirectCount) {
+            readBuffer.clear();
+            headerState = {};
+            res = 0;
+            httpCode = 0;
 
-        void* headers = nullptr;
-        headers = ci.slist_append(headers, "Content-Type: application/json");
-        headers = ci.slist_append(headers, "Accept: application/json");
-        if (signedIn) {
-            headers = ci.slist_append(headers, ("Authorization: Bearer " + bearerToken).c_str());
-            headers = ci.slist_append(headers, ("X-Omni-Device-Id: " + deviceId).c_str());
-        } else {
-            headers = ci.slist_append(headers, ("X-API-Key: " + config.custom_api_key).c_str());
+            void* ci_curl = ci.easy_init();
+            if (!ci_curl) return false;
+
+            void* headers = nullptr;
+            headers = ci.slist_append(headers, "Content-Type: application/json");
+            headers = ci.slist_append(headers, "Accept: application/json");
+            if (signedIn) {
+                headers = ci.slist_append(headers, ("Authorization: Bearer " + bearerToken).c_str());
+                headers = ci.slist_append(headers, ("X-Omni-Device-Id: " + deviceId).c_str());
+            } else {
+                headers = ci.slist_append(headers, ("X-API-Key: " + config.custom_api_key).c_str());
+            }
+
+            ci.easy_setopt(ci_curl, CI_CURLOPT_URL, currentUrl.c_str());
+            ci.easy_setopt(ci_curl, CI_CURLOPT_POST, 1L);
+            ci.easy_setopt(ci_curl, CI_CURLOPT_POSTFIELDS, reqBodyStr.c_str());
+            ci.easy_setopt(ci_curl, CI_CURLOPT_POSTFIELDSIZE, static_cast<long>(reqBodyStr.size()));
+            ci.easy_setopt(ci_curl, CI_CURLOPT_HTTPHEADER, headers);
+            ci.easy_setopt(ci_curl, CI_CURLOPT_WRITEFUNCTION, WriteCallback);
+            ci.easy_setopt(ci_curl, CI_CURLOPT_WRITEDATA, &readBuffer);
+            ci.easy_setopt(ci_curl, CI_CURLOPT_HEADERFUNCTION, HeaderCallback);
+            ci.easy_setopt(ci_curl, CI_CURLOPT_HEADERDATA, &headerState);
+            ci.easy_setopt(ci_curl, CI_CURLOPT_TIMEOUT, 10L);
+            ci.easy_setopt(ci_curl, CI_CURLOPT_SSL_OPTIONS, static_cast<long>(CI_CURLSSLOPT_NATIVE_CA));
+            ci.easy_setopt(ci_curl, CI_CURLOPT_FOLLOWLOCATION, 0L);
+            ci.easy_setopt(ci_curl, CI_CURLOPT_NOPROGRESS, 1L);
+
+            res = ci.easy_perform(ci_curl);
+            ci.easy_getinfo(ci_curl, CI_CURLINFO_RESPONSE_CODE, &httpCode);
+
+            ci.slist_free_all(headers);
+            ci.easy_cleanup(ci_curl);
+
+            if (res != 0) {
+                return true;
+            }
+
+            if (httpCode == 301 || httpCode == 302 || httpCode == 303 || httpCode == 307 || httpCode == 308) {
+                if (redirectCount == kMaxRedirects) {
+                    std::cout << "[MMRFetcher] Custom API exceeded max redirect limit.\n";
+                    res = -1;
+                    return true;
+                }
+                const auto val = HttpSecurity::ValidateRedirect(currentUrl, headerState.location, /*isSensitiveRequest=*/true);
+                if (!val.allowed) {
+                    std::cout << "[MMRFetcher] Custom API redirect rejected: " << val.reason << "\n";
+                    res = -1;
+                    return true;
+                }
+                currentUrl = val.resolvedUrl;
+                continue;
+            }
+            break;
         }
-
-        ci.easy_setopt(ci_curl, CI_CURLOPT_URL, url.c_str());
-        ci.easy_setopt(ci_curl, CI_CURLOPT_POST, 1L);
-        ci.easy_setopt(ci_curl, CI_CURLOPT_POSTFIELDS, reqBodyStr.c_str());
-        ci.easy_setopt(ci_curl, CI_CURLOPT_POSTFIELDSIZE, static_cast<long>(reqBodyStr.size()));
-        ci.easy_setopt(ci_curl, CI_CURLOPT_HTTPHEADER, headers);
-        ci.easy_setopt(ci_curl, CI_CURLOPT_WRITEFUNCTION, WriteCallback);
-        ci.easy_setopt(ci_curl, CI_CURLOPT_WRITEDATA, &readBuffer);
-        ci.easy_setopt(ci_curl, CI_CURLOPT_HEADERFUNCTION, HeaderCallback);
-        ci.easy_setopt(ci_curl, CI_CURLOPT_HEADERDATA, &headerState);
-        ci.easy_setopt(ci_curl, CI_CURLOPT_TIMEOUT, 10L);
-        ci.easy_setopt(ci_curl, CI_CURLOPT_SSL_OPTIONS, static_cast<long>(CI_CURLSSLOPT_NATIVE_CA));
-        ci.easy_setopt(ci_curl, CI_CURLOPT_FOLLOWLOCATION, 1L);
-        ci.easy_setopt(ci_curl, CI_CURLOPT_NOPROGRESS, 1L);
-
-        res = ci.easy_perform(ci_curl);
-        ci.easy_getinfo(ci_curl, CI_CURLINFO_RESPONSE_CODE, &httpCode);
-
-        ci.slist_free_all(headers);
-        ci.easy_cleanup(ci_curl);
         return true;
     };
 
@@ -213,10 +264,11 @@ MMRFetcherDetail::CustomApiBatchResult MMRFetcher::FetchBatchFromCustomApi(const
         }
         if (res == 0 && httpCode == 401) {
             if (!accountClient.Refresh()) {
-                if (accountClient.IsSignedIn()) {
-                    accountClient.MarkSignedOut("Your OmniStats session expired or this device was revoked. Sign in again in Settings > Integrations.");
+                if (!accountClient.IsSignedIn()) {
+                    result.httpResult = CustomApiFetchResult::AuthFailure;
+                } else {
+                    result.httpResult = CustomApiFetchResult::TransientError;
                 }
-                result.httpResult = CustomApiFetchResult::AuthFailure;
                 return result;
             }
             accessToken = accountClient.AccessToken();

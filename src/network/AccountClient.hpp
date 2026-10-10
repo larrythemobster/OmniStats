@@ -153,6 +153,11 @@ class AccountClient {
     void SetOpenUrlForTests(OpenUrlFn openUrlFn);
     void SetCachedAccessTokenForTests(std::string token, int64_t expiresAtUnix);
     void ResetForTests();
+#ifdef OMNISTATS_TEST_ENVIRONMENT
+    HttpResponse PerformHttpPostForTests(const std::string& url, const std::string& jsonBody) {
+        return PerformHttpPost(url, jsonBody);
+    }
+#endif
 
   private:
     enum class WorkerCommand {

@@ -3,6 +3,7 @@
 #include "core/AppVersion.hpp"
 #include "core/Config.hpp"
 #include "core/PrivacyLog.hpp"
+#include "network/HttpSecurity.hpp"
 
 #include <curl/curl.h>
 #include <nlohmann/json.hpp>
@@ -22,6 +23,7 @@
 namespace {
     struct CurlHeaderState {
         long retryAfterSeconds = 0;
+        std::string location;
     };
 
     size_t CurlWriteCallback(void* contents, size_t size, size_t nmemb, void* userp) {
@@ -61,6 +63,23 @@ namespace {
                     if (parsed > 0) state->retryAfterSeconds = parsed;
                 } catch (...) {
                 }
+            }
+        }
+        constexpr std::string_view kLocation = "location:";
+        if (line.size() >= kLocation.size()) {
+            bool match = true;
+            for (size_t i = 0; i < kLocation.size(); ++i) {
+                if (std::tolower(static_cast<unsigned char>(line[i])) != kLocation[i]) {
+                    match = false;
+                    break;
+                }
+            }
+            if (match) {
+                std::string_view val = line.substr(kLocation.size());
+                while (!val.empty() && (val.front() == ' ' || val.front() == '\t')) {
+                    val.remove_prefix(1);
+                }
+                state->location = std::string(val);
             }
         }
         return total;
@@ -1114,46 +1133,95 @@ AccountClient::HttpResponse AccountClient::PerformHttpPost(const std::string& ur
     }
 
     HttpResponse response;
-    CURL* curl = curl_easy_init();
-    if (!curl) {
+    const auto parsedUrl = HttpSecurity::ParseUrl(url);
+    std::string urlError;
+    if (!HttpSecurity::IsAllowedSensitiveUrl(parsedUrl, &urlError)) {
         response.curlCode = CURLE_FAILED_INIT;
+        response.statusCode = 0;
+        response.body = "{\"error\":{\"code\":\"insecure_url\",\"message\":\"" + urlError + "\"}}";
         return response;
     }
 
-    struct curl_slist* headers = nullptr;
-    headers = curl_slist_append(headers, "Content-Type: application/json");
-    headers = curl_slist_append(headers, "Accept: application/json");
+    std::string currentUrl = url;
+    constexpr int kMaxRedirects = 5;
     const std::string userAgent = std::string("OmniStats-Client/") + AppVersion::Current;
 
-    CurlHeaderState headerState;
-    curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
-    curl_easy_setopt(curl, CURLOPT_POST, 1L);
-    curl_easy_setopt(curl, CURLOPT_POSTFIELDS, jsonBody.c_str());
-    curl_easy_setopt(curl, CURLOPT_POSTFIELDSIZE, static_cast<long>(jsonBody.size()));
-    curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
-    curl_easy_setopt(curl, CURLOPT_USERAGENT, userAgent.c_str());
-    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, CurlWriteCallback);
-    curl_easy_setopt(curl, CURLOPT_WRITEDATA, &response.body);
-    curl_easy_setopt(curl, CURLOPT_HEADERFUNCTION, CurlHeaderCallback);
-    curl_easy_setopt(curl, CURLOPT_HEADERDATA, &headerState);
-    curl_easy_setopt(curl, CURLOPT_TIMEOUT, 10L);
-    curl_easy_setopt(curl, CURLOPT_SSL_OPTIONS, CURLSSLOPT_NATIVE_CA);
-    curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 1L);
-    curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 2L);
-    curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
-    curl_easy_setopt(curl, CURLOPT_XFERINFOFUNCTION, CurlProgressCallback);
-    curl_easy_setopt(curl, CURLOPT_XFERINFODATA, &m_stopWorker);
-    curl_easy_setopt(curl, CURLOPT_NOPROGRESS, 0L);
+    for (int redirectCount = 0; redirectCount <= kMaxRedirects; ++redirectCount) {
+        response.body.clear();
+        response.curlCode = 0;
+        response.statusCode = 0;
+        response.retryAfterSeconds = 0;
 
-    const CURLcode res = curl_easy_perform(curl);
-    response.curlCode = static_cast<int>(res);
-    if (res == CURLE_OK) {
-        curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &response.statusCode);
+        CURL* curl = curl_easy_init();
+        if (!curl) {
+            response.curlCode = CURLE_FAILED_INIT;
+            return response;
+        }
+
+        struct curl_slist* headers = nullptr;
+        headers = curl_slist_append(headers, "Content-Type: application/json");
+        headers = curl_slist_append(headers, "Accept: application/json");
+
+        CurlHeaderState headerState;
+        curl_easy_setopt(curl, CURLOPT_URL, currentUrl.c_str());
+        curl_easy_setopt(curl, CURLOPT_POST, 1L);
+        curl_easy_setopt(curl, CURLOPT_POSTFIELDS, jsonBody.c_str());
+        curl_easy_setopt(curl, CURLOPT_POSTFIELDSIZE, static_cast<long>(jsonBody.size()));
+        curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
+        curl_easy_setopt(curl, CURLOPT_USERAGENT, userAgent.c_str());
+        curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, CurlWriteCallback);
+        curl_easy_setopt(curl, CURLOPT_WRITEDATA, &response.body);
+        curl_easy_setopt(curl, CURLOPT_HEADERFUNCTION, CurlHeaderCallback);
+        curl_easy_setopt(curl, CURLOPT_HEADERDATA, &headerState);
+        curl_easy_setopt(curl, CURLOPT_TIMEOUT, 10L);
+        curl_easy_setopt(curl, CURLOPT_SSL_OPTIONS, CURLSSLOPT_NATIVE_CA);
+        curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 1L);
+        curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 2L);
+        curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 0L);
+        curl_easy_setopt(curl, CURLOPT_PROTOCOLS, CURLPROTO_HTTPS | CURLPROTO_HTTP);
+        curl_easy_setopt(curl, CURLOPT_REDIR_PROTOCOLS, CURLPROTO_HTTPS);
+        curl_easy_setopt(curl, CURLOPT_XFERINFOFUNCTION, CurlProgressCallback);
+        curl_easy_setopt(curl, CURLOPT_XFERINFODATA, &m_stopWorker);
+        curl_easy_setopt(curl, CURLOPT_NOPROGRESS, 0L);
+
+        const CURLcode res = curl_easy_perform(curl);
+        response.curlCode = static_cast<int>(res);
+        if (res == CURLE_OK) {
+            curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &response.statusCode);
+        }
+        response.retryAfterSeconds = headerState.retryAfterSeconds;
+
+        curl_slist_free_all(headers);
+        curl_easy_cleanup(curl);
+
+        if (res != CURLE_OK) {
+            return response;
+        }
+
+        if (response.statusCode == 301 || response.statusCode == 302 ||
+            response.statusCode == 303 || response.statusCode == 307 ||
+            response.statusCode == 308) {
+            if (redirectCount == kMaxRedirects) {
+                response.curlCode = CURLE_TOO_MANY_REDIRECTS;
+                response.body = "{\"error\":{\"code\":\"too_many_redirects\",\"message\":\"Maximum redirect limit exceeded\"}}";
+                return response;
+            }
+            const auto val = HttpSecurity::ValidateRedirect(currentUrl, headerState.location, /*isSensitiveRequest=*/true);
+            if (!val.allowed) {
+                response.curlCode = CURLE_PEER_FAILED_VERIFICATION;
+                response.body = "{\"error\":{\"code\":\"unsafe_redirect\",\"message\":\"" + val.reason + "\"}}";
+                return response;
+            }
+            if (response.statusCode == 303) {
+                response.curlCode = CURLE_HTTP_RETURNED_ERROR;
+                response.body = "{\"error\":{\"code\":\"unsupported_redirect\",\"message\":\"HTTP 303 is not supported for credential POST endpoints\"}}";
+                return response;
+            }
+            currentUrl = val.resolvedUrl;
+            continue;
+        }
+        break;
     }
-    response.retryAfterSeconds = headerState.retryAfterSeconds;
-
-    curl_slist_free_all(headers);
-    curl_easy_cleanup(curl);
     return response;
 }
 
