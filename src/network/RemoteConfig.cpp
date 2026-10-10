@@ -521,6 +521,9 @@ RemoteConfig::HttpResponse RemoteConfig::PerformHttpGet(const std::string& url, 
     curl_easy_setopt(curl, CURLOPT_SSL_OPTIONS, CURLSSLOPT_NATIVE_CA);
     curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 1L);
     curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 2L);
+    curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 0L);
+    curl_easy_setopt(curl, CURLOPT_PROTOCOLS, CURLPROTO_HTTPS);
+    curl_easy_setopt(curl, CURLOPT_REDIR_PROTOCOLS, CURLPROTO_HTTPS);
     curl_easy_setopt(curl, CURLOPT_XFERINFOFUNCTION, CurlProgressCallback);
     curl_easy_setopt(curl, CURLOPT_XFERINFODATA, &m_stopRequested);
     curl_easy_setopt(curl, CURLOPT_NOPROGRESS, 0L);
