@@ -108,7 +108,14 @@ static CryptResult EncryptSecret(const std::string& plainText) {
     inputBlob.cbData = (DWORD)plainText.size();
 
     DATA_BLOB outputBlob;
-    if (CryptProtectData(&inputBlob, L"OmniStats Token", nullptr, nullptr, nullptr, 0, &outputBlob)) {
+    if (CryptProtectData(&inputBlob, L"OmniStats Token", nullptr, nullptr, nullptr,
+                         CRYPTPROTECT_UI_FORBIDDEN | CRYPTPROTECT_LOCAL_MACHINE, &outputBlob)) {
+        std::string encryptedBytes((char*)outputBlob.pbData, outputBlob.cbData);
+        LocalFree(outputBlob.pbData);
+        return {true, StringToHex(encryptedBytes), 0};
+    }
+    if (CryptProtectData(&inputBlob, L"OmniStats Token", nullptr, nullptr, nullptr,
+                         CRYPTPROTECT_UI_FORBIDDEN, &outputBlob)) {
         std::string encryptedBytes((char*)outputBlob.pbData, outputBlob.cbData);
         LocalFree(outputBlob.pbData);
         return {true, StringToHex(encryptedBytes), 0};
@@ -140,7 +147,7 @@ static DecryptResult DecryptSecret(const std::string& raw) {
             inputBlob.cbData = (DWORD)cipherBytes.size();
 
             DATA_BLOB outputBlob;
-            if (CryptUnprotectData(&inputBlob, nullptr, nullptr, nullptr, nullptr, 0, &outputBlob)) {
+            if (CryptUnprotectData(&inputBlob, nullptr, nullptr, nullptr, nullptr, CRYPTPROTECT_UI_FORBIDDEN, &outputBlob)) {
                 std::string decryptedBytes((char*)outputBlob.pbData, outputBlob.cbData);
                 LocalFree(outputBlob.pbData);
                 return {true, decryptedBytes, false, 0};
@@ -436,6 +443,7 @@ namespace Config {
                     } else {
                         target.clear();
                         s_savedCiphertexts[fieldName] = raw;
+                        Current.credentials_decryption_failed = true;
                         std::cerr << "[Config] Failed to decrypt " << fieldName << ". Preserving ciphertext.\n";
                     }
                 } else {

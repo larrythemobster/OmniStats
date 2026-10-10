@@ -40,7 +40,7 @@ These tables remain on your machine and are never uploaded by OmniStats. **Expor
 
 ## Local controls
 
-In Settings, **Integrations** controls OmniStats account sign-in, the OmniStats rank API toggle, and optional third-party services. Signing in generates an Ed25519 device keypair and stores the private key and rotating refresh token in `config.json` encrypted with Windows DPAPI `CryptProtectData` bound to the current Windows user, alongside the signed-in display name and derived device public ID. Signing out revokes the device session and clears the stored refresh token and display name. **Data** contains crash report sharing, history exports, and **Delete History & Identity**. Deletion requires confirmation and keeps settings and tokens. Ballchasing tokens are hidden unless **Show** is selected.
+In Settings, **Integrations** controls OmniStats account sign-in, the OmniStats rank API toggle, and optional third-party services. Signing in generates an Ed25519 device keypair and stores the private key and rotating refresh token in `config.json` encrypted with Windows DPAPI `CryptProtectData` (machine-scoped with user fallback to support local user account migration), alongside the signed-in display name and derived device public ID. Signing out revokes the device session and clears the stored refresh token and display name. **Data** contains crash report sharing, history exports, and **Delete History & Identity**. Deletion requires confirmation and keeps settings and tokens. Ballchasing tokens are hidden unless **Show** is selected.
 
 Deleting `%APPDATA%\omnistats` while OmniStats is closed removes local configuration, history, logs, crash dumps, and the installation ID. Back up anything you want to keep first.
 ## Local logs and support bundles

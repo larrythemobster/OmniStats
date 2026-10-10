@@ -1066,6 +1066,11 @@ void AccountClient::SyncFromConfig() {
             m_state = AccountAuthState::SignedIn;
             m_errorMessage.clear();
         }
+    } else if (conf.credentials_decryption_failed && !conf.account_device_public_id.empty()) {
+        m_state = AccountAuthState::Error;
+        m_errorMessage = "Saved credentials could not be decrypted on this device. Sign in again in Settings > Integrations.";
+        m_accessToken.clear();
+        m_accessTokenExpiresAt = 0;
     } else if (m_state == AccountAuthState::SignedIn) {
         m_state = AccountAuthState::SignedOut;
         m_accessToken.clear();

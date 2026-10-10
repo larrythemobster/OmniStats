@@ -98,6 +98,7 @@ struct ConfigData {
     std::string account_device_key = "";
     std::string rocket_league_stats_api_config_path = "";
     bool check_stats_api_config_on_startup = true;
+    bool credentials_decryption_failed = false;
 
     // Ballchasing uploader settings
     std::string ballchasing_token = ""; // API token for ballchasing.com
