@@ -458,9 +458,12 @@ TEST_F(TrackedAccountRefreshTest, LiveRequestsTakePriorityAndRefreshAllRespectsB
     EXPECT_EQ(batch.requests[0].reason, MMRRequestReason::Roster);
 
     batch = fetcher->TakeNextCustomApiBatchForTests();
-    EXPECT_EQ(batch.requests.size(), kMaxCustomApiBatchSize);
+    EXPECT_EQ(batch.requests.size(), 8u);
+    batch = fetcher->TakeNextCustomApiBatchForTests();
+    EXPECT_EQ(batch.requests.size(), 8u);
     batch = fetcher->TakeNextCustomApiBatchForTests();
     EXPECT_EQ(batch.requests.size(), 4u);
+    EXPECT_TRUE(fetcher->TakeNextCustomApiBatchForTests().requests.empty());
 
     fetcher->EnqueueTrackedAccount(kEpic, "");
     fetcher->Enqueue("Epic|live_teammate|0", "Teammate");

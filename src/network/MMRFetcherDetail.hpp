@@ -41,7 +41,7 @@ namespace MMRFetcherDetail {
     inline constexpr auto kBatchCoalesceWindow = std::chrono::milliseconds(300);
 #endif
 
-    inline constexpr size_t kMaxCustomApiBatchSize = 16;
+    inline constexpr size_t kMaxCustomApiBatchSize = 8;
 
     struct CustomApiPlayerTarget {
         std::string platform;

@@ -79,7 +79,7 @@ Separation from live tracking:
 - `PublishProfileResult` returns early for tracked requests. The roster, `myPrimaryId`, MMR history, session graphs, pre-match snapshots, post-match records and the local profile cache are never written.
 - All failure paths go through `PublishFetchFailure`. For tracked requests it records an outcome instead of setting `fetched`/`fetchFailed` on a roster entry with the same id.
 - Tracked requests have their own dedupe set (`m_trackedQueuedOrInFlight`), separate from roster dedupe.
-- Priority is post-match first, then roster, then tracked. A tracked batch waiting in the coalescing window yields as soon as a roster or post-match request becomes ready. Batches never mix purposes and hold at most 16 players.
+- Priority is post-match first, then roster, then tracked. A tracked batch waiting in the coalescing window yields as soon as a roster or post-match request becomes ready. Batches never mix purposes and hold at most 8 players, because PsyNet rejects larger player lookups.
 - `FinishRequest` delivers exactly one terminal event per tracked request to the sink set by `SetTrackedAccountSink`. Progress events (`Fetching`, `Retrying`, `RateLimited` with `retryAt`) are sent as they happen.
 - `CancelTrackedAccount` drops queued requests. An in-flight result for a removed account is ignored by the service, and `SaveTrackedAccountRanks` refuses to write ranks for a missing account, so a removed account can't come back.
 
