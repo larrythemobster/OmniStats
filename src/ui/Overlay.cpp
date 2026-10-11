@@ -149,6 +149,9 @@ LRESULT WINAPI WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
     case WM_OPEN_HISTORY:
         if (overlay && overlay->m_rmlUi) overlay->m_rmlUi->OpenHistory();
         return 0;
+    case WM_OPEN_ACCOUNTS:
+        if (overlay && overlay->m_rmlUi) overlay->m_rmlUi->OpenAccounts();
+        return 0;
 
     case WM_GETMINMAXINFO:
         if ((overlay && overlay->m_frameConfig.second_monitor_mode) ||
@@ -180,8 +183,10 @@ LRESULT WINAPI WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
     return DefWindowProcW(hWnd, msg, wParam, lParam);
 }
 
-Overlay::Overlay(std::shared_ptr<SessionState> state, std::shared_ptr<DatabaseManager> dbManager)
-    : m_state(std::move(state)), m_dbManager(std::move(dbManager)) {}
+Overlay::Overlay(std::shared_ptr<SessionState> state,
+                 std::shared_ptr<DatabaseManager> dbManager,
+                 std::shared_ptr<AccountManagerService> accounts)
+    : m_state(std::move(state)), m_dbManager(std::move(dbManager)), m_accounts(std::move(accounts)) {}
 
 Overlay::~Overlay() {
     Shutdown();
@@ -218,7 +223,7 @@ bool Overlay::Initialize() {
     const int width = std::max(client.right - client.left, 1L);
     const int height = std::max(client.bottom - client.top, 1L);
 
-    m_rmlUi = std::make_unique<RmlUiController>(m_state, m_dbManager);
+    m_rmlUi = std::make_unique<RmlUiController>(m_state, m_dbManager, m_accounts);
     if (!m_rmlUi->Initialize(m_hwnd, m_d3d11->Device(), m_d3d11->Context(), width, height, m_dpiScale)) {
         std::cout << "[RmlUi] Failed to initialize UI.\n";
         return false;
@@ -611,7 +616,7 @@ bool Overlay::RecreateD3DDevice() {
     GetClientRect(m_hwnd, &client);
     const int width = std::max(client.right - client.left, 1L);
     const int height = std::max(client.bottom - client.top, 1L);
-    if (!m_rmlUi) m_rmlUi = std::make_unique<RmlUiController>(m_state, m_dbManager);
+    if (!m_rmlUi) m_rmlUi = std::make_unique<RmlUiController>(m_state, m_dbManager, m_accounts);
     if (!m_rmlUi->Initialize(m_hwnd, m_d3d11->Device(), m_d3d11->Context(), width, height, m_dpiScale)) {
         std::cout << "[RmlUi] Failed to reinitialize UI after D3D device recreation.\n";
         return false;

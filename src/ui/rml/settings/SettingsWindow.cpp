@@ -122,7 +122,7 @@ void RmlUiController::RebuildSettings() {
         const auto page = static_cast<SettingsPage>(i);
         out << "<button class='" << (page == m_settingsPage ? "active" : "") << "' data-action='settings-page' data-page='" << i << "'>" << SettingsPageName(page) << "</button>";
     }
-    out << "</div><div class='settings-page' data-page='" << static_cast<int>(m_settingsPage) << "'>" << RenderReleaseBanners() << content.str() << "</div></div><div class='settings-footer'>" << Button("history-open", "History", "ghost") << Button("insights-open", "Insights", "ghost") << Button("help-discord", "Help / Discord", "ghost") << Button("close-settings", "Done", "primary") << "</div></div>";
+    out << "</div><div class='settings-page' data-page='" << static_cast<int>(m_settingsPage) << "'>" << RenderReleaseBanners() << content.str() << "</div></div><div class='settings-footer'>" << Button("history-open", "History", "ghost") << Button("accounts-open", "Accounts", "ghost") << Button("insights-open", "Insights", "ghost") << Button("help-discord", "Help / Discord", "ghost") << Button("close-settings", "Done", "primary") << "</div></div>";
 
     if (m_confirmReplayUploads) {
         out << "<div class='confirm-backdrop'><div class='card privacy-dialog'><div class='card-title'>Replay Upload Privacy Warning</div>"
@@ -133,7 +133,7 @@ void RmlUiController::RebuildSettings() {
         out << "<div class='row gap-sm' style='margin-top:12dp'>" << Button("confirm-replay-upload", "Enable Replay Uploads", "primary") << Button("cancel-replay-upload", "Cancel", "ghost") << "</div></div></div>";
     }
     if (m_confirmDeleteHistory) {
-        out << "<div class='confirm-backdrop'><div class='card' style='width:470dp'><div class='card-title loss'>Delete local history and saved identity?</div><div class='setting-help'>This removes local match history and your selected account identity. Settings and service tokens are kept. This cannot be undone.</div><div class='row gap-sm' style='margin-top:12dp'>" << Button("confirm-delete-history", "Delete", "danger") << Button("cancel-delete-history", "Cancel", "ghost") << "</div></div></div>";
+        out << "<div class='confirm-backdrop'><div class='card' style='width:470dp'><div class='card-title loss'>Delete local history and saved identity?</div><div class='setting-help'>This removes local match history and your selected account identity. Settings, service tokens, and tracked accounts in Accounts are kept. This cannot be undone.</div><div class='row gap-sm' style='margin-top:12dp'>" << Button("confirm-delete-history", "Delete", "danger") << Button("cancel-delete-history", "Cancel", "ghost") << "</div></div></div>";
     }
     SetRootRml("settings-root", out.str());
     if (scrollTop > 0.0f && m_document) {

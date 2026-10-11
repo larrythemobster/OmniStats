@@ -71,6 +71,7 @@ void RmlUiController::ReloadUiResources() {
     LoadViewDocuments();
     if (m_onboardingVisible) RefreshOnboarding();
     if (m_historyVisible) RefreshHistory(true);
+    if (m_accountsVisible) RefreshAccounts(true);
     UpdateThemeProperties();
     RebuildVisibleUi(true, true);
     if (m_state && m_state->ui.showMenu.load()) RebuildSettings();
@@ -146,6 +147,9 @@ void RmlUiController::UpdateThemeProperties() {
     rule(".settings-page", "background-color", panel);
     rule(".settings-footer", "background-color", scaledColor(m_config.themeSettingsPanel, 1.05f, 1.0f));
     rule(".update-dialog", "background-color", panel);
+    rule(".accounts-window", "background-color", panel);
+    rule(".accounts-detail-card", "background-color", panel);
+    rule(".accounts-dialog-card", "background-color", panel);
 
     // Top bar and graph panel are their own layers, deliberately not derived
     // from the shell background so each stays configurable on its own.
@@ -162,8 +166,9 @@ void RmlUiController::UpdateThemeProperties() {
     rule(".lobby-rank-header", "background-color", scaledColor(m_config.themeBg, 0.70f, 0.80f));
     rule(".overlay-visibility-bar", "background-color", scaledColor(m_config.themeBg, 0.85f, 0.90f));
     rule(".overlay-visibility-bar", "border-color", scaledColor(m_config.themeText, 1.0f, 0.12f));
-    for (const char* selector : {".accent", ".setting-title", ".badge.accent"})
+    for (const char* selector : {".accent", ".setting-title", ".badge.accent", ".accounts-active-label"})
         rule(selector, "color", accent);
+    rule(".accounts-active-dot", "background-color", accent);
     rule(".overlay-edit", "border-color", accent);
     rule(".dashboard-widget.dragging", "border-color", accent);
     rule(".settings-nav button.active", "border-color", accent);
@@ -276,7 +281,7 @@ void RmlUiController::UpdateThemeProperties() {
     if (combined) {
         // The view documents link the same packaged RCSS, so one combined
         // sheet serves all of them.
-        for (Rml::ElementDocument* document : {m_document, m_insightsDoc, m_onboardingDoc, m_historyDoc})
+        for (Rml::ElementDocument* document : {m_document, m_insightsDoc, m_onboardingDoc, m_historyDoc, m_accountsDoc})
             if (document) document->SetStyleSheetContainer(combined);
         m_renderDirty = true;
     }

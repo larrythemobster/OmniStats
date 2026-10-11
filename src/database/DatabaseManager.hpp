@@ -16,6 +16,7 @@
 #include <vector>
 
 #include "core/MatchSaveSnapshot.hpp"
+#include "core/TrackedAccounts.hpp"
 
 struct DbMergeResult {
     int matchesImported = 0;
@@ -23,6 +24,12 @@ struct DbMergeResult {
     int playersImported = 0;
     bool success = false;
     std::string error;
+};
+
+enum class TrackedAccountInsertResult {
+    Inserted,
+    AlreadyExists,
+    Failed
 };
 
 struct ReplayUploadRecord {
@@ -131,6 +138,19 @@ class DatabaseManager {
     ReplayUploadStatus GetReplayUploadStatus();
     bool RetryFailedReplayUploads();
     bool QueryMatchReplayInfo(const std::string& matchGuid, bool& outFound, bool& outRanked, bool& outWin, bool& outResultPending, int& outPlaylistId);
+
+    TrackedAccountInsertResult RegisterTrackedAccount(const TrackedAccounts::AccountRecord& record);
+    std::vector<TrackedAccounts::AccountRecord> ListTrackedAccounts();
+    std::optional<TrackedAccounts::AccountRecord> GetTrackedAccount(const std::string& primaryId);
+    bool UpdateTrackedAccountNickname(const std::string& primaryId, const std::string& nickname);
+    bool UpdateTrackedAccountLastSeen(const std::string& primaryId, const std::string& lastKnownName, int64_t seenAtUnix);
+    bool UpdateTrackedAccountRefreshAttempt(const std::string& primaryId, int64_t attemptedAtUnix);
+    bool SaveTrackedAccountRanks(const std::string& primaryId,
+                                 const std::vector<TrackedAccounts::PlaylistRank>& ranks,
+                                 int64_t fetchedAtUnix);
+    std::map<std::string, TrackedAccounts::PlaylistRank> GetTrackedAccountRanks(const std::string& primaryId);
+    bool DeleteTrackedAccount(const std::string& primaryId);
+    int ImportTrackedAccounts(const std::vector<TrackedAccounts::AccountRecord>& records);
 
     [[nodiscard]] bool SetSetting(const std::string& key, const std::string& value);
     void AsyncSetSetting(std::string key, std::string value);

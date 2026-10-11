@@ -922,6 +922,15 @@ void MMRFetcher::EnsureProvisionalPoint(const MMRRequest& req,
 }
 
 bool MMRFetcher::PublishProfileResult(const MMRRequest& req, const NormalizedProfileResult& profile) {
+    if (req.reason == MMRRequestReason::TrackedAccount) {
+        const bool hasPlaylist = std::any_of(profile.playlistMMRs.begin(), profile.playlistMMRs.end(),
+                                             [](const auto& entry) { return entry.first != "best" && entry.second > 0; });
+        TrackedAccountFetchEvent event;
+        event.status = hasPlaylist ? TrackedAccountFetchStatus::Success : TrackedAccountFetchStatus::NoRankedData;
+        event.profile = profile;
+        RecordTrackedOutcome(req, std::move(event));
+        return false;
+    }
     int postMatchMmr = 0;
     int postMatchMatches = -1;
     bool postMatchConfirmed = false;

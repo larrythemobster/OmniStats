@@ -1592,16 +1592,17 @@ TEST_F(MMRFetcherTest, CustomApiPlatformMappingsSupported) {
                    false);
     g_mock_custom_api_response_code = 200;
 
-    const std::vector<std::pair<std::string, std::string>> platforms = {
-        {"Steam|76561198000000001|0", "76561198000000001"},
-        {"PS4|123456789012|0", "123456789012"},
-        {"Epic|abcdef0123456789|0", "abcdef0123456789"},
-        {"Switch|switchaccountid|0", "switchaccountid"}};
+    const std::vector<std::tuple<std::string, std::string, std::string>> platforms = {
+        {"Steam|76561198000000001|0", "Steam", "76561198000000001"},
+        {"PS4|123456789012|0", "PS4", "123456789012"},
+        {"Epic|abcdef0123456789|0", "Epic", "abcdef0123456789"},
+        {"Switch|switchaccountid|0", "Switch", "switchaccountid"}};
 
-    for (const auto& [primaryId, accountId] : platforms) {
+    for (const auto& [primaryId, platform, accountId] : platforms) {
         g_mock_custom_api_response = R"({
             "players": [{
-                "platform": "Any",
+                "platform": ")" + platform +
+                                     R"(",
                 "account_id": ")" + accountId +
                                      R"(",
                 "skills": [

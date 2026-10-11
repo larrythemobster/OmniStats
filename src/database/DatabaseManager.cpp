@@ -16,6 +16,7 @@
 #include <nlohmann/json.hpp>
 #include <sstream>
 #include <algorithm>
+#include <set>
 
 namespace fs = std::filesystem;
 
@@ -262,6 +263,33 @@ static constexpr const char* kMigrationV4Sql = R"(
     CREATE INDEX IF NOT EXISTS idx_replay_uploads_match_guid ON ReplayUploads(match_guid);
     CREATE INDEX IF NOT EXISTS idx_replay_uploads_state ON ReplayUploads(state);
 )";
+static constexpr const char* kMigrationV5Sql = R"(
+    CREATE TABLE IF NOT EXISTS TrackedAccounts (
+        primary_id TEXT PRIMARY KEY NOT NULL,
+        platform TEXT NOT NULL,
+        platform_account_id TEXT NOT NULL,
+        nickname TEXT NOT NULL DEFAULT '',
+        last_known_name TEXT,
+        created_at INTEGER NOT NULL,
+        last_seen_at INTEGER,
+        last_refresh_attempt_at INTEGER,
+        last_successful_refresh_at INTEGER,
+        sort_order INTEGER NOT NULL DEFAULT 0,
+        discovery_source TEXT NOT NULL DEFAULT 'manual',
+        UNIQUE(platform, platform_account_id)
+    );
+    CREATE TABLE IF NOT EXISTS TrackedAccountRanks (
+        primary_id TEXT NOT NULL REFERENCES TrackedAccounts(primary_id) ON DELETE CASCADE,
+        playlist_key TEXT NOT NULL,
+        mmr INTEGER,
+        rank_tier TEXT,
+        matches_played INTEGER,
+        source TEXT,
+        fetched_at INTEGER NOT NULL,
+        PRIMARY KEY(primary_id, playlist_key)
+    );
+    CREATE INDEX IF NOT EXISTS idx_tracked_accounts_sort_order_created_at ON TrackedAccounts(sort_order, created_at);
+)";
 
 // Append new migrations in ascending version order; each runs in its own BEGIN IMMEDIATE transaction.
 static const std::vector<Migration> kMigrations = {
@@ -269,6 +297,7 @@ static const std::vector<Migration> kMigrations = {
     {2, kMigrationV2Sql},
     {3, kMigrationV3Sql, ApplyMigrationV3},
     {4, kMigrationV4Sql},
+    {5, kMigrationV5Sql},
 };
 
 static std::string CsvEscape(const std::string& value) {
@@ -1558,6 +1587,99 @@ bool DatabaseManager::ExportLocalData(std::string& exportPath, std::string& erro
         std::ofstream ruJsonFile(exportPath + "replay_uploads.json", std::ios::trunc);
         if (ruJsonFile.is_open()) {
             ruJsonFile << replaysJson.dump(2);
+        }
+    }
+    if (SqliteTableExists(m_db, "TrackedAccounts")) {
+        nlohmann::json accountsJson = nlohmann::json::array();
+        std::map<std::string, nlohmann::json> ranksByPrimary;
+        if (SqliteTableExists(m_db, "TrackedAccountRanks")) {
+            const char* ranksSql =
+                "SELECT primary_id, playlist_key, mmr, rank_tier, matches_played, source, fetched_at "
+                "FROM TrackedAccountRanks ORDER BY primary_id ASC, playlist_key ASC;";
+            sqlite3_stmt* rStmt = nullptr;
+            if (sqlite3_prepare_v2(m_db, ranksSql, -1, &rStmt, nullptr) == SQLITE_OK) {
+                while (sqlite3_step(rStmt) == SQLITE_ROW) {
+                    std::string pid = SqlColumnText(rStmt, 0);
+                    nlohmann::json rObj;
+                    rObj["playlist_key"] = SqlColumnText(rStmt, 1);
+                    if (sqlite3_column_type(rStmt, 2) == SQLITE_NULL) {
+                        rObj["mmr"] = nullptr;
+                    } else {
+                        rObj["mmr"] = sqlite3_column_int(rStmt, 2);
+                    }
+                    if (sqlite3_column_type(rStmt, 3) == SQLITE_NULL) {
+                        rObj["rank_tier"] = nullptr;
+                    } else {
+                        rObj["rank_tier"] = SqlColumnText(rStmt, 3);
+                    }
+                    if (sqlite3_column_type(rStmt, 4) == SQLITE_NULL) {
+                        rObj["matches_played"] = nullptr;
+                    } else {
+                        rObj["matches_played"] = sqlite3_column_int(rStmt, 4);
+                    }
+                    if (sqlite3_column_type(rStmt, 5) == SQLITE_NULL) {
+                        rObj["source"] = nullptr;
+                    } else {
+                        rObj["source"] = SqlColumnText(rStmt, 5);
+                    }
+                    rObj["fetched_at"] = sqlite3_column_int64(rStmt, 6);
+                    ranksByPrimary[pid].push_back(std::move(rObj));
+                }
+                sqlite3_finalize(rStmt);
+            }
+        }
+
+        const char* accSql =
+            "SELECT primary_id, platform, platform_account_id, nickname, last_known_name, "
+            "created_at, last_seen_at, last_refresh_attempt_at, last_successful_refresh_at, "
+            "sort_order, discovery_source FROM TrackedAccounts "
+            "ORDER BY sort_order ASC, created_at ASC, primary_id ASC;";
+        sqlite3_stmt* accStmt = nullptr;
+        if (sqlite3_prepare_v2(m_db, accSql, -1, &accStmt, nullptr) == SQLITE_OK) {
+            while (sqlite3_step(accStmt) == SQLITE_ROW) {
+                std::string pid = SqlColumnText(accStmt, 0);
+                nlohmann::json aObj;
+                aObj["nickname"] = SqlColumnText(accStmt, 3);
+                aObj["platform"] = SqlColumnText(accStmt, 1);
+                aObj["platform_account_id"] = SqlColumnText(accStmt, 2);
+                aObj["primary_id"] = pid;
+                if (sqlite3_column_type(accStmt, 4) == SQLITE_NULL) {
+                    aObj["last_known_name"] = nullptr;
+                } else {
+                    aObj["last_known_name"] = SqlColumnText(accStmt, 4);
+                }
+                aObj["created_at"] = sqlite3_column_int64(accStmt, 5);
+                if (sqlite3_column_type(accStmt, 6) == SQLITE_NULL) {
+                    aObj["last_seen_at"] = nullptr;
+                } else {
+                    aObj["last_seen_at"] = sqlite3_column_int64(accStmt, 6);
+                }
+                if (sqlite3_column_type(accStmt, 7) == SQLITE_NULL) {
+                    aObj["last_refresh_attempt_at"] = nullptr;
+                } else {
+                    aObj["last_refresh_attempt_at"] = sqlite3_column_int64(accStmt, 7);
+                }
+                if (sqlite3_column_type(accStmt, 8) == SQLITE_NULL) {
+                    aObj["last_successful_refresh_at"] = nullptr;
+                } else {
+                    aObj["last_successful_refresh_at"] = sqlite3_column_int64(accStmt, 8);
+                }
+                aObj["sort_order"] = sqlite3_column_int64(accStmt, 9);
+                aObj["discovery_source"] = SqlColumnText(accStmt, 10);
+                auto rIt = ranksByPrimary.find(pid);
+                if (rIt != ranksByPrimary.end()) {
+                    aObj["ranks"] = rIt->second;
+                } else {
+                    aObj["ranks"] = nlohmann::json::array();
+                }
+                accountsJson.push_back(std::move(aObj));
+            }
+            sqlite3_finalize(accStmt);
+        }
+
+        std::ofstream taJsonFile(exportPath + "tracked_accounts.json", std::ios::trunc);
+        if (taJsonFile.is_open()) {
+            taJsonFile << accountsJson.dump(2);
         }
     }
     error.clear();
@@ -4492,4 +4614,812 @@ void DatabaseManager::AsyncSaveMatch(MatchSaveSnapshot snapshot) {
                       DbJobPriority::Critical)) {
         std::cerr << "[Database] Failed to enqueue match save during shutdown.\n";
     }
+}
+
+TrackedAccountInsertResult DatabaseManager::RegisterTrackedAccount(const TrackedAccounts::AccountRecord& record) {
+    if (record.primaryId.empty()) {
+        return TrackedAccountInsertResult::Failed;
+    }
+    std::lock_guard<std::mutex> lock(m_dbMutex);
+    if (!m_db || !SqliteTableExists(m_db, "TrackedAccounts")) {
+        return TrackedAccountInsertResult::Failed;
+    }
+
+    TrackedAccounts::Platform platform = record.platform;
+    std::string platformAccountId = record.platformAccountId;
+    if (platformAccountId.empty()) {
+        if (auto id = TrackedAccounts::FromPrimaryId(record.primaryId)) {
+            platform = id->platform;
+            platformAccountId = id->accountId;
+        }
+    }
+    if (platformAccountId.empty()) {
+        return TrackedAccountInsertResult::Failed;
+    }
+
+    if (sqlite3_exec(m_db, "BEGIN IMMEDIATE;", nullptr, nullptr, nullptr) != SQLITE_OK) {
+        return TrackedAccountInsertResult::Failed;
+    }
+
+    const char* existsSql =
+        "SELECT 1 FROM TrackedAccounts WHERE primary_id = ?1 OR (platform = ?2 AND platform_account_id = ?3) LIMIT 1;";
+    sqlite3_stmt* checkStmt = nullptr;
+    bool alreadyExists = false;
+    if (sqlite3_prepare_v2(m_db, existsSql, -1, &checkStmt, nullptr) == SQLITE_OK) {
+        sqlite3_bind_text(checkStmt, 1, record.primaryId.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_text(checkStmt, 2, TrackedAccounts::PlatformKey(platform), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_text(checkStmt, 3, platformAccountId.c_str(), -1, SQLITE_TRANSIENT);
+        if (sqlite3_step(checkStmt) == SQLITE_ROW) {
+            alreadyExists = true;
+        }
+        sqlite3_finalize(checkStmt);
+    } else {
+        sqlite3_exec(m_db, "ROLLBACK;", nullptr, nullptr, nullptr);
+        return TrackedAccountInsertResult::Failed;
+    }
+
+    if (alreadyExists) {
+        sqlite3_exec(m_db, "COMMIT;", nullptr, nullptr, nullptr);
+        return TrackedAccountInsertResult::AlreadyExists;
+    }
+
+    int64_t sortOrder = record.sortOrder;
+    if (sortOrder <= 0) {
+        const char* maxSql = "SELECT COALESCE(MAX(sort_order), 0) + 1 FROM TrackedAccounts;";
+        sqlite3_stmt* maxStmt = nullptr;
+        if (sqlite3_prepare_v2(m_db, maxSql, -1, &maxStmt, nullptr) == SQLITE_OK) {
+            if (sqlite3_step(maxStmt) == SQLITE_ROW) {
+                sortOrder = sqlite3_column_int64(maxStmt, 0);
+            }
+            sqlite3_finalize(maxStmt);
+        }
+        if (sortOrder <= 0) sortOrder = 1;
+    }
+
+    int64_t createdAt = record.createdAtUnix;
+    if (createdAt <= 0) {
+        createdAt = std::chrono::duration_cast<std::chrono::seconds>(
+                        std::chrono::system_clock::now().time_since_epoch())
+                        .count();
+    }
+
+    const char* insertSql =
+        "INSERT INTO TrackedAccounts (primary_id, platform, platform_account_id, nickname, last_known_name, "
+        "created_at, last_seen_at, last_refresh_attempt_at, last_successful_refresh_at, sort_order, discovery_source) "
+        "VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11);";
+    sqlite3_stmt* insStmt = nullptr;
+    if (sqlite3_prepare_v2(m_db, insertSql, -1, &insStmt, nullptr) != SQLITE_OK) {
+        sqlite3_exec(m_db, "ROLLBACK;", nullptr, nullptr, nullptr);
+        return TrackedAccountInsertResult::Failed;
+    }
+
+    sqlite3_bind_text(insStmt, 1, record.primaryId.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(insStmt, 2, TrackedAccounts::PlatformKey(platform), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(insStmt, 3, platformAccountId.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(insStmt, 4, record.nickname.c_str(), -1, SQLITE_TRANSIENT);
+    if (record.lastKnownName.empty()) {
+        sqlite3_bind_null(insStmt, 5);
+    } else {
+        sqlite3_bind_text(insStmt, 5, record.lastKnownName.c_str(), -1, SQLITE_TRANSIENT);
+    }
+    sqlite3_bind_int64(insStmt, 6, createdAt);
+    if (record.lastSeenAtUnix <= 0) {
+        sqlite3_bind_null(insStmt, 7);
+    } else {
+        sqlite3_bind_int64(insStmt, 7, record.lastSeenAtUnix);
+    }
+    if (record.lastRefreshAttemptAtUnix <= 0) {
+        sqlite3_bind_null(insStmt, 8);
+    } else {
+        sqlite3_bind_int64(insStmt, 8, record.lastRefreshAttemptAtUnix);
+    }
+    if (record.lastSuccessfulRefreshAtUnix <= 0) {
+        sqlite3_bind_null(insStmt, 9);
+    } else {
+        sqlite3_bind_int64(insStmt, 9, record.lastSuccessfulRefreshAtUnix);
+    }
+    sqlite3_bind_int64(insStmt, 10, sortOrder);
+    sqlite3_bind_text(insStmt, 11, TrackedAccounts::DiscoverySourceKey(record.discoverySource), -1, SQLITE_TRANSIENT);
+
+    if (sqlite3_step(insStmt) != SQLITE_DONE) {
+        sqlite3_finalize(insStmt);
+        sqlite3_exec(m_db, "ROLLBACK;", nullptr, nullptr, nullptr);
+        return TrackedAccountInsertResult::Failed;
+    }
+    sqlite3_finalize(insStmt);
+
+    if (!record.ranks.empty() && SqliteTableExists(m_db, "TrackedAccountRanks")) {
+        const char* rankSql =
+            "INSERT INTO TrackedAccountRanks (primary_id, playlist_key, mmr, rank_tier, matches_played, source, fetched_at) "
+            "VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7) "
+            "ON CONFLICT(primary_id, playlist_key) DO UPDATE SET "
+            "mmr = excluded.mmr, rank_tier = excluded.rank_tier, matches_played = excluded.matches_played, "
+            "source = excluded.source, fetched_at = excluded.fetched_at;";
+        sqlite3_stmt* rankStmt = nullptr;
+        if (sqlite3_prepare_v2(m_db, rankSql, -1, &rankStmt, nullptr) == SQLITE_OK) {
+            for (const auto& [key, rank] : record.ranks) {
+                sqlite3_reset(rankStmt);
+                sqlite3_clear_bindings(rankStmt);
+                sqlite3_bind_text(rankStmt, 1, record.primaryId.c_str(), -1, SQLITE_TRANSIENT);
+                const std::string& pKey = rank.playlistKey.empty() ? key : rank.playlistKey;
+                sqlite3_bind_text(rankStmt, 2, pKey.c_str(), -1, SQLITE_TRANSIENT);
+                if (rank.mmr.has_value()) {
+                    sqlite3_bind_int(rankStmt, 3, *rank.mmr);
+                } else {
+                    sqlite3_bind_null(rankStmt, 3);
+                }
+                if (rank.rankTier.empty()) {
+                    sqlite3_bind_null(rankStmt, 4);
+                } else {
+                    sqlite3_bind_text(rankStmt, 4, rank.rankTier.c_str(), -1, SQLITE_TRANSIENT);
+                }
+                if (rank.matchesPlayed.has_value()) {
+                    sqlite3_bind_int(rankStmt, 5, *rank.matchesPlayed);
+                } else {
+                    sqlite3_bind_null(rankStmt, 5);
+                }
+                if (rank.source.empty()) {
+                    sqlite3_bind_null(rankStmt, 6);
+                } else {
+                    sqlite3_bind_text(rankStmt, 6, rank.source.c_str(), -1, SQLITE_TRANSIENT);
+                }
+                int64_t rankFetched = rank.fetchedAtUnix <= 0 ? createdAt : rank.fetchedAtUnix;
+                sqlite3_bind_int64(rankStmt, 7, rankFetched);
+                if (sqlite3_step(rankStmt) != SQLITE_DONE) {
+                    sqlite3_finalize(rankStmt);
+                    sqlite3_exec(m_db, "ROLLBACK;", nullptr, nullptr, nullptr);
+                    return TrackedAccountInsertResult::Failed;
+                }
+            }
+            sqlite3_finalize(rankStmt);
+        } else {
+            sqlite3_exec(m_db, "ROLLBACK;", nullptr, nullptr, nullptr);
+            return TrackedAccountInsertResult::Failed;
+        }
+    }
+
+    if (sqlite3_exec(m_db, "COMMIT;", nullptr, nullptr, nullptr) != SQLITE_OK) {
+        sqlite3_exec(m_db, "ROLLBACK;", nullptr, nullptr, nullptr);
+        return TrackedAccountInsertResult::Failed;
+    }
+
+    return TrackedAccountInsertResult::Inserted;
+}
+
+std::vector<TrackedAccounts::AccountRecord> DatabaseManager::ListTrackedAccounts() {
+    std::lock_guard<std::mutex> lock(m_dbMutex);
+    if (!m_db || !SqliteTableExists(m_db, "TrackedAccounts")) {
+        return {};
+    }
+
+    std::unordered_map<std::string, std::map<std::string, TrackedAccounts::PlaylistRank>> ranksByPrimary;
+    if (SqliteTableExists(m_db, "TrackedAccountRanks")) {
+        const char* rankSql =
+            "SELECT primary_id, playlist_key, mmr, rank_tier, matches_played, source, fetched_at FROM TrackedAccountRanks;";
+        sqlite3_stmt* rankStmt = nullptr;
+        if (sqlite3_prepare_v2(m_db, rankSql, -1, &rankStmt, nullptr) == SQLITE_OK) {
+            while (sqlite3_step(rankStmt) == SQLITE_ROW) {
+                std::string pid = SqlColumnText(rankStmt, 0);
+                TrackedAccounts::PlaylistRank rank;
+                rank.playlistKey = SqlColumnText(rankStmt, 1);
+                if (sqlite3_column_type(rankStmt, 2) != SQLITE_NULL) {
+                    rank.mmr = sqlite3_column_int(rankStmt, 2);
+                }
+                if (sqlite3_column_type(rankStmt, 3) != SQLITE_NULL) {
+                    rank.rankTier = SqlColumnText(rankStmt, 3);
+                }
+                if (sqlite3_column_type(rankStmt, 4) != SQLITE_NULL) {
+                    rank.matchesPlayed = sqlite3_column_int(rankStmt, 4);
+                }
+                if (sqlite3_column_type(rankStmt, 5) != SQLITE_NULL) {
+                    rank.source = SqlColumnText(rankStmt, 5);
+                }
+                if (sqlite3_column_type(rankStmt, 6) != SQLITE_NULL) {
+                    rank.fetchedAtUnix = sqlite3_column_int64(rankStmt, 6);
+                }
+                ranksByPrimary[pid][rank.playlistKey] = std::move(rank);
+            }
+            sqlite3_finalize(rankStmt);
+        }
+    }
+
+    std::vector<TrackedAccounts::AccountRecord> records;
+    const char* selSql =
+        "SELECT primary_id, platform, platform_account_id, nickname, last_known_name, "
+        "created_at, last_seen_at, last_refresh_attempt_at, last_successful_refresh_at, sort_order, discovery_source "
+        "FROM TrackedAccounts ORDER BY sort_order ASC, created_at ASC, primary_id ASC;";
+    sqlite3_stmt* stmt = nullptr;
+    if (sqlite3_prepare_v2(m_db, selSql, -1, &stmt, nullptr) == SQLITE_OK) {
+        while (sqlite3_step(stmt) == SQLITE_ROW) {
+            TrackedAccounts::AccountRecord rec;
+            rec.primaryId = SqlColumnText(stmt, 0);
+            rec.platform = TrackedAccounts::ParsePlatform(SqlColumnText(stmt, 1)).value_or(TrackedAccounts::Platform::Epic);
+            rec.platformAccountId = SqlColumnText(stmt, 2);
+            rec.nickname = SqlColumnText(stmt, 3);
+            if (sqlite3_column_type(stmt, 4) != SQLITE_NULL) {
+                rec.lastKnownName = SqlColumnText(stmt, 4);
+            }
+            if (sqlite3_column_type(stmt, 5) != SQLITE_NULL) {
+                rec.createdAtUnix = sqlite3_column_int64(stmt, 5);
+            }
+            if (sqlite3_column_type(stmt, 6) != SQLITE_NULL) {
+                rec.lastSeenAtUnix = sqlite3_column_int64(stmt, 6);
+            }
+            if (sqlite3_column_type(stmt, 7) != SQLITE_NULL) {
+                rec.lastRefreshAttemptAtUnix = sqlite3_column_int64(stmt, 7);
+            }
+            if (sqlite3_column_type(stmt, 8) != SQLITE_NULL) {
+                rec.lastSuccessfulRefreshAtUnix = sqlite3_column_int64(stmt, 8);
+            }
+            rec.sortOrder = sqlite3_column_int64(stmt, 9);
+            rec.discoverySource = TrackedAccounts::ParseDiscoverySource(SqlColumnText(stmt, 10));
+
+            auto it = ranksByPrimary.find(rec.primaryId);
+            if (it != ranksByPrimary.end()) {
+                rec.ranks = std::move(it->second);
+            }
+            records.push_back(std::move(rec));
+        }
+        sqlite3_finalize(stmt);
+    }
+    return records;
+}
+
+std::optional<TrackedAccounts::AccountRecord> DatabaseManager::GetTrackedAccount(const std::string& primaryId) {
+    if (primaryId.empty()) {
+        return std::nullopt;
+    }
+    std::lock_guard<std::mutex> lock(m_dbMutex);
+    if (!m_db || !SqliteTableExists(m_db, "TrackedAccounts")) {
+        return std::nullopt;
+    }
+
+    const char* selSql =
+        "SELECT primary_id, platform, platform_account_id, nickname, last_known_name, "
+        "created_at, last_seen_at, last_refresh_attempt_at, last_successful_refresh_at, sort_order, discovery_source "
+        "FROM TrackedAccounts WHERE primary_id = ?1 LIMIT 1;";
+    sqlite3_stmt* stmt = nullptr;
+    if (sqlite3_prepare_v2(m_db, selSql, -1, &stmt, nullptr) != SQLITE_OK) {
+        return std::nullopt;
+    }
+    sqlite3_bind_text(stmt, 1, primaryId.c_str(), -1, SQLITE_TRANSIENT);
+
+    std::optional<TrackedAccounts::AccountRecord> record;
+    if (sqlite3_step(stmt) == SQLITE_ROW) {
+        TrackedAccounts::AccountRecord rec;
+        rec.primaryId = SqlColumnText(stmt, 0);
+        rec.platform = TrackedAccounts::ParsePlatform(SqlColumnText(stmt, 1)).value_or(TrackedAccounts::Platform::Epic);
+        rec.platformAccountId = SqlColumnText(stmt, 2);
+        rec.nickname = SqlColumnText(stmt, 3);
+        if (sqlite3_column_type(stmt, 4) != SQLITE_NULL) {
+            rec.lastKnownName = SqlColumnText(stmt, 4);
+        }
+        if (sqlite3_column_type(stmt, 5) != SQLITE_NULL) {
+            rec.createdAtUnix = sqlite3_column_int64(stmt, 5);
+        }
+        if (sqlite3_column_type(stmt, 6) != SQLITE_NULL) {
+            rec.lastSeenAtUnix = sqlite3_column_int64(stmt, 6);
+        }
+        if (sqlite3_column_type(stmt, 7) != SQLITE_NULL) {
+            rec.lastRefreshAttemptAtUnix = sqlite3_column_int64(stmt, 7);
+        }
+        if (sqlite3_column_type(stmt, 8) != SQLITE_NULL) {
+            rec.lastSuccessfulRefreshAtUnix = sqlite3_column_int64(stmt, 8);
+        }
+        rec.sortOrder = sqlite3_column_int64(stmt, 9);
+        rec.discoverySource = TrackedAccounts::ParseDiscoverySource(SqlColumnText(stmt, 10));
+        record = std::move(rec);
+    }
+    sqlite3_finalize(stmt);
+
+    if (record.has_value() && SqliteTableExists(m_db, "TrackedAccountRanks")) {
+        const char* rankSql =
+            "SELECT playlist_key, mmr, rank_tier, matches_played, source, fetched_at "
+            "FROM TrackedAccountRanks WHERE primary_id = ?1;";
+        sqlite3_stmt* rankStmt = nullptr;
+        if (sqlite3_prepare_v2(m_db, rankSql, -1, &rankStmt, nullptr) == SQLITE_OK) {
+            sqlite3_bind_text(rankStmt, 1, primaryId.c_str(), -1, SQLITE_TRANSIENT);
+            while (sqlite3_step(rankStmt) == SQLITE_ROW) {
+                TrackedAccounts::PlaylistRank rank;
+                rank.playlistKey = SqlColumnText(rankStmt, 0);
+                if (sqlite3_column_type(rankStmt, 1) != SQLITE_NULL) {
+                    rank.mmr = sqlite3_column_int(rankStmt, 1);
+                }
+                if (sqlite3_column_type(rankStmt, 2) != SQLITE_NULL) {
+                    rank.rankTier = SqlColumnText(rankStmt, 2);
+                }
+                if (sqlite3_column_type(rankStmt, 3) != SQLITE_NULL) {
+                    rank.matchesPlayed = sqlite3_column_int(rankStmt, 3);
+                }
+                if (sqlite3_column_type(rankStmt, 4) != SQLITE_NULL) {
+                    rank.source = SqlColumnText(rankStmt, 4);
+                }
+                if (sqlite3_column_type(rankStmt, 5) != SQLITE_NULL) {
+                    rank.fetchedAtUnix = sqlite3_column_int64(rankStmt, 5);
+                }
+                record->ranks[rank.playlistKey] = std::move(rank);
+            }
+            sqlite3_finalize(rankStmt);
+        }
+    }
+
+    return record;
+}
+
+bool DatabaseManager::UpdateTrackedAccountNickname(const std::string& primaryId, const std::string& nickname) {
+    if (primaryId.empty()) {
+        return false;
+    }
+    std::lock_guard<std::mutex> lock(m_dbMutex);
+    if (!m_db || !SqliteTableExists(m_db, "TrackedAccounts")) {
+        return false;
+    }
+
+    const char* sql = "UPDATE TrackedAccounts SET nickname = ?1 WHERE primary_id = ?2;";
+    sqlite3_stmt* stmt = nullptr;
+    if (sqlite3_prepare_v2(m_db, sql, -1, &stmt, nullptr) != SQLITE_OK) {
+        return false;
+    }
+    sqlite3_bind_text(stmt, 1, nickname.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 2, primaryId.c_str(), -1, SQLITE_TRANSIENT);
+    bool ok = (sqlite3_step(stmt) == SQLITE_DONE);
+    sqlite3_finalize(stmt);
+    return ok && sqlite3_changes(m_db) > 0;
+}
+
+bool DatabaseManager::UpdateTrackedAccountLastSeen(const std::string& primaryId, const std::string& lastKnownName, int64_t seenAtUnix) {
+    if (primaryId.empty()) {
+        return false;
+    }
+    std::lock_guard<std::mutex> lock(m_dbMutex);
+    if (!m_db || !SqliteTableExists(m_db, "TrackedAccounts")) {
+        return false;
+    }
+
+    sqlite3_stmt* stmt = nullptr;
+    if (!lastKnownName.empty()) {
+        const char* sql = "UPDATE TrackedAccounts SET last_seen_at = ?1, last_known_name = ?2 WHERE primary_id = ?3;";
+        if (sqlite3_prepare_v2(m_db, sql, -1, &stmt, nullptr) != SQLITE_OK) {
+            return false;
+        }
+        if (seenAtUnix <= 0) {
+            sqlite3_bind_null(stmt, 1);
+        } else {
+            sqlite3_bind_int64(stmt, 1, seenAtUnix);
+        }
+        sqlite3_bind_text(stmt, 2, lastKnownName.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_text(stmt, 3, primaryId.c_str(), -1, SQLITE_TRANSIENT);
+    } else {
+        const char* sql = "UPDATE TrackedAccounts SET last_seen_at = ?1 WHERE primary_id = ?2;";
+        if (sqlite3_prepare_v2(m_db, sql, -1, &stmt, nullptr) != SQLITE_OK) {
+            return false;
+        }
+        if (seenAtUnix <= 0) {
+            sqlite3_bind_null(stmt, 1);
+        } else {
+            sqlite3_bind_int64(stmt, 1, seenAtUnix);
+        }
+        sqlite3_bind_text(stmt, 2, primaryId.c_str(), -1, SQLITE_TRANSIENT);
+    }
+
+    bool ok = (sqlite3_step(stmt) == SQLITE_DONE);
+    sqlite3_finalize(stmt);
+    return ok && sqlite3_changes(m_db) > 0;
+}
+
+bool DatabaseManager::UpdateTrackedAccountRefreshAttempt(const std::string& primaryId, int64_t attemptedAtUnix) {
+    if (primaryId.empty()) {
+        return false;
+    }
+    std::lock_guard<std::mutex> lock(m_dbMutex);
+    if (!m_db || !SqliteTableExists(m_db, "TrackedAccounts")) {
+        return false;
+    }
+
+    const char* sql = "UPDATE TrackedAccounts SET last_refresh_attempt_at = ?1 WHERE primary_id = ?2;";
+    sqlite3_stmt* stmt = nullptr;
+    if (sqlite3_prepare_v2(m_db, sql, -1, &stmt, nullptr) != SQLITE_OK) {
+        return false;
+    }
+    if (attemptedAtUnix <= 0) {
+        sqlite3_bind_null(stmt, 1);
+    } else {
+        sqlite3_bind_int64(stmt, 1, attemptedAtUnix);
+    }
+    sqlite3_bind_text(stmt, 2, primaryId.c_str(), -1, SQLITE_TRANSIENT);
+    bool ok = (sqlite3_step(stmt) == SQLITE_DONE);
+    sqlite3_finalize(stmt);
+    return ok && sqlite3_changes(m_db) > 0;
+}
+
+bool DatabaseManager::SaveTrackedAccountRanks(const std::string& primaryId,
+                                              const std::vector<TrackedAccounts::PlaylistRank>& ranks,
+                                              int64_t fetchedAtUnix) {
+    if (primaryId.empty()) {
+        return false;
+    }
+    std::lock_guard<std::mutex> lock(m_dbMutex);
+    if (!m_db || !SqliteTableExists(m_db, "TrackedAccounts") || !SqliteTableExists(m_db, "TrackedAccountRanks")) {
+        return false;
+    }
+
+    if (sqlite3_exec(m_db, "BEGIN IMMEDIATE;", nullptr, nullptr, nullptr) != SQLITE_OK) {
+        return false;
+    }
+
+    const char* checkSql = "SELECT 1 FROM TrackedAccounts WHERE primary_id = ?1 LIMIT 1;";
+    sqlite3_stmt* checkStmt = nullptr;
+    bool exists = false;
+    if (sqlite3_prepare_v2(m_db, checkSql, -1, &checkStmt, nullptr) == SQLITE_OK) {
+        sqlite3_bind_text(checkStmt, 1, primaryId.c_str(), -1, SQLITE_TRANSIENT);
+        if (sqlite3_step(checkStmt) == SQLITE_ROW) {
+            exists = true;
+        }
+        sqlite3_finalize(checkStmt);
+    } else {
+        sqlite3_exec(m_db, "ROLLBACK;", nullptr, nullptr, nullptr);
+        return false;
+    }
+
+    if (!exists) {
+        sqlite3_exec(m_db, "ROLLBACK;", nullptr, nullptr, nullptr);
+        return false;
+    }
+
+    int64_t effectiveFetched = fetchedAtUnix;
+    if (effectiveFetched <= 0) {
+        effectiveFetched = std::chrono::duration_cast<std::chrono::seconds>(
+                               std::chrono::system_clock::now().time_since_epoch())
+                               .count();
+    }
+
+    const char* updAccountSql =
+        "UPDATE TrackedAccounts SET last_refresh_attempt_at = ?1, last_successful_refresh_at = ?1 WHERE primary_id = ?2;";
+    sqlite3_stmt* updStmt = nullptr;
+    if (sqlite3_prepare_v2(m_db, updAccountSql, -1, &updStmt, nullptr) == SQLITE_OK) {
+        sqlite3_bind_int64(updStmt, 1, effectiveFetched);
+        sqlite3_bind_text(updStmt, 2, primaryId.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_step(updStmt);
+        sqlite3_finalize(updStmt);
+    } else {
+        sqlite3_exec(m_db, "ROLLBACK;", nullptr, nullptr, nullptr);
+        return false;
+    }
+
+    if (!ranks.empty()) {
+        const char* upsertRankSql =
+            "INSERT INTO TrackedAccountRanks (primary_id, playlist_key, mmr, rank_tier, matches_played, source, fetched_at) "
+            "VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7) "
+            "ON CONFLICT(primary_id, playlist_key) DO UPDATE SET "
+            "mmr = excluded.mmr, rank_tier = excluded.rank_tier, matches_played = excluded.matches_played, "
+            "source = excluded.source, fetched_at = excluded.fetched_at;";
+        sqlite3_stmt* rankStmt = nullptr;
+        if (sqlite3_prepare_v2(m_db, upsertRankSql, -1, &rankStmt, nullptr) != SQLITE_OK) {
+            sqlite3_exec(m_db, "ROLLBACK;", nullptr, nullptr, nullptr);
+            return false;
+        }
+
+        for (const auto& rank : ranks) {
+            if (rank.playlistKey.empty()) continue;
+            sqlite3_reset(rankStmt);
+            sqlite3_clear_bindings(rankStmt);
+            sqlite3_bind_text(rankStmt, 1, primaryId.c_str(), -1, SQLITE_TRANSIENT);
+            sqlite3_bind_text(rankStmt, 2, rank.playlistKey.c_str(), -1, SQLITE_TRANSIENT);
+            if (rank.mmr.has_value()) {
+                sqlite3_bind_int(rankStmt, 3, *rank.mmr);
+            } else {
+                sqlite3_bind_null(rankStmt, 3);
+            }
+            if (rank.rankTier.empty()) {
+                sqlite3_bind_null(rankStmt, 4);
+            } else {
+                sqlite3_bind_text(rankStmt, 4, rank.rankTier.c_str(), -1, SQLITE_TRANSIENT);
+            }
+            if (rank.matchesPlayed.has_value()) {
+                sqlite3_bind_int(rankStmt, 5, *rank.matchesPlayed);
+            } else {
+                sqlite3_bind_null(rankStmt, 5);
+            }
+            if (rank.source.empty()) {
+                sqlite3_bind_null(rankStmt, 6);
+            } else {
+                sqlite3_bind_text(rankStmt, 6, rank.source.c_str(), -1, SQLITE_TRANSIENT);
+            }
+            int64_t rFetched = rank.fetchedAtUnix <= 0 ? effectiveFetched : rank.fetchedAtUnix;
+            sqlite3_bind_int64(rankStmt, 7, rFetched);
+            if (sqlite3_step(rankStmt) != SQLITE_DONE) {
+                sqlite3_finalize(rankStmt);
+                sqlite3_exec(m_db, "ROLLBACK;", nullptr, nullptr, nullptr);
+                return false;
+            }
+        }
+        sqlite3_finalize(rankStmt);
+    }
+
+    if (sqlite3_exec(m_db, "COMMIT;", nullptr, nullptr, nullptr) != SQLITE_OK) {
+        sqlite3_exec(m_db, "ROLLBACK;", nullptr, nullptr, nullptr);
+        return false;
+    }
+    return true;
+}
+
+std::map<std::string, TrackedAccounts::PlaylistRank> DatabaseManager::GetTrackedAccountRanks(const std::string& primaryId) {
+    if (primaryId.empty()) {
+        return {};
+    }
+    std::lock_guard<std::mutex> lock(m_dbMutex);
+    if (!m_db || !SqliteTableExists(m_db, "TrackedAccountRanks")) {
+        return {};
+    }
+
+    std::map<std::string, TrackedAccounts::PlaylistRank> ranks;
+    const char* sql =
+        "SELECT playlist_key, mmr, rank_tier, matches_played, source, fetched_at "
+        "FROM TrackedAccountRanks WHERE primary_id = ?1;";
+    sqlite3_stmt* stmt = nullptr;
+    if (sqlite3_prepare_v2(m_db, sql, -1, &stmt, nullptr) == SQLITE_OK) {
+        sqlite3_bind_text(stmt, 1, primaryId.c_str(), -1, SQLITE_TRANSIENT);
+        while (sqlite3_step(stmt) == SQLITE_ROW) {
+            TrackedAccounts::PlaylistRank rank;
+            rank.playlistKey = SqlColumnText(stmt, 0);
+            if (sqlite3_column_type(stmt, 1) != SQLITE_NULL) {
+                rank.mmr = sqlite3_column_int(stmt, 1);
+            }
+            if (sqlite3_column_type(stmt, 2) != SQLITE_NULL) {
+                rank.rankTier = SqlColumnText(stmt, 2);
+            }
+            if (sqlite3_column_type(stmt, 3) != SQLITE_NULL) {
+                rank.matchesPlayed = sqlite3_column_int(stmt, 3);
+            }
+            if (sqlite3_column_type(stmt, 4) != SQLITE_NULL) {
+                rank.source = SqlColumnText(stmt, 4);
+            }
+            if (sqlite3_column_type(stmt, 5) != SQLITE_NULL) {
+                rank.fetchedAtUnix = sqlite3_column_int64(stmt, 5);
+            }
+            ranks[rank.playlistKey] = std::move(rank);
+        }
+        sqlite3_finalize(stmt);
+    }
+    return ranks;
+}
+
+bool DatabaseManager::DeleteTrackedAccount(const std::string& primaryId) {
+    if (primaryId.empty()) {
+        return false;
+    }
+    std::lock_guard<std::mutex> lock(m_dbMutex);
+    if (!m_db || !SqliteTableExists(m_db, "TrackedAccounts")) {
+        return false;
+    }
+
+    if (sqlite3_exec(m_db, "BEGIN IMMEDIATE;", nullptr, nullptr, nullptr) != SQLITE_OK) {
+        return false;
+    }
+
+    if (SqliteTableExists(m_db, "TrackedAccountRanks")) {
+        const char* delRanksSql = "DELETE FROM TrackedAccountRanks WHERE primary_id = ?1;";
+        sqlite3_stmt* rStmt = nullptr;
+        if (sqlite3_prepare_v2(m_db, delRanksSql, -1, &rStmt, nullptr) == SQLITE_OK) {
+            sqlite3_bind_text(rStmt, 1, primaryId.c_str(), -1, SQLITE_TRANSIENT);
+            sqlite3_step(rStmt);
+            sqlite3_finalize(rStmt);
+        } else {
+            sqlite3_exec(m_db, "ROLLBACK;", nullptr, nullptr, nullptr);
+            return false;
+        }
+    }
+
+    const char* delAccSql = "DELETE FROM TrackedAccounts WHERE primary_id = ?1;";
+    sqlite3_stmt* accStmt = nullptr;
+    if (sqlite3_prepare_v2(m_db, delAccSql, -1, &accStmt, nullptr) != SQLITE_OK) {
+        sqlite3_exec(m_db, "ROLLBACK;", nullptr, nullptr, nullptr);
+        return false;
+    }
+    sqlite3_bind_text(accStmt, 1, primaryId.c_str(), -1, SQLITE_TRANSIENT);
+    bool stepOk = (sqlite3_step(accStmt) == SQLITE_DONE);
+    int changes = sqlite3_changes(m_db);
+    sqlite3_finalize(accStmt);
+
+    if (!stepOk) {
+        sqlite3_exec(m_db, "ROLLBACK;", nullptr, nullptr, nullptr);
+        return false;
+    }
+
+    if (sqlite3_exec(m_db, "COMMIT;", nullptr, nullptr, nullptr) != SQLITE_OK) {
+        sqlite3_exec(m_db, "ROLLBACK;", nullptr, nullptr, nullptr);
+        return false;
+    }
+
+    return changes > 0;
+}
+
+int DatabaseManager::ImportTrackedAccounts(const std::vector<TrackedAccounts::AccountRecord>& records) {
+    if (records.empty()) {
+        return 0;
+    }
+    std::lock_guard<std::mutex> lock(m_dbMutex);
+    if (!m_db || !SqliteTableExists(m_db, "TrackedAccounts")) {
+        return 0;
+    }
+
+    if (sqlite3_exec(m_db, "BEGIN IMMEDIATE;", nullptr, nullptr, nullptr) != SQLITE_OK) {
+        return 0;
+    }
+
+    std::unordered_set<std::string> knownPrimaryIds;
+    std::set<std::pair<std::string, std::string>> knownPlatformAccounts;
+    const char* selExistingSql = "SELECT primary_id, platform, platform_account_id FROM TrackedAccounts;";
+    sqlite3_stmt* existStmt = nullptr;
+    if (sqlite3_prepare_v2(m_db, selExistingSql, -1, &existStmt, nullptr) == SQLITE_OK) {
+        while (sqlite3_step(existStmt) == SQLITE_ROW) {
+            std::string pid = SqlColumnText(existStmt, 0);
+            std::string plat = SqlColumnText(existStmt, 1);
+            std::string paid = SqlColumnText(existStmt, 2);
+            knownPrimaryIds.insert(std::move(pid));
+            knownPlatformAccounts.insert({std::move(plat), std::move(paid)});
+        }
+        sqlite3_finalize(existStmt);
+    } else {
+        sqlite3_exec(m_db, "ROLLBACK;", nullptr, nullptr, nullptr);
+        return 0;
+    }
+
+    int64_t maxSortOrder = 0;
+    const char* maxSql = "SELECT COALESCE(MAX(sort_order), 0) FROM TrackedAccounts;";
+    sqlite3_stmt* maxStmt = nullptr;
+    if (sqlite3_prepare_v2(m_db, maxSql, -1, &maxStmt, nullptr) == SQLITE_OK) {
+        if (sqlite3_step(maxStmt) == SQLITE_ROW) {
+            maxSortOrder = sqlite3_column_int64(maxStmt, 0);
+        }
+        sqlite3_finalize(maxStmt);
+    }
+
+    int64_t now = std::chrono::duration_cast<std::chrono::seconds>(
+                      std::chrono::system_clock::now().time_since_epoch())
+                      .count();
+
+    const char* insAccSql =
+        "INSERT INTO TrackedAccounts (primary_id, platform, platform_account_id, nickname, last_known_name, "
+        "created_at, last_seen_at, last_refresh_attempt_at, last_successful_refresh_at, sort_order, discovery_source) "
+        "VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11);";
+    sqlite3_stmt* insStmt = nullptr;
+    if (sqlite3_prepare_v2(m_db, insAccSql, -1, &insStmt, nullptr) != SQLITE_OK) {
+        sqlite3_exec(m_db, "ROLLBACK;", nullptr, nullptr, nullptr);
+        return 0;
+    }
+
+    const bool hasRanksTable = SqliteTableExists(m_db, "TrackedAccountRanks");
+    sqlite3_stmt* rankStmt = nullptr;
+    if (hasRanksTable) {
+        const char* insRankSql =
+            "INSERT INTO TrackedAccountRanks (primary_id, playlist_key, mmr, rank_tier, matches_played, source, fetched_at) "
+            "VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7) "
+            "ON CONFLICT(primary_id, playlist_key) DO UPDATE SET "
+            "mmr = excluded.mmr, rank_tier = excluded.rank_tier, matches_played = excluded.matches_played, "
+            "source = excluded.source, fetched_at = excluded.fetched_at;";
+        if (sqlite3_prepare_v2(m_db, insRankSql, -1, &rankStmt, nullptr) != SQLITE_OK) {
+            sqlite3_finalize(insStmt);
+            sqlite3_exec(m_db, "ROLLBACK;", nullptr, nullptr, nullptr);
+            return 0;
+        }
+    }
+
+    int insertedCount = 0;
+    for (const auto& rec : records) {
+        if (rec.primaryId.empty()) {
+            continue;
+        }
+        TrackedAccounts::Platform platform = rec.platform;
+        std::string platformAccountId = rec.platformAccountId;
+        if (platformAccountId.empty()) {
+            if (auto id = TrackedAccounts::FromPrimaryId(rec.primaryId)) {
+                platform = id->platform;
+                platformAccountId = id->accountId;
+            }
+        }
+        if (platformAccountId.empty()) {
+            continue;
+        }
+
+        std::string platKey = TrackedAccounts::PlatformKey(platform);
+        if (knownPrimaryIds.contains(rec.primaryId) || knownPlatformAccounts.contains({platKey, platformAccountId})) {
+            continue;
+        }
+
+        int64_t sortOrder = rec.sortOrder > 0 ? rec.sortOrder : ++maxSortOrder;
+        if (sortOrder > maxSortOrder) {
+            maxSortOrder = sortOrder;
+        }
+        int64_t createdAt = rec.createdAtUnix > 0 ? rec.createdAtUnix : now;
+
+        sqlite3_reset(insStmt);
+        sqlite3_clear_bindings(insStmt);
+        sqlite3_bind_text(insStmt, 1, rec.primaryId.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_text(insStmt, 2, platKey.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_text(insStmt, 3, platformAccountId.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_text(insStmt, 4, rec.nickname.c_str(), -1, SQLITE_TRANSIENT);
+        if (rec.lastKnownName.empty()) {
+            sqlite3_bind_null(insStmt, 5);
+        } else {
+            sqlite3_bind_text(insStmt, 5, rec.lastKnownName.c_str(), -1, SQLITE_TRANSIENT);
+        }
+        sqlite3_bind_int64(insStmt, 6, createdAt);
+        if (rec.lastSeenAtUnix <= 0) {
+            sqlite3_bind_null(insStmt, 7);
+        } else {
+            sqlite3_bind_int64(insStmt, 7, rec.lastSeenAtUnix);
+        }
+        if (rec.lastRefreshAttemptAtUnix <= 0) {
+            sqlite3_bind_null(insStmt, 8);
+        } else {
+            sqlite3_bind_int64(insStmt, 8, rec.lastRefreshAttemptAtUnix);
+        }
+        if (rec.lastSuccessfulRefreshAtUnix <= 0) {
+            sqlite3_bind_null(insStmt, 9);
+        } else {
+            sqlite3_bind_int64(insStmt, 9, rec.lastSuccessfulRefreshAtUnix);
+        }
+        sqlite3_bind_int64(insStmt, 10, sortOrder);
+        sqlite3_bind_text(insStmt, 11, TrackedAccounts::DiscoverySourceKey(rec.discoverySource), -1, SQLITE_TRANSIENT);
+
+        if (sqlite3_step(insStmt) != SQLITE_DONE) {
+            sqlite3_finalize(insStmt);
+            if (rankStmt) sqlite3_finalize(rankStmt);
+            sqlite3_exec(m_db, "ROLLBACK;", nullptr, nullptr, nullptr);
+            return 0;
+        }
+
+        if (rankStmt && !rec.ranks.empty()) {
+            for (const auto& [key, rank] : rec.ranks) {
+                sqlite3_reset(rankStmt);
+                sqlite3_clear_bindings(rankStmt);
+                sqlite3_bind_text(rankStmt, 1, rec.primaryId.c_str(), -1, SQLITE_TRANSIENT);
+                const std::string& pKey = rank.playlistKey.empty() ? key : rank.playlistKey;
+                sqlite3_bind_text(rankStmt, 2, pKey.c_str(), -1, SQLITE_TRANSIENT);
+                if (rank.mmr.has_value()) {
+                    sqlite3_bind_int(rankStmt, 3, *rank.mmr);
+                } else {
+                    sqlite3_bind_null(rankStmt, 3);
+                }
+                if (rank.rankTier.empty()) {
+                    sqlite3_bind_null(rankStmt, 4);
+                } else {
+                    sqlite3_bind_text(rankStmt, 4, rank.rankTier.c_str(), -1, SQLITE_TRANSIENT);
+                }
+                if (rank.matchesPlayed.has_value()) {
+                    sqlite3_bind_int(rankStmt, 5, *rank.matchesPlayed);
+                } else {
+                    sqlite3_bind_null(rankStmt, 5);
+                }
+                if (rank.source.empty()) {
+                    sqlite3_bind_null(rankStmt, 6);
+                } else {
+                    sqlite3_bind_text(rankStmt, 6, rank.source.c_str(), -1, SQLITE_TRANSIENT);
+                }
+                int64_t rFetched = rank.fetchedAtUnix <= 0 ? createdAt : rank.fetchedAtUnix;
+                sqlite3_bind_int64(rankStmt, 7, rFetched);
+                if (sqlite3_step(rankStmt) != SQLITE_DONE) {
+                    sqlite3_finalize(insStmt);
+                    sqlite3_finalize(rankStmt);
+                    sqlite3_exec(m_db, "ROLLBACK;", nullptr, nullptr, nullptr);
+                    return 0;
+                }
+            }
+        }
+
+        knownPrimaryIds.insert(rec.primaryId);
+        knownPlatformAccounts.insert({platKey, platformAccountId});
+        insertedCount++;
+    }
+
+    sqlite3_finalize(insStmt);
+    if (rankStmt) sqlite3_finalize(rankStmt);
+
+    if (sqlite3_exec(m_db, "COMMIT;", nullptr, nullptr, nullptr) != SQLITE_OK) {
+        sqlite3_exec(m_db, "ROLLBACK;", nullptr, nullptr, nullptr);
+        return 0;
+    }
+
+    return insertedCount;
 }

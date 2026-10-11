@@ -41,6 +41,11 @@ struct ResolvedDestroyedMatch {
     bool won = false;
 };
 
+struct ConfirmedLocalAccount {
+    std::string primaryId;
+    std::string name;
+};
+
 struct SideEffects {
     bool pushDiscord = false;
     DiscordPresenceSnapshot discordSnapshot;
@@ -59,4 +64,5 @@ struct SideEffects {
     std::optional<MatchSaveSnapshot> provisionalSaveSnapshot;
     std::optional<SessionRecap> persistSession;
     std::optional<SessionRecap> updateSession;
+    std::optional<ConfirmedLocalAccount> confirmedLocalAccount;
 };

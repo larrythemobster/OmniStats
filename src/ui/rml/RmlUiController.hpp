@@ -26,9 +26,11 @@
 #include "ui/rml/views/InsightsView.hpp"
 #include "ui/rml/views/HistoryView.hpp"
 #include "ui/rml/views/OnboardingView.hpp"
+#include "ui/rml/views/AccountsView.hpp"
 #include "ui/rml/RmlSystemInterfaceWin32.hpp"
 
 class DatabaseManager;
+class AccountManagerService;
 namespace Rml {
     class Context;
     class Element;
@@ -71,9 +73,12 @@ struct RmlRenderSnapshot {
 
 class RmlUiController final : public Rml::EventListener {
     friend class RmlUiControllerStateTest;
+    friend class AccountsViewTest;
 
   public:
-    RmlUiController(std::shared_ptr<SessionState> state, std::shared_ptr<DatabaseManager> dbManager);
+    RmlUiController(std::shared_ptr<SessionState> state,
+                    std::shared_ptr<DatabaseManager> dbManager,
+                    std::shared_ptr<AccountManagerService> accounts = nullptr);
     ~RmlUiController() override;
 
     bool Initialize(HWND hwnd, ID3D11Device* device, ID3D11DeviceContext* context, int width, int height, float dpiScale);
@@ -95,6 +100,7 @@ class RmlUiController final : public Rml::EventListener {
     bool WantsAttention() const;
     void OpenInsights();
     void OpenHistory();
+    void OpenAccounts();
 
     void ProcessEvent(Rml::Event& event) override;
     static const char* DemoKdClass(int demos, int demoed);
@@ -262,6 +268,10 @@ class RmlUiController final : public Rml::EventListener {
     void ShowHistory(int64_t detailMatchId = 0, const std::string& detailMatchGuid = "");
     void HideHistory();
     void RefreshHistory(bool force);
+    void ShowAccounts();
+    void HideAccounts();
+    void RefreshAccounts(bool force);
+    void RefreshAccountRow(const std::string& primaryId);
     void TriggerHistoryQuery(bool append);
     void OpenHistoryDetail(int64_t matchId, const std::string& matchGuid = "");
     void ExportRecapPng();
@@ -272,6 +282,7 @@ class RmlUiController final : public Rml::EventListener {
 
     std::shared_ptr<SessionState> m_state;
     std::shared_ptr<DatabaseManager> m_dbManager;
+    std::shared_ptr<AccountManagerService> m_accountsService;
     HWND m_hwnd = nullptr;
     float m_dpiScale = 1.0f;
     // ui_scale currently pushed into the RmlUi context.
@@ -306,6 +317,12 @@ class RmlUiController final : public Rml::EventListener {
     Rml::ElementDocument* m_insightsDoc = nullptr;
     Rml::ElementDocument* m_onboardingDoc = nullptr;
     Rml::ElementDocument* m_historyDoc = nullptr;
+    AccountsView m_accounts;
+    Rml::ElementDocument* m_accountsDoc = nullptr;
+    bool m_accountsVisible = false;
+    uint64_t m_lastAccountsVersion = std::numeric_limits<uint64_t>::max();
+    std::chrono::steady_clock::time_point m_lastAccountsRelativeRender{};
+    std::string m_lastAccountsActive;
     bool m_insightsVisible = false;
     bool m_onboardingVisible = false;
     bool m_historyVisible = false;

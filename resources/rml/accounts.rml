@@ -1,0 +1,233 @@
+<rml>
+<head>
+    <title>OmniStats Account Manager</title>
+    <link type="text/rcss" href="res://omnistats.rcss" />
+</head>
+<body id="app" class="view-document" data-model="accounts">
+    <div class="view-backdrop">
+        <div class="view-window accounts-window">
+            <div class="view-header row">
+                <div class="grow">
+                    <div class="brand-title">Accounts</div>
+                    <div class="label">{{subtitle}}</div>
+                </div>
+                <div class="row gap-sm">
+                    <button class="ghost compact" data-action="accounts-refresh-all" data-if="loaded && rows.size > 0">Refresh All</button>
+                    <button class="ghost compact" data-action="accounts-open-import" data-if="has_import_candidates">Import Known</button>
+                    <button class="primary compact" data-action="accounts-open-add" data-if="has_service">Add Account</button>
+                    <button class="ghost compact" data-action="accounts-close">Close</button>
+                </div>
+            </div>
+
+            <div class="callout accounts-provider-banner" data-if="provider_unavailable">
+                <div class="grow">No rank source is configured. Enable Tracker rank lookup or sign in to OmniStats in Settings &#x203A; Integrations.</div>
+                <button class="ghost compact" data-action="accounts-open-settings">Open Settings</button>
+            </div>
+
+            <div class="accounts-toolbar" data-if="loaded && rows.size > 0">
+                <div class="row gap-sm accounts-filter-row">
+                    <span class="label accounts-filter-label">Playlists</span>
+                    <button class="tab-button pill" data-action="accounts-column-set" data-set="competitive" data-class-active="column_set == 'competitive'">Competitive</button>
+                    <button class="tab-button pill" data-action="accounts-column-set" data-set="extra" data-class-active="column_set == 'extra'">Extra modes</button>
+                </div>
+            </div>
+
+            <div class="view-body accounts-body">
+                <div class="muted view-empty" data-if="!loaded">Loading accounts&#x2026;</div>
+
+                <div class="accounts-empty" data-if="loaded && rows.size == 0">
+                    <div class="muted view-empty">{{empty_message}}</div>
+                    <div class="row gap-sm view-actions" style="justify-content:center" data-if="has_service">
+                        <button class="primary" data-action="accounts-open-add">Add Account</button>
+                        <button class="ghost" data-if="has_import_candidates" data-action="accounts-open-import">Import Known Accounts</button>
+                    </div>
+                </div>
+
+                <div class="accounts-table" data-if="loaded && rows.size > 0">
+                    <div class="accounts-row header">
+                        <div class="accounts-cell-account sortable" data-action="accounts-sort" data-sort="nickname">
+                            <span>Account</span>
+                            <span class="sort-arrow" data-if="sort_col == 'nickname'">{{sort_dir_arrow}}</span>
+                        </div>
+                        <div class="accounts-cell-mmr sortable" data-for="col : playlist_columns" data-action="accounts-sort" data-attr-data-sort="col.key">
+                            <span>{{col.short_label}}</span>
+                            <span class="sort-arrow" data-if="sort_col == col.key">{{sort_dir_arrow}}</span>
+                        </div>
+                        <div class="accounts-cell-updated sortable" data-action="accounts-sort" data-sort="updated">
+                            <span>Updated</span>
+                            <span class="sort-arrow" data-if="sort_col == 'updated'">{{sort_dir_arrow}}</span>
+                        </div>
+                        <div class="accounts-cell-status">Status</div>
+                        <div class="accounts-cell-actions">Actions</div>
+                    </div>
+                    <div class="accounts-row item" data-for="row : rows" data-action="accounts-open-detail" data-attr-data-id="row.primary_id">
+                        <div class="accounts-cell-account">
+                            <div class="row gap-xs" style="align-items:center">
+                                <span class="accounts-active-dot" data-if="row.is_active"></span>
+                                <span class="accounts-name value">{{row.display_label}}</span>
+                                <span class="accounts-active-label" data-if="row.is_active">Active</span>
+                            </div>
+                            <div class="label accounts-sub-label">{{row.sub_label}}</div>
+                        </div>
+                        <div class="accounts-cell-mmr" data-for="cell : row.ranks">
+                            <div class="mono accounts-mmr-val" data-class-muted="cell.is_stale || !cell.has_mmr">{{cell.mmr}}</div>
+                            <div class="accounts-tier-val" data-style-color="cell.tier_color" data-if="cell.tier != ''">{{cell.tier}}</div>
+                        </div>
+                        <div class="accounts-cell-updated label">{{row.updated_relative}}</div>
+                        <div class="accounts-cell-status">
+                            <span class="accounts-status-badge" data-attr-class="row.status_class">{{row.status_text}}</span>
+                        </div>
+                        <div class="accounts-cell-actions row gap-xs">
+                            <button class="ghost compact accounts-action-btn" data-action="accounts-refresh-row" data-attr-data-id="row.primary_id">Refresh</button>
+                            <button class="ghost compact accounts-action-btn" data-action="accounts-open-detail" data-attr-data-id="row.primary_id">&#x22EF;</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div id="accounts-detail-modal" class="history-detail-backdrop" data-if="detail_open">
+                <div class="history-detail-card accounts-detail-card">
+                    <div class="history-detail-header row">
+                        <div class="grow">
+                            <div class="row gap-sm" style="align-items:center">
+                                <span class="brand-title" data-if="!detail_renaming">{{detail_nickname}}</span>
+                                <span data-attr-class="detail_platform_class">{{detail_platform}}</span>
+                                <button class="ghost compact" data-action="accounts-detail-start-rename" data-if="!detail_renaming">Rename</button>
+                            </div>
+                            <div class="row gap-sm" style="align-items:center;margin-top:6dp" data-if="detail_renaming">
+                                <input type="text" class="text accounts-input" data-setting="accounts_rename_input" data-attr-value="detail_rename_value" maxlength="40" />
+                                <button class="primary compact" data-action="accounts-detail-save-rename">Save</button>
+                                <button class="ghost compact" data-action="accounts-detail-cancel-rename">Cancel</button>
+                            </div>
+                            <div class="row gap-sm accounts-detail-meta" style="margin-top:4dp">
+                                <span class="label">In-game name</span>
+                                <span class="accounts-meta-value">{{detail_last_known_name}}</span>
+                                <span class="label" style="margin-left:12dp">Added</span>
+                                <span class="accounts-meta-value">{{detail_discovery_source}}</span>
+                            </div>
+                            <div class="row gap-sm accounts-detail-meta" style="margin-top:2dp">
+                                <span class="label">Account ID</span>
+                                <span class="mono accounts-canonical-id">{{detail_canonical_id}}</span>
+                            </div>
+                        </div>
+                        <div class="row gap-sm">
+                            <button class="ghost compact" data-action="accounts-detail-refresh">Refresh</button>
+                            <button class="ghost compact" data-action="accounts-detail-copy-id">Copy ID</button>
+                            <button class="danger compact" data-action="accounts-detail-start-remove" data-if="!detail_confirm_remove">Remove</button>
+                            <button class="ghost compact" data-action="accounts-close-detail">Close</button>
+                        </div>
+                    </div>
+
+                    <div class="callout warning" data-if="detail_confirm_remove" style="margin-bottom:12dp">
+                        <div class="row" style="align-items:center">
+                            <div class="grow">Remove this tracked account? Local match history is kept.</div>
+                            <div class="row gap-sm">
+                                <button class="danger compact" data-action="accounts-detail-confirm-remove">Confirm Remove</button>
+                                <button class="ghost compact" data-action="accounts-detail-cancel-remove">Cancel</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="accounts-detail-status-row row gap-sm" style="margin-bottom:10dp">
+                        <span class="label">Refresh state</span>
+                        <span class="accounts-meta-value">{{detail_refresh_state}}</span>
+                        <span class="label" style="margin-left:12dp">Last successful refresh</span>
+                        <span class="accounts-meta-value">{{detail_last_refresh}}</span>
+                        <span class="label" style="margin-left:12dp" data-if="detail_rank_source != ''">Source</span>
+                        <span class="accounts-meta-value" data-if="detail_rank_source != ''">{{detail_rank_source}}</span>
+                    </div>
+
+                    <div class="history-scoreboard-block">
+                        <div class="stat-section-title">RANKS BY PLAYLIST</div>
+                        <div class="history-scoreboard-table">
+                            <div class="history-scoreboard-row header">
+                                <div class="accounts-detail-col-playlist">Playlist</div>
+                                <div class="accounts-detail-col-tier">Tier</div>
+                                <div class="accounts-detail-col-mmr">MMR</div>
+                                <div class="accounts-detail-col-matches">Matches</div>
+                                <div class="accounts-detail-col-source">Source</div>
+                            </div>
+                            <div class="history-scoreboard-row" data-for="r : detail_ranks">
+                                <div class="accounts-detail-col-playlist value">{{r.playlist_label}}</div>
+                                <div class="accounts-detail-col-tier" data-style-color="r.tier_color">{{r.tier}}</div>
+                                <div class="accounts-detail-col-mmr mono">{{r.mmr}}</div>
+                                <div class="accounts-detail-col-matches mono label">{{r.matches_played}}</div>
+                                <div class="accounts-detail-col-source label">{{r.source}}</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div id="accounts-add-modal" class="history-detail-backdrop" data-if="add_open">
+                <div class="card accounts-dialog-card">
+                    <div class="accounts-dialog-header">
+                        <div class="brand-title">Add Account</div>
+                        <div class="label">Track a Rocket League account by its platform ID</div>
+                    </div>
+
+                    <div class="accounts-form-row">
+                        <div class="label" style="margin-bottom:6dp">Platform</div>
+                        <div class="row gap-xs">
+                            <button class="tab-button pill" data-action="accounts-add-platform" data-platform="epic" data-class-active="add_platform == 'epic'">Epic Games</button>
+                            <button class="tab-button pill" data-action="accounts-add-platform" data-platform="steam" data-class-active="add_platform == 'steam'">Steam</button>
+                            <button class="tab-button pill" data-action="accounts-add-platform" data-platform="playstation" data-class-active="add_platform == 'playstation'">PlayStation</button>
+                            <button class="tab-button pill" data-action="accounts-add-platform" data-platform="xbox" data-class-active="add_platform == 'xbox'">Xbox</button>
+                            <button class="tab-button pill" data-action="accounts-add-platform" data-platform="switch" data-class-active="add_platform == 'switch'">Switch</button>
+                        </div>
+                    </div>
+
+                    <div class="accounts-form-row">
+                        <div class="label" style="margin-bottom:4dp">Account ID</div>
+                        <input type="text" class="text accounts-input" style="width:100%" data-setting="accounts_add_id" data-attr-value="add_id_value" />
+                        <div class="setting-help" style="margin-top:4dp">{{add_id_help}}</div>
+                    </div>
+
+                    <div class="accounts-form-row">
+                        <div class="label" style="margin-bottom:4dp">Nickname (optional)</div>
+                        <input type="text" class="text accounts-input" style="width:100%" data-setting="accounts_add_nickname" data-attr-value="add_nickname_value" maxlength="40" />
+                    </div>
+
+                    <div class="callout warning" data-if="add_already_tracked" style="margin-top:12dp">
+                        <div>{{add_error}}</div>
+                        <button class="ghost compact" style="margin-top:6dp" data-action="accounts-add-rename-existing" data-attr-data-id="add_existing_id">Rename existing</button>
+                    </div>
+
+                    <div class="callout error" data-if="add_error != '' && !add_already_tracked" style="margin-top:12dp">{{add_error}}</div>
+
+                    <div class="row gap-sm" style="justify-content:flex-end;margin-top:16dp">
+                        <button class="ghost" data-action="accounts-add-close">Cancel</button>
+                        <button class="primary" data-action="accounts-add-submit">Add Account</button>
+                    </div>
+                </div>
+            </div>
+
+            <div id="accounts-import-modal" class="history-detail-backdrop" data-if="import_open">
+                <div class="card accounts-dialog-card">
+                    <div class="accounts-dialog-header">
+                        <div class="brand-title">Import Known Accounts</div>
+                        <div class="label">Accounts OmniStats identified on this PC before</div>
+                    </div>
+
+                    <div class="accounts-import-list">
+                        <div class="accounts-import-row header row">
+                            <div style="width:100dp">Platform</div>
+                            <div class="grow">Account ID</div>
+                        </div>
+                        <div class="accounts-import-row row" data-for="c : import_candidates">
+                            <div style="width:100dp" class="value">{{c.platform}}</div>
+                            <div class="grow mono label">{{c.masked_id}}</div>
+                        </div>
+                    </div>
+
+                    <div class="row gap-sm" style="justify-content:flex-end;margin-top:16dp">
+                        <button class="ghost" data-action="accounts-import-close">Cancel</button>
+                        <button class="primary" data-action="accounts-import-submit">{{import_submit_label}}</button>
+                    </div>
+                </div>
+            </div>
+
+        </div>
+    </div>
+</body>
+</rml>

@@ -176,7 +176,8 @@ void StatsClient::OnJsonLine(const std::string& jsonStr) {
                 std::move(effects),
                 m_dbManager,
                 m_discordManager,
-                m_mmrFetcher);
+                m_mmrFetcher,
+                m_accountManager);
         }
     } catch (const std::exception& e) {
         std::cout << "[StatsClient] Error processing line: " << e.what() << "\n";

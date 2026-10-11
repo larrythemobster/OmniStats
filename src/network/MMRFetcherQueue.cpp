@@ -23,10 +23,15 @@ using namespace MMRFetcherDetail;
 
 namespace {
     bool IsRankLookupEnabled() {
-        const ConfigData conf = Config::Read();
-        if (conf.enable_mmr_tracking) return true;
-        return conf.custom_api_enabled && (AccountClient::Instance().IsSignedIn() || !conf.custom_api_key.empty());
+        return MMRFetcher::ActiveRankProvider() != RankProvider::Unavailable;
     }
+}
+
+RankProvider MMRFetcher::ActiveRankProvider() {
+    const ConfigData conf = Config::Read();
+    const bool customApi = conf.custom_api_enabled && (AccountClient::Instance().IsSignedIn() || !conf.custom_api_key.empty());
+    if (customApi) return conf.enable_mmr_tracking ? RankProvider::OmniStatsApiWithTrackerFallback : RankProvider::OmniStatsApi;
+    return conf.enable_mmr_tracking ? RankProvider::Tracker : RankProvider::Unavailable;
 }
 
 void MMRFetcher::Start() {
@@ -178,6 +183,101 @@ void MMRFetcher::Enqueue(const std::string& primaryId, const std::string& name) 
         m_queue.push_back(std::move(request));
     }
     m_cv.notify_one();
+}
+
+TrackedEnqueueResult MMRFetcher::EnqueueTrackedAccount(const std::string& primaryId, const std::string& name) {
+    if (primaryId.empty()) return TrackedEnqueueResult::InvalidIdentity;
+    if (!IsRankLookupEnabled()) return TrackedEnqueueResult::ProviderUnavailable;
+    {
+        std::lock_guard<std::mutex> lock(m_queueMutex);
+        if (!m_trackedQueuedOrInFlight.insert(primaryId).second) return TrackedEnqueueResult::AlreadyQueued;
+        m_trackedOutcomes.erase(primaryId);
+
+        MMRRequest request;
+        request.primaryId = primaryId;
+        request.name = name;
+        request.reason = MMRRequestReason::TrackedAccount;
+        request.retriesRemaining = 2;
+        request.notBefore = std::chrono::steady_clock::now();
+        m_queue.push_back(std::move(request));
+    }
+    m_cv.notify_one();
+    return TrackedEnqueueResult::Queued;
+}
+
+void MMRFetcher::CancelTrackedAccount(const std::string& primaryId) {
+    std::lock_guard<std::mutex> lock(m_queueMutex);
+    std::erase_if(m_queue, [&](const MMRRequest& r) {
+        return r.reason == MMRRequestReason::TrackedAccount && r.primaryId == primaryId;
+    });
+    m_trackedQueuedOrInFlight.erase(primaryId);
+    m_trackedOutcomes.erase(primaryId);
+}
+
+void MMRFetcher::SetTrackedAccountSink(TrackedAccountSink sink) {
+    std::lock_guard<std::mutex> lock(m_queueMutex);
+    m_trackedSink = std::move(sink);
+}
+
+void MMRFetcher::NotifyTracked(TrackedAccountFetchEvent event) {
+    TrackedAccountSink sink;
+    {
+        std::lock_guard<std::mutex> lock(m_queueMutex);
+        sink = m_trackedSink;
+    }
+    if (sink) sink(event);
+}
+
+void MMRFetcher::NotifyTrackedRequests(const std::vector<MMRRequest>& requests, TrackedAccountFetchStatus status) {
+    for (const auto& req : requests) {
+        if (req.reason != MMRRequestReason::TrackedAccount) continue;
+        if (status == TrackedAccountFetchStatus::Fetching) {
+            std::lock_guard<std::mutex> lock(m_queueMutex);
+            m_trackedOutcomes.erase(req.primaryId);
+        }
+        TrackedAccountFetchEvent event;
+        event.primaryId = req.primaryId;
+        event.status = status;
+        NotifyTracked(std::move(event));
+    }
+}
+
+void MMRFetcher::NotifyTrackedRetry(const MMRRequest& req, std::chrono::steady_clock::duration delay, bool rateLimited) {
+    if (req.reason != MMRRequestReason::TrackedAccount) return;
+    {
+        std::lock_guard<std::mutex> lock(m_queueMutex);
+        m_trackedOutcomes.erase(req.primaryId);
+    }
+    TrackedAccountFetchEvent event;
+    event.primaryId = req.primaryId;
+    event.status = rateLimited ? TrackedAccountFetchStatus::RateLimited : TrackedAccountFetchStatus::Retrying;
+    event.retryAt = std::chrono::system_clock::now() +
+                    std::chrono::duration_cast<std::chrono::system_clock::duration>(delay);
+    NotifyTracked(std::move(event));
+}
+
+void MMRFetcher::RecordTrackedOutcome(const MMRRequest& req, TrackedAccountFetchEvent event) {
+    if (req.reason != MMRRequestReason::TrackedAccount) return;
+    event.primaryId = req.primaryId;
+    std::lock_guard<std::mutex> lock(m_queueMutex);
+    m_trackedOutcomes[req.primaryId] = std::move(event);
+}
+
+void MMRFetcher::PublishFetchFailure(const MMRRequest& req, TrackedAccountFetchStatus status, std::string detail) {
+    if (req.reason == MMRRequestReason::TrackedAccount) {
+        TrackedAccountFetchEvent event;
+        event.status = status;
+        event.detail = std::move(detail);
+        RecordTrackedOutcome(req, std::move(event));
+        return;
+    }
+    std::unique_lock<std::shared_mutex> gameLock(m_state->game.mutex);
+    if (m_state->game.roster.count(req.primaryId)) {
+        auto& player = m_state->game.roster[req.primaryId];
+        player.fetched = true;
+        player.fetchFailed = true;
+        m_state->game.version++;
+    }
 }
 
 void MMRFetcher::EnqueuePostMatch(const std::string& primaryId,
@@ -385,11 +485,11 @@ void MMRFetcher::WorkerLoop() {
 
         auto postMatchIt = std::find_if(
             m_queue.begin(), m_queue.end(),
-            [](const MMRRequest& r) {
-                return r.reason == MMRRequestReason::PostMatch;
+            [&](const MMRRequest& r) {
+                return r.reason == MMRRequestReason::PostMatch && r.notBefore <= now;
             });
 
-        if (postMatchIt != m_queue.end() && postMatchIt->notBefore <= now) {
+        if (postMatchIt != m_queue.end()) {
             MMRRequest req = std::move(*postMatchIt);
             m_queue.erase(postMatchIt);
             req.sessionGeneration = m_state->game.sessionGeneration.load();
@@ -403,6 +503,15 @@ void MMRFetcher::WorkerLoop() {
             continue;
         }
 
+        const auto earliestWakeAt = [this]() {
+            auto earliestIt = std::min_element(
+                m_queue.begin(), m_queue.end(),
+                [](const MMRRequest& lhs, const MMRRequest& rhs) {
+                    return lhs.notBefore < rhs.notBefore;
+                });
+            return earliestIt == m_queue.end() ? std::chrono::steady_clock::time_point::max() : earliestIt->notBefore;
+        };
+
         if (!customApiActive) {
             if (m_rateLimitedUntil > now &&
                 !m_useCustomApiFallback.load()) {
@@ -411,15 +520,9 @@ void MMRFetcher::WorkerLoop() {
                 continue;
             }
 
-            auto nextIt = std::min_element(
-                m_queue.begin(), m_queue.end(),
-                [](const MMRRequest& lhs, const MMRRequest& rhs) {
-                    return lhs.notBefore < rhs.notBefore;
-                });
-
-            if (nextIt->notBefore > now) {
-                const auto wakeAt = nextIt->notBefore;
-                m_cv.wait_until(lock, wakeAt);
+            auto nextIt = NextSingleRequestLocked(now);
+            if (nextIt == m_queue.end()) {
+                m_cv.wait_until(lock, earliestWakeAt());
                 continue;
             }
 
@@ -428,6 +531,7 @@ void MMRFetcher::WorkerLoop() {
             req.sessionGeneration = m_state->game.sessionGeneration.load();
             lock.unlock();
 
+            NotifyTrackedRequests({req}, TrackedAccountFetchStatus::Fetching);
             const bool requeued = FetchProfile(req);
             if (!requeued) FinishRequest(req);
 
@@ -442,93 +546,111 @@ void MMRFetcher::WorkerLoop() {
             continue;
         }
 
-        auto firstEligibleIt = std::find_if(
-            m_queue.begin(), m_queue.end(),
-            [&](const MMRRequest& r) {
-                return r.reason == MMRRequestReason::Roster && r.notBefore <= now;
-            });
-
-        if (firstEligibleIt == m_queue.end()) {
-            auto earliestIt = std::min_element(
-                m_queue.begin(), m_queue.end(),
-                [](const MMRRequest& lhs, const MMRRequest& rhs) {
-                    return lhs.notBefore < rhs.notBefore;
-                });
-            if (earliestIt != m_queue.end()) {
-                m_cv.wait_until(lock, earliestIt->notBefore);
-            }
+        const auto batchReason = NextBatchReasonLocked(now);
+        if (!batchReason) {
+            m_cv.wait_until(lock, earliestWakeAt());
             continue;
         }
 
+        auto firstEligibleIt = std::find_if(
+            m_queue.begin(), m_queue.end(),
+            [&](const MMRRequest& r) {
+                return r.reason == *batchReason && r.notBefore <= now;
+            });
         const std::string targetPlaylist = firstEligibleIt->playlist;
-        size_t matchingCount = 0;
-        for (const auto& r : m_queue) {
-            if (r.reason == MMRRequestReason::Roster && r.playlist == targetPlaylist && r.notBefore <= now) {
-                if (++matchingCount >= kMaxCustomApiBatchSize) break;
+        const auto countMatching = [&](std::chrono::steady_clock::time_point at) {
+            size_t count = 0;
+            for (const auto& r : m_queue) {
+                if (r.reason == *batchReason && r.playlist == targetPlaylist && r.notBefore <= at) {
+                    if (++count >= kMaxCustomApiBatchSize) break;
+                }
             }
-        }
+            return count;
+        };
+        const auto higherPriorityReady = [&](std::chrono::steady_clock::time_point at) {
+            return std::any_of(m_queue.begin(), m_queue.end(), [&](const MMRRequest& r) {
+                if (r.notBefore > at) return false;
+                if (r.reason == MMRRequestReason::PostMatch) return true;
+                return *batchReason == MMRRequestReason::TrackedAccount && r.reason == MMRRequestReason::Roster;
+            });
+        };
 
-        if (matchingCount < kMaxCustomApiBatchSize) {
+        if (countMatching(now) < kMaxCustomApiBatchSize) {
             const auto coalesceDeadline = now + kBatchCoalesceWindow;
             m_cv.wait_until(lock, coalesceDeadline, [&] {
                 if (!m_isRunning) return true;
-                for (const auto& r : m_queue) {
-                    if (r.reason == MMRRequestReason::PostMatch && r.notBefore <= std::chrono::steady_clock::now()) {
-                        return true;
-                    }
-                }
-                size_t count = 0;
                 const auto curTime = std::chrono::steady_clock::now();
-                for (const auto& r : m_queue) {
-                    if (r.reason == MMRRequestReason::Roster && r.playlist == targetPlaylist && r.notBefore <= curTime) {
-                        if (++count >= kMaxCustomApiBatchSize) return true;
-                    }
-                }
-                return false;
+                return higherPriorityReady(curTime) || countMatching(curTime) >= kMaxCustomApiBatchSize;
             });
 
             if (!m_isRunning && m_queue.empty()) break;
-
-            auto readyPostMatch = std::find_if(
-                m_queue.begin(), m_queue.end(),
-                [](const MMRRequest& r) {
-                    return r.reason == MMRRequestReason::PostMatch && r.notBefore <= std::chrono::steady_clock::now();
-                });
-            if (readyPostMatch != m_queue.end()) {
-                continue;
-            }
+            if (higherPriorityReady(std::chrono::steady_clock::now())) continue;
         }
 
-        AssembledBatch batch;
-        batch.playlist = targetPlaylist;
-        batch.playlistId = CustomApiPlaylistIdForName(targetPlaylist);
-        const auto drainNow = std::chrono::steady_clock::now();
-        const uint64_t sessionGen = m_state->game.sessionGeneration.load();
-
-        for (auto it = m_queue.begin(); it != m_queue.end() && batch.requests.size() < kMaxCustomApiBatchSize;) {
-            if (it->reason == MMRRequestReason::Roster && it->playlist == targetPlaylist && it->notBefore <= drainNow) {
-                MMRRequest item = std::move(*it);
-                item.sessionGeneration = sessionGen;
-                batch.requests.push_back(std::move(item));
-                it = m_queue.erase(it);
-            } else {
-                ++it;
-            }
-        }
-
+        AssembledBatch batch = DrainBatchLocked(*batchReason, targetPlaylist, std::chrono::steady_clock::now());
         lock.unlock();
 
         if (!batch.requests.empty()) {
+            NotifyTrackedRequests(batch.requests, TrackedAccountFetchStatus::Fetching);
             ProcessCustomApiBatch(batch);
         }
     }
+}
+
+std::deque<MMRRequest>::iterator MMRFetcher::NextSingleRequestLocked(std::chrono::steady_clock::time_point now) {
+    for (const auto reason : {MMRRequestReason::Roster, MMRRequestReason::TrackedAccount}) {
+        auto best = m_queue.end();
+        for (auto it = m_queue.begin(); it != m_queue.end(); ++it) {
+            if (it->reason != reason || it->notBefore > now) continue;
+            if (best == m_queue.end() || it->notBefore < best->notBefore) best = it;
+        }
+        if (best != m_queue.end()) return best;
+    }
+    return m_queue.end();
+}
+
+std::optional<MMRRequestReason> MMRFetcher::NextBatchReasonLocked(std::chrono::steady_clock::time_point now) const {
+    for (const auto reason : {MMRRequestReason::Roster, MMRRequestReason::TrackedAccount}) {
+        const bool ready = std::any_of(m_queue.begin(), m_queue.end(), [&](const MMRRequest& r) {
+            return r.reason == reason && r.notBefore <= now;
+        });
+        if (ready) return reason;
+    }
+    return std::nullopt;
+}
+
+AssembledBatch MMRFetcher::DrainBatchLocked(MMRRequestReason reason,
+                                            const std::string& playlist,
+                                            std::chrono::steady_clock::time_point now) {
+    AssembledBatch batch;
+    batch.playlist = playlist;
+    batch.playlistId = CustomApiPlaylistIdForName(playlist);
+    const uint64_t sessionGen = m_state->game.sessionGeneration.load();
+    for (auto it = m_queue.begin(); it != m_queue.end() && batch.requests.size() < kMaxCustomApiBatchSize;) {
+        if (it->reason == reason && it->playlist == playlist && it->notBefore <= now) {
+            MMRRequest item = std::move(*it);
+            item.sessionGeneration = sessionGen;
+            batch.requests.push_back(std::move(item));
+            it = m_queue.erase(it);
+        } else {
+            ++it;
+        }
+    }
+    return batch;
 }
 
 bool MMRFetcher::ScheduleRetry(MMRRequest req, std::chrono::milliseconds delay, const char* reason) {
     if (!m_isRunning || req.retriesRemaining <= 0) return false;
 
     --req.retriesRemaining;
-    req.notBefore = std::chrono::steady_clock::now() + delay;
+    const auto now = std::chrono::steady_clock::now();
+    req.notBefore = now + delay;
+    bool rateLimited = false;
+    {
+        std::lock_guard<std::mutex> lock(m_queueMutex);
+        rateLimited = m_rateLimitedUntil > now;
+    }
+    NotifyTrackedRetry(req, delay, rateLimited);
     {
         std::lock_guard<std::mutex> lock(m_queueMutex);
         m_queue.push_back(std::move(req));
@@ -541,6 +663,7 @@ bool MMRFetcher::ScheduleRetry(MMRRequest req, std::chrono::milliseconds delay, 
 
 void MMRFetcher::FinishRequest(const MMRRequest& req) {
     bool needsProvisionalPoint = false;
+    std::optional<TrackedAccountFetchEvent> trackedOutcome;
     {
         std::lock_guard<std::mutex> lock(m_queueMutex);
         if (req.reason == MMRRequestReason::PostMatch) {
@@ -549,10 +672,23 @@ void MMRFetcher::FinishRequest(const MMRRequest& req) {
             needsProvisionalPoint =
                 recordIt != m_postMatchRecordsByGuid.end() &&
                 !recordIt->second.graphPointAppended;
+        } else if (req.reason == MMRRequestReason::TrackedAccount) {
+            m_trackedQueuedOrInFlight.erase(req.primaryId);
+            auto outcomeIt = m_trackedOutcomes.find(req.primaryId);
+            if (outcomeIt != m_trackedOutcomes.end()) {
+                trackedOutcome = std::move(outcomeIt->second);
+                m_trackedOutcomes.erase(outcomeIt);
+            } else {
+                trackedOutcome = TrackedAccountFetchEvent{};
+                trackedOutcome->primaryId = req.primaryId;
+                trackedOutcome->status = TrackedAccountFetchStatus::Failed;
+                trackedOutcome->detail = "The rank source returned no usable data.";
+            }
         } else {
             m_rosterQueuedOrInFlight.erase(req.primaryId);
         }
     }
+    if (trackedOutcome) NotifyTracked(std::move(*trackedOutcome));
     if (needsProvisionalPoint) {
         EnsureProvisionalPoint(req, req.previousMmr);
     }

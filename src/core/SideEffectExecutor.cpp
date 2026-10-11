@@ -4,6 +4,7 @@
 #include "database/DatabaseManager.hpp"
 #include "network/DiscordManager.hpp"
 #include "network/MMRFetcher.hpp"
+#include "core/AccountManager.hpp"
 #include <iostream>
 #include <utility>
 #include <windows.h>
@@ -57,7 +58,12 @@ void SideEffectExecutor::Stop() {
 void SideEffectExecutor::Execute(SideEffects&& effects,
                                  std::shared_ptr<DatabaseManager> dbManager,
                                  std::shared_ptr<DiscordManager> discordManager,
-                                 std::shared_ptr<MMRFetcher> mmrFetcher) {
+                                 std::shared_ptr<MMRFetcher> mmrFetcher,
+                                 std::shared_ptr<AccountManagerService> accountManager) {
+    if (effects.confirmedLocalAccount && accountManager) {
+        accountManager->ObserveLocalAccount(effects.confirmedLocalAccount->primaryId,
+                                            effects.confirmedLocalAccount->name);
+    }
     if (effects.pushDiscord && discordManager) {
         discordManager->PushPresenceUpdate(effects.discordSnapshot);
     }

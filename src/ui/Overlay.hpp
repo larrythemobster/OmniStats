@@ -13,12 +13,15 @@
 
 class DatabaseManager;
 class RmlUiController;
+class AccountManagerService;
 
 class Overlay {
   public:
     friend LRESULT WINAPI WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
 
-    Overlay(std::shared_ptr<SessionState> state, std::shared_ptr<DatabaseManager> dbManager = nullptr);
+    Overlay(std::shared_ptr<SessionState> state,
+            std::shared_ptr<DatabaseManager> dbManager = nullptr,
+            std::shared_ptr<AccountManagerService> accounts = nullptr);
     ~Overlay();
 
     bool Initialize();
@@ -36,6 +39,7 @@ class Overlay {
 
     std::shared_ptr<SessionState> m_state;
     std::shared_ptr<DatabaseManager> m_dbManager;
+    std::shared_ptr<AccountManagerService> m_accounts;
     ConfigData m_frameConfig;
 
     std::unique_ptr<OverlayWindow> m_window;

@@ -473,6 +473,15 @@ void RmlUiController::HandleInput(Rml::Element* target) {
         m_history.SetNameSearch(value);
         TriggerHistoryQuery(false);
         return;
+    } else if (key == "accounts_add_id") {
+        m_accounts.SetAddAccountId(value);
+        return;
+    } else if (key == "accounts_add_nickname") {
+        m_accounts.SetAddNickname(value);
+        return;
+    } else if (key == "accounts_rename_input") {
+        m_accounts.SetRenameValue(value);
+        return;
     } else if (key.rfind("theme_", 0) == 0) {
         std::string_view componentColorKey;
         char component = 0;
@@ -544,6 +553,7 @@ void RmlUiController::HandleChange(Rml::Element* target, Rml::Event& event) {
     if (event.GetType() != "blur" &&
         (key == "ballchasing_token" || key == "custom_api_key" || key == "statsapi_path" ||
          key == "history_with" || key == "history_against" || key == "history_arena" || key == "history_search" ||
+         key == "accounts_add_id" || key == "accounts_add_nickname" || key == "accounts_rename_input" ||
          key.rfind("theme_", 0) == 0)) {
         HandleInput(target);
         return;

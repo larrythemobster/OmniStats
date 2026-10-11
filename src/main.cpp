@@ -8,6 +8,7 @@
 #include <thread>
 #include <ctime>
 #include "core/Config.hpp"
+#include "core/AccountManager.hpp"
 #include "core/InputManager.hpp"
 #include "core/SessionState.hpp"
 #include "core/Storage.hpp"
@@ -266,7 +267,10 @@ int main(int argc, char* argv[]) {
     std::shared_ptr<MMRFetcher> mmrFetcher =
         std::make_shared<MMRFetcher>(g_state, dbManager);
     mmrFetcher->Start();
+    auto accountManager = std::make_shared<AccountManagerService>(dbManager, mmrFetcher);
+    accountManager->Start();
     StatsClient statsClient(g_state, mmrFetcher, dbManager);
+    statsClient.SetAccountManager(accountManager);
     statsClient.Start();
     std::shared_ptr<DiscordManager> discordManager;
     if (Config::Read().discord_rpc_enabled) {
@@ -282,7 +286,7 @@ int main(int argc, char* argv[]) {
         uploader = std::make_unique<ReplayUploader>(g_state, dbManager);
         uploader->Start();
     }
-    Overlay overlay(g_state, dbManager);
+    Overlay overlay(g_state, dbManager, accountManager);
     if (!overlay.Initialize()) {
         RemoteConfig::Instance().Shutdown();
         TelemetryManager::Shutdown();
@@ -298,6 +302,8 @@ int main(int argc, char* argv[]) {
     std::cout << "[Main] StatsClient stopped.\n";
     mmrFetcher->Stop();
     std::cout << "[Main] MMRFetcher stopped.\n";
+    accountManager->Stop();
+    std::cout << "[Main] AccountManager stopped.\n";
     if (discordManager) {
         discordManager->Shutdown();
         std::cout << "[Main] DiscordManager stopped.\n";

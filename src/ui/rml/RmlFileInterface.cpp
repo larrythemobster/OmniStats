@@ -27,6 +27,7 @@ std::string RmlFileInterface::ResourceNameForPath(const std::string& rawPath) {
     if (path == "onboarding.rml") return "RML_ONBOARDING";
     if (path == "insights.rml") return "RML_INSIGHTS";
     if (path == "history.rml") return "RML_HISTORY";
+    if (path == "accounts.rml") return "RML_ACCOUNTS";
     return {};
 }
 

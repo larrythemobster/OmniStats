@@ -11,6 +11,7 @@
 class DatabaseManager;
 class DiscordManager;
 class MMRFetcher;
+class AccountManagerService;
 
 class SideEffectExecutor {
   public:
@@ -22,7 +23,8 @@ class SideEffectExecutor {
     void Execute(SideEffects&& effects,
                  std::shared_ptr<DatabaseManager> dbManager,
                  std::shared_ptr<DiscordManager> discordManager,
-                 std::shared_ptr<MMRFetcher> mmrFetcher);
+                 std::shared_ptr<MMRFetcher> mmrFetcher,
+                 std::shared_ptr<AccountManagerService> accountManager = nullptr);
 
   private:
     std::queue<std::function<void()>> m_jobs;

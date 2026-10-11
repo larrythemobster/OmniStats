@@ -387,13 +387,8 @@ void MMRFetcher::ProcessCustomApiBatch(const AssembledBatch& batch) {
                 const bool requeued = FetchProfileTracker(req);
                 if (!requeued) FinishRequest(req);
             } else {
-                std::unique_lock<std::shared_mutex> gameLock(m_state->game.mutex);
-                if (m_state->game.roster.count(req.primaryId)) {
-                    auto& p = m_state->game.roster[req.primaryId];
-                    p.fetched = true;
-                    p.fetchFailed = true;
-                    m_state->game.version++;
-                }
+                PublishFetchFailure(req, TrackedAccountFetchStatus::AuthRequired,
+                                    "The rank API rejected the request. Sign in again or check the API key in Settings > Integrations.");
                 FinishRequest(req);
             }
         }
@@ -411,13 +406,10 @@ void MMRFetcher::ProcessCustomApiBatch(const AssembledBatch& batch) {
         }
         for (const auto& req : batch.requests) {
             if (!ScheduleRetry(req, delay, reason)) {
-                std::unique_lock<std::shared_mutex> gameLock(m_state->game.mutex);
-                if (m_state->game.roster.count(req.primaryId)) {
-                    auto& p = m_state->game.roster[req.primaryId];
-                    p.fetched = true;
-                    p.fetchFailed = true;
-                    m_state->game.version++;
-                }
+                const bool rateLimited = res.httpCode == 429;
+                PublishFetchFailure(req,
+                                    rateLimited ? TrackedAccountFetchStatus::RateLimited : TrackedAccountFetchStatus::Failed,
+                                    rateLimited ? "The rank API is rate limiting requests." : "The rank API is temporarily unavailable.");
                 FinishRequest(req);
             }
         }
@@ -430,13 +422,11 @@ void MMRFetcher::ProcessCustomApiBatch(const AssembledBatch& batch) {
                 const bool requeued = FetchProfileTracker(req);
                 if (!requeued) FinishRequest(req);
             } else {
-                std::unique_lock<std::shared_mutex> gameLock(m_state->game.mutex);
-                if (m_state->game.roster.count(req.primaryId)) {
-                    auto& p = m_state->game.roster[req.primaryId];
-                    p.fetched = true;
-                    p.fetchFailed = true;
-                    m_state->game.version++;
-                }
+                const TrackedAccountFetchStatus status =
+                    res.httpCode == 404                                          ? TrackedAccountFetchStatus::NotFound
+                    : res.httpResult == CustomApiFetchResult::DisabledOrNotReady ? TrackedAccountFetchStatus::ProviderUnavailable
+                                                                                 : TrackedAccountFetchStatus::Failed;
+                PublishFetchFailure(req, status);
                 FinishRequest(req);
             }
         }
@@ -453,13 +443,13 @@ void MMRFetcher::ProcessCustomApiBatch(const AssembledBatch& batch) {
                 const bool requeued = FetchProfileTracker(req);
                 if (!requeued) FinishRequest(req);
             } else {
-                std::unique_lock<std::shared_mutex> gameLock(m_state->game.mutex);
-                if (m_state->game.roster.count(req.primaryId)) {
-                    auto& p = m_state->game.roster[req.primaryId];
-                    p.fetched = true;
-                    p.fetchFailed = true;
-                    m_state->game.version++;
+                TrackedAccountFetchStatus status = TrackedAccountFetchStatus::Failed;
+                if (pRes.status == BatchPlayerStatus::NotFound) {
+                    status = TrackedAccountFetchStatus::NotFound;
+                } else if (pRes.errorCode == "no_ranked_skills") {
+                    status = TrackedAccountFetchStatus::NoRankedData;
                 }
+                PublishFetchFailure(req, status, pRes.errorMessage);
                 FinishRequest(req);
             }
         }
@@ -519,29 +509,22 @@ bool MMRFetcher::FetchProfile(MMRRequest req) {
         }
         if (customResult == CustomApiFetchResult::AuthFailure) {
             m_useCustomApiFallback.store(false);
+            if (req.reason == MMRRequestReason::TrackedAccount && !config.enable_mmr_tracking) {
+                PublishFetchFailure(req, TrackedAccountFetchStatus::AuthRequired,
+                                    "The rank API rejected the request. Sign in again or check the API key in Settings > Integrations.");
+                return false;
+            }
         } else if (!config.enable_mmr_tracking || !signedInPrimary) {
             if (customResult == CustomApiFetchResult::TransientError) {
                 if (ScheduleRetry(req, kTransientRetryDelay, "transient custom API failure")) {
                     return true;
                 }
-                std::unique_lock<std::shared_mutex> gameLock(m_state->game.mutex);
-                if (m_state->game.roster.count(req.primaryId)) {
-                    auto& player = m_state->game.roster[req.primaryId];
-                    player.fetched = true;
-                    player.fetchFailed = true;
-                    m_state->game.version++;
-                }
+                PublishFetchFailure(req, TrackedAccountFetchStatus::Failed, "The rank API is temporarily unavailable.");
                 return false;
             } else if (customResult == CustomApiFetchResult::UnusableData) {
                 const auto now = std::chrono::steady_clock::now();
                 if (!config.enable_mmr_tracking || m_rateLimitedUntil > now) {
-                    std::unique_lock<std::shared_mutex> gameLock(m_state->game.mutex);
-                    if (m_state->game.roster.count(req.primaryId)) {
-                        auto& player = m_state->game.roster[req.primaryId];
-                        player.fetched = true;
-                        player.fetchFailed = true;
-                        m_state->game.version++;
-                    }
+                    PublishFetchFailure(req, TrackedAccountFetchStatus::Failed, "The rank API returned no usable data.");
                     return false;
                 }
             }
@@ -552,13 +535,7 @@ bool MMRFetcher::FetchProfile(MMRRequest req) {
                     ScheduleRetry(req, kTransientRetryDelay, "transient custom API failure")) {
                     return true;
                 }
-                std::unique_lock<std::shared_mutex> gameLock(m_state->game.mutex);
-                if (m_state->game.roster.count(req.primaryId)) {
-                    auto& player = m_state->game.roster[req.primaryId];
-                    player.fetched = true;
-                    player.fetchFailed = true;
-                    m_state->game.version++;
-                }
+                PublishFetchFailure(req, TrackedAccountFetchStatus::RateLimited, "Rank lookups are paused by a rate limit.");
                 return false;
             }
         }
@@ -574,18 +551,12 @@ bool MMRFetcher::FetchProfileTracker(MMRRequest req) {
         if (req.reason == MMRRequestReason::PostMatch) {
             EnsureProvisionalPoint(req, req.previousMmr);
         }
-        std::unique_lock<std::shared_mutex> gameLock(m_state->game.mutex);
-        if (m_state->game.roster.count(req.primaryId)) {
-            auto& player = m_state->game.roster[req.primaryId];
-            player.fetched = true;
-            player.fetchFailed = true;
-            m_state->game.version++;
-        }
+        PublishFetchFailure(req, TrackedAccountFetchStatus::ProviderUnavailable, "No rank source is enabled.");
         return false;
     }
     const auto localCustomApiFallback = [&]() -> std::optional<bool> {
         if (tryCustomApiFirst) return std::nullopt;
-        {
+        if (req.reason != MMRRequestReason::TrackedAccount) {
             std::shared_lock<std::shared_mutex> gameLock(m_state->game.mutex);
             if (req.primaryId != m_state->game.myPrimaryId) return std::nullopt;
         }
@@ -598,11 +569,24 @@ bool MMRFetcher::FetchProfileTracker(MMRRequest req) {
     if (!ci.IsReady()) {
         std::cout << "[MMRFetcher] Skipping " << PrivacyLog::Sensitive(req.name, "player name")
                   << ": curl-impersonate not loaded\n";
+        RecordTrackedOutcome(req, TrackedAccountFetchEvent{.status = TrackedAccountFetchStatus::ProviderUnavailable,
+                                                           .detail = "The rank lookup component is not available."});
         return false;
     }
 
     const std::string plat = GetTRNPlatform(req.primaryId);
-    if (plat.empty()) return false;
+    if (plat.empty()) {
+        RecordTrackedOutcome(req, TrackedAccountFetchEvent{.status = TrackedAccountFetchStatus::Unsupported,
+                                                           .detail = "Tracker does not support this platform."});
+        return false;
+    }
+    if (req.reason == MMRRequestReason::TrackedAccount && plat != "steam" &&
+        req.name.find_first_not_of(" \t") == std::string::npos) {
+        if (const auto requeued = localCustomApiFallback()) return *requeued;
+        RecordTrackedOutcome(req, TrackedAccountFetchEvent{.status = TrackedAccountFetchStatus::Unsupported,
+                                                           .detail = "Tracker looks up this platform by in-game name. Play once on this account with OmniStats running, or use the OmniStats rank API."});
+        return false;
+    }
 
     void* ci_curl = ci.easy_init();
     if (!ci_curl) return false;
@@ -708,6 +692,8 @@ bool MMRFetcher::FetchProfileTracker(MMRRequest req) {
 
             size_t strike = 0;
             std::chrono::steady_clock::duration lockout{};
+            const std::optional<MMRRequest> trackedReq =
+                req.reason == MMRRequestReason::TrackedAccount ? std::optional<MMRRequest>(req) : std::nullopt;
             {
                 std::lock_guard<std::mutex> lock(m_queueMutex);
                 strike = ++m_forbiddenStrikeCount;
@@ -727,6 +713,7 @@ bool MMRFetcher::FetchProfileTracker(MMRRequest req) {
                 << strike << "; pausing all Tracker requests for "
                 << std::chrono::duration_cast<std::chrono::seconds>(lockout).count()
                 << " seconds.\n";
+            if (trackedReq) NotifyTrackedRetry(*trackedReq, lockout, true);
             m_cv.notify_one();
             return true;
         } else if (httpCode == 429) {
@@ -746,13 +733,11 @@ bool MMRFetcher::FetchProfileTracker(MMRRequest req) {
         }
 
         if (const auto requeued = localCustomApiFallback()) return *requeued;
-        std::unique_lock<std::shared_mutex> gameLock(m_state->game.mutex);
-        if (m_state->game.roster.count(req.primaryId)) {
-            auto& player = m_state->game.roster[req.primaryId];
-            player.fetched = true;
-            player.fetchFailed = true;
-            m_state->game.version++;
-        }
+        const TrackedAccountFetchStatus status =
+            httpCode == 404   ? TrackedAccountFetchStatus::NotFound
+            : httpCode == 429 ? TrackedAccountFetchStatus::RateLimited
+                              : TrackedAccountFetchStatus::Failed;
+        PublishFetchFailure(req, status, "Tracker returned HTTP " + std::to_string(httpCode) + ".");
         return false;
     }
 
@@ -890,13 +875,7 @@ bool MMRFetcher::FetchProfileTracker(MMRRequest req) {
         if (ScheduleRetry(req, kTransientRetryDelay, "invalid Tracker response")) return true;
         if (const auto requeued = localCustomApiFallback()) return *requeued;
 
-        std::unique_lock<std::shared_mutex> gameLock(m_state->game.mutex);
-        if (m_state->game.roster.count(req.primaryId)) {
-            auto& player = m_state->game.roster[req.primaryId];
-            player.fetched = true;
-            player.fetchFailed = true;
-            m_state->game.version++;
-        }
+        PublishFetchFailure(req, TrackedAccountFetchStatus::Failed, "Tracker returned an invalid response.");
         return false;
     }
 }

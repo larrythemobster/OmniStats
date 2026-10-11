@@ -30,7 +30,7 @@ bool RmlUiController::WantsAttention() const {
     // A recap captured when Rocket League closed is only opened by Update(),
     // and the host skips Update() while the window is hidden, so the pending
     // flag itself has to keep the window drawn.
-    return m_insightsVisible || m_historyVisible || m_onboardingVisible || (m_state && m_state->ui.showSessionRecap.load());
+    return m_insightsVisible || m_historyVisible || m_accountsVisible || m_onboardingVisible || (m_state && m_state->ui.showSessionRecap.load());
 }
 
 void RmlUiController::OpenInsights() {
@@ -40,24 +40,31 @@ void RmlUiController::OpenInsights() {
 void RmlUiController::OpenHistory() {
     ShowHistory();
 }
+void RmlUiController::OpenAccounts() {
+    ShowAccounts();
+}
 
 void RmlUiController::LoadViewDocuments() {
     if (!m_context) return;
     m_insightsDoc = m_context->LoadDocument("res://insights.rml");
     m_onboardingDoc = m_context->LoadDocument("res://onboarding.rml");
     m_historyDoc = m_context->LoadDocument("res://history.rml");
+    m_accountsDoc = m_context->LoadDocument("res://accounts.rml");
     if (m_insightsVisible && m_insightsDoc) m_insightsDoc->Show();
     if (m_onboardingVisible && m_onboardingDoc) m_onboardingDoc->Show();
     if (m_historyVisible && m_historyDoc) m_historyDoc->Show();
+    if (m_accountsVisible && m_accountsDoc) m_accountsDoc->Show();
 }
 
 void RmlUiController::CloseViewDocuments() {
     if (m_insightsDoc) m_insightsDoc->Close();
     if (m_onboardingDoc) m_onboardingDoc->Close();
     if (m_historyDoc) m_historyDoc->Close();
+    if (m_accountsDoc) m_accountsDoc->Close();
     m_insightsDoc = nullptr;
     m_onboardingDoc = nullptr;
     m_historyDoc = nullptr;
+    m_accountsDoc = nullptr;
     m_lastOnboardingIdentityRml.clear();
 }
 
@@ -150,6 +157,79 @@ void RmlUiController::HideHistory() {
     m_historyVisible = false;
     m_history.CloseDetail();
     m_renderDirty = true;
+}
+void RmlUiController::ShowAccounts() {
+    if (!m_accountsDoc) return;
+    if (!m_accountsVisible) {
+        m_accountsDoc->Show();
+        m_accountsVisible = true;
+        if (m_accountsService) {
+            m_accountsService->RefreshStale();
+        }
+    }
+    m_accountsDoc->PullToFront();
+    if (m_onboardingVisible && m_onboardingDoc) m_onboardingDoc->PullToFront();
+    RefreshAccounts(true);
+    m_renderDirty = true;
+}
+
+void RmlUiController::HideAccounts() {
+    if (m_accountsDoc) m_accountsDoc->Hide();
+    m_accountsVisible = false;
+    m_accounts.CloseDetail();
+    m_accounts.CloseAdd();
+    m_accounts.CloseImport();
+    m_renderDirty = true;
+}
+
+void RmlUiController::RefreshAccounts(bool force) {
+    if (!m_accountsService) {
+        m_accounts.SetUnavailable(true);
+        m_renderDirty = true;
+        return;
+    }
+    const uint64_t v = m_accountsService->Version();
+    const auto nowSteady = std::chrono::steady_clock::now();
+    const bool timeToReRender = (nowSteady - m_lastAccountsRelativeRender) >= std::chrono::seconds(30);
+    const std::string effectivePrimary = m_snap.myPrimaryId.empty() ? m_config.last_primary_id : m_snap.myPrimaryId;
+    std::string canonicalActive = TrackedAccounts::CanonicalPrimaryId(effectivePrimary);
+    if (!force && v == m_lastAccountsVersion && !timeToReRender && canonicalActive == m_lastAccountsActive) {
+        return;
+    }
+    m_lastAccountsVersion = v;
+    m_lastAccountsRelativeRender = nowSteady;
+    m_lastAccountsActive = canonicalActive;
+
+    auto snapshot = m_accountsService->GetSnapshot();
+    auto candidates = m_accountsService->ImportCandidates();
+    m_accounts.UpdateSnapshot(snapshot, canonicalActive, candidates.size());
+    m_renderDirty = true;
+}
+
+void RmlUiController::RefreshAccountRow(const std::string& primaryId) {
+    if (!m_accountsService) return;
+    auto res = m_accountsService->Refresh(primaryId);
+    switch (res) {
+    case AccountManagerService::RefreshRequest::Queued:
+        ShowToast("Rank refresh queued.");
+        break;
+    case AccountManagerService::RefreshRequest::AlreadyQueued:
+        ShowToast("Rank refresh already in progress.");
+        break;
+    case AccountManagerService::RefreshRequest::CoolingDown:
+        ShowToast("Refreshed recently; try again in a minute.");
+        break;
+    case AccountManagerService::RefreshRequest::ProviderUnavailable:
+        ShowToast("No rank source is configured.");
+        break;
+    case AccountManagerService::RefreshRequest::Unsupported:
+        ShowToast("Rank refresh is unsupported for this account.");
+        break;
+    case AccountManagerService::RefreshRequest::UnknownAccount:
+        ShowToast("Account not found.", true);
+        break;
+    }
+    RefreshAccounts(true);
 }
 
 void RmlUiController::TriggerHistoryQuery(bool append) {
@@ -374,6 +454,155 @@ bool RmlUiController::HandleViewAction(const std::string& action, Rml::Element* 
             m_systemInterface.SetClipboardText(text);
             ShowToast("Copied match summary to clipboard.");
         }
+    } else if (action == "accounts-open") {
+        ShowAccounts();
+        return true;
+    } else if (action == "accounts-close") {
+        HideAccounts();
+        return true;
+    } else if (action == "accounts-refresh-all") {
+        if (m_accountsService) {
+            size_t count = m_accountsService->RefreshAll();
+            if (count > 0) {
+                ShowToast("Queued refresh for " + std::to_string(count) + (count == 1 ? " account." : " accounts."));
+            } else {
+                ShowToast("Refreshed recently; try again in a minute.");
+            }
+            RefreshAccounts(true);
+        }
+        return true;
+    } else if (action == "accounts-refresh-row") {
+        const std::string id = Attribute(target, "data-id");
+        if (!id.empty()) RefreshAccountRow(id);
+        return true;
+    } else if (action == "accounts-column-set") {
+        const std::string set = Attribute(target, "data-set");
+        if (!set.empty()) {
+            m_accounts.SetColumnSet(set);
+            m_renderDirty = true;
+        }
+        return true;
+    } else if (action == "accounts-sort") {
+        const std::string sort = Attribute(target, "data-sort");
+        if (!sort.empty()) {
+            m_accounts.SetSort(sort);
+            m_renderDirty = true;
+        }
+        return true;
+    } else if (action == "accounts-open-detail") {
+        const std::string id = Attribute(target, "data-id");
+        if (!id.empty()) {
+            m_accounts.OpenDetail(id);
+            m_renderDirty = true;
+        }
+        return true;
+    } else if (action == "accounts-close-detail") {
+        m_accounts.CloseDetail();
+        m_renderDirty = true;
+        return true;
+    } else if (action == "accounts-detail-start-rename") {
+        m_accounts.StartRename();
+        m_renderDirty = true;
+        return true;
+    } else if (action == "accounts-detail-cancel-rename") {
+        m_accounts.CancelRename();
+        m_renderDirty = true;
+        return true;
+    } else if (action == "accounts-detail-save-rename") {
+        if (m_accountsService) {
+            m_accountsService->Rename(m_accounts.DetailPrimaryId(), m_accounts.RenameValue());
+            m_accounts.FinishRename();
+            RefreshAccounts(true);
+        }
+        return true;
+    } else if (action == "accounts-detail-refresh") {
+        if (!m_accounts.DetailPrimaryId().empty()) {
+            RefreshAccountRow(m_accounts.DetailPrimaryId());
+        }
+        return true;
+    } else if (action == "accounts-detail-copy-id") {
+        if (!m_accounts.DetailCanonicalId().empty()) {
+            m_systemInterface.SetClipboardText(m_accounts.DetailCanonicalId());
+            ShowToast("Copied account ID to clipboard.");
+        }
+        return true;
+    } else if (action == "accounts-detail-start-remove") {
+        m_accounts.StartRemoveConfirm();
+        m_renderDirty = true;
+        return true;
+    } else if (action == "accounts-detail-cancel-remove") {
+        m_accounts.CancelRemoveConfirm();
+        m_renderDirty = true;
+        return true;
+    } else if (action == "accounts-detail-confirm-remove") {
+        if (m_accountsService) {
+            m_accountsService->Remove(m_accounts.DetailPrimaryId());
+            m_accounts.CloseDetail();
+            ShowToast("Account removed.");
+            RefreshAccounts(true);
+        }
+        return true;
+    } else if (action == "accounts-open-add") {
+        m_accounts.OpenAdd();
+        m_renderDirty = true;
+        return true;
+    } else if (action == "accounts-add-close") {
+        m_accounts.CloseAdd();
+        m_renderDirty = true;
+        return true;
+    } else if (action == "accounts-add-platform") {
+        const std::string plat = Attribute(target, "data-platform");
+        if (!plat.empty()) {
+            m_accounts.SetAddPlatform(plat);
+            m_renderDirty = true;
+        }
+        return true;
+    } else if (action == "accounts-add-submit") {
+        if (m_accountsService) {
+            auto res = m_accountsService->AddManual(m_accounts.AddPlatform(), m_accounts.AddAccountId(), m_accounts.AddNickname());
+            if (res.status == AccountManagerService::AddResult::Status::Added) {
+                m_accounts.CloseAdd();
+                ShowToast("Account added.");
+                RefreshAccounts(true);
+            } else if (res.status == AccountManagerService::AddResult::Status::AlreadyTracked) {
+                m_accounts.SetAddAlreadyTracked(res.primaryId, res.message);
+                m_renderDirty = true;
+            } else {
+                m_accounts.SetAddError(res.message);
+                m_renderDirty = true;
+            }
+        }
+        return true;
+    } else if (action == "accounts-add-rename-existing") {
+        std::string existingId = Attribute(target, "data-id");
+        if (existingId.empty()) existingId = m_accounts.AddExistingId();
+        m_accounts.CloseAdd();
+        m_accounts.OpenDetail(existingId, true);
+        m_renderDirty = true;
+        return true;
+    } else if (action == "accounts-open-import") {
+        if (m_accountsService) {
+            m_accounts.OpenImport(m_accountsService->ImportCandidates());
+        }
+        m_renderDirty = true;
+        return true;
+    } else if (action == "accounts-import-close") {
+        m_accounts.CloseImport();
+        m_renderDirty = true;
+        return true;
+    } else if (action == "accounts-import-submit") {
+        if (m_accountsService) {
+            size_t count = m_accountsService->ImportKnown();
+            m_accounts.CloseImport();
+            ShowToast(count > 0 ? "Imported " + std::to_string(count) + (count == 1 ? " account." : " accounts.") : "No new accounts to import.");
+            RefreshAccounts(true);
+        }
+        return true;
+    } else if (action == "accounts-open-settings") {
+        m_settingsPage = SettingsPage::Integrations;
+        if (m_state) m_state->ui.showMenu.store(true);
+        m_renderDirty = true;
+        return true;
     } else if (action == "onboarding-next") {
         m_onboarding.SetStep(m_onboarding.Step() + 1);
         RefreshOnboarding();

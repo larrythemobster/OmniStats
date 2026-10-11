@@ -94,4 +94,41 @@ bool MMRFetcher::PublishProfileResultForTests(const MMRRequest& req, const Norma
     return PublishProfileResult(req, profile);
 }
 
+void MMRFetcher::FetchTrackedAccountForTests(const std::string& primaryId, const std::string& name) {
+    MMRRequest req;
+    req.primaryId = primaryId;
+    req.name = name;
+    req.reason = MMRRequestReason::TrackedAccount;
+    {
+        std::lock_guard<std::mutex> lock(m_queueMutex);
+        m_trackedQueuedOrInFlight.insert(primaryId);
+    }
+    NotifyTrackedRequests({req}, TrackedAccountFetchStatus::Fetching);
+    if (!FetchProfile(req)) FinishRequest(req);
+}
+
+MMRFetcherDetail::AssembledBatch MMRFetcher::TakeNextCustomApiBatchForTests() {
+    std::lock_guard<std::mutex> lock(m_queueMutex);
+    const auto now = std::chrono::steady_clock::now();
+    const auto reason = NextBatchReasonLocked(now);
+    if (!reason) return {};
+    const auto first = std::find_if(m_queue.begin(), m_queue.end(), [&](const MMRRequest& r) {
+        return r.reason == *reason && r.notBefore <= now;
+    });
+    return DrainBatchLocked(*reason, first->playlist, now);
+}
+
+std::optional<MMRRequest> MMRFetcher::TakeNextTrackerRequestForTests() {
+    std::lock_guard<std::mutex> lock(m_queueMutex);
+    auto it = NextSingleRequestLocked(std::chrono::steady_clock::now());
+    if (it == m_queue.end()) return std::nullopt;
+    MMRRequest req = std::move(*it);
+    m_queue.erase(it);
+    return req;
+}
+
+void MMRFetcher::FinishRequestForTests(const MMRRequest& req) {
+    FinishRequest(req);
+}
+
 #endif

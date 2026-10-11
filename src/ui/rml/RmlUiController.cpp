@@ -49,8 +49,10 @@
 
 using namespace RmlUiDetail;
 
-RmlUiController::RmlUiController(std::shared_ptr<SessionState> state, std::shared_ptr<DatabaseManager> dbManager)
-    : m_state(std::move(state)), m_dbManager(std::move(dbManager)), m_systemInterface(nullptr) {
+RmlUiController::RmlUiController(std::shared_ptr<SessionState> state,
+                                 std::shared_ptr<DatabaseManager> dbManager,
+                                 std::shared_ptr<AccountManagerService> accounts)
+    : m_state(std::move(state)), m_dbManager(std::move(dbManager)), m_accountsService(std::move(accounts)), m_systemInterface(nullptr) {
     if (m_state) m_lastShowMenu = m_state->ui.showMenu.load();
 }
 
@@ -87,7 +89,8 @@ bool RmlUiController::Initialize(HWND hwnd, ID3D11Device* device, ID3D11DeviceCo
         return false;
     }
     if (!m_liveModel.Create(m_context) || !m_insights.Create(m_context) ||
-        !m_history.Create(m_context) || !m_onboarding.Create(m_context)) {
+        !m_history.Create(m_context) || !m_accounts.Create(m_context) ||
+        !m_onboarding.Create(m_context)) {
         Shutdown();
         return false;
     }
@@ -142,12 +145,15 @@ void RmlUiController::Shutdown() {
         m_insightsDoc = nullptr;
         m_onboardingDoc = nullptr;
         m_historyDoc = nullptr;
+        m_accountsDoc = nullptr;
         m_insightsVisible = false;
         m_onboardingVisible = false;
         m_historyVisible = false;
+        m_accountsVisible = false;
         m_liveModel.Reset();
         m_insights.Reset();
         m_history.Reset();
+        m_accounts.Reset();
         m_onboarding.Reset();
     }
     m_baseStyleSheet.reset();
@@ -219,6 +225,21 @@ bool RmlUiController::ProcessWindowMessage(HWND hwnd, UINT message, WPARAM wPara
             m_renderDirty = true;
         } else {
             HideHistory();
+        }
+        return true;
+    }
+    if (message == WM_KEYDOWN && wParam == VK_ESCAPE && m_accountsVisible && !m_onboardingVisible) {
+        if (m_accounts.IsAddOpen()) {
+            m_accounts.CloseAdd();
+            m_renderDirty = true;
+        } else if (m_accounts.IsImportOpen()) {
+            m_accounts.CloseImport();
+            m_renderDirty = true;
+        } else if (m_accounts.IsDetailOpen()) {
+            m_accounts.CloseDetail();
+            m_renderDirty = true;
+        } else {
+            HideAccounts();
         }
         return true;
     }
@@ -410,6 +431,7 @@ void RmlUiController::Update(const ConfigData& config, bool configChanged, uint6
     if (m_state && m_state->ui.showSessionRecap.exchange(false)) ShowInsights(InsightsView::Tab::Recap, true);
     if (m_insightsVisible) RefreshInsights(false);
     if (m_historyVisible) RefreshHistory(false);
+    if (m_accountsVisible) RefreshAccounts(false);
     if (m_onboardingVisible) RefreshOnboarding();
 }
 

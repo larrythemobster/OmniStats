@@ -11,6 +11,8 @@
 #include "database/DatabaseManager.hpp"
 #include "network/DiscordManager.hpp"
 
+class AccountManagerService;
+
 class StatsClient {
   public:
     StatsClient(std::shared_ptr<SessionState> state, std::shared_ptr<MMRFetcher> mmrFetcher, std::shared_ptr<DatabaseManager> dbManager);
@@ -20,6 +22,9 @@ class StatsClient {
     void Stop();
     void SetDiscordManager(std::shared_ptr<DiscordManager> dm) {
         m_discordManager = dm;
+    }
+    void SetAccountManager(std::shared_ptr<AccountManagerService> accountManager) {
+        m_accountManager = std::move(accountManager);
     }
     void HandleLine(const std::string& line);
 
@@ -37,6 +42,7 @@ class StatsClient {
     std::shared_ptr<MMRFetcher> m_mmrFetcher;
     std::shared_ptr<DatabaseManager> m_dbManager;
     std::shared_ptr<DiscordManager> m_discordManager;
+    std::shared_ptr<AccountManagerService> m_accountManager;
 
     TelemetryParser m_parser;
     TelemetryReducer m_reducer;

@@ -133,6 +133,7 @@ class TelemetryReducer {
     bool m_countdownSeenThisRound = false;
     std::unordered_set<std::string> m_identityCandidates;
     int m_missedMyIdCount = 0;
+    std::string m_lastConfirmedLocalAccount;
     MmrCategory m_autoSwitchedPlaylistCategory = MmrCategory::Best;
     MmrCategory m_followedGraphPlaylistCategory = MmrCategory::Best;
     struct PauseInterval {

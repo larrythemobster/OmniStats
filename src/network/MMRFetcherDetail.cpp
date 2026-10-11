@@ -212,11 +212,17 @@ namespace MMRFetcherDetail {
         AssembledBatch batch;
         if (candidates.empty() || maxBatchSize == 0) return batch;
 
+        MMRRequestReason targetReason = MMRRequestReason::Roster;
+        const bool rosterReady = std::any_of(candidates.begin(), candidates.end(), [&](const MMRRequest& req) {
+            return req.reason == MMRRequestReason::Roster && req.notBefore <= now;
+        });
+        if (!rosterReady) targetReason = MMRRequestReason::TrackedAccount;
+
         std::string targetPlaylist;
         bool foundFirst = false;
 
         for (const auto& req : candidates) {
-            if (req.reason != MMRRequestReason::Roster) continue;
+            if (req.reason != targetReason) continue;
             if (req.notBefore > now) continue;
 
             if (!foundFirst) {
@@ -386,20 +392,34 @@ namespace MMRFetcherDetail {
                 continue;
             }
 
+            const auto responsePlatform = [](const nlohmann::json& player) -> std::optional<std::string> {
+                if (!player.contains("platform") || !player["platform"].is_string()) return std::nullopt;
+                CustomApiPlayerTarget parsed;
+                if (!TryParseCustomApiTarget(player["platform"].get<std::string>() + "|id", parsed)) return std::string();
+                return parsed.platform;
+            };
+            const bool accountIdShared = std::any_of(batchRequests.begin(), batchRequests.end(), [&](const MMRRequest& other) {
+                CustomApiPlayerTarget otherTarget;
+                return TryParseCustomApiTarget(other.primaryId, otherTarget) &&
+                       otherTarget.platform != target.platform &&
+                       CaseInsensitiveEquals(otherTarget.accountId, target.accountId);
+            });
+
             const nlohmann::json* matched = nullptr;
             for (const auto& p : jsonResp["players"]) {
                 if (!p.is_object()) continue;
-                if (p.contains("account_id") && p["account_id"].is_string()) {
-                    if (CaseInsensitiveEquals(p["account_id"].get<std::string>(), target.accountId)) {
-                        matched = &p;
-                        break;
-                    }
-                }
+                if (!p.contains("account_id") || !p["account_id"].is_string()) continue;
+                if (!CaseInsensitiveEquals(p["account_id"].get<std::string>(), target.accountId)) continue;
+                const auto platform = responsePlatform(p);
+                if (platform ? *platform != target.platform : accountIdShared) continue;
+                matched = &p;
+                break;
             }
 
             if (!matched && batchRequests.size() == 1 && jsonResp["players"].size() == 1) {
                 const auto& firstP = jsonResp["players"][0];
-                if (firstP.is_object()) {
+                const auto firstPlatform = firstP.is_object() ? responsePlatform(firstP) : std::nullopt;
+                if (firstP.is_object() && (!firstPlatform || *firstPlatform == target.platform)) {
                     if (!firstP.contains("account_id") || !firstP["account_id"].is_string() ||
                         firstP["account_id"].get<std::string>().empty() ||
                         CaseInsensitiveEquals(firstP["account_id"].get<std::string>(), target.accountId)) {
@@ -428,6 +448,14 @@ namespace MMRFetcherDetail {
                 res.status = (errCode == "not_found") ? BatchPlayerStatus::NotFound : BatchPlayerStatus::Error;
                 res.errorCode = std::move(errCode);
                 res.errorMessage = std::move(errMsg);
+                results.push_back(std::move(res));
+                continue;
+            }
+
+            if (matched->contains("skills") && (*matched)["skills"].is_array() && (*matched)["skills"].empty()) {
+                res.status = BatchPlayerStatus::UnusableData;
+                res.errorCode = "no_ranked_skills";
+                res.errorMessage = "The rank source has no ranked playlists for this account.";
                 results.push_back(std::move(res));
                 continue;
             }

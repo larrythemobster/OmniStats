@@ -71,6 +71,6 @@ std::string RmlUiController::RenderSettingsData() {
         << "<div class='setting-help mono'>" << Escape(Storage::GetDataDirectory()) << "</div><div class='row wrap gap-sm' style='margin-top:8dp'>"
         << Button("open-data-folder", "Open Data Folder") << Button("export-data", "Export Local Data") << Button("merge-database", "Merge Database") << Button("delete-history", "Delete History & Identity", "danger") << "</div>"
         << "<div class='setting-help' style='margin-top:8dp'>Merge matches and history from an older omnistats.db file (such as a backup or from another PC) into your current database. Duplicates are automatically skipped.</div>"
-        << "<div class='setting-help' style='margin-top:4dp'>Deleting local history also clears the saved local account identity. Settings and service tokens are kept.</div>" << SectionEnd();
+        << "<div class='setting-help' style='margin-top:4dp'>Deleting local history also clears the saved local account identity. Settings, service tokens, and tracked accounts in Accounts are kept.</div>" << SectionEnd();
     return out.str();
 }

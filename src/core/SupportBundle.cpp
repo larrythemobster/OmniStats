@@ -406,6 +406,40 @@ namespace SupportBundle {
             if (!id.empty()) secrets.push_back(id);
         }
         if (!conf.last_primary_id.empty()) secrets.push_back(conf.last_primary_id);
+        const std::string dbPath = Storage::GetDataDirectory() + Storage::APP_NAME + ".db";
+        sqlite3* db = nullptr;
+        if (sqlite3_open_v2(dbPath.c_str(), &db, SQLITE_OPEN_READONLY, nullptr) == SQLITE_OK && db) {
+            sqlite3_stmt* checkStmt = nullptr;
+            bool hasTable = false;
+            if (sqlite3_prepare_v2(db, "SELECT 1 FROM sqlite_master WHERE type='table' AND name='TrackedAccounts' LIMIT 1;", -1, &checkStmt, nullptr) == SQLITE_OK) {
+                if (sqlite3_step(checkStmt) == SQLITE_ROW) {
+                    hasTable = true;
+                }
+                sqlite3_finalize(checkStmt);
+            }
+            if (hasTable) {
+                sqlite3_stmt* selStmt = nullptr;
+                if (sqlite3_prepare_v2(db, "SELECT primary_id, platform_account_id, nickname, last_known_name FROM TrackedAccounts;", -1, &selStmt, nullptr) == SQLITE_OK) {
+                    while (sqlite3_step(selStmt) == SQLITE_ROW) {
+                        for (int col = 0; col < 4; ++col) {
+                            if (sqlite3_column_type(selStmt, col) != SQLITE_NULL) {
+                                const unsigned char* text = sqlite3_column_text(selStmt, col);
+                                if (text) {
+                                    std::string val(reinterpret_cast<const char*>(text));
+                                    if (val.size() >= 3) {
+                                        secrets.push_back(std::move(val));
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    sqlite3_finalize(selStmt);
+                }
+            }
+            sqlite3_close(db);
+        } else if (db) {
+            sqlite3_close(db);
+        }
 
         Core::ZipWriter zip;
 

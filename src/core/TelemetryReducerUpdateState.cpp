@@ -667,6 +667,17 @@ void TelemetryReducer::HandleUpdateState(const nlohmann::json& data, SideEffects
                         m_identityCandidates = currentCandidates;
                     }
                 }
+
+                const std::string& confirmedId = m_state->game.myPrimaryId;
+                if (!confirmedId.empty() && currentCandidates.count(confirmedId) > 0) {
+                    const auto selfIt = m_state->game.roster.find(confirmedId);
+                    const std::string confirmedName = selfIt != m_state->game.roster.end() ? selfIt->second.name : std::string();
+                    std::string key = confirmedId + '\x1f' + confirmedName;
+                    if (key != m_lastConfirmedLocalAccount) {
+                        m_lastConfirmedLocalAccount = std::move(key);
+                        effects.confirmedLocalAccount = ConfirmedLocalAccount{confirmedId, confirmedName};
+                    }
+                }
             }
 
             const MmrCategory inferredPlaylistCat =

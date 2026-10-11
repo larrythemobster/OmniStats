@@ -7,6 +7,7 @@
 #include <functional>
 #include <map>
 #include <mutex>
+#include <optional>
 #include <string>
 #include <thread>
 #include <unordered_map>
@@ -20,7 +21,8 @@ class DatabaseManager;
 
 enum class MMRRequestReason {
     Roster,
-    PostMatch
+    PostMatch,
+    TrackedAccount
 };
 
 struct MMRRequest {
@@ -67,6 +69,41 @@ struct NormalizedProfileResult {
     std::map<std::string, int> playlistMatches;
     int totalWins = -1;
     std::string rankVerificationSource = "Tracker";
+};
+
+enum class RankProvider {
+    Unavailable,
+    Tracker,
+    OmniStatsApi,
+    OmniStatsApiWithTrackerFallback
+};
+
+enum class TrackedAccountFetchStatus {
+    Fetching,
+    Retrying,
+    RateLimited,
+    Success,
+    NotFound,
+    NoRankedData,
+    AuthRequired,
+    ProviderUnavailable,
+    Unsupported,
+    Failed
+};
+
+struct TrackedAccountFetchEvent {
+    std::string primaryId;
+    TrackedAccountFetchStatus status = TrackedAccountFetchStatus::Failed;
+    NormalizedProfileResult profile;
+    std::chrono::system_clock::time_point retryAt{};
+    std::string detail;
+};
+
+enum class TrackedEnqueueResult {
+    Queued,
+    AlreadyQueued,
+    ProviderUnavailable,
+    InvalidIdentity
 };
 enum class PostMatchReconciliationState {
     AwaitingTracker,
@@ -135,6 +172,12 @@ class MMRFetcher {
     void ResolvePendingDestroyedMatch(const std::string& matchGuid, bool won);
     void SetDestroyedMatchConfirmationCallback(DestroyedMatchConfirmationCallback callback);
 
+    using TrackedAccountSink = std::function<void(const TrackedAccountFetchEvent&)>;
+    TrackedEnqueueResult EnqueueTrackedAccount(const std::string& primaryId, const std::string& name);
+    void CancelTrackedAccount(const std::string& primaryId);
+    void SetTrackedAccountSink(TrackedAccountSink sink);
+    static RankProvider ActiveRankProvider();
+
     static std::string GetTournamentTierForMmr(int mmr);
     static std::string GetRankTierForPlaylistMmr(const std::string& playlist, int mmr);
     static std::string PlaylistNameForTrackerId(int playlistId);
@@ -159,6 +202,10 @@ class MMRFetcher {
     std::vector<MMRFetcherDetail::BatchPlayerResult> FetchBatchFromCustomApiForTests(const MMRFetcherDetail::AssembledBatch& batch);
     void ProcessCustomApiBatchForTests(const MMRFetcherDetail::AssembledBatch& batch);
     bool IsCustomApiActiveSourceForTests() const;
+    void FetchTrackedAccountForTests(const std::string& primaryId, const std::string& name);
+    MMRFetcherDetail::AssembledBatch TakeNextCustomApiBatchForTests();
+    std::optional<MMRRequest> TakeNextTrackerRequestForTests();
+    void FinishRequestForTests(const MMRRequest& req);
 #endif
 
   private:
@@ -185,6 +232,16 @@ class MMRFetcher {
     bool ScheduleRetry(MMRRequest req, std::chrono::milliseconds delay, const char* reason);
     std::string GetTRNPlatform(const std::string& primaryId);
     void FinishRequest(const MMRRequest& req);
+    void PublishFetchFailure(const MMRRequest& req, TrackedAccountFetchStatus status, std::string detail = {});
+    void RecordTrackedOutcome(const MMRRequest& req, TrackedAccountFetchEvent event);
+    void NotifyTracked(TrackedAccountFetchEvent event);
+    void NotifyTrackedRequests(const std::vector<MMRRequest>& requests, TrackedAccountFetchStatus status);
+    void NotifyTrackedRetry(const MMRRequest& req, std::chrono::steady_clock::duration delay, bool rateLimited);
+    std::optional<MMRRequestReason> NextBatchReasonLocked(std::chrono::steady_clock::time_point now) const;
+    MMRFetcherDetail::AssembledBatch DrainBatchLocked(MMRRequestReason reason,
+                                                      const std::string& playlist,
+                                                      std::chrono::steady_clock::time_point now);
+    std::deque<MMRRequest>::iterator NextSingleRequestLocked(std::chrono::steady_clock::time_point now);
     bool TrySatisfyLocalRosterRequest(const std::string& primaryId);
     void StoreLocalProfileCache(const MMRRequest& req,
                                 int bestMmr,
@@ -211,6 +268,9 @@ class MMRFetcher {
 
     std::deque<MMRRequest> m_queue;
     std::unordered_set<std::string> m_rosterQueuedOrInFlight;
+    std::unordered_set<std::string> m_trackedQueuedOrInFlight;
+    std::unordered_map<std::string, TrackedAccountFetchEvent> m_trackedOutcomes;
+    TrackedAccountSink m_trackedSink;
     CachedLocalProfile m_localProfileCache;
     std::unordered_set<std::string> m_pendingPostMatchGuids;
     std::unordered_set<std::string> m_completedPostMatchGuids;
