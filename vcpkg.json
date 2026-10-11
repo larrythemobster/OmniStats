@@ -1,6 +1,6 @@
 {
   "name": "omnistats",
-  "version": "2.2.18",
+  "version": "2.3.0",
   "dependencies": [
     "asio",
     "curl",
