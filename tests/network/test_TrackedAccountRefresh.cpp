@@ -512,6 +512,23 @@ TEST_F(TrackedAccountRefreshTest, TrackerPathNeedsNameForEpicAndUsesSteamId) {
     EXPECT_EQ(LastTerminal(kEpicOther)->status, TrackedAccountFetchStatus::NotFound);
 }
 
+TEST_F(TrackedAccountRefreshTest, TrackerHandleFillsMissingInGameNameOnly) {
+    UseTrackerOnly();
+    RegisterInDb(kSteam, "Main");
+    StartService();
+
+    g_trackerBody = R"({"data":{"platformInfo":{"platformUserHandle":"SteamHandle"},"segments":[{"type":"playlist","attributes":{"playlistId":11},"stats":{"rating":{"value":1333}}}]}})";
+    fetcher->FetchTrackedAccountForTests(kSteam, "");
+    service->FlushForTests();
+    EXPECT_EQ(db->GetTrackedAccount(kSteam)->lastKnownName, "SteamHandle");
+    EXPECT_EQ(db->GetTrackedAccount(kSteam)->nickname, "Main");
+
+    g_trackerBody = R"({"data":{"platformInfo":{"platformUserHandle":"Renamed"},"segments":[{"type":"playlist","attributes":{"playlistId":11},"stats":{"rating":{"value":1340}}}]}})";
+    fetcher->FetchTrackedAccountForTests(kSteam, "SteamHandle");
+    service->FlushForTests();
+    EXPECT_EQ(db->GetTrackedAccount(kSteam)->lastKnownName, "SteamHandle");
+}
+
 TEST_F(TrackedAccountRefreshTest, TrackedRefreshNeverTouchesLiveGameState) {
     const std::string liveId = kSteam;
     {
@@ -660,6 +677,7 @@ TEST_F(TrackedAccountRefreshTest, RemovingDuringInFlightRefreshDoesNotRecreateAc
 
     const auto readded = service->AddManual(TrackedAccounts::Platform::Epic, kEpic, "Alt again");
     ASSERT_EQ(readded.status, AccountManagerService::AddResult::Status::Added);
+    service->FlushForTests();
     ProcessNextBatch();
     service->FlushForTests();
     const auto stored = db->GetTrackedAccount(kEpic);
@@ -689,6 +707,7 @@ TEST_F(TrackedAccountRefreshTest, FiveManualAccountsRefreshInOneBatchAndSurviveR
                          Player("Steam", "76561198000000001", {Skill(11, 1530)}),
                          Player("Steam", "76561198000000002", {Skill(13, 940)}),
                          Player("Steam", "76561198000000003", {Skill(11, 1020)})});
+    service->FlushForTests();
     const auto batch = fetcher->TakeNextCustomApiBatchForTests();
     ASSERT_EQ(batch.requests.size(), 5u);
     fetcher->ProcessCustomApiBatchForTests(batch);

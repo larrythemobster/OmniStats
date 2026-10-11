@@ -101,6 +101,17 @@ void AccountManagerService::Start() {
                 ObserveLocked(primaryId, name, now);
         }
         Publish();
+
+        std::vector<std::string> unnamed;
+        {
+            std::lock_guard<std::mutex> lock(m_mutex);
+            for (const auto& account : m_accounts) {
+                if (account.record.lastKnownName.empty()) unnamed.push_back(account.record.primaryId);
+            }
+        }
+        for (const auto& candidate : ImportCandidates())
+            unnamed.push_back(candidate.identity.primaryId);
+        ResolveNamesOnWorker(unnamed, false);
     },
                      true);
 }
@@ -203,7 +214,7 @@ AccountManagerService::AddResult AccountManagerService::AddManual(TrackedAccount
         }
         const int64_t now = NowUnix();
         result = RegisterLocked(*parsed.identity, nickname, {}, DiscoverySource::Manual, now);
-        if (AccountView* added = FindLocked(result.primaryId)) RefreshLocked(*added, now, false);
+        PostResolveNames({result.primaryId}, true);
     }
     Publish();
     return result;
@@ -335,7 +346,12 @@ std::vector<AccountManagerService::ImportCandidate> AccountManagerService::Impor
         const bool tracked = std::any_of(m_accounts.begin(), m_accounts.end(), [&](const AccountView& view) {
             return view.record.primaryId == identity->primaryId;
         });
-        if (!tracked) candidates.push_back(ImportCandidate{*identity});
+        if (tracked) continue;
+        ImportCandidate candidate{*identity, {}};
+        if (const auto name = m_resolvedNames.find(identity->primaryId); name != m_resolvedNames.end()) {
+            candidate.lastKnownName = name->second;
+        }
+        candidates.push_back(std::move(candidate));
     }
     return candidates;
 }
@@ -350,7 +366,7 @@ size_t AccountManagerService::ImportKnown() {
         std::vector<AccountRecord> records;
         for (const auto& candidate : candidates) {
             if (FindLocked(candidate.identity.primaryId)) continue;
-            AccountRecord record = TrackedAccounts::MakeRecord(candidate.identity, {}, {}, DiscoverySource::Import);
+            AccountRecord record = TrackedAccounts::MakeRecord(candidate.identity, {}, candidate.lastKnownName, DiscoverySource::Import);
             record.createdAtUnix = now;
             record.sortOrder = m_nextSortOrder++;
             AccountView view;
@@ -361,9 +377,11 @@ size_t AccountManagerService::ImportKnown() {
         }
         if (!records.empty()) {
             PostDb([records](DatabaseManager& db) { (void)db.ImportTrackedAccounts(records); });
-            for (const auto& record : records) {
-                if (AccountView* account = FindLocked(record.primaryId)) RefreshLocked(*account, now, false);
-            }
+            std::vector<std::string> ids;
+            ids.reserve(records.size());
+            for (const auto& record : records)
+                ids.push_back(record.primaryId);
+            PostResolveNames(std::move(ids), true);
         }
     }
     if (imported > 0) Publish();
@@ -406,6 +424,43 @@ void AccountManagerService::ObserveLocked(const std::string& primaryId, const st
     PostDb([id = identity->primaryId, storedName = nameChanged ? name : std::string(), now](DatabaseManager& db) {
         (void)db.UpdateTrackedAccountLastSeen(id, storedName, now);
     });
+}
+
+void AccountManagerService::PostResolveNames(std::vector<std::string> primaryIds, bool refreshAfter) {
+    m_worker.Enqueue([this, ids = std::move(primaryIds), refreshAfter]() { ResolveNamesOnWorker(ids, refreshAfter); }, true);
+}
+
+void AccountManagerService::ResolveNamesOnWorker(const std::vector<std::string>& primaryIds, bool refreshAfter) {
+    std::vector<std::pair<std::string, std::string>> found;
+    if (m_db) {
+        for (const auto& id : primaryIds) {
+            const auto name = m_db->FindLatestPlayerName(id);
+            if (!name) continue;
+            std::string normalized = TrackedAccounts::NormalizeLabel(*name, TrackedAccounts::kMaxDisplayNameLength);
+            if (!normalized.empty()) found.emplace_back(id, std::move(normalized));
+        }
+    }
+
+    std::vector<std::pair<std::string, std::string>> persist;
+    {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        for (const auto& [id, name] : found) {
+            m_resolvedNames[id] = name;
+            AccountView* account = FindLocked(id);
+            if (!account || !account->record.lastKnownName.empty()) continue;
+            account->record.lastKnownName = name;
+            persist.emplace_back(id, name);
+        }
+        if (refreshAfter) {
+            const int64_t now = NowUnix();
+            for (const auto& id : primaryIds) {
+                if (AccountView* account = FindLocked(id)) RefreshLocked(*account, now, false);
+            }
+        }
+    }
+    for (const auto& [id, name] : persist)
+        (void)m_db->UpdateTrackedAccountLastKnownName(id, name);
+    if (!found.empty() || refreshAfter) Publish();
 }
 
 void AccountManagerService::ApplyFetchEvent(const TrackedAccountFetchEvent& event) {
@@ -453,6 +508,13 @@ void AccountManagerService::ApplyFetchEvent(const TrackedAccountFetchEvent& even
             }
             for (const auto& rank : ranks)
                 account->record.ranks[rank.playlistKey] = rank;
+            if (account->record.lastKnownName.empty()) {
+                const std::string name = TrackedAccounts::NormalizeLabel(event.profile.displayName, TrackedAccounts::kMaxDisplayNameLength);
+                if (!name.empty()) {
+                    account->record.lastKnownName = name;
+                    PostDb([id = event.primaryId, name](DatabaseManager& db) { (void)db.UpdateTrackedAccountLastKnownName(id, name); });
+                }
+            }
             account->record.lastSuccessfulRefreshAtUnix = now;
             account->record.lastRefreshAttemptAtUnix = now;
             account->refreshState = RefreshState::Idle;

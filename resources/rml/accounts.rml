@@ -211,12 +211,14 @@
 
                     <div class="accounts-import-list">
                         <div class="accounts-import-row header row">
-                            <div style="width:100dp">Platform</div>
-                            <div class="grow">Account ID</div>
+                            <div style="width:90dp">Platform</div>
+                            <div class="grow">In-game name</div>
+                            <div style="width:130dp;text-align:right">Account ID</div>
                         </div>
                         <div class="accounts-import-row row" data-for="c : import_candidates">
-                            <div style="width:100dp" class="value">{{c.platform}}</div>
-                            <div class="grow mono label">{{c.masked_id}}</div>
+                            <div style="width:90dp" class="value">{{c.platform}}</div>
+                            <div class="grow value">{{c.name}}</div>
+                            <div style="width:130dp;text-align:right" class="mono label">{{c.masked_id}}</div>
                         </div>
                     </div>
 

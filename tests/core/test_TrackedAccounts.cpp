@@ -257,6 +257,7 @@ TEST_F(TrackedAccountDiscoveryTest, ManualRegistrationValidatesAndDetectsDuplica
     EXPECT_EQ(result.primaryId, "XboxOne|1234567890");
     EXPECT_NE(result.message.find("Xbox alt"), std::string::npos);
 
+    service->FlushForTests();
     const auto snapshot = service->GetSnapshot();
     ASSERT_EQ(snapshot.accounts.size(), 2u);
     EXPECT_EQ(snapshot.accounts[0].refreshState, AccountManagerService::RefreshState::ProviderUnavailable);
@@ -289,4 +290,68 @@ TEST_F(TrackedAccountDiscoveryTest, ImportDeduplicatesAndLeavesLiveIdentityAlone
     EXPECT_EQ(Config::Read().known_primary_ids.size(), 7u);
     std::shared_lock lock(state->game.mutex);
     EXPECT_TRUE(state->game.myPrimaryId.empty());
+}
+
+TEST_F(TrackedAccountDiscoveryTest, ImportedAndManualAccountsTakeTheirNameFromMatchHistory) {
+    const auto saveMatch = [&](const std::string& guid, int64_t endedAtMs, const std::string& localName) {
+        MatchSaveSnapshot snap;
+        snap.arenaName = "DFH Stadium";
+        snap.matchGuid = guid;
+        snap.playlistId = 11;
+        snap.myTeam = 0;
+        snap.winnerTeam = 0;
+        snap.validResult = true;
+        snap.score[0] = 2;
+        snap.score[1] = 1;
+        snap.endedAtUnixMs = endedAtMs;
+        snap.myPrimaryId = "Steam|" + kSteamId + "|0";
+        snap.roster[snap.myPrimaryId] = PlayerData{.primaryId = snap.myPrimaryId, .name = localName, .team = 0, .mmr = 1200};
+        const std::string epic = "Epic|" + std::string("0123456789ABCDEF0123456789ABCDEF") + "|0";
+        snap.roster[epic] = PlayerData{.primaryId = epic, .name = "EpicAlt", .team = 1, .mmr = 1180};
+        db->SaveMatch(snap);
+    };
+    saveMatch("name-guid-1", 1'700'000'000'000LL, "OldName");
+    saveMatch("name-guid-2", 1'700'000'600'000LL, "NewName");
+
+    Config::Update([](ConfigData& c) { c.known_primary_ids = {"Steam|" + kSteamId + "|0"}; }, false);
+    Start();
+
+    const auto candidates = service->ImportCandidates();
+    ASSERT_EQ(candidates.size(), 1u);
+    EXPECT_EQ(candidates[0].lastKnownName, "NewName");
+
+    ASSERT_EQ(service->ImportKnown(), 1u);
+    ASSERT_EQ(service->AddManual(Platform::Epic, kEpicHex, "").status, AccountManagerService::AddResult::Status::Added);
+    ASSERT_EQ(service->AddManual(Platform::Steam, kSteamOtherId, "").status, AccountManagerService::AddResult::Status::Added);
+    service->FlushForTests();
+
+    EXPECT_EQ(db->GetTrackedAccount("Steam|" + kSteamId)->lastKnownName, "NewName");
+    EXPECT_EQ(db->GetTrackedAccount("Epic|" + kEpicHex)->lastKnownName, "EpicAlt");
+    EXPECT_TRUE(db->GetTrackedAccount("Steam|" + kSteamOtherId)->lastKnownName.empty());
+    const auto snapshot = service->GetSnapshot();
+    ASSERT_EQ(snapshot.accounts.size(), 3u);
+    EXPECT_EQ(TrackedAccounts::DisplayLabel(snapshot.accounts[1].record), "EpicAlt");
+}
+
+TEST_F(TrackedAccountDiscoveryTest, ExistingUnnamedAccountsAreBackfilledOnStart) {
+    MatchSaveSnapshot snap;
+    snap.arenaName = "Mannfield";
+    snap.matchGuid = "backfill-guid";
+    snap.playlistId = 11;
+    snap.myTeam = 0;
+    snap.winnerTeam = 1;
+    snap.validResult = true;
+    snap.endedAtUnixMs = 1'700'000'000'000LL;
+    snap.myPrimaryId = "Steam|" + kSteamId + "|0";
+    snap.roster[snap.myPrimaryId] = PlayerData{.primaryId = snap.myPrimaryId, .name = "Backfilled", .team = 0, .mmr = 1200};
+    db->SaveMatch(snap);
+    ASSERT_EQ(db->RegisterTrackedAccount(MakeRecord(*FromPrimaryId("Steam|" + kSteamId), "Nick", "", DiscoverySource::Import)),
+              TrackedAccountInsertResult::Inserted);
+
+    Start();
+    service->FlushForTests();
+
+    EXPECT_EQ(service->GetSnapshot().accounts[0].record.lastKnownName, "Backfilled");
+    EXPECT_EQ(db->GetTrackedAccount("Steam|" + kSteamId)->lastKnownName, "Backfilled");
+    EXPECT_EQ(db->GetTrackedAccount("Steam|" + kSteamId)->nickname, "Nick");
 }

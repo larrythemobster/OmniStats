@@ -868,6 +868,12 @@ bool MMRFetcher::FetchProfileTracker(MMRRequest req) {
         profile.playlistMatches = std::move(playlistMatches);
         profile.totalWins = profileTotals.totalWins;
         profile.rankVerificationSource = "Tracker";
+        if (const auto& data = jsonResp["data"]; data.contains("platformInfo") && data["platformInfo"].is_object()) {
+            const auto& platformInfo = data["platformInfo"];
+            if (platformInfo.contains("platformUserHandle") && platformInfo["platformUserHandle"].is_string()) {
+                profile.displayName = platformInfo["platformUserHandle"].get<std::string>();
+            }
+        }
 
         return PublishProfileResult(req, profile);
     } catch (const std::exception& e) {

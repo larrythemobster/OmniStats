@@ -56,6 +56,8 @@ Nothing else writes to the database. Nicknames and saved ranks are untouched. Th
 
 **Import Known Accounts** reads `known_primary_ids` and `last_primary_id`, drops unknown, malformed and already tracked IDs, and inserts the rest with `discovery_source = import`. Config is read, never written.
 
+Accounts without an in-game name get one from local match history. `DatabaseManager::FindLatestPlayerName` returns the name on the most recent `MatchPlayers` row for that identity, with or without the split-screen suffix. The service runs this lookup on its worker when accounts load, when you import, and when you add an account manually. The refresh is queued after the lookup, so Tracker can use the name. The import preview shows the names it found. A successful Tracker refresh also fills an empty name from `platformInfo.platformUserHandle`. Neither source overwrites a name that is already set, and nicknames are never touched.
+
 ## Refresh lifecycle
 
 Tracked refreshes go through the existing `MMRFetcher` queue as `MMRRequestReason::TrackedAccount`. They reuse the transport, authentication, URL allow-list, redirect checks, rank parsing, retry budget and rate-limit gate.
@@ -103,7 +105,7 @@ Service rules (`src/core/AccountManager.*`):
 
 Known limits:
 
-- Tracker looks up Epic, PlayStation, Xbox and Switch profiles by in-game name. An account without a known name can't be refreshed through Tracker. If an OmniStats API key or sign-in exists, the fetcher uses the API for it. Otherwise the account shows "Unsupported" until OmniStats sees the account in a match.
+- Tracker looks up Epic, PlayStation, Xbox and Switch profiles by in-game name. An account whose name isn't in local match history can't be refreshed through Tracker. If an OmniStats API key or sign-in exists, the fetcher uses the API for it. Otherwise the account shows "Unsupported" until OmniStats sees the account in a match.
 - The OmniStats API omits playlists with zero MMR, and the client treats an empty `skills` array as "No ranked data".
 - Tracker 403 blocks trigger the existing circuit breaker, which pauses tracked refreshes along with roster lookups.
 - PlayStation, Xbox and Switch IDs are validated by format only. OmniStats can't check that the ID exists until a refresh runs.

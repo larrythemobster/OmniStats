@@ -46,6 +46,14 @@ namespace {
         return "badge";
     }
 
+    std::string DisplayTier(const std::string& playlistKey, const TrackedAccounts::PlaylistRank& rank) {
+        const std::string& tier = rank.rankTier;
+        if ((tier.empty() || tier.rfind("Unranked", 0) == 0) && rank.mmr.value_or(0) > 0) {
+            return MMRFetcher::GetRankTierForPlaylistMmr(playlistKey, *rank.mmr);
+        }
+        return tier;
+    }
+
     struct DerivedStatus {
         std::string text;
         std::string cssClass;
@@ -148,6 +156,7 @@ bool AccountsView::Create(Rml::Context* context) {
 
     if (auto cand = constructor.RegisterStruct<AccountImportCandidateRow>()) {
         cand.RegisterMember("platform", &AccountImportCandidateRow::platform);
+        cand.RegisterMember("name", &AccountImportCandidateRow::name);
         cand.RegisterMember("masked_id", &AccountImportCandidateRow::masked_id);
         cand.RegisterMember("primary_id", &AccountImportCandidateRow::primary_id);
     }
@@ -429,10 +438,10 @@ void AccountsView::RebuildRows() {
             if (it != v->record.ranks.end() && it->second.mmr.has_value()) {
                 cell.mmr = std::to_string(*it->second.mmr);
                 cell.has_mmr = true;
-                const std::string& tier = it->second.rankTier;
+                const std::string tier = DisplayTier(col.key, it->second);
                 cell.tier = tier.empty() ? "" : tier.rfind("Unranked", 0) == 0 ? tier
                                                                                : Format::AbbreviateRank(tier);
-                cell.tier_color = it->second.rankTier.empty() ? "" : RmlUiController::CssColor(Format::RankColor(it->second.rankTier));
+                cell.tier_color = tier.empty() ? "" : RmlUiController::CssColor(Format::RankColor(tier));
             } else {
                 cell.mmr = "\xE2\x80\x94";
                 cell.has_mmr = false;
@@ -579,8 +588,9 @@ void AccountsView::RebuildDetail() {
         auto it = rec.ranks.find(col.key);
         if (it != rec.ranks.end() && it->second.mmr.has_value()) {
             dr.mmr = std::to_string(*it->second.mmr);
-            dr.tier = it->second.rankTier.empty() ? "\xE2\x80\x94" : Format::RankTier(it->second.rankTier, false);
-            dr.tier_color = it->second.rankTier.empty() ? "" : RmlUiController::CssColor(Format::RankColor(it->second.rankTier));
+            const std::string tier = DisplayTier(col.key, it->second);
+            dr.tier = tier.empty() ? "\xE2\x80\x94" : Format::RankTier(tier, false);
+            dr.tier_color = tier.empty() ? "" : RmlUiController::CssColor(Format::RankColor(tier));
             dr.matches_played = it->second.matchesPlayed.has_value() ? std::to_string(*it->second.matchesPlayed) : "\xE2\x80\x94";
             dr.source = TrackedAccounts::RankSourceLabel(it->second.source);
             if (m_detailRankSource.empty() && !dr.source.empty()) {
@@ -697,6 +707,7 @@ void AccountsView::OpenImport(const std::vector<AccountManagerService::ImportCan
     for (const auto& cand : candidates) {
         AccountImportCandidateRow row;
         row.platform = TrackedAccounts::PlatformLabel(cand.identity.platform);
+        row.name = cand.lastKnownName.empty() ? "Name not found in match history" : cand.lastKnownName;
         row.masked_id = TrackedAccounts::MaskedAccountId(cand.identity.accountId);
         row.primary_id = cand.identity.primaryId;
         m_importCandidates.push_back(std::move(row));

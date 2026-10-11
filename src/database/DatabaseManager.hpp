@@ -145,6 +145,8 @@ class DatabaseManager {
     bool UpdateTrackedAccountNickname(const std::string& primaryId, const std::string& nickname);
     bool UpdateTrackedAccountLastSeen(const std::string& primaryId, const std::string& lastKnownName, int64_t seenAtUnix);
     bool UpdateTrackedAccountRefreshAttempt(const std::string& primaryId, int64_t attemptedAtUnix);
+    bool UpdateTrackedAccountLastKnownName(const std::string& primaryId, const std::string& lastKnownName);
+    std::optional<std::string> FindLatestPlayerName(const std::string& primaryId);
     bool SaveTrackedAccountRanks(const std::string& primaryId,
                                  const std::vector<TrackedAccounts::PlaylistRank>& ranks,
                                  int64_t fetchedAtUnix);

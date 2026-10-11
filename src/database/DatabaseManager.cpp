@@ -5032,6 +5032,56 @@ bool DatabaseManager::UpdateTrackedAccountRefreshAttempt(const std::string& prim
     return ok && sqlite3_changes(m_db) > 0;
 }
 
+bool DatabaseManager::UpdateTrackedAccountLastKnownName(const std::string& primaryId, const std::string& lastKnownName) {
+    if (primaryId.empty() || lastKnownName.empty()) {
+        return false;
+    }
+    std::lock_guard<std::mutex> lock(m_dbMutex);
+    if (!m_db || !SqliteTableExists(m_db, "TrackedAccounts")) {
+        return false;
+    }
+
+    const char* sql = "UPDATE TrackedAccounts SET last_known_name = ?1 WHERE primary_id = ?2;";
+    sqlite3_stmt* stmt = nullptr;
+    if (sqlite3_prepare_v2(m_db, sql, -1, &stmt, nullptr) != SQLITE_OK) {
+        return false;
+    }
+    sqlite3_bind_text(stmt, 1, lastKnownName.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 2, primaryId.c_str(), -1, SQLITE_TRANSIENT);
+    const bool ok = (sqlite3_step(stmt) == SQLITE_DONE);
+    sqlite3_finalize(stmt);
+    return ok && sqlite3_changes(m_db) > 0;
+}
+
+std::optional<std::string> DatabaseManager::FindLatestPlayerName(const std::string& primaryId) {
+    if (primaryId.empty()) {
+        return std::nullopt;
+    }
+    std::lock_guard<std::mutex> lock(m_dbMutex);
+    if (!m_db) {
+        return std::nullopt;
+    }
+
+    const char* sql =
+        "SELECT mp.name FROM MatchPlayers mp JOIN Matches m ON m.id = mp.match_id "
+        "WHERE (lower(mp.primary_id) = lower(?1) OR lower(mp.primary_id) LIKE lower(?2)) "
+        "AND mp.name IS NOT NULL AND mp.name <> '' "
+        "ORDER BY m.timestamp DESC, m.id DESC LIMIT 1;";
+    sqlite3_stmt* stmt = nullptr;
+    if (sqlite3_prepare_v2(m_db, sql, -1, &stmt, nullptr) != SQLITE_OK) {
+        return std::nullopt;
+    }
+    const std::string splitScreenPattern = primaryId + "|%";
+    sqlite3_bind_text(stmt, 1, primaryId.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 2, splitScreenPattern.c_str(), -1, SQLITE_TRANSIENT);
+    std::optional<std::string> name;
+    if (sqlite3_step(stmt) == SQLITE_ROW) {
+        name = SqlColumnText(stmt, 0);
+    }
+    sqlite3_finalize(stmt);
+    return name;
+}
+
 bool DatabaseManager::SaveTrackedAccountRanks(const std::string& primaryId,
                                               const std::vector<TrackedAccounts::PlaylistRank>& ranks,
                                               int64_t fetchedAtUnix) {

@@ -58,6 +58,7 @@ struct AccountDetailRankRow {
 
 struct AccountImportCandidateRow {
     Rml::String platform;
+    Rml::String name;
     Rml::String masked_id;
     Rml::String primary_id;
 };

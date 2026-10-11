@@ -19,6 +19,7 @@
 #include "network/MMRFetcher.hpp"
 #include "ui/rml/RmlUiController.hpp"
 #include "ui/rml/views/AccountsView.hpp"
+#include "ui/Formatting.hpp"
 
 namespace {
     struct WarpDevice {
@@ -87,6 +88,33 @@ class AccountsViewTest : public ::testing::Test {
         controller.ReloadUiResources();
     }
 };
+
+TEST(AccountsViewTiers, PlacementRanksWithMmrShowTheTierForThatMmr) {
+    AccountsView view;
+    view.SetColumnSet("extra");
+    view.SetColumnSet("competitive");
+
+    AccountManagerService::AccountView account;
+    account.record = TrackedAccounts::MakeRecord(*TrackedAccounts::FromPrimaryId("Epic|0123456789abcdef0123456789abcdef"), "Main", "", TrackedAccounts::DiscoverySource::Manual);
+    account.record.ranks["1v1"] = TrackedAccounts::PlaylistRank{"1v1", 642, "Unranked", 3, "OmniStats API", 1};
+    account.record.ranks["2v2"] = TrackedAccounts::PlaylistRank{"2v2", 1246, "Champion II Div II", 296, "OmniStats API", 1};
+    account.record.ranks["3v3"] = TrackedAccounts::PlaylistRank{"3v3", 879, "", std::nullopt, "OmniStats API", 1};
+    AccountManagerService::Snapshot snapshot;
+    snapshot.loaded = true;
+    snapshot.accounts = {account};
+    view.UpdateSnapshot(snapshot, "", 0, 2);
+
+    ASSERT_EQ(view.Rows().size(), 1u);
+    const auto& cells = view.Rows()[0].ranks;
+    ASSERT_EQ(cells.size(), 3u);
+    const std::string solo = MMRFetcher::GetRankTierForPlaylistMmr("1v1", 642);
+    const std::string standard = MMRFetcher::GetRankTierForPlaylistMmr("3v3", 879);
+    ASSERT_NE(solo, "Unranked");
+    ASSERT_NE(standard, "Unranked");
+    EXPECT_EQ(cells[0].tier, Format::AbbreviateRank(solo));
+    EXPECT_EQ(cells[1].tier, Format::AbbreviateRank("Champion II Div II"));
+    EXPECT_EQ(cells[2].tier, Format::AbbreviateRank(standard));
+}
 
 TEST_F(AccountsViewTest, EmptyStateRenders) {
     WarpDevice warp;

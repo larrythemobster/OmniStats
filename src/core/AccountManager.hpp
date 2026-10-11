@@ -68,6 +68,7 @@ class AccountManagerService {
 
     struct ImportCandidate {
         TrackedAccounts::Identity identity;
+        std::string lastKnownName;
     };
 
     static constexpr int64_t kStaleAfterSeconds = 30 * 60;
@@ -127,6 +128,8 @@ class AccountManagerService {
                              TrackedAccounts::DiscoverySource source,
                              int64_t now);
     void ObserveLocked(const std::string& primaryId, const std::string& displayName, int64_t now);
+    void ResolveNamesOnWorker(const std::vector<std::string>& primaryIds, bool refreshAfter);
+    void PostResolveNames(std::vector<std::string> primaryIds, bool refreshAfter);
     void PostDb(std::function<void(DatabaseManager&)> job);
 
     std::shared_ptr<DatabaseManager> m_db;
@@ -141,6 +144,7 @@ class AccountManagerService {
     std::unordered_set<std::string> m_pending;
     std::unordered_set<std::string> m_seenThisRun;
     std::unordered_map<std::string, int64_t> m_lastManualRefresh;
+    std::unordered_map<std::string, std::string> m_resolvedNames;
     int64_t m_nextSortOrder = 1;
     std::function<int64_t()> m_clock;
     std::atomic<uint64_t> m_version{1};

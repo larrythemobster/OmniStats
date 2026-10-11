@@ -69,6 +69,7 @@ struct NormalizedProfileResult {
     std::map<std::string, int> playlistMatches;
     int totalWins = -1;
     std::string rankVerificationSource = "Tracker";
+    std::string displayName;
 };
 
 enum class RankProvider {
