@@ -498,6 +498,8 @@ void RmlUiController::SnapshotState() {
             m_snap.myPrimaryId = m_state->game.myPrimaryId;
             m_snap.myTeam = m_state->game.myTeam;
             m_snap.currentMatch = m_state->game.currentMatch;
+            m_snap.lastGoalSpeed = m_state->game.lastGoalSpeed;
+            m_snap.lastGoalSpeedSelf = m_state->game.lastGoalSpeedSelf;
             m_snap.sessionTotals = m_state->game.sessionTotals;
             m_snap.roster = m_state->game.roster;
             m_snap.sessionGamemodes = m_state->game.sessionGamemodes;

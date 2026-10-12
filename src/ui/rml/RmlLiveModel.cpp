@@ -28,6 +28,7 @@ namespace {
         {"match_demoed", &LiveValues::match_demoed},
         {"match_crossbars", &LiveValues::match_crossbars},
         {"match_max_goal_speed", &LiveValues::match_max_goal_speed},
+        {"last_goal_speed", &LiveValues::last_goal_speed},
         {"match_max_ball_speed", &LiveValues::match_max_ball_speed},
         {"match_hardest_crossbar", &LiveValues::match_hardest_crossbar},
         {"match_fastest_goal", &LiveValues::match_fastest_goal},
@@ -84,6 +85,7 @@ LiveValues ComputeLiveValues(const RmlRenderSnapshot& snapshot, const ConfigData
     v.match_demoed = std::to_string(match.demoedSelf);
     v.match_crossbars = Format::PairCount(match.crossbars, match.crossbarsSelf);
     v.match_max_goal_speed = Speed(match.maxGoalSpeed, match.maxGoalSpeedSelf, config.imperial_units);
+    v.last_goal_speed = Speed(snapshot.lastGoalSpeed, snapshot.lastGoalSpeedSelf, config.imperial_units);
     v.match_max_ball_speed = Speed(match.maxBallSpeed, match.maxBallSpeedSelf, config.imperial_units);
     v.match_hardest_crossbar = config.crossbar_display_mode == "speed"
                                    ? Speed(match.maxImpactForce * 0.036f, match.maxImpactForceSelf * 0.036f, config.imperial_units)

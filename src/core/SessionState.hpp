@@ -516,6 +516,10 @@ struct GameState {
     // Global Collections
     MatchStats currentMatch;
     SessionTotals sessionTotals;
+    // Session-scoped so a goal survives freeplay -> match and match -> menu
+    // transitions; 0 means no goal recorded yet. Speeds are in kph.
+    float lastGoalSpeed = 0.0f;
+    float lastGoalSpeedSelf = 0.0f;
     std::unordered_map<std::string, PlayerData> roster;
     std::unordered_map<std::string, PlayerData> matchRoster;
     std::map<std::string, GamemodeStat> sessionGamemodes;

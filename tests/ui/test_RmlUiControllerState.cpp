@@ -259,6 +259,9 @@ class RmlUiControllerStateTest : public ::testing::Test {
     bool ViewAction(RmlUiController& controller, const std::string& action) {
         return controller.HandleViewAction(action, nullptr);
     }
+    std::string RenderLiveMatch(RmlUiController& controller) {
+        return controller.RenderLiveMatchStats();
+    }
     void ReloadUi(RmlUiController& controller) {
         controller.ReloadUiResources();
     }
@@ -2676,3 +2679,28 @@ TEST_F(RmlUiControllerStateTest, PlayerNoteEditorSavesEditsDeletesAndGuardsUnsav
     EXPECT_FALSE(NoteModel(controller).IsDirty());
     EXPECT_FALSE(NoteModel(controller).BeginSave(1000));
 }
+
+TEST_F(RmlUiControllerStateTest, LastGoalSpeedSitsBelowMaxAndFollowsUnitSetting) {
+    auto state = std::make_shared<SessionState>();
+    RmlUiController controller(state, nullptr);
+    ConfigData config = Config::Read();
+    config.imperial_units = false;
+    controller.Update(config);
+
+    const std::string card = RenderLiveMatch(controller);
+    const size_t maxRow = card.find("Max goal speed");
+    const size_t lastRow = card.find("Last goal speed");
+    ASSERT_NE(maxRow, std::string::npos);
+    ASSERT_NE(lastRow, std::string::npos);
+    EXPECT_LT(maxRow, lastRow);
+    EXPECT_NE(card.find("{{last_goal_speed}}"), std::string::npos);
+
+    RmlRenderSnapshot snap;
+    EXPECT_EQ(ComputeLiveValues(snap, config).last_goal_speed, "-");
+    snap.lastGoalSpeed = 160.0f;
+    snap.lastGoalSpeedSelf = 143.0f;
+    EXPECT_EQ(ComputeLiveValues(snap, config).last_goal_speed, "160 kph | 143 kph");
+    config.imperial_units = true;
+    EXPECT_EQ(ComputeLiveValues(snap, config).last_goal_speed, "99 mph | 89 mph");
+}
+

@@ -690,3 +690,107 @@ TEST(TelemetryReducerStats, OvertimeAddsUnpausedTimeAfterFlip) {
     EXPECT_NEAR(endEffects.saveSnapshot.durationSeconds, 345.0f, 0.01f);
     EXPECT_NEAR(state->game.matchSummaryOvertimeSeconds, 45.0f, 0.01f);
 }
+
+namespace {
+    nlohmann::json GoalEvent(nlohmann::json speed, const std::string& scorerId, const std::string& guid = {}) {
+        nlohmann::json goal;
+        if (!speed.is_null()) goal["GoalSpeed"] = std::move(speed);
+        goal["Scorer"] = {{"PrimaryId", scorerId}, {"Name", scorerId}};
+        if (!guid.empty()) goal["MatchGuid"] = guid;
+        return goal;
+    }
+
+    std::shared_ptr<SessionState> StateWithLocalPlayer() {
+        Storage::InitializeEnvironment();
+        auto state = std::make_shared<SessionState>();
+        std::unique_lock<std::shared_mutex> lock(state->game.mutex);
+        state->game.myPrimaryId = "Steam|1";
+        return state;
+    }
+}
+
+TEST(TelemetryReducerStats, LastGoalSpeedFollowsEveryGoalWhileMaxKeepsTheFastest) {
+    auto state = StateWithLocalPlayer();
+    TelemetryReducer reducer(state);
+    const std::string goal(Constants::EVT_GOAL_SCORED);
+
+    reducer.Reduce(goal, GoalEvent(150.0, "Steam|1"));
+    {
+        std::shared_lock<std::shared_mutex> lock(state->game.mutex);
+        EXPECT_FLOAT_EQ(state->game.lastGoalSpeed, 150.0f);
+        EXPECT_FLOAT_EQ(state->game.lastGoalSpeedSelf, 150.0f);
+        EXPECT_FLOAT_EQ(state->game.currentMatch.maxGoalSpeed, 150.0f);
+    }
+
+    // A slower goal by someone else replaces the lobby value but not the max or your own last goal.
+    reducer.Reduce(goal, GoalEvent(120.0, "Epic|2"));
+    {
+        std::shared_lock<std::shared_mutex> lock(state->game.mutex);
+        EXPECT_FLOAT_EQ(state->game.lastGoalSpeed, 120.0f);
+        EXPECT_FLOAT_EQ(state->game.lastGoalSpeedSelf, 150.0f);
+        EXPECT_FLOAT_EQ(state->game.currentMatch.maxGoalSpeed, 150.0f);
+    }
+
+    reducer.Reduce(goal, GoalEvent(110.0, "Steam|1"));
+    reducer.Reduce(goal, GoalEvent(171.5, "Steam|1"));
+    std::shared_lock<std::shared_mutex> lock(state->game.mutex);
+    EXPECT_FLOAT_EQ(state->game.lastGoalSpeed, 171.5f);
+    EXPECT_FLOAT_EQ(state->game.lastGoalSpeedSelf, 171.5f);
+    EXPECT_FLOAT_EQ(state->game.currentMatch.maxGoalSpeed, 171.5f);
+    EXPECT_FLOAT_EQ(state->game.currentMatch.maxGoalSpeedSelf, 171.5f);
+}
+
+TEST(TelemetryReducerStats, FreeplayGoalSurvivesMatchStartAndReturnToMenu) {
+    auto state = StateWithLocalPlayer();
+    TelemetryReducer reducer(state);
+
+    // Freeplay goals carry no match GUID.
+    reducer.Reduce(std::string(Constants::EVT_GOAL_SCORED), GoalEvent(156.0, "Steam|1"));
+    reducer.Reduce(std::string(Constants::EVT_MATCH_CREATED), nlohmann::json{{"MatchGuid", "ranked-guid-1"}});
+    {
+        std::shared_lock<std::shared_mutex> lock(state->game.mutex);
+        EXPECT_TRUE(state->game.inMatch);
+        EXPECT_FLOAT_EQ(state->game.currentMatch.maxGoalSpeed, 0.0f);
+        EXPECT_FLOAT_EQ(state->game.lastGoalSpeed, 156.0f);
+        EXPECT_FLOAT_EQ(state->game.lastGoalSpeedSelf, 156.0f);
+    }
+
+    {
+        std::unique_lock<std::shared_mutex> lock(state->game.mutex);
+        state->clearActiveMatchOnDisconnect();
+    }
+    reducer.Reduce(std::string(Constants::EVT_MATCH_CREATED), nlohmann::json{{"MatchGuid", "ranked-guid-2"}});
+    std::shared_lock<std::shared_mutex> lock(state->game.mutex);
+    EXPECT_FLOAT_EQ(state->game.lastGoalSpeed, 156.0f);
+    EXPECT_FLOAT_EQ(state->game.lastGoalSpeedSelf, 156.0f);
+}
+
+TEST(TelemetryReducerStats, InvalidAndStaleGoalSpeedsAreIgnored) {
+    auto state = StateWithLocalPlayer();
+    TelemetryReducer reducer(state);
+    const std::string goal(Constants::EVT_GOAL_SCORED);
+    reducer.Reduce(std::string(Constants::EVT_MATCH_CREATED), nlohmann::json{{"MatchGuid", "active-guid"}});
+    reducer.Reduce(goal, GoalEvent(140.0, "Steam|1", "active-guid"));
+
+    for (nlohmann::json bad : {nlohmann::json("fast"), nlohmann::json(-5.0), nlohmann::json(0.0), nlohmann::json(nullptr)})
+        reducer.Reduce(goal, GoalEvent(bad, "Steam|1", "active-guid"));
+    // A late event tagged with another match must not replace the current value.
+    reducer.Reduce(goal, GoalEvent(99.0, "Steam|1", "some-other-guid"));
+
+    std::shared_lock<std::shared_mutex> lock(state->game.mutex);
+    EXPECT_FLOAT_EQ(state->game.lastGoalSpeed, 140.0f);
+    EXPECT_FLOAT_EQ(state->game.lastGoalSpeedSelf, 140.0f);
+    EXPECT_FLOAT_EQ(state->game.currentMatch.maxGoalSpeedSelf, 140.0f);
+}
+
+TEST(TelemetryReducerStats, SessionResetClearsLastGoalSpeed) {
+    auto state = StateWithLocalPlayer();
+    TelemetryReducer reducer(state);
+    reducer.Reduce(std::string(Constants::EVT_GOAL_SCORED), GoalEvent(133.0, "Steam|1"));
+
+    std::unique_lock<std::shared_mutex> gameLock(state->game.mutex);
+    std::unique_lock<std::shared_mutex> historyLock(state->history.mutex);
+    state->startNewSessionLocked(0);
+    EXPECT_FLOAT_EQ(state->game.lastGoalSpeed, 0.0f);
+    EXPECT_FLOAT_EQ(state->game.lastGoalSpeedSelf, 0.0f);
+}

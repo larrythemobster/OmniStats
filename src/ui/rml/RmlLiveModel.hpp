@@ -26,6 +26,7 @@ struct LiveValues {
     Rml::String match_demoed;
     Rml::String match_crossbars;
     Rml::String match_max_goal_speed;
+    Rml::String last_goal_speed;
     Rml::String match_max_ball_speed;
     Rml::String match_hardest_crossbar;
     Rml::String match_fastest_goal;

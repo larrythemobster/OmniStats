@@ -18,7 +18,7 @@ releases.
 ## Features
 
 - Live match telemetry from Rocket League's loopback Stats API.
-- Session and match statistics including score, goals, assists, saves, shots, demos, streaks, and records.
+- Session and match statistics including score, goals, assists, saves, shots, demos, streaks, and records. Last goal speed sits under max goal speed and keeps the most recent goal for the whole session, so a freeplay goal is still there after you queue into a match.
 - Optional live rank lookup through your OmniStats account with one-click browser device approval, or through Tracker Network.
 - Local SQLite and JSONL history.
 - Click-through overlay and second-monitor dashboard, with per-container visibility rules.

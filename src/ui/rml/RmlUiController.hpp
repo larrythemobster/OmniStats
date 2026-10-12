@@ -51,6 +51,8 @@ struct RmlRenderSnapshot {
     std::string myPrimaryId;
     int myTeam = -1;
     MatchStats currentMatch;
+    float lastGoalSpeed = 0.0f;
+    float lastGoalSpeedSelf = 0.0f;
     SessionTotals sessionTotals;
     std::unordered_map<std::string, PlayerData> roster;
     std::map<std::string, GamemodeStat> sessionGamemodes;

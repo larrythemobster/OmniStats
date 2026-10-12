@@ -77,6 +77,7 @@ std::string RmlUiController::RenderLiveMatchStats() {
     play += BoundMetricRow("Crossbars", "match_crossbars") + "</div>";
 
     std::string fun = "<div class='metric-list'>" + BoundMetricRow("Max goal speed", "match_max_goal_speed") +
+                      BoundMetricRow("Last goal speed", "last_goal_speed") +
                       BoundMetricRow("Max ball speed", "match_max_ball_speed") + BoundMetricRow("Hardest crossbar", "match_hardest_crossbar") +
                       BoundMetricRow("Fastest goal", "match_fastest_goal");
     if (s.ownGoals > 0) fun += BoundMetricRow("Own goals", "match_own_goals");
@@ -187,6 +188,7 @@ std::string RmlUiController::RenderSessionStats(bool compact, bool includeStreak
 
     std::vector<std::pair<std::string, std::string>> fun = {
         {"Max goal speed", Format::PairSpeed(stats.maxGoalSpeed, stats.maxGoalSpeedSelf, true, " kph", m_config.imperial_units)},
+        {"Last goal speed", Format::PairSpeed(m_snap.lastGoalSpeed, m_snap.lastGoalSpeedSelf, true, " kph", m_config.imperial_units)},
         {"Max ball speed", Format::PairSpeed(stats.maxBallSpeed, stats.maxBallSpeedSelf, true, " kph", m_config.imperial_units)},
         {"Hardest crossbar hit", m_config.crossbar_display_mode == "speed"
                                      ? Format::PairSpeed(stats.maxImpactForce * 0.036f, stats.maxImpactForceSelf * 0.036f, true, " kph", m_config.imperial_units)

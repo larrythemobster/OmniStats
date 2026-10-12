@@ -208,6 +208,8 @@ bool SessionState::startNewSessionLocked(int64_t endedAtUnix) {
             .matchGuids = std::move(matchGuids)};
     }
     game.sessionTotals = SessionTotals();
+    game.lastGoalSpeed = 0.0f;
+    game.lastGoalSpeedSelf = 0.0f;
     game.sessionGamemodes.clear();
     game.sessionStartedAtUnix = 0;
     game.lastMatchEndedAtUnix = 0;

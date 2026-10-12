@@ -6,6 +6,7 @@
 #include "core/PrivacyLog.hpp"
 #include <iostream>
 #include <algorithm>
+#include <cmath>
 #include <utility>
 #include <cctype>
 #include <optional>
@@ -69,6 +70,15 @@ void TelemetryReducer::HandleGoalScored(const nlohmann::json& data, SideEffects&
         m_state->ui.lastGoalMs.store(nowMs, std::memory_order_relaxed);
         m_countdownSeenThisRound = false;
     }
+    // A goal tagged with a finalized, destroyed, or other active match is a late
+    // duplicate; GUID-less goals (freeplay) are always current.
+    const std::string goalGuid = ExtractEventMatchGuid(data);
+    const bool staleGoal =
+        m_nonLiveReplayActive ||
+        (!goalGuid.empty() &&
+         (m_finalizedMatchGuids.count(goalGuid) > 0 || m_pendingDestroyedMatches.count(goalGuid) > 0 ||
+          (m_state->game.inMatch && !m_state->game.matchFinalized && !m_state->game.matchGuid.empty() &&
+           goalGuid != m_state->game.matchGuid)));
     m_roundActive = false;
     m_state->game.currentMatch.goals++;
     std::string scorerName = "", scorerId = "";
@@ -86,12 +96,18 @@ void TelemetryReducer::HandleGoalScored(const nlohmann::json& data, SideEffects&
             m_state->game.roster[scorerId].goals++;
     }
     if (data.contains("GoalSpeed") && data["GoalSpeed"].is_number()) {
-        float currentSpeed = data["GoalSpeed"].get<float>();
-        m_state->game.currentMatch.maxGoalSpeed = std::max(m_state->game.currentMatch.maxGoalSpeed, currentSpeed);
-        if (hasScorer && isScorerSelf)
-            m_state->game.currentMatch.maxGoalSpeedSelf = std::max(m_state->game.currentMatch.maxGoalSpeedSelf, currentSpeed);
-        if (!scorerId.empty() && m_state->game.roster.count(scorerId))
-            m_state->game.roster[scorerId].maxGoalSpeed = std::max(m_state->game.roster[scorerId].maxGoalSpeed, currentSpeed);
+        const float currentSpeed = data["GoalSpeed"].get<float>();
+        if (std::isfinite(currentSpeed) && currentSpeed > 0.0f) {
+            m_state->game.currentMatch.maxGoalSpeed = std::max(m_state->game.currentMatch.maxGoalSpeed, currentSpeed);
+            if (hasScorer && isScorerSelf)
+                m_state->game.currentMatch.maxGoalSpeedSelf = std::max(m_state->game.currentMatch.maxGoalSpeedSelf, currentSpeed);
+            if (!scorerId.empty() && m_state->game.roster.count(scorerId))
+                m_state->game.roster[scorerId].maxGoalSpeed = std::max(m_state->game.roster[scorerId].maxGoalSpeed, currentSpeed);
+            if (!staleGoal) {
+                m_state->game.lastGoalSpeed = currentSpeed;
+                if (hasScorer && isScorerSelf) m_state->game.lastGoalSpeedSelf = currentSpeed;
+            }
+        }
     }
     if (data.contains("GoalTime") && data["GoalTime"].is_number()) {
         float time = data["GoalTime"].get<float>();

@@ -60,6 +60,8 @@ With/against records come from one query, `DatabaseManager::QueryEncounterRecord
 
 Player notes are keyed by `PlayerNotes::Identity` (platform token, normalized account ID, splitscreen slot) parsed from `PrimaryId` through `TrackedAccounts::FromPrimaryId`. Bots and IDs that are not valid platform account IDs get no identity and cannot hold a note. The database worker mirrors the table into `SessionState::notes`; widgets read that cache and only Save/Delete in `player_note.rml` write to SQLite.
 
+Last goal speed lives in `GameState::lastGoalSpeed[Self]`, outside `MatchStats`, so `resetMatch` and disconnects leave it alone. Only `startNewSessionLocked` clears it. GUID-less goals (freeplay) always count; a goal tagged with a finalized, destroyed, or different active match does not replace the value.
+
 ## UI update model
 
 RmlUi documents are kept alive instead of being recreated each frame. `RmlUiController` compares session/history versions and relevant UI/config state, refreshes only the affected roots, and caches RmlUi/D3D resources through the normal document/render-interface lifetime. Fast telemetry remains in `SessionState`; it is not serialized into an intermediate browser-style state blob. Counter and speed values reach the DOM through the `live` data model, so a telemetry tick updates bound text nodes and never rebuilds a widget.
