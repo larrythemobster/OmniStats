@@ -2885,3 +2885,50 @@ TEST_F(RmlUiControllerStateTest, DashboardShowsRankProgressOnceAsItsOwnCardAndTh
     state->ui.rosterMmrCategory.store(MmrCategory::Casual);
     EXPECT_NE(RenderWidgetHtml(controller, WidgetId::RankProgress, true).find("No rank to show"), std::string::npos);
 }
+
+TEST_F(RmlUiControllerStateTest, DashboardLobbyRanksFitANarrowColumnWithoutScrolling) {
+    WarpDevice warp;
+    if (!warp.Create(800, 1000)) GTEST_SKIP() << "WARP not available.";
+    Config::Update(
+        [](ConfigData& c) {
+            c.second_monitor_mode = true;
+            c.show_lobby_ranks_overlay = true;
+            c.show_lobby_rank_1v1 = c.show_lobby_rank_2v2 = c.show_lobby_rank_3v3 = true;
+            c.show_lobby_rank_casual = c.show_lobby_rank_tourny = true;
+            c.dashboard_layout = DashboardLayout::DefaultLayout();
+        },
+        true);
+    auto state = std::make_shared<SessionState>();
+    {
+        std::unique_lock lock(state->game.mutex);
+        state->game.myPrimaryId = kSelfId;
+        for (const auto& [id, name] : std::vector<std::pair<std::string, std::string>>{{kSelfId, "SparePrinter948"}, {kRivalId, "AVeryLongOpponentName"}}) {
+            PlayerData p;
+            p.primaryId = id;
+            p.name = name;
+            p.fetched = true;
+            for (const char* key : {"1v1", "2v2", "3v3", "casual", "t"}) {
+                p.playlists[key] = 1749;
+                p.playlistMatches[key] = 114;
+            }
+            state->game.roster[id] = p;
+        }
+        state->game.version.fetch_add(1);
+    }
+    RmlUiController controller(state, nullptr);
+    ASSERT_TRUE(controller.Initialize(nullptr, warp.device.Get(), warp.context.Get(), 800, 1000, 1.0f));
+    controller.Update(Config::Read(), false);
+    controller.Render();
+
+    Rml::Element* table = Document(controller)->QuerySelector("[data-widget='lobby-ranks'] .lobby-rank-table");
+    ASSERT_NE(table, nullptr);
+    EXPECT_LE(table->GetScrollWidth(), table->GetClientWidth() + 1.0f);
+    const float tableRight = table->GetAbsoluteLeft() + table->GetClientWidth();
+    Rml::ElementList cells;
+    table->QuerySelectorAll(cells, ".lobby-rank-cell");
+    ASSERT_EQ(cells.size(), 15u);
+    for (Rml::Element* cell : cells) {
+        EXPECT_GE(cell->GetOffsetWidth(), 44.0f);
+        EXPECT_LE(cell->GetAbsoluteLeft() + cell->GetOffsetWidth(), tableRight + 1.0f);
+    }
+}
