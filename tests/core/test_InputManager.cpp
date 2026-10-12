@@ -96,16 +96,18 @@ TEST_F(InputManagerActionTest, F7CyclesSessionGraphLifetimeGraphAndStats) {
     EXPECT_FALSE(m_state->history.showLifetimeGraph.load());
 }
 
-TEST_F(InputManagerActionTest, LifetimeHotkeyTogglesLifetimeAndOpensTheGraphCard) {
+TEST_F(InputManagerActionTest, LifetimeHotkeySwitchesTheGraphWithoutOpeningCards) {
     m_state->ui.graphOffset.store(10);
 
     Dispatch(InputManager::HotKeyLifetimeGraph);
     EXPECT_TRUE(m_state->history.showLifetimeGraph.load());
-    EXPECT_TRUE(m_state->ui.showSessionView.load());
-    EXPECT_TRUE(m_state->ui.showGraphView.load());
+    EXPECT_FALSE(m_state->ui.showSessionView.load());
+    EXPECT_FALSE(m_state->ui.showGraphView.load());
     EXPECT_EQ(m_state->ui.graphOffset.load(), 0);
 
-    // Switching back keeps the card on the session graph.
+    // An open graph card stays open while it switches back.
+    m_state->ui.showSessionView.store(true);
+    m_state->ui.showGraphView.store(true);
     m_state->ui.graphOffset.store(5);
     Dispatch(InputManager::HotKeyLifetimeGraph);
     EXPECT_FALSE(m_state->history.showLifetimeGraph.load());

@@ -80,7 +80,6 @@ std::string RmlUiController::RenderLobbyRanks() {
 
         const bool self = p->primaryId == m_snap.myPrimaryId;
         out << "<div class='player-row lobby-rank-row" << (self ? " self" : "") << "'><div class='player-name'><span class='value'>" << Escape(p->name) << "</span>";
-        if (!self) out << RenderNoteControl(p->primaryId, p->name, false);
         if (!platform.empty())
             out << "<div class='label " << PlatformClass(platformKind) << "'>"
                 << Escape(PlatformDisplayName(platformKind, platform)) << "</div>";

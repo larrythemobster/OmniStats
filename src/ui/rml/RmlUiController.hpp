@@ -271,9 +271,9 @@ class RmlUiController final : public Rml::EventListener {
     static std::string PlaylistImageForName(const std::string& playlist);
     std::string RenderRankBadge(const std::string& tier, bool fetched, const std::string& tooltip = {}) const;
     const std::string* NotePreviewFor(const std::string& primaryId) const;
-    // NOTE badge (with preview tooltip) when a note exists; a hover-only "+ Note"
-    // when `allowAdd`; nothing for players without a stable account identity.
-    std::string RenderNoteControl(const std::string& primaryId, const std::string& name, bool allowAdd) const;
+    // NOTE badge (with preview tooltip) when a note exists, otherwise a hover-only
+    // "+ Note"; nothing for players without a stable account identity.
+    std::string RenderNoteControl(const std::string& primaryId, const std::string& name) const;
 
     Rml::Element* Root(const char* id) const;
     void SetRootRml(const char* id, const std::string& rml);

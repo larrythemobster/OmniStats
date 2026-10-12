@@ -2603,6 +2603,71 @@ TEST_F(RmlUiControllerStateTest, RosterShowsEscapedNoteBadgeOnlyForStableIdentit
     EXPECT_EQ(rowOf(stranger).find("note-badge"), std::string::npos);
     EXPECT_EQ(rowOf(bot).find("player-note-open"), std::string::npos);
     EXPECT_EQ(rowOf(html.find(">Me<")).find("player-note-open"), std::string::npos);
+
+    const std::string lobby = RenderLobbyRanks(controller);
+    EXPECT_NE(lobby.find(">Rival<"), std::string::npos);
+    EXPECT_EQ(lobby.find("player-note-open"), std::string::npos);
+}
+
+TEST_F(RmlUiControllerStateTest, OverlayNoteBadgeOpensTheEditorInsteadOfMovingTheCard) {
+    WarpDevice warp;
+    if (!warp.Create(1920, 1080)) GTEST_SKIP() << "WARP not available.";
+    HWND hwnd = CreateWindowExA(0, "STATIC", "test", WS_POPUP, 0, 0, 1920, 1080, nullptr, nullptr, GetModuleHandle(nullptr), nullptr);
+    ASSERT_NE(hwnd, nullptr);
+    Config::Update(
+        [](ConfigData& c) {
+            c.second_monitor_mode = false;
+            c.overlay_layout = OverlayLayout::DefaultOverlayLayout();
+        },
+        true);
+    auto state = std::make_shared<SessionState>();
+    state->ui.showMenu.store(true);
+    {
+        std::unique_lock lock(state->game.mutex);
+        state->game.myPrimaryId = kSelfId;
+        PlayerData rival;
+        rival.primaryId = kRivalId;
+        rival.name = "Rival";
+        rival.team = 1;
+        rival.fetched = true;
+        state->game.roster[kRivalId] = rival;
+        state->game.version.fetch_add(1);
+    }
+    {
+        std::lock_guard lock(state->notes.mutex);
+        state->notes.loaded = true;
+        PlayerNotes::Note note;
+        note.identity = *PlayerNotes::IdentityFromPrimaryId(kRivalId);
+        note.text = "Rotates well";
+        state->notes.byKey[note.identity.Key()] = note;
+        state->notes.version.fetch_add(1);
+    }
+    RmlUiController controller(state, nullptr);
+    ASSERT_TRUE(controller.Initialize(hwnd, warp.device.Get(), warp.context.Get(), 1920, 1080, 1.0f));
+    controller.Update(Config::Read());
+    controller.Render();
+
+    auto* badge = OverlayRoot(controller)->QuerySelector("[data-container='main_stack'] .note-badge");
+    ASSERT_NE(badge, nullptr);
+    const Rml::Vector2f center = badge->GetAbsoluteOffset() + Rml::Vector2f(badge->GetOffsetWidth() * 0.5f, badge->GetOffsetHeight() * 0.5f);
+    const LPARAM position = MAKELPARAM(static_cast<int>(center.x), static_cast<int>(center.y));
+    const auto before = Config::Read().overlay_layout.containers;
+
+    controller.ProcessWindowMessage(hwnd, WM_MOUSEMOVE, 0, position);
+    controller.Render();
+    controller.ProcessWindowMessage(hwnd, WM_LBUTTONDOWN, MK_LBUTTON, position);
+    controller.ProcessWindowMessage(hwnd, WM_MOUSEMOVE, MK_LBUTTON, MAKELPARAM(static_cast<int>(center.x) + 2, static_cast<int>(center.y) + 2));
+    controller.ProcessWindowMessage(hwnd, WM_LBUTTONUP, 0, position);
+    controller.Render();
+
+    EXPECT_TRUE(IsNoteVisible(controller));
+    const auto after = Config::Read().overlay_layout.containers;
+    ASSERT_EQ(after.size(), before.size());
+    for (size_t i = 0; i < after.size(); ++i) {
+        EXPECT_FLOAT_EQ(after[i].x, before[i].x) << after[i].id;
+        EXPECT_FLOAT_EQ(after[i].y, before[i].y) << after[i].id;
+    }
+    DestroyWindow(hwnd);
 }
 
 TEST_F(RmlUiControllerStateTest, PlayerNoteEditorSavesEditsDeletesAndGuardsUnsavedChanges) {

@@ -57,7 +57,7 @@ void RmlUiController::HandleMouseDown(Rml::Element* target, Rml::Event& event) {
         if (cur->HasAttribute("data-setting")) return;
         const std::string curAction = Attribute(cur, "data-action");
         if (curAction == "overlay-remove-widget" || curAction == "overlay-remove-container" ||
-            curAction == "overlay-visibility") {
+            curAction == "overlay-visibility" || curAction == "player-note-open" || curAction == "open-player-tracker") {
             return;
         }
     }

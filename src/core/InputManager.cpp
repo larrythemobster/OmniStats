@@ -179,17 +179,11 @@ namespace {
         }
     }
 
-    // Switches every graph between this session and lifetime history. On the
-    // overlay the graph only exists in the session card, so turning lifetime on
-    // opens that card on its graph.
+    // Switches every graph between this session and lifetime history without
+    // opening or closing any card.
     void ToggleLifetimeGraph(SessionState& state) {
-        const bool lifetime = !state.history.showLifetimeGraph.load();
-        state.history.showLifetimeGraph.store(lifetime);
+        state.history.showLifetimeGraph.store(!state.history.showLifetimeGraph.load());
         state.ui.graphOffset.store(0);
-        if (lifetime) {
-            state.ui.showSessionView.store(true);
-            state.ui.showGraphView.store(true);
-        }
     }
 } // namespace
 

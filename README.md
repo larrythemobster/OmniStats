@@ -23,7 +23,7 @@ releases.
 - Local SQLite and JSONL history.
 - Click-through overlay and second-monitor dashboard, with per-container visibility rules.
 - Player roster context and browser links to public player profiles. Each player shows separate "with" and "vs" records from your saved matches.
-- Private player notes stored only on your PC. A NOTE tag marks players you have written about; hover a roster row (or use History and Insights > People) to add one.
+- Private player notes stored only on your PC. A NOTE tag on the roster marks players you have written about; click it, or hover a roster row and click "+ Note", to write one. On the overlay, open Settings first so the overlay accepts clicks. History and Insights > People also have note buttons.
 - Rank progress: your current and next division, plus how much MMR you can lose before dropping and how much you need to rank up. On the overlay it sits below both teams and on the MMR graph; on the dashboard it is its own movable card. It follows the roster's selected playlist and can be turned off under Settings > Cards. Division thresholds come from Tracker Network.
 - MMR graph: tinted bands for each division with their names and boundary values, a line that starts at your pre-session rating, and a tooltip on every point with the game, rating, and change. F9 (rebindable under Settings > Shortcuts) switches every graph between this session and lifetime history, on the overlay and the dashboard.
 - Insights window with a session recap card you can save as a PNG, a persisted session archive with previous-session comparisons, win rates with and against the people you play with most, and trends by playlist, time of day, session length, loss streaks, and lobby MMR gap.
