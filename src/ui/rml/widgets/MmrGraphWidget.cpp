@@ -125,12 +125,20 @@ std::string RmlUiController::RenderMmrGraph(bool showCategoryBadge, bool showRan
         return empty.str();
     }
     const bool hasBaseline = baseline > 0.0f;
+    // A session graph starts at the rating from before the first match, so a
+    // single game still draws a line from where the session began.
+    const bool sessionStart = !m_snap.showLifetimeGraph && hasBaseline && firstIndex == 0;
+    std::vector<float> plotted;
+    plotted.reserve(values.size() + 1);
+    if (sessionStart) plotted.push_back(baseline);
+    plotted.insert(plotted.end(), values.begin(), values.end());
+    const size_t firstMatch = sessionStart ? 1 : 0;
 
-    float minV = values.front();
-    float maxV = values.front();
-    for (float value : values) {
-        minV = std::min(minV, value);
-        maxV = std::max(maxV, value);
+    float minV = *std::min_element(plotted.begin(), plotted.end());
+    float maxV = *std::max_element(plotted.begin(), plotted.end());
+    if (hasBaseline) {
+        minV = std::min(minV, baseline);
+        maxV = std::max(maxV, baseline);
     }
     if (maxV == minV) {
         maxV += 15.0f;
@@ -141,33 +149,73 @@ std::string RmlUiController::RenderMmrGraph(bool showCategoryBadge, bool showRan
         minV -= padding;
     }
     constexpr float kBoundaryReach = 60.0f;
-    if (!rankTable.empty()) RankProgress::ExpandRangeForBoundaries(rankTable, values.back(), kBoundaryReach, minV, maxV);
+    if (!rankTable.empty()) RankProgress::ExpandRangeForBoundaries(rankTable, plotted.back(), kBoundaryReach, minV, maxV);
 
     constexpr float xMin = 4.0f;
     constexpr float xMax = 80.0f;
-    constexpr float yMin = 10.0f;
-    constexpr float yMax = 88.0f;
+    constexpr float yMin = 6.0f;
+    constexpr float yMax = 86.0f;
     auto yPct = [&](float value) { return yMax - ((value - minV) / (maxV - minV)) * (yMax - yMin); };
-    auto xPct = [&](size_t index) { return values.size() <= 1 ? (xMin + xMax) * 0.5f : xMin + static_cast<float>(index) / static_cast<float>(values.size() - 1) * (xMax - xMin); };
+    auto xPct = [&](size_t index) { return plotted.size() <= 1 ? xMax : xMin + static_cast<float>(index) / static_cast<float>(plotted.size() - 1) * (xMax - xMin); };
 
+    // Summary over the whole series, not only the visible window. A ranked
+    // result always moves MMR, so the direction of each step is the result.
+    int wins = 0;
+    int losses = 0;
+    const bool fromBaseline = !m_snap.showLifetimeGraph && hasBaseline;
+    float previous = fromBaseline ? baseline : series.front();
+    for (size_t i = fromBaseline ? 0 : 1; i < series.size(); ++i) {
+        if (series[i] > previous) ++wins;
+        if (series[i] < previous) ++losses;
+        previous = series[i];
+    }
+    const auto [lowIt, peakIt] = std::minmax_element(series.begin(), series.end());
+    const auto stat = [](const char* label, const std::string& value) {
+        return std::string("<div class='graph-stat'><span class='label'>") + label + "</span><span class='graph-stat-value mono'>" + value + "</span></div>";
+    };
+    const int net = static_cast<int>(std::lround(series.back() - (fromBaseline ? baseline : series.front())));
     std::ostringstream out;
-    out << header.str() << "<div class='graph-wrap'>";
-    const float midV = (minV + maxV) * 0.5f;
-    out << "<div class='graph-gridline graph-boundary' style='left:" << xMin << "%;top:" << yMin << "%;width:" << (xMax - xMin) << "%'></div>"
-        << "<div class='graph-gridline graph-boundary' style='left:" << xMin << "%;top:" << yMax << "%;width:" << (xMax - xMin) << "%'></div>"
-        << "<div class='graph-gridline' style='left:" << xMin << "%;top:" << yPct(midV) << "%;width:" << (xMax - xMin) << "%'></div>"
-        << "<div class='graph-label graph-max' style='left:" << xMin << "%;top:1%'>" << static_cast<int>(maxV) << "</div>"
-        << "<div class='graph-label' style='left:" << xMin << "%;top:" << (yPct(midV) + 1.0f) << "%'>" << static_cast<int>(midV) << "</div>"
-        << "<div class='graph-label graph-min' style='left:" << xMin << "%;top:89%'>" << static_cast<int>(minV) << "</div>";
+    out << header.str() << "<div class='row graph-stats'>" << stat("Games", std::to_string(total))
+        << "<div class='graph-stat'><span class='label'>W-L</span><span class='graph-stat-value mono'><span class='win'>" << wins
+        << "</span>-<span class='loss'>" << losses << "</span></span></div>"
+        << "<div class='graph-stat'><span class='label'>Net</span><span class='graph-stat-value mono " << (net > 0 ? "win" : net < 0 ? "loss"
+                                                                                                                                     : "")
+        << "'>" << (net > 0 ? "+" : "") << net << "</span></div>" << stat("Peak", std::to_string(static_cast<int>(std::lround(*peakIt))))
+        << stat("Low", std::to_string(static_cast<int>(std::lround(*lowIt)))) << "<div class='grow'></div>";
+    if (total > kVisibleMatches) out << "<span class='label mono'>" << (firstIndex + 1) << '-' << (firstIndex + windowCount) << " of " << total << "</span>";
+    out << "</div><div class='graph-wrap'>";
+
+    // Division bands are the y-axis when the playlist has a rank table; their
+    // boundary values replace generic gridlines.
+    const auto bands = RankProgress::LayoutGraphBands(rankTable, minV, maxV, yMin, yMax);
+    constexpr float kBandLabelMinPct = 8.0f;
+    for (const auto& band : bands) {
+        ColorRGBA tint = Format::RankColor(band.label);
+        tint.a = band.index % 2 == 0 ? 0.10f : 0.17f;
+        out << "<div class='graph-band' style='left:" << xMin << "%;width:" << (xMax - xMin) << "%;top:" << band.topPct
+            << "%;height:" << (band.bottomPct - band.topPct) << "%;background-color:" << CssColor(tint) << "'></div>";
+        if (band.bottomPct - band.topPct >= kBandLabelMinPct)
+            out << "<div class='graph-band-label' style='left:" << (xMin + 1.0f) << "%;top:" << (band.topPct + 1.0f)
+                << "%;color:" << CssColor(Format::RankColor(band.label)) << "'>"
+                << Escape(Format::RankTier(band.label, m_config.use_roman_numerals)) << "</div>";
+    }
+    if (bands.empty()) {
+        const float midV = (minV + maxV) * 0.5f;
+        out << "<div class='graph-gridline graph-boundary' style='left:" << xMin << "%;top:" << yMin << "%;width:" << (xMax - xMin) << "%'></div>"
+            << "<div class='graph-gridline graph-boundary' style='left:" << xMin << "%;top:" << yMax << "%;width:" << (xMax - xMin) << "%'></div>"
+            << "<div class='graph-gridline' style='left:" << xMin << "%;top:" << yPct(midV) << "%;width:" << (xMax - xMin) << "%'></div>"
+            << "<div class='graph-label' style='right:" << (100.0f - xMax + 1.0f) << "%;top:" << (yMin + 0.5f) << "%'>" << static_cast<int>(maxV) << "</div>"
+            << "<div class='graph-label' style='right:" << (100.0f - xMax + 1.0f) << "%;top:" << (yPct(midV) + 0.5f) << "%'>" << static_cast<int>(midV)
+            << "</div>"
+            << "<div class='graph-label' style='right:" << (100.0f - xMax + 1.0f) << "%;top:" << (yMax - 8.0f) << "%'>" << static_cast<int>(minV) << "</div>";
+    }
 
     RankProgress::GraphLayoutOptions boundaryLayout;
     boundaryLayout.plotTopPct = yMin;
     boundaryLayout.plotBottomPct = yMax;
-    // Right-edge labels already in use: the match count (top), the last match
-    // time (bottom), and the current point.
-    const float currentTop = yPct(values.back());
-    boundaryLayout.reserved = {{0.0f, 8.0f}, {87.0f, 100.0f}, {currentTop - 4.0f, currentTop + 4.0f}};
-    const auto boundaries = RankProgress::LayoutGraphBoundaries(rankTable, minV, maxV, values.back(), boundaryLayout);
+    const float currentTop = yPct(plotted.back());
+    boundaryLayout.reserved = {{yMax, 100.0f}, {currentTop - 4.0f, currentTop + 4.0f}};
+    const auto boundaries = RankProgress::LayoutGraphBoundaries(rankTable, minV, maxV, plotted.back(), boundaryLayout);
     for (const auto& b : boundaries) {
         const std::string color = CssColor(Format::RankColor(b.boundary.label));
         out << "<div class='graph-rank-line tooltip-host" << (b.boundary.tierStart ? " tier-start" : "") << "' style='left:" << xMin
@@ -177,26 +225,10 @@ std::string RmlUiController::RenderMmrGraph(bool showCategoryBadge, bool showRan
             << "</span></div>";
     }
 
-    out << "<div class='graph-label graph-last' style='right:20%;top:1%'>";
-    if (total > kVisibleMatches) {
-        out << (firstIndex + 1) << '-' << (firstIndex + windowCount) << " of " << total;
-    } else {
-        out << "last " << total;
-    }
-    out << "</div>";
-
-    if (!seriesTimes.empty() && firstIndex < static_cast<int>(seriesTimes.size())) {
-        const int lastIndex = std::min(firstIndex + windowCount - 1, static_cast<int>(seriesTimes.size()) - 1);
-        out << "<div class='graph-label' style='left:" << (xMin + 7.0f) << "%;top:89%'>"
-            << Escape(FormatClock(static_cast<int64_t>(seriesTimes[static_cast<size_t>(firstIndex)]))) << "</div>"
-            << "<div class='graph-label graph-last' style='right:20%;top:89%'>"
-            << Escape(FormatClock(static_cast<int64_t>(seriesTimes[static_cast<size_t>(lastIndex)]))) << "</div>";
-    }
-
     if (hasBaseline && baseline >= minV && baseline <= maxV) {
         const float baseY = yPct(baseline);
-        constexpr int dashCount = 13;
-        constexpr float dashWidth = 3.6f;
+        constexpr int dashCount = 19;
+        constexpr float dashWidth = 2.0f;
         const float step = (xMax - xMin) / static_cast<float>(dashCount);
         for (int i = 0; i < dashCount; ++i) {
             const float left = xMin + static_cast<float>(i) * step;
@@ -204,53 +236,89 @@ std::string RmlUiController::RenderMmrGraph(bool showCategoryBadge, bool showRan
         }
     }
 
-    out << "<mmrgraphlines class='graph-polyline' points='";
-    for (size_t i = 0; i < values.size(); ++i) {
+    out << "<mmrgraphlines class='graph-polyline' fill-to='" << (yMax / 100.0f) << "' points='";
+    for (size_t i = 0; i < plotted.size(); ++i) {
         if (i) out << ';';
-        out << (xPct(i) / 100.0f) << ',' << (yPct(values[i]) / 100.0f);
+        out << (xPct(i) / 100.0f) << ',' << (yPct(plotted[i]) / 100.0f);
     }
     out << "'></mmrgraphlines>";
 
-    for (size_t i = 0; i < values.size(); ++i) {
+    for (size_t i = 0; i < plotted.size(); ++i) {
+        const float compareTo = i > 0 ? plotted[i - 1] : firstIndex > 0         ? series[static_cast<size_t>(firstIndex) - 1]
+                                                     : m_snap.showLifetimeGraph ? 0.0f
+                                                                                : baseline;
+        const int mmr = static_cast<int>(std::lround(plotted[i]));
+        const bool isStart = sessionStart && i == 0;
         std::string cls;
-        if (i == 0) {
-            if (baseline > 0 && values[i] > baseline)
-                cls = " win";
-            else if (baseline > 0 && values[i] < baseline)
-                cls = " loss";
-            else
+        std::string tip;
+        if (isStart) {
+            cls = " start";
+            tip = "Session start \xC2\xB7 " + std::to_string(mmr) + " MMR";
+        } else {
+            const size_t valueIndex = i - firstMatch;
+            const int game = firstIndex + static_cast<int>(valueIndex) + 1;
+            tip = "Game " + std::to_string(game);
+            if (m_snap.showLifetimeGraph && static_cast<size_t>(firstIndex) + valueIndex < seriesTimes.size())
+                tip += " \xC2\xB7 " + FormatClock(static_cast<int64_t>(seriesTimes[static_cast<size_t>(firstIndex) + valueIndex]));
+            tip += " \xC2\xB7 " + std::to_string(mmr) + " MMR";
+            if (compareTo > 0.0f) {
+                const int delta = mmr - static_cast<int>(std::lround(compareTo));
+                cls = delta > 0 ? " win" : delta < 0 ? " loss"
+                                                     : " neutral";
+                tip += std::string(" (") + (delta >= 0 ? "+" : "") + std::to_string(delta) + ")";
+            } else {
                 cls = " neutral";
-        } else if (values[i] > values[i - 1])
-            cls = " win";
-        else if (values[i] < values[i - 1])
-            cls = " loss";
-        else
-            cls = " neutral";
-        const bool isEstimated = i < estimated.size() && estimated[i];
-        if (isEstimated) cls += " estimated";
-        const bool isCurrent = i + 1 == values.size();
+            }
+            if (valueIndex < estimated.size() && estimated[valueIndex]) {
+                cls += " estimated";
+                tip += " \xC2\xB7 pending Tracker confirmation";
+            }
+        }
+        const float x = xPct(i);
+        const float y = yPct(plotted[i]);
+        const bool isCurrent = i + 1 == plotted.size();
         if (isCurrent) {
-            out << "<div class='graph-point-halo" << cls << "' style='left:" << xPct(i) << "%;top:" << yPct(values[i]) << "%'></div>";
+            out << "<div class='graph-point-halo" << cls << "' style='left:" << x << "%;top:" << y << "%'></div>";
             cls += " current";
         }
-        out << "<div class='graph-point" << cls << "' style='left:" << xPct(i) << "%;top:" << yPct(values[i]) << "%'></div>";
+        out << "<div class='graph-point" << cls << "' style='left:" << x << "%;top:" << y << "%'></div>"
+            << "<div class='graph-hit tooltip-host' style='left:" << x << "%;top:" << y << "%'><span class='tooltip-bubble"
+            << (y < 45.0f ? " below" : "") << (x > 55.0f ? " align-right" : x < 25.0f ? " align-left"
+                                                                                      : "")
+            << "'>" << Escape(tip)
+            << "</span></div>";
     }
 
     // Labels stop short of the plot's right edge so the current point stays clear.
     for (const auto& b : boundaries) {
         if (!b.labeled) continue;
-        out << "<div class='graph-rank-label' style='right:" << (100.0f - xMax + 2.0f) << "%;top:" << b.labelTopPct
-            << "%;color:" << CssColor(Format::RankColor(b.boundary.label)) << "'>" << Escape(Format::AbbreviateRank(b.boundary.label))
-            << " <span class='mono'>" << b.boundary.mmr << "</span></div>";
+        out << "<div class='graph-rank-label mono' style='right:" << (100.0f - xMax + 2.0f) << "%;top:" << b.labelTopPct
+            << "%;color:" << CssColor(Format::RankColor(b.boundary.label)) << "'>" << b.boundary.mmr << "</div>";
     }
 
-    const int current = static_cast<int>(std::lround(values.back()));
-    out << "<div class='graph-current' style='left:83%;top:" << (yPct(values.back()) - 4.0f) << "%;'>" << current;
+    const float axisTop = yMax + 2.0f;
+    if (m_snap.showLifetimeGraph && !seriesTimes.empty() && firstIndex < static_cast<int>(seriesTimes.size())) {
+        const int lastIndex = std::min(firstIndex + windowCount - 1, static_cast<int>(seriesTimes.size()) - 1);
+        out << "<div class='graph-label' style='left:" << xMin << "%;top:" << axisTop << "%'>"
+            << Escape(FormatClock(static_cast<int64_t>(seriesTimes[static_cast<size_t>(firstIndex)]))) << "</div>"
+            << "<div class='graph-label graph-last' style='right:" << (100.0f - xMax) << "%;top:" << axisTop << "%'>"
+            << Escape(FormatClock(static_cast<int64_t>(seriesTimes[static_cast<size_t>(lastIndex)]))) << "</div>";
+    } else {
+        if (plotted.size() > 1)
+            out << "<div class='graph-label' style='left:" << xMin << "%;top:" << axisTop << "%'>"
+                << (sessionStart ? std::string("Start") : "Game " + std::to_string(firstIndex + 1)) << "</div>";
+        out << "<div class='graph-label graph-last' style='right:" << (100.0f - xMax) << "%;top:" << axisTop << "%'>Game "
+            << (firstIndex + windowCount) << "</div>";
+    }
+
+    const int current = static_cast<int>(std::lround(plotted.back()));
+    out << "<div class='graph-current' style='left:83%;top:" << (currentTop - 5.0f) << "%;'>" << current;
     if (hasBaseline) {
-        const int change = static_cast<int>(std::lround(values.back() - baseline));
-        out << " <span class='" << (change >= 0 ? "win" : "loss") << "'>";
-        if (change >= 0) out << '+';
-        out << change << "</span>";
+        const int change = static_cast<int>(std::lround(plotted.back() - baseline));
+        out << "<div class='graph-current-change " << (change > 0 ? "win" : change < 0 ? "loss"
+                                                                                       : "muted")
+            << "'>" << (change > 0 ? "+" : "") << change
+            << "</div>";
     }
     out << "</div></div>";
     return out.str();

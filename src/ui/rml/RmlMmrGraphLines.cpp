@@ -34,6 +34,26 @@ namespace {
         vertex(b + normal);
         mesh.indices.insert(mesh.indices.end(), {first, first + 1, first + 2, first, first + 2, first + 3});
     }
+
+    // Area under one segment down to `bottom`, fading from `top` colour at the line
+    // to transparent at the bottom.
+    void AddFillQuad(Rml::Mesh& mesh, Rml::Vector2f a, Rml::Vector2f b, float bottom, Rml::ColourbPremultiplied top) {
+        if (!(b.x > a.x)) return;
+        const int first = static_cast<int>(mesh.vertices.size());
+        auto vertex = [&](Rml::Vector2f position, Rml::ColourbPremultiplied colour) {
+            Rml::Vertex v;
+            v.position = position;
+            v.colour = colour;
+            v.tex_coord = {};
+            mesh.vertices.push_back(v);
+        };
+        const Rml::ColourbPremultiplied clear(0, 0, 0, 0);
+        vertex(a, top);
+        vertex(b, top);
+        vertex({b.x, bottom}, clear);
+        vertex({a.x, bottom}, clear);
+        mesh.indices.insert(mesh.indices.end(), {first, first + 1, first + 2, first, first + 2, first + 3});
+    }
 } // namespace
 
 RmlMmrGraphLines::RmlMmrGraphLines(const Rml::String& tag) : Rml::Element(tag) {}
@@ -49,7 +69,7 @@ void RmlMmrGraphLines::OnResize() {
 
 void RmlMmrGraphLines::OnAttributeChange(const Rml::ElementAttributes& changedAttributes) {
     Rml::Element::OnAttributeChange(changedAttributes);
-    if (changedAttributes.find("points") != changedAttributes.end()) {
+    if (changedAttributes.find("points") != changedAttributes.end() || changedAttributes.find("fill-to") != changedAttributes.end()) {
         ParsePoints();
         RebuildGeometry();
     }
@@ -95,18 +115,21 @@ void RmlMmrGraphLines::RebuildGeometry() {
     if (!(size.x > 0.0f) || !(size.y > 0.0f) || !std::isfinite(size.x) || !std::isfinite(size.y)) return;
 
     const float dpRatio = GetContext() ? GetContext()->GetDensityIndependentPixelRatio() : 1.0f;
-    const float thickness = 2.5f * std::max(dpRatio, 0.5f);
+    const float thickness = 3.5f * std::max(dpRatio, 0.5f);
     const auto& computed = GetComputedValues();
-    const Rml::ColourbPremultiplied colour = computed.color().ToPremultiplied(computed.opacity() * 0.88f);
+    const Rml::ColourbPremultiplied colour = computed.color().ToPremultiplied(computed.opacity() * 0.95f);
+    const Rml::ColourbPremultiplied fillColour = computed.color().ToPremultiplied(computed.opacity() * 0.22f);
+    const float fillTo = GetAttribute<float>("fill-to", -1.0f);
 
     Rml::Mesh mesh;
-    mesh.vertices.reserve((m_points.size() - 1) * 4);
-    mesh.indices.reserve((m_points.size() - 1) * 6);
-    for (size_t i = 1; i < m_points.size(); ++i) {
-        const Rml::Vector2f a{m_points[i - 1].x * size.x, m_points[i - 1].y * size.y};
-        const Rml::Vector2f b{m_points[i].x * size.x, m_points[i].y * size.y};
-        AddLineQuad(mesh, a, b, thickness, colour);
+    mesh.vertices.reserve((m_points.size() - 1) * 8);
+    mesh.indices.reserve((m_points.size() - 1) * 12);
+    const auto at = [&](size_t i) { return Rml::Vector2f{m_points[i].x * size.x, m_points[i].y * size.y}; };
+    if (fillTo > 0.0f && std::isfinite(fillTo)) {
+        for (size_t i = 1; i < m_points.size(); ++i)
+            AddFillQuad(mesh, at(i - 1), at(i), fillTo * size.y, fillColour);
     }
-
+    for (size_t i = 1; i < m_points.size(); ++i)
+        AddLineQuad(mesh, at(i - 1), at(i), thickness, colour);
     if (mesh) m_geometry = GetRenderManager()->MakeGeometry(std::move(mesh));
 }

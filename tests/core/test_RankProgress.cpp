@@ -194,3 +194,24 @@ TEST(RankProgressTest, CollidingLabelsKeepTheBoundaryNearestTheCurrentRating) {
     ASSERT_NE(nearest, boundaries.end());
     EXPECT_TRUE(nearest->labeled);
 }
+
+TEST(RankProgressTest, GraphBandsTileThePlotHighestFirstAndClipAtTheEdges) {
+    const auto bands = RankProgress::LayoutGraphBands(kTable, 150.0f, 450.0f, 0.0f, 100.0f);
+    ASSERT_EQ(bands.size(), 4u);
+    EXPECT_EQ(bands[0].label, "Supersonic Legend");
+    EXPECT_FLOAT_EQ(bands[0].topPct, 0.0f);
+    EXPECT_NEAR(bands[0].bottomPct, 100.0f / 6.0f, 0.01f);
+    EXPECT_EQ(bands[1].label, "Bronze II Div II");
+    EXPECT_NEAR(bands[1].bottomPct, 50.0f, 0.01f);
+    EXPECT_EQ(bands[3].label, "Bronze I Div II");
+    EXPECT_FLOAT_EQ(bands[3].bottomPct, 100.0f);
+    for (size_t i = 1; i < bands.size(); ++i)
+        EXPECT_FLOAT_EQ(bands[i].topPct, bands[i - 1].bottomPct);
+
+    // Ratings below the table still sit in its lowest division.
+    const auto below = RankProgress::LayoutGraphBands(kTable, -300.0f, -150.0f, 10.0f, 90.0f);
+    ASSERT_EQ(below.size(), 1u);
+    EXPECT_EQ(below[0].label, "Bronze I Div I");
+    EXPECT_FLOAT_EQ(below[0].topPct, 10.0f);
+    EXPECT_FLOAT_EQ(below[0].bottomPct, 90.0f);
+}

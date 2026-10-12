@@ -75,4 +75,16 @@ namespace RankProgress {
     std::vector<GraphBoundary> LayoutGraphBoundaries(std::span<const Threshold> table, float minV, float maxV, float current,
                                                      const GraphLayoutOptions& options);
 
+    // The part of one division visible on the graph, as plot percentages
+    // (0 = top). `index` is the division's position in the table.
+    struct GraphBand {
+        std::string label;
+        size_t index = 0;
+        float topPct = 0.0f;
+        float bottomPct = 0.0f;
+    };
+
+    // Every division overlapping [minV, maxV], highest first, clipped to the plot.
+    std::vector<GraphBand> LayoutGraphBands(std::span<const Threshold> table, float minV, float maxV, float plotTopPct, float plotBottomPct);
+
 } // namespace RankProgress

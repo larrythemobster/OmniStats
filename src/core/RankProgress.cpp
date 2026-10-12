@@ -156,4 +156,24 @@ namespace RankProgress {
         return out;
     }
 
+    std::vector<GraphBand> LayoutGraphBands(std::span<const Threshold> table, float minV, float maxV, float plotTopPct, float plotBottomPct) {
+        std::vector<GraphBand> out;
+        if (table.empty() || !(maxV > minV) || !std::isfinite(minV) || !std::isfinite(maxV)) return out;
+        const float span = plotBottomPct - plotTopPct;
+        const auto pct = [&](float value) { return plotBottomPct - (value - minV) / (maxV - minV) * span; };
+        for (size_t i = table.size(); i-- > 0;) {
+            // The lowest division also covers ratings below the table's floor.
+            const float low = i == 0 ? minV : std::max(static_cast<float>(table[i].minMmr), minV);
+            const float high = i + 1 < table.size() ? std::min(static_cast<float>(table[i + 1].minMmr), maxV) : maxV;
+            if (!(high > low)) continue;
+            GraphBand band;
+            band.label = Label(table[i]);
+            band.index = i;
+            band.topPct = pct(high);
+            band.bottomPct = pct(low);
+            out.push_back(std::move(band));
+        }
+        return out;
+    }
+
 } // namespace RankProgress

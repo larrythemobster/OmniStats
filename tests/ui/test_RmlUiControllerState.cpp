@@ -932,7 +932,7 @@ TEST_F(RmlUiControllerStateTest, LifetimeGraphKeepsLatestTwentyFiveDottedMatches
     EXPECT_EQ(html.find("data-action='graph-zoom-in'"), std::string::npos);
     EXPECT_EQ(html.find("data-action='graph-zoom-out'"), std::string::npos);
     EXPECT_EQ(html.find("data-action='graph-mode'"), std::string::npos);
-    EXPECT_NE(html.find("<mmrgraphlines class='graph-polyline' points='"), std::string::npos);
+    EXPECT_NE(html.find("<mmrgraphlines class='graph-polyline'"), std::string::npos);
     EXPECT_NE(html.find("class='graph-point"), std::string::npos);
 }
 
@@ -2751,7 +2751,8 @@ TEST_F(RmlUiControllerStateTest, MmrGraphShowsRankProgressAndLabeledBoundariesPe
     EXPECT_NE(html.find(">-" + std::to_string(doubles.aboveFloor) + "<span"), std::string::npos);
     EXPECT_EQ(html.find("estimate"), std::string::npos);
     EXPECT_NE(html.find("graph-rank-line"), std::string::npos);
-    EXPECT_NE(html.find(">" + Format::AbbreviateRank(doubles.next->label) + " <span class='mono'>" + std::to_string(doubles.next->mmr)), std::string::npos);
+    EXPECT_NE(html.find("graph-band-label"), std::string::npos);
+    EXPECT_NE(html.find("'>" + std::to_string(doubles.next->mmr) + "</div>"), std::string::npos);
     // The existing graph pieces remain.
     EXPECT_NE(html.find("mmrgraphlines"), std::string::npos);
     EXPECT_NE(html.find("graph-current"), std::string::npos);
@@ -2766,6 +2767,44 @@ TEST_F(RmlUiControllerStateTest, MmrGraphShowsRankProgressAndLabeledBoundariesPe
     EXPECT_NE(html.find(">+" + std::to_string(standard.toNext) + "<span"), std::string::npos);
     EXPECT_NE(html.find(" starts at " + std::to_string(standard.next->mmr) + " MMR"), std::string::npos);
     EXPECT_EQ(html.find("estimate"), std::string::npos);
+}
+
+TEST_F(RmlUiControllerStateTest, SessionGraphStartsFromThePreSessionRatingAndSummarisesResults) {
+    auto state = std::make_shared<SessionState>();
+    SeedGraph(*state, "2v2", {1009.0f}, 1009, "");
+    {
+        std::unique_lock lock(state->history.mutex);
+        state->history.playlistInitialMmr["2v2"] = 1000;
+        state->history.version.fetch_add(1);
+    }
+    state->ui.graphMmrCategory.store(MmrCategory::TwoVTwo);
+    RmlUiController controller(state, nullptr);
+    controller.Update(Config::Read());
+    std::string html = RenderGraph(controller);
+
+    // One game still draws a segment: session start, then the game.
+    const size_t polyline = html.find("points='");
+    ASSERT_NE(polyline, std::string::npos);
+    EXPECT_NE(html.find(';', polyline), std::string::npos);
+    EXPECT_NE(html.find("graph-point start"), std::string::npos);
+    EXPECT_NE(html.find("Session start \xC2\xB7 1000 MMR"), std::string::npos);
+    EXPECT_NE(html.find("Game 1 \xC2\xB7 1009 MMR (+9)"), std::string::npos);
+    EXPECT_NE(html.find("<span class='win'>1</span>-<span class='loss'>0</span>"), std::string::npos);
+    EXPECT_NE(html.find("Net</span><span class='graph-stat-value mono win'>+9<"), std::string::npos);
+
+    SeedGraph(*state, "2v2", {1009.0f, 1000.0f}, 1000, "");
+    controller.Update(Config::Read());
+    html = RenderGraph(controller);
+    EXPECT_NE(html.find("Game 2 \xC2\xB7 1000 MMR (-9)"), std::string::npos);
+    EXPECT_NE(html.find("<span class='win'>1</span>-<span class='loss'>1</span>"), std::string::npos);
+
+    // Without a rank table the generic value gridlines come back and no bands are drawn.
+    SeedGraph(*state, "casual", {900.0f, 910.0f}, 910, "");
+    state->ui.graphMmrCategory.store(MmrCategory::Casual);
+    controller.Update(Config::Read());
+    html = RenderGraph(controller);
+    EXPECT_EQ(html.find("graph-band"), std::string::npos);
+    EXPECT_NE(html.find("graph-gridline"), std::string::npos);
 }
 
 TEST_F(RmlUiControllerStateTest, MmrGraphOmitsUnsupportedProgressAndExplainsPlacement) {

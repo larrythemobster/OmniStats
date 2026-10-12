@@ -623,7 +623,7 @@ button.version-update .tooltip-bubble {
    coverage in rounded glyphs (notably o/e/g) at 100% scaling. */
 .dashboard-widget .metric-label { font-size: 11dp; }
 .dashboard-widget .metric-value { font-size: 11dp; }
-.dashboard-widget .graph-wrap { height: 160dp; }
+.dashboard-widget .graph-wrap { height: 190dp; }
 .dashboard-widget .match-row { min-height: 22dp; padding: 1dp 2dp; font-size: 11dp; }
 .dashboard-widget .match-header { min-height: 20dp; font-size: 11dp; }
 .dashboard-widget .previous-games-footer { min-height: 22dp; margin-top: 4dp; padding: 3dp 2dp 0 2dp; font-size: 11dp; }
@@ -1099,44 +1099,67 @@ scrollbarcorner { background-color: #0e0e0eaa; }
 
 .graph-wrap { position: relative; height: 220dp; background-color: #0a0a0a; border: 1dp #242424; border-radius: 6dp; overflow: hidden; }
 .graph-empty { min-height: 150dp; display: flex; flex-direction: column; justify-content: center; gap: 4dp; padding: 0 8dp; }
-.graph-gridline { position: absolute; height: 1dp; background-color: #69728055; }
-.graph-label { position: absolute; color: #778190; font-family: "JetBrains Mono"; font-size: 11dp; }
+.graph-stats { gap: 14dp; align-items: baseline; margin-bottom: 6dp; }
+.graph-stat { display: flex; flex-direction: row; align-items: baseline; gap: 5dp; }
+.graph-stat .label { font-size: 10dp; letter-spacing: 0.3dp; }
+.graph-stat-value { font-size: 12dp; font-weight: 700; }
+.graph-gridline { position: absolute; height: 1dp; background-color: #69728040; }
+.graph-label { position: absolute; color: #778190; font-family: "JetBrains Mono"; font-size: 10dp; white-space: nowrap; }
 .graph-last { text-align: right; }
+/* Division bands are the y-axis: a translucent tier tint per division with its
+   name in the top-left corner. */
+.graph-band { position: absolute; pointer-events: none; }
+.graph-band-label { position: absolute; font-family: "Inter"; font-size: 10dp; font-weight: 600; opacity: 0.8; white-space: nowrap; pointer-events: none; }
 .graph-polyline { display: block; position: absolute; left: 0; top: 0; width: 100%; height: 100%; color: #5480d8; pointer-events: none; }
 .graph-line { position: absolute; height: 2dp; background-color: #5480d8; transform-origin: left center; opacity: 0.88; }
-.graph-line.baseline { height: 1dp; background-color: #e8f300; opacity: 0.48; }
-.graph-point { position: absolute; width: 8dp; height: 8dp; margin-left: -4dp; margin-top: -4dp; border-radius: 5dp; background-color: #5480d8; }
+.graph-line.baseline { height: 1dp; background-color: #e8f300; opacity: 0.4; }
+.graph-point {
+    position: absolute;
+    width: 8dp;
+    height: 8dp;
+    margin-left: -6dp;
+    margin-top: -6dp;
+    border: 2dp #0a0a0a;
+    border-radius: 6dp;
+    background-color: #5480d8;
+    pointer-events: none;
+}
 .graph-point.win { background-color: #43d926; }
 .graph-point.loss { background-color: #ff3030; }
 .graph-point.neutral { background-color: #9da6b3; }
-.graph-point.current { width: 12dp; height: 12dp; margin-left: -6dp; margin-top: -6dp; border-radius: 7dp; }
+.graph-point.start { width: 6dp; height: 6dp; margin-left: -5dp; margin-top: -5dp; border-color: #9da6b3; background-color: transparent; }
+.graph-point.current { width: 12dp; height: 12dp; margin-left: -8dp; margin-top: -8dp; border-radius: 8dp; }
 .graph-point.estimated { background-color: transparent; border: 2dp #eef1f5; }
-.graph-point-halo { position: absolute; width: 20dp; height: 20dp; margin-left: -10dp; margin-top: -10dp; border-radius: 11dp; background-color: #5480d8; opacity: 0.20; }
+.graph-point-halo { position: absolute; width: 24dp; height: 24dp; margin-left: -12dp; margin-top: -12dp; border-radius: 12dp; background-color: #5480d8; opacity: 0.22; pointer-events: none; }
 .graph-point-halo.win { background-color: #43d926; }
 .graph-point-halo.loss { background-color: #ff3030; }
 .graph-point-halo.neutral { background-color: #9da6b3; }
-.graph-current { position: absolute; font-family: "JetBrains Mono"; font-size: 13dp; font-weight: 700; white-space: nowrap; }
+/* Invisible hover target around each point for its tooltip. */
+.graph-hit, .graph-hit.tooltip-host { position: absolute; width: 20dp; height: 20dp; margin-left: -10dp; margin-top: -10dp; }
+.graph-hit .tooltip-bubble { min-width: 0; margin-left: -70dp; font-family: "JetBrains Mono"; font-size: 10dp; }
+.graph-hit .tooltip-bubble.below { top: 100%; bottom: auto; margin-top: 4dp; margin-bottom: 0; }
+.graph-hit .tooltip-bubble.align-right { left: auto; right: 0; margin-left: 0; }
+.graph-hit .tooltip-bubble.align-left { left: 0; margin-left: 0; }
+.graph-current { position: absolute; font-family: "JetBrains Mono"; font-size: 15dp; font-weight: 700; line-height: 1.1; white-space: nowrap; }
+.graph-current-change { display: block; font-size: 11dp; font-weight: 600; }
 
-/* Rank boundaries sit behind the MMR line: thin, translucent, tier-coloured.
-   The 9dp host gives the hover tooltip a usable target around the 1dp rule. */
+/* Division boundaries sit behind the MMR line. The 9dp host gives the hover
+   tooltip a usable target around the 1dp rule. */
 .graph-rank-line, .graph-rank-line.tooltip-host { position: absolute; height: 9dp; margin-top: -4dp; }
-.graph-rank-rule { position: absolute; left: 0; right: 0; top: 4dp; height: 1dp; opacity: 0.4; }
-.graph-rank-line.tier-start .graph-rank-rule { opacity: 0.7; }
+.graph-rank-rule { position: absolute; left: 0; right: 0; top: 4dp; height: 1dp; opacity: 0.45; }
+.graph-rank-line.tier-start .graph-rank-rule { opacity: 0.8; }
 .graph-rank-line .tooltip-bubble { left: auto; right: 0; margin-left: 0; }
 .graph-rank-label {
     position: absolute;
     padding: 0 3dp;
     border-radius: 3dp;
     background-color: #0a0a0acc;
-    font-family: "Inter";
     font-size: 10dp;
-    font-weight: 600;
     line-height: 1.3;
     white-space: nowrap;
     text-align: right;
     pointer-events: none;
 }
-.graph-rank-label .mono { font-weight: 400; color: #9da6b3; }
 
 .rank-progress { display: block; margin-bottom: 6dp; }
 .rank-progress-names { gap: 8dp; min-height: 18dp; margin-bottom: 3dp; }

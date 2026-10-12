@@ -265,6 +265,8 @@ void RmlUiController::UpdateThemeProperties() {
     rule(".graph-line", "background-color", graph);
     rule(".graph-polyline", "color", graph);
     rule(".graph-point", "background-color", graph);
+    rule(".graph-point", "border-color", graphPanel);
+    rule(".graph-point.start", "border-color", muted);
     rule(".graph-point-halo", "background-color", graph);
     rule(".graph-line.baseline", "background-color", baseline);
     rule(".graph-point.win, .graph-point-halo.win", "background-color", win);
