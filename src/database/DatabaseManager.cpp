@@ -290,6 +290,18 @@ static constexpr const char* kMigrationV5Sql = R"(
     );
     CREATE INDEX IF NOT EXISTS idx_tracked_accounts_sort_order_created_at ON TrackedAccounts(sort_order, created_at);
 )";
+static constexpr const char* kMigrationV6Sql = R"(
+    CREATE TABLE IF NOT EXISTS PlayerNotes (
+        platform TEXT NOT NULL,
+        account_id TEXT NOT NULL,
+        splitscreen INTEGER NOT NULL DEFAULT 0,
+        note TEXT NOT NULL,
+        last_known_name TEXT NOT NULL DEFAULT '',
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL,
+        PRIMARY KEY (platform, account_id, splitscreen)
+    );
+)";
 
 // Append new migrations in ascending version order; each runs in its own BEGIN IMMEDIATE transaction.
 static const std::vector<Migration> kMigrations = {
@@ -298,6 +310,7 @@ static const std::vector<Migration> kMigrations = {
     {3, kMigrationV3Sql, ApplyMigrationV3},
     {4, kMigrationV4Sql},
     {5, kMigrationV5Sql},
+    {6, kMigrationV6Sql},
 };
 
 static std::string CsvEscape(const std::string& value) {
@@ -1689,6 +1702,27 @@ bool DatabaseManager::ExportLocalData(std::string& exportPath, std::string& erro
         if (taJsonFile.is_open()) {
             taJsonFile << accountsJson.dump(2);
         }
+    }
+    if (SqliteTableExists(m_db, "PlayerNotes")) {
+        nlohmann::json notesJson = nlohmann::json::array();
+        const char* notesSql =
+            "SELECT platform, account_id, splitscreen, note, last_known_name, created_at, updated_at "
+            "FROM PlayerNotes ORDER BY updated_at DESC;";
+        sqlite3_stmt* nStmt = nullptr;
+        if (sqlite3_prepare_v2(m_db, notesSql, -1, &nStmt, nullptr) == SQLITE_OK) {
+            while (sqlite3_step(nStmt) == SQLITE_ROW) {
+                notesJson.push_back({{"platform", SqlColumnText(nStmt, 0)},
+                                     {"account_id", SqlColumnText(nStmt, 1)},
+                                     {"splitscreen", sqlite3_column_int(nStmt, 2)},
+                                     {"note", SqlColumnText(nStmt, 3)},
+                                     {"last_known_name", SqlColumnText(nStmt, 4)},
+                                     {"created_at", sqlite3_column_int64(nStmt, 5)},
+                                     {"updated_at", sqlite3_column_int64(nStmt, 6)}});
+            }
+            sqlite3_finalize(nStmt);
+        }
+        std::ofstream notesFile(exportPath + "player_notes.json", std::ios::trunc);
+        if (notesFile.is_open()) notesFile << notesJson.dump(2);
     }
     error.clear();
     return true;
@@ -5468,4 +5502,173 @@ int DatabaseManager::ImportTrackedAccounts(const std::vector<TrackedAccounts::Ac
     }
 
     return insertedCount;
+}
+
+static PlayerNotes::Note ReadPlayerNoteRow(sqlite3_stmt* stmt) {
+    PlayerNotes::Note note;
+    note.identity.platform = SqlColumnText(stmt, 0);
+    note.identity.accountId = SqlColumnText(stmt, 1);
+    note.identity.splitscreen = sqlite3_column_int(stmt, 2);
+    note.text = SqlColumnText(stmt, 3);
+    note.lastKnownName = SqlColumnText(stmt, 4);
+    note.createdAtUnix = sqlite3_column_int64(stmt, 5);
+    note.updatedAtUnix = sqlite3_column_int64(stmt, 6);
+    return note;
+}
+
+std::optional<std::vector<PlayerNotes::Note>> DatabaseManager::ListPlayerNotes() {
+    std::lock_guard<std::mutex> lock(m_dbMutex);
+    if (!m_db || !SqliteTableExists(m_db, "PlayerNotes")) return std::nullopt;
+    const char* sql =
+        "SELECT platform, account_id, splitscreen, note, last_known_name, created_at, updated_at FROM PlayerNotes;";
+    sqlite3_stmt* stmt = nullptr;
+    if (sqlite3_prepare_v2(m_db, sql, -1, &stmt, nullptr) != SQLITE_OK) return std::nullopt;
+    std::vector<PlayerNotes::Note> notes;
+    int rc = SQLITE_ROW;
+    while ((rc = sqlite3_step(stmt)) == SQLITE_ROW)
+        notes.push_back(ReadPlayerNoteRow(stmt));
+    sqlite3_finalize(stmt);
+    if (rc != SQLITE_DONE) return std::nullopt;
+    return notes;
+}
+
+std::optional<PlayerNotes::Note> DatabaseManager::GetPlayerNote(const PlayerNotes::Identity& identity) {
+    std::lock_guard<std::mutex> lock(m_dbMutex);
+    if (!m_db || !SqliteTableExists(m_db, "PlayerNotes")) return std::nullopt;
+    const char* sql =
+        "SELECT platform, account_id, splitscreen, note, last_known_name, created_at, updated_at FROM PlayerNotes "
+        "WHERE platform = ?1 AND account_id = ?2 AND splitscreen = ?3;";
+    sqlite3_stmt* stmt = nullptr;
+    if (sqlite3_prepare_v2(m_db, sql, -1, &stmt, nullptr) != SQLITE_OK) return std::nullopt;
+    sqlite3_bind_text(stmt, 1, identity.platform.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 2, identity.accountId.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_int(stmt, 3, identity.splitscreen);
+    std::optional<PlayerNotes::Note> note;
+    if (sqlite3_step(stmt) == SQLITE_ROW) note = ReadPlayerNoteRow(stmt);
+    sqlite3_finalize(stmt);
+    return note;
+}
+
+bool DatabaseManager::SavePlayerNote(const PlayerNotes::Identity& identity, std::string_view text, std::string_view lastKnownName,
+                                     int64_t nowUnix, std::string* error) {
+    const auto fail = [&](std::string message) {
+        if (error) *error = std::move(message);
+        return false;
+    };
+    const std::string normalized = PlayerNotes::NormalizeNote(text);
+    if (normalized.empty()) return fail("The note is empty.");
+    if (identity.platform.empty() || identity.accountId.empty()) return fail("This player has no account ID to attach a note to.");
+    const std::string name = TrackedAccounts::NormalizeLabel(lastKnownName, TrackedAccounts::kMaxDisplayNameLength);
+
+    std::lock_guard<std::mutex> lock(m_dbMutex);
+    if (!m_db || !SqliteTableExists(m_db, "PlayerNotes")) return fail("The local database is unavailable.");
+    const char* sql = R"(
+        INSERT INTO PlayerNotes (platform, account_id, splitscreen, note, last_known_name, created_at, updated_at)
+        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?6)
+        ON CONFLICT(platform, account_id, splitscreen) DO UPDATE SET
+            note = excluded.note,
+            last_known_name = CASE WHEN excluded.last_known_name != '' THEN excluded.last_known_name
+                                   ELSE PlayerNotes.last_known_name END,
+            updated_at = excluded.updated_at;
+    )";
+    sqlite3_stmt* stmt = nullptr;
+    if (sqlite3_prepare_v2(m_db, sql, -1, &stmt, nullptr) != SQLITE_OK) return fail(sqlite3_errmsg(m_db));
+    sqlite3_bind_text(stmt, 1, identity.platform.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 2, identity.accountId.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_int(stmt, 3, identity.splitscreen);
+    sqlite3_bind_text(stmt, 4, normalized.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 5, name.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_int64(stmt, 6, nowUnix);
+    const bool ok = sqlite3_step(stmt) == SQLITE_DONE;
+    sqlite3_finalize(stmt);
+    if (!ok) return fail(sqlite3_errmsg(m_db));
+    return true;
+}
+
+bool DatabaseManager::DeletePlayerNote(const PlayerNotes::Identity& identity, std::string* error) {
+    std::lock_guard<std::mutex> lock(m_dbMutex);
+    if (!m_db || !SqliteTableExists(m_db, "PlayerNotes")) {
+        if (error) *error = "The local database is unavailable.";
+        return false;
+    }
+    const char* sql = "DELETE FROM PlayerNotes WHERE platform = ?1 AND account_id = ?2 AND splitscreen = ?3;";
+    sqlite3_stmt* stmt = nullptr;
+    bool ok = sqlite3_prepare_v2(m_db, sql, -1, &stmt, nullptr) == SQLITE_OK;
+    if (ok) {
+        sqlite3_bind_text(stmt, 1, identity.platform.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_text(stmt, 2, identity.accountId.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_int(stmt, 3, identity.splitscreen);
+        ok = sqlite3_step(stmt) == SQLITE_DONE;
+    }
+    sqlite3_finalize(stmt);
+    if (!ok && error) *error = sqlite3_errmsg(m_db);
+    return ok;
+}
+
+void DatabaseManager::AsyncLoadPlayerNotes() {
+    if (!m_state) return;
+    (void)EnqueueDbJob([this]() {
+        auto notes = ListPlayerNotes();
+        std::lock_guard<std::mutex> lock(m_state->notes.mutex);
+        m_state->notes.byKey.clear();
+        if (notes) {
+            for (auto& note : *notes) {
+                std::string key = note.identity.Key();
+                m_state->notes.byKey.emplace(std::move(key), std::move(note));
+            }
+        }
+        m_state->notes.loaded = notes.has_value();
+        m_state->notes.loadFailed = !notes.has_value();
+        m_state->notes.version.fetch_add(1, std::memory_order_relaxed);
+    },
+                       DbJobPriority::Coalescable, "player_notes_load");
+}
+
+void DatabaseManager::AsyncSavePlayerNote(PlayerNotes::Identity identity, std::string text, std::string lastKnownName, uint64_t requestId) {
+    if (!m_state) return;
+    const bool queued = EnqueueDbJob([this, identity = std::move(identity), text = std::move(text),
+                                      lastKnownName = std::move(lastKnownName), requestId]() {
+        std::string error;
+        const std::string normalized = PlayerNotes::NormalizeNote(text);
+        std::optional<PlayerNotes::Note> stored;
+        bool ok = false;
+        if (normalized.empty()) {
+            ok = DeletePlayerNote(identity, &error);
+        } else {
+            const int64_t now = std::chrono::duration_cast<std::chrono::seconds>(
+                                    std::chrono::system_clock::now().time_since_epoch())
+                                    .count();
+            ok = SavePlayerNote(identity, normalized, lastKnownName, now, &error);
+            if (ok) {
+                stored = GetPlayerNote(identity);
+                if (!stored) {
+                    ok = false;
+                    error = "The note was written but could not be read back.";
+                }
+            }
+        }
+        std::lock_guard<std::mutex> lock(m_state->notes.mutex);
+        if (ok) {
+            if (stored)
+                m_state->notes.byKey[identity.Key()] = std::move(*stored);
+            else
+                m_state->notes.byKey.erase(identity.Key());
+        }
+        m_state->notes.completedRequestId = requestId;
+        m_state->notes.lastRequestOk = ok;
+        m_state->notes.lastRequestError = ok ? std::string{} : error;
+        m_state->notes.version.fetch_add(1, std::memory_order_relaxed);
+    },
+                                     DbJobPriority::Critical);
+    if (!queued) {
+        std::lock_guard<std::mutex> lock(m_state->notes.mutex);
+        m_state->notes.completedRequestId = requestId;
+        m_state->notes.lastRequestOk = false;
+        m_state->notes.lastRequestError = "The database is shutting down.";
+        m_state->notes.version.fetch_add(1, std::memory_order_relaxed);
+    }
+}
+
+void DatabaseManager::AsyncDeletePlayerNote(PlayerNotes::Identity identity, uint64_t requestId) {
+    AsyncSavePlayerNote(std::move(identity), {}, {}, requestId);
 }

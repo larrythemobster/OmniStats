@@ -12,6 +12,7 @@
 #include <cstddef>
 #include <optional>
 #include "core/Insights.hpp"
+#include "core/PlayerNotes.hpp"
 #include "core/StatsApiConfig.hpp"
 
 // Data for individual players in the current lobby
@@ -571,6 +572,20 @@ struct HistoryState {
     int initialMmr = -1;
 };
 
+// Local player notes mirrored from SQLite by the database worker. The UI reads
+// this cache; it never queries the database on the render path.
+struct PlayerNotesState {
+    mutable std::mutex mutex;
+    std::atomic<uint64_t> version{0};
+    bool loaded = false;
+    bool loadFailed = false;
+    std::unordered_map<std::string, PlayerNotes::Note> byKey; // Identity::Key()
+    // Outcome of the most recent save/delete, matched to the editor by request id.
+    uint64_t completedRequestId = 0;
+    bool lastRequestOk = true;
+    std::string lastRequestError;
+};
+
 class SessionState : public std::enable_shared_from_this<SessionState> {
   public:
     UIState ui;
@@ -578,6 +593,7 @@ class SessionState : public std::enable_shared_from_this<SessionState> {
     HistoryState history;
     InsightsState insights;
     HistoryViewState historyView;
+    PlayerNotesState notes;
 
     void resetMatch(const std::string& newArena, const std::string& newArenaAsset = "");
     void clearActiveMatchOnDisconnect();

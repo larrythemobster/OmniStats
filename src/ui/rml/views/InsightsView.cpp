@@ -163,6 +163,10 @@ bool InsightsView::Create(Rml::Context* context) {
         person.RegisterMember("last_seen", &PersonRow::last_seen);
         person.RegisterMember("tone", &PersonRow::tone);
         person.RegisterMember("other_record", &PersonRow::other_record);
+        person.RegisterMember("encounter", &PersonRow::encounter);
+        person.RegisterMember("primary_id", &PersonRow::primary_id);
+        person.RegisterMember("can_note", &PersonRow::can_note);
+        person.RegisterMember("has_note", &PersonRow::has_note);
     }
     constructor.RegisterArray<std::vector<PersonRow>>();
     if (auto row = constructor.RegisterStruct<TrendRow>()) {
@@ -292,6 +296,13 @@ void InsightsView::SetPeopleFilter(Insights::PeopleFilter filter) {
     m_peopleFilter = filter;
     m_peopleFilterName = filter == Insights::PeopleFilter::Teammates ? "teammates" : "rivals";
     Dirty("people_filter");
+    RebuildPeople();
+}
+
+void InsightsView::SetNotedPlayers(const std::unordered_set<std::string>& keys, bool loaded) {
+    if (keys == m_notedKeys && loaded == m_notesLoaded) return;
+    m_notedKeys = keys;
+    m_notesLoaded = loaded;
     RebuildPeople();
 }
 
@@ -745,6 +756,14 @@ void InsightsView::RebuildPeople() {
         const int otherWins = teammates ? person.winsAgainst : person.winsWith;
         const int otherLosses = teammates ? person.lossesAgainst : person.lossesWith;
         row.other_record = otherWins + otherLosses > 0 ? FormatRecord(otherWins, otherLosses) : "--";
+        row.encounter = EncounterSummary(person);
+        row.primary_id = person.primaryId;
+        if (m_notesLoaded) {
+            if (const auto identity = PlayerNotes::IdentityFromPrimaryId(person.primaryId)) {
+                row.can_note = true;
+                row.has_note = m_notedKeys.count(identity->Key()) > 0;
+            }
+        }
         m_people.push_back(std::move(row));
     }
     m_peopleOtherLabel = teammates ? "Vs" : "With";

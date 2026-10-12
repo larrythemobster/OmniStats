@@ -146,7 +146,11 @@
                     </div>
                     <div class="people-row" data-for="person : people">
                         <div class="people-name">
-                            <span class="value">{{person.name}}</span>
+                            <div class="row gap-sm" style="align-items:center">
+                                <span class="value">{{person.name}}</span>
+                                <span class="note-badge" data-if="person.has_note" data-action="player-note-open" data-attr-data-pid="person.primary_id" data-attr-data-name="person.name" data-attr-data-context="person.encounter">NOTE</span>
+                                <span class="note-add always" data-if="person.can_note && !person.has_note" data-action="player-note-open" data-attr-data-pid="person.primary_id" data-attr-data-name="person.name" data-attr-data-context="person.encounter">+ Note</span>
+                            </div>
                             <span class="label people-platform">{{person.platform}}</span>
                         </div>
                         <div class="people-cell mono">{{person.games}}</div>

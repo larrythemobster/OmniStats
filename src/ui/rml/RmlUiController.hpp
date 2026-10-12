@@ -27,6 +27,7 @@
 #include "ui/rml/views/HistoryView.hpp"
 #include "ui/rml/views/OnboardingView.hpp"
 #include "ui/rml/views/AccountsView.hpp"
+#include "ui/rml/views/PlayerNoteView.hpp"
 #include "ui/rml/RmlSystemInterfaceWin32.hpp"
 
 class DatabaseManager;
@@ -69,6 +70,11 @@ struct RmlRenderSnapshot {
     std::vector<SessionMatchSummary> recentSavedMatches;
     bool recentSavedMatchesLoaded = false;
     bool showLifetimeGraph = false;
+
+    // Identity key -> single-line preview, refreshed when SessionState::notes changes.
+    std::unordered_map<std::string, std::string> notePreviews;
+    bool notesLoaded = false;
+    uint64_t notesVersion = 0;
 };
 
 class RmlUiController final : public Rml::EventListener {
@@ -253,6 +259,10 @@ class RmlUiController final : public Rml::EventListener {
     static std::string WidgetDomId(DashboardLayout::WidgetId id);
     static std::string PlaylistImageForName(const std::string& playlist);
     std::string RenderRankBadge(const std::string& tier, bool fetched, const std::string& tooltip = {}) const;
+    const std::string* NotePreviewFor(const std::string& primaryId) const;
+    // NOTE badge (with preview tooltip) when a note exists; a hover-only "+ Note"
+    // when `allowAdd`; nothing for players without a stable account identity.
+    std::string RenderNoteControl(const std::string& primaryId, const std::string& name, bool allowAdd) const;
 
     Rml::Element* Root(const char* id) const;
     void SetRootRml(const char* id, const std::string& rml);
@@ -272,6 +282,12 @@ class RmlUiController final : public Rml::EventListener {
     void HideAccounts();
     void RefreshAccounts(bool force);
     void RefreshAccountRow(const std::string& primaryId);
+    void ShowPlayerNote(const std::string& primaryId, const std::string& name, const std::string& context);
+    void HidePlayerNote();
+    // Closes immediately, or asks to confirm when the draft has unsaved edits.
+    void RequestClosePlayerNote();
+    void RefreshPlayerNote();
+    void SnapshotNotes();
     void TriggerHistoryQuery(bool append);
     void OpenHistoryDetail(int64_t matchId, const std::string& matchGuid = "");
     void ExportRecapPng();
@@ -320,6 +336,12 @@ class RmlUiController final : public Rml::EventListener {
     AccountsView m_accounts;
     Rml::ElementDocument* m_accountsDoc = nullptr;
     bool m_accountsVisible = false;
+    PlayerNoteView m_playerNote;
+    Rml::ElementDocument* m_playerNoteDoc = nullptr;
+    bool m_playerNoteVisible = false;
+    uint64_t m_nextPlayerNoteRequestId = 0;
+    bool m_playerNotesRequested = false;
+    uint64_t m_lastViewNotesVersion = std::numeric_limits<uint64_t>::max();
     uint64_t m_lastAccountsVersion = std::numeric_limits<uint64_t>::max();
     std::chrono::steady_clock::time_point m_lastAccountsRelativeRender{};
     std::string m_lastAccountsActive;
@@ -373,6 +395,7 @@ class RmlUiController final : public Rml::EventListener {
     bool m_liveDomNeedsPrime = true;
     uint64_t m_lastRosterStructureHash = 0;
     bool m_hasRosterStructureHash = false;
+    uint64_t m_lastRenderedNotesVersion = 0;
     bool m_lastLiveMatchHadDemoedRow = false;
     bool m_lastLiveMatchHadOwnGoalsRow = false;
     std::string m_lastSessionViewRml;

@@ -17,6 +17,7 @@
 #include <limits>
 #include <mutex>
 #include <shared_mutex>
+#include <thread>
 #include <vector>
 
 #include "core/Config.hpp"
@@ -242,6 +243,21 @@ class RmlUiControllerStateTest : public ::testing::Test {
     }
     void Click(RmlUiController& controller, Rml::Element* element) {
         controller.HandleClick(element);
+    }
+    PlayerNoteView& NoteModel(RmlUiController& controller) {
+        return controller.m_playerNote;
+    }
+    bool IsNoteVisible(const RmlUiController& controller) const {
+        return controller.m_playerNoteVisible;
+    }
+    Rml::ElementDocument* NoteDocument(RmlUiController& controller) {
+        return controller.m_playerNoteDoc;
+    }
+    void OpenNote(RmlUiController& controller, const std::string& primaryId, const std::string& name) {
+        controller.ShowPlayerNote(primaryId, name, "");
+    }
+    bool ViewAction(RmlUiController& controller, const std::string& action) {
+        return controller.HandleViewAction(action, nullptr);
     }
     void ReloadUi(RmlUiController& controller) {
         controller.ReloadUiResources();
@@ -2522,4 +2538,141 @@ TEST_F(RmlUiControllerStateTest, DeferredSelectRebuildSurvivesBlockedUpdateUntil
 TEST_F(RmlUiControllerStateTest, EscapeNeutralizesDataBindingBraces) {
     EXPECT_EQ(EscapeText("{{match_saves}}"), "&#123;&#123;match_saves&#125;&#125;");
     EXPECT_EQ(EscapeText("<b>&'\""), "&lt;b&gt;&amp;&#39;&quot;");
+}
+
+namespace {
+    const std::string kSelfId = "Steam|76561198000000001|0";
+    const std::string kRivalId = "Epic|0123456789abcdef0123456789abcdef|0";
+}
+
+TEST_F(RmlUiControllerStateTest, RosterShowsEscapedNoteBadgeOnlyForStableIdentities) {
+    const std::string otherId = "Epic|fedcba9876543210fedcba9876543210|0";
+    auto state = std::make_shared<SessionState>();
+    {
+        std::unique_lock lock(state->game.mutex);
+        state->game.myPrimaryId = kSelfId;
+        for (const auto& [id, name] : std::vector<std::pair<std::string, std::string>>{
+                 {kSelfId, "Me"}, {kRivalId, "Rival"}, {otherId, "Stranger"}, {"Unknown|Bot", "Bot"}}) {
+            PlayerData p;
+            p.primaryId = id;
+            p.name = name;
+            p.team = 0;
+            p.fetched = true;
+            state->game.roster[id] = p;
+        }
+        state->game.version.fetch_add(1);
+    }
+    {
+        std::lock_guard lock(state->notes.mutex);
+        state->notes.loaded = true;
+        PlayerNotes::Note note;
+        note.identity = *PlayerNotes::IdentityFromPrimaryId(kRivalId);
+        note.text = "Toxic <b>{{match_saves}}</b>\nreports";
+        state->notes.byKey[note.identity.Key()] = note;
+        state->notes.version.fetch_add(1);
+    }
+
+    RmlUiController controller(state, nullptr);
+    controller.Update(Config::Read());
+    const std::string html = RenderRoster(controller);
+
+    const size_t rival = html.find(">Rival<");
+    const size_t stranger = html.find(">Stranger<");
+    const size_t bot = html.find(">Bot<");
+    ASSERT_NE(rival, std::string::npos);
+    ASSERT_NE(stranger, std::string::npos);
+    ASSERT_NE(bot, std::string::npos);
+    EXPECT_NE(html.find("note-badge", rival), std::string::npos);
+    EXPECT_NE(html.find("Toxic &lt;b&gt;&#123;&#123;match_saves&#125;&#125;&lt;/b&gt; reports"), std::string::npos);
+    EXPECT_EQ(html.find("{{match_saves}}"), std::string::npos);
+    EXPECT_EQ(html.find("Toxic <b>"), std::string::npos);
+
+    const auto rowOf = [&](size_t start) { return html.substr(start, html.find("player-row", start) - start); };
+    EXPECT_NE(rowOf(stranger).find("+ Note"), std::string::npos);
+    EXPECT_EQ(rowOf(stranger).find("note-badge"), std::string::npos);
+    EXPECT_EQ(rowOf(bot).find("player-note-open"), std::string::npos);
+    EXPECT_EQ(rowOf(html.find(">Me<")).find("player-note-open"), std::string::npos);
+}
+
+TEST_F(RmlUiControllerStateTest, PlayerNoteEditorSavesEditsDeletesAndGuardsUnsavedChanges) {
+    WarpDevice warp;
+    if (!warp.Create(1280, 800)) GTEST_SKIP() << "WARP not available.";
+
+    auto state = std::make_shared<SessionState>();
+    auto db = std::make_shared<DatabaseManager>(state);
+    ASSERT_TRUE(db->Initialize(":memory:"));
+    {
+        std::unique_lock lock(state->game.mutex);
+        state->game.myPrimaryId = kSelfId;
+        PlayerData rival;
+        rival.primaryId = kRivalId;
+        rival.name = "Rival";
+        rival.team = 1;
+        rival.fetched = true;
+        state->game.roster[kRivalId] = rival;
+        state->game.version.fetch_add(1);
+    }
+    int barrier = 0;
+    const auto drain = [&]() {
+        const std::string key = "note_ui_barrier_" + std::to_string(++barrier);
+        db->AsyncSetSetting(key, "done");
+        for (int i = 0; i < 400 && db->GetSetting(key, "") != "done"; ++i)
+            std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    };
+
+    RmlUiController controller(state, db);
+    ASSERT_TRUE(controller.Initialize(nullptr, warp.device.Get(), warp.context.Get(), 1280, 800, 1.0f));
+    drain();
+    controller.Update(Config::Read(), false);
+
+    OpenNote(controller, kRivalId, "Rival");
+    ASSERT_TRUE(IsNoteVisible(controller));
+    EXPECT_TRUE(controller.WantsAttention());
+    EXPECT_TRUE(controller.WantsInteraction());
+    controller.Render();
+    ASSERT_NE(NoteDocument(controller), nullptr);
+    EXPECT_NE(NoteDocument(controller)->QuerySelector(".player-note-input"), nullptr);
+    EXPECT_FALSE(NoteModel(controller).IsDirty());
+
+    // Escape with unsaved text asks first instead of discarding.
+    NoteModel(controller).SetDraft("Strong teammate\nrotates well");
+    EXPECT_TRUE(NoteModel(controller).IsDirty());
+    EXPECT_TRUE(controller.ProcessWindowMessage(nullptr, WM_KEYDOWN, VK_ESCAPE, 0));
+    EXPECT_TRUE(IsNoteVisible(controller));
+    EXPECT_TRUE(NoteModel(controller).ConfirmingDiscard());
+    EXPECT_TRUE(ViewAction(controller, "player-note-keep-editing"));
+
+    EXPECT_TRUE(ViewAction(controller, "player-note-save"));
+    EXPECT_TRUE(NoteModel(controller).IsSaving());
+    drain();
+    controller.Update(Config::Read(), false);
+    EXPECT_FALSE(NoteModel(controller).IsSaving());
+    EXPECT_FALSE(NoteModel(controller).IsDirty());
+    const auto identity = *PlayerNotes::IdentityFromPrimaryId(kRivalId);
+    ASSERT_TRUE(db->GetPlayerNote(identity));
+    EXPECT_EQ(db->GetPlayerNote(identity)->text, "Strong teammate\nrotates well");
+    EXPECT_NE(RenderRoster(controller, 1).find("note-badge"), std::string::npos);
+
+    EXPECT_TRUE(controller.ProcessWindowMessage(nullptr, WM_KEYDOWN, VK_ESCAPE, 0));
+    EXPECT_FALSE(IsNoteVisible(controller));
+    OpenNote(controller, kRivalId, "Rival");
+    EXPECT_EQ(NoteModel(controller).Draft(), "Strong teammate\nrotates well");
+
+    EXPECT_TRUE(ViewAction(controller, "player-note-delete"));
+    EXPECT_TRUE(NoteModel(controller).ConfirmingDelete());
+    EXPECT_TRUE(ViewAction(controller, "player-note-confirm-delete"));
+    drain();
+    controller.Update(Config::Read(), false);
+    EXPECT_FALSE(db->GetPlayerNote(identity));
+    EXPECT_EQ(RenderRoster(controller, 1).find("note-badge"), std::string::npos);
+    EXPECT_TRUE(ViewAction(controller, "player-note-close"));
+    EXPECT_FALSE(IsNoteVisible(controller));
+
+    // Bots have no stable identity, so the editor explains instead of saving.
+    OpenNote(controller, "Unknown|Bot", "Bot");
+    EXPECT_TRUE(IsNoteVisible(controller));
+    EXPECT_FALSE(NoteModel(controller).Identity().has_value());
+    NoteModel(controller).SetDraft("ignored");
+    EXPECT_FALSE(NoteModel(controller).IsDirty());
+    EXPECT_FALSE(NoteModel(controller).BeginSave(1000));
 }

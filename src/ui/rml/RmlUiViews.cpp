@@ -9,10 +9,12 @@
 #include <cmath>
 #include <mutex>
 #include <shared_mutex>
+#include <unordered_set>
 
 #include "database/DatabaseManager.hpp"
 #include "ui/rml/RmlCapture.hpp"
 #include "network/AccountClient.hpp"
+#include "ui/Formatting.hpp"
 #include "ui/rml/RmlUiHelpers.hpp"
 
 using namespace RmlUiDetail;
@@ -30,7 +32,8 @@ bool RmlUiController::WantsAttention() const {
     // A recap captured when Rocket League closed is only opened by Update(),
     // and the host skips Update() while the window is hidden, so the pending
     // flag itself has to keep the window drawn.
-    return m_insightsVisible || m_historyVisible || m_accountsVisible || m_onboardingVisible || (m_state && m_state->ui.showSessionRecap.load());
+    return m_insightsVisible || m_historyVisible || m_accountsVisible || m_playerNoteVisible || m_onboardingVisible ||
+           (m_state && m_state->ui.showSessionRecap.load());
 }
 
 void RmlUiController::OpenInsights() {
@@ -50,10 +53,12 @@ void RmlUiController::LoadViewDocuments() {
     m_onboardingDoc = m_context->LoadDocument("res://onboarding.rml");
     m_historyDoc = m_context->LoadDocument("res://history.rml");
     m_accountsDoc = m_context->LoadDocument("res://accounts.rml");
+    m_playerNoteDoc = m_context->LoadDocument("res://player_note.rml");
     if (m_insightsVisible && m_insightsDoc) m_insightsDoc->Show();
     if (m_onboardingVisible && m_onboardingDoc) m_onboardingDoc->Show();
     if (m_historyVisible && m_historyDoc) m_historyDoc->Show();
     if (m_accountsVisible && m_accountsDoc) m_accountsDoc->Show();
+    if (m_playerNoteVisible && m_playerNoteDoc) m_playerNoteDoc->Show();
 }
 
 void RmlUiController::CloseViewDocuments() {
@@ -61,10 +66,12 @@ void RmlUiController::CloseViewDocuments() {
     if (m_onboardingDoc) m_onboardingDoc->Close();
     if (m_historyDoc) m_historyDoc->Close();
     if (m_accountsDoc) m_accountsDoc->Close();
+    if (m_playerNoteDoc) m_playerNoteDoc->Close();
     m_insightsDoc = nullptr;
     m_onboardingDoc = nullptr;
     m_historyDoc = nullptr;
     m_accountsDoc = nullptr;
+    m_playerNoteDoc = nullptr;
     m_lastOnboardingIdentityRml.clear();
 }
 
@@ -203,6 +210,121 @@ void RmlUiController::RefreshAccounts(bool force) {
     auto snapshot = m_accountsService->GetSnapshot();
     auto candidates = m_accountsService->ImportCandidates();
     m_accounts.UpdateSnapshot(snapshot, canonicalActive, candidates.size());
+    m_renderDirty = true;
+}
+
+void RmlUiController::SnapshotNotes() {
+    if (!m_state) return;
+    const uint64_t version = m_state->notes.version.load(std::memory_order_relaxed);
+    if (version == m_snap.notesVersion) return;
+    std::lock_guard lock(m_state->notes.mutex);
+    m_snap.notePreviews.clear();
+    for (const auto& [key, note] : m_state->notes.byKey)
+        m_snap.notePreviews.emplace(key, PlayerNotes::Preview(note.text, 140));
+    m_snap.notesLoaded = m_state->notes.loaded;
+    m_snap.notesVersion = version;
+}
+
+void RmlUiController::ShowPlayerNote(const std::string& primaryId, const std::string& name, const std::string& context) {
+    if (!m_playerNoteDoc || !m_state) return;
+    const auto identity = PlayerNotes::IdentityFromPrimaryId(primaryId);
+    if (m_playerNoteVisible && m_playerNote.IsDirty()) {
+        if (!identity || !m_playerNote.Identity() || !(*identity == *m_playerNote.Identity()))
+            m_playerNote.ShowStatus("Save or discard this note before opening another player's note.", true);
+        m_playerNoteDoc->PullToFront();
+        m_renderDirty = true;
+        return;
+    }
+
+    std::optional<PlayerNotes::Note> saved;
+    {
+        std::lock_guard lock(m_state->notes.mutex);
+        // Opening an editor before the stored notes load could overwrite a note
+        // the user cannot see yet.
+        if (!m_state->notes.loaded) {
+            ShowToast(m_state->notes.loadFailed ? "Player notes could not be read from the local database." : "Player notes are still loading.",
+                      m_state->notes.loadFailed);
+            return;
+        }
+        if (identity) {
+            if (auto it = m_state->notes.byKey.find(identity->Key()); it != m_state->notes.byKey.end()) saved = it->second;
+        }
+    }
+
+    std::string contextLine = context;
+    if (contextLine.empty()) {
+        if (auto it = m_snap.roster.find(primaryId); it != m_snap.roster.end()) {
+            const PlayerData& p = it->second;
+            if (!p.rankTier.empty() && p.rankTier != "Unranked") contextLine = Format::RankTier(p.rankTier, m_config.use_roman_numerals);
+            if (p.hasLifetimeData) {
+                PersonRecord record;
+                record.winsWith = p.lifetimeWinsWith;
+                record.lossesWith = p.lifetimeLossesWith;
+                record.winsAgainst = p.lifetimeWinsAgainst;
+                record.lossesAgainst = p.lifetimeLossesAgainst;
+                if (!contextLine.empty()) contextLine += " · ";
+                contextLine += EncounterSummary(record);
+            }
+        }
+    }
+
+    m_playerNote.Open({primaryId, name, contextLine}, saved);
+    if (!m_playerNoteVisible) {
+        m_playerNoteDoc->Show();
+        m_playerNoteVisible = true;
+    }
+    m_playerNoteDoc->PullToFront();
+    if (m_onboardingVisible && m_onboardingDoc) m_onboardingDoc->PullToFront();
+    m_renderDirty = true;
+}
+
+void RmlUiController::HidePlayerNote() {
+    if (m_playerNoteDoc) m_playerNoteDoc->Hide();
+    m_playerNoteVisible = false;
+    m_playerNote.Close();
+    m_renderDirty = true;
+}
+
+void RmlUiController::RequestClosePlayerNote() {
+    if (m_playerNote.RequestClose())
+        HidePlayerNote();
+    else
+        m_renderDirty = true;
+}
+
+void RmlUiController::RefreshPlayerNote() {
+    if (!m_state) return;
+    const uint64_t version = m_state->notes.version.load(std::memory_order_relaxed);
+    if (version == m_lastViewNotesVersion) return;
+    m_lastViewNotesVersion = version;
+
+    std::unordered_set<std::string> notedKeys;
+    bool loaded = false;
+    uint64_t completedRequestId = 0;
+    bool lastOk = true;
+    std::string lastError;
+    std::optional<PlayerNotes::Note> editorNote;
+    {
+        std::lock_guard lock(m_state->notes.mutex);
+        loaded = m_state->notes.loaded;
+        for (const auto& [key, _] : m_state->notes.byKey)
+            notedKeys.insert(key);
+        completedRequestId = m_state->notes.completedRequestId;
+        lastOk = m_state->notes.lastRequestOk;
+        lastError = m_state->notes.lastRequestError;
+        if (const auto& identity = m_playerNote.Identity()) {
+            if (auto it = m_state->notes.byKey.find(identity->Key()); it != m_state->notes.byKey.end()) editorNote = it->second;
+        }
+    }
+
+    if (m_playerNoteVisible) {
+        if (m_playerNote.IsSaving() && completedRequestId == m_playerNote.PendingRequestId())
+            m_playerNote.ApplyResult(completedRequestId, lastOk, lastError, editorNote);
+        else
+            m_playerNote.SyncSaved(editorNote);
+    }
+    m_history.SetNotedPlayers(notedKeys, loaded);
+    m_insights.SetNotedPlayers(notedKeys, loaded);
     m_renderDirty = true;
 }
 
@@ -358,7 +480,38 @@ void RmlUiController::RefreshOnboarding() {
 }
 
 bool RmlUiController::HandleViewAction(const std::string& action, Rml::Element* target) {
-    if (action == "insights-open") {
+    if (action == "player-note-open") {
+        ShowPlayerNote(Attribute(target, "data-pid"), Attribute(target, "data-name"), Attribute(target, "data-context"));
+    } else if (action == "player-note-close") {
+        RequestClosePlayerNote();
+    } else if (action == "player-note-discard") {
+        HidePlayerNote();
+    } else if (action == "player-note-keep-editing") {
+        m_playerNote.KeepEditing();
+        m_renderDirty = true;
+    } else if (action == "player-note-save") {
+        if (!m_dbManager) {
+            m_playerNote.ShowStatus("Couldn't save: the local database is unavailable. Your text is still here.", true);
+        } else if (m_playerNote.Identity() && m_playerNote.BeginSave(m_nextPlayerNoteRequestId + 1)) {
+            ++m_nextPlayerNoteRequestId;
+            m_dbManager->AsyncSavePlayerNote(*m_playerNote.Identity(), m_playerNote.Draft(), m_playerNote.PlayerName(), m_nextPlayerNoteRequestId);
+        }
+        m_renderDirty = true;
+    } else if (action == "player-note-delete") {
+        m_playerNote.RequestDelete();
+        m_renderDirty = true;
+    } else if (action == "player-note-cancel-delete") {
+        m_playerNote.CancelDelete();
+        m_renderDirty = true;
+    } else if (action == "player-note-confirm-delete") {
+        if (!m_dbManager) {
+            m_playerNote.ShowStatus("Couldn't delete: the local database is unavailable.", true);
+        } else if (m_playerNote.Identity() && m_playerNote.BeginDelete(m_nextPlayerNoteRequestId + 1)) {
+            ++m_nextPlayerNoteRequestId;
+            m_dbManager->AsyncDeletePlayerNote(*m_playerNote.Identity(), m_nextPlayerNoteRequestId);
+        }
+        m_renderDirty = true;
+    } else if (action == "insights-open") {
         const std::string tab = Attribute(target, "data-tab");
         ShowInsights(tab.empty() ? m_insights.CurrentTab() : TabFromName(tab), false);
     } else if (action == "insights-close") {

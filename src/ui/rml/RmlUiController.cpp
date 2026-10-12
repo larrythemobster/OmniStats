@@ -90,7 +90,7 @@ bool RmlUiController::Initialize(HWND hwnd, ID3D11Device* device, ID3D11DeviceCo
     }
     if (!m_liveModel.Create(m_context) || !m_insights.Create(m_context) ||
         !m_history.Create(m_context) || !m_accounts.Create(m_context) ||
-        !m_onboarding.Create(m_context)) {
+        !m_playerNote.Create(m_context) || !m_onboarding.Create(m_context)) {
         Shutdown();
         return false;
     }
@@ -146,14 +146,17 @@ void RmlUiController::Shutdown() {
         m_onboardingDoc = nullptr;
         m_historyDoc = nullptr;
         m_accountsDoc = nullptr;
+        m_playerNoteDoc = nullptr;
         m_insightsVisible = false;
         m_onboardingVisible = false;
         m_historyVisible = false;
         m_accountsVisible = false;
+        m_playerNoteVisible = false;
         m_liveModel.Reset();
         m_insights.Reset();
         m_history.Reset();
         m_accounts.Reset();
+        m_playerNote.Reset();
         m_onboarding.Reset();
     }
     m_baseStyleSheet.reset();
@@ -213,6 +216,10 @@ bool RmlUiController::ProcessWindowMessage(HWND hwnd, UINT message, WPARAM wPara
     if (message == WM_KEYDOWN && wParam == 'R' && !m_fileInterface.OverrideDirectory().empty() &&
         (GetKeyState(VK_CONTROL) & 0x8000) != 0 && (GetKeyState(VK_SHIFT) & 0x8000) != 0) {
         ReloadUiResources();
+        return true;
+    }
+    if (message == WM_KEYDOWN && wParam == VK_ESCAPE && m_playerNoteVisible && !m_onboardingVisible) {
+        RequestClosePlayerNote();
         return true;
     }
     if (message == WM_KEYDOWN && wParam == VK_ESCAPE && m_insightsVisible && !m_onboardingVisible) {
@@ -432,6 +439,7 @@ void RmlUiController::Update(const ConfigData& config, bool configChanged, uint6
     if (m_insightsVisible) RefreshInsights(false);
     if (m_historyVisible) RefreshHistory(false);
     if (m_accountsVisible) RefreshAccounts(false);
+    RefreshPlayerNote();
     if (m_onboardingVisible) RefreshOnboarding();
 }
 
@@ -534,10 +542,15 @@ void RmlUiController::SnapshotState() {
         }
     }
     if (m_snap.myPrimaryId.empty() && !m_config.last_primary_id.empty()) m_snap.myPrimaryId = m_config.last_primary_id;
+    SnapshotNotes();
 }
 
 void RmlUiController::RefreshAsyncData() {
     if (!m_dbManager || !m_state) return;
+    if (!m_playerNotesRequested) {
+        m_dbManager->AsyncLoadPlayerNotes();
+        m_playerNotesRequested = true;
+    }
     const std::string effectivePrimary = m_snap.myPrimaryId.empty() ? m_config.last_primary_id : m_snap.myPrimaryId;
     if (!effectivePrimary.empty()) {
         const auto category = m_state->ui.graphMmrCategory.load();
@@ -926,9 +939,10 @@ void RmlUiController::RefreshLiveUi(bool force, bool allowStructural) {
     const bool graphCategoryChanged = force || m_lastGraphMmrCategory != graphCategory;
     const bool graphOffsetChanged = force || m_lastGraphOffset != graphOffset;
     const bool lifetimeGraphChanged = force || m_lastShowLifetimeGraph != showLifetimeGraph;
+    const bool notesChanged = force || m_lastRenderedNotesVersion != m_snap.notesVersion;
 
     const bool structuralPending = gameChanged || historyChanged || dbChanged || rosterCategoryChanged ||
-                                   graphCategoryChanged || graphOffsetChanged || lifetimeGraphChanged;
+                                   graphCategoryChanged || graphOffsetChanged || lifetimeGraphChanged || notesChanged;
     const bool primeStructure = allowStructural && m_liveDomNeedsPrime;
     if (!leafGameChanged && !primeStructure && (!allowStructural || !structuralPending)) return;
 
@@ -997,11 +1011,12 @@ void RmlUiController::RefreshLiveUi(bool force, bool allowStructural) {
         // coarse telemetry version, so use a cheap order-independent hash here
         // instead of sorting IDs and constructing a large fingerprint string on
         // every telemetry tick.
-        if (gameChanged || rosterCategoryChanged || m_liveDomNeedsPrime) {
+        if (gameChanged || rosterCategoryChanged || notesChanged || m_liveDomNeedsPrime) {
             uint64_t rosterHash = kFnvOffset;
             HashAppend(rosterHash, m_snap.myPrimaryId);
             HashAppend(rosterHash, static_cast<uint64_t>(rosterCategory));
             HashAppend(rosterHash, static_cast<uint64_t>(m_snap.roster.size()));
+            HashAppend(rosterHash, m_snap.notesVersion);
 
             const std::string category = MmrCategoryToString(rosterCategory);
             uint64_t membersHash = 0;
@@ -1151,6 +1166,7 @@ void RmlUiController::RefreshLiveUi(bool force, bool allowStructural) {
         m_lastGraphOffset = graphOffset;
         m_lastRosterMmrCategory = rosterCategory;
         m_lastGraphMmrCategory = graphCategory;
+        m_lastRenderedNotesVersion = m_snap.notesVersion;
     }
 }
 

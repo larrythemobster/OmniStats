@@ -1,0 +1,59 @@
+<rml>
+<head>
+    <title>OmniStats Player Note</title>
+    <link type="text/rcss" href="res://omnistats.rcss" />
+</head>
+<body id="app" class="view-document" data-model="player_note">
+    <div class="view-backdrop" data-if="open">
+        <div class="card player-note-card">
+            <div class="row gap-sm player-note-header">
+                <div class="grow player-note-identity">
+                    <div class="row gap-sm" style="align-items:center">
+                        <span class="brand-title player-note-name">{{player_name}}</span>
+                        <span data-attr-class="platform_class" data-if="platform_label != ''">{{platform_label}}</span>
+                    </div>
+                    <div class="label" data-if="account_label != ''">{{account_label}}</div>
+                    <div class="label player-note-context" data-if="context != ''">{{context}}</div>
+                </div>
+                <button class="ghost compact" data-action="player-note-close">Close</button>
+            </div>
+
+            <div class="callout" data-if="!available">{{unavailable_message}}</div>
+
+            <div class="player-note-body" data-if="available">
+                <div class="stat-section-title">PERSONAL NOTE</div>
+                <textarea class="player-note-input" data-setting="player_note_text" data-attr-value="note_value" maxlength="2000" rows="7" cols="40"></textarea>
+                <div class="row player-note-meta">
+                    <span class="label grow">{{updated_label}}</span>
+                    <span class="label mono" data-class-loss="near_limit">{{char_count}}</span>
+                </div>
+
+                <div class="callout error" data-if="status_error">{{status}}</div>
+                <div class="label win player-note-status" data-if="status != '' && !status_error">{{status}}</div>
+
+                <div class="callout" data-if="confirm_delete">
+                    <div class="row gap-sm" style="align-items:center">
+                        <div class="grow">Delete this note? This can't be undone.</div>
+                        <button class="danger compact" data-action="player-note-confirm-delete">Delete</button>
+                        <button class="ghost compact" data-action="player-note-cancel-delete">Cancel</button>
+                    </div>
+                </div>
+                <div class="callout" data-if="confirm_discard">
+                    <div class="row gap-sm" style="align-items:center">
+                        <div class="grow">Discard unsaved changes?</div>
+                        <button class="danger compact" data-action="player-note-discard">Discard</button>
+                        <button class="ghost compact" data-action="player-note-keep-editing">Keep editing</button>
+                    </div>
+                </div>
+
+                <div class="row gap-sm player-note-actions">
+                    <button class="danger compact" data-action="player-note-delete" data-if="has_saved && !confirm_delete">Delete Note</button>
+                    <div class="grow"></div>
+                    <button class="ghost" data-action="player-note-close">Cancel</button>
+                    <button class="primary" data-action="player-note-save" data-class-disabled="!dirty || saving">{{save_label}}</button>
+                </div>
+            </div>
+        </div>
+    </div>
+</body>
+</rml>

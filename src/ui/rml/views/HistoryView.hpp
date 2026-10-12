@@ -6,6 +6,7 @@
 #include <cstdint>
 #include <optional>
 #include <string>
+#include <unordered_set>
 #include <vector>
 
 #include "core/SessionState.hpp"
@@ -43,6 +44,9 @@ struct HistoryDetailPlayerRow {
     Rml::String tier_color;
     // Both relationships from other saved matches, e.g. "With 3-1 · Vs 2-0".
     Rml::String encounter;
+    Rml::String primary_id;
+    bool can_note = false;
+    bool has_note = false;
     Rml::String score;
     Rml::String goals;
     Rml::String assists;
@@ -140,6 +144,8 @@ class HistoryView {
 
     std::string FormatScoreboardText() const;
     static std::string BuildScoreboardSummary(const MatchDetail& detail);
+    // Identity keys (PlayerNotes::Identity::Key) that have a stored note.
+    void SetNotedPlayers(const std::unordered_set<std::string>& keys, bool loaded);
 
   private:
     void RebuildRows();
@@ -153,6 +159,8 @@ class HistoryView {
     uint64_t m_activeRequestId = 0;
     uint64_t m_activeDetailRequestId = 0;
     uint64_t m_appliedDetailRequestId = 0;
+    std::unordered_set<std::string> m_notedKeys;
+    bool m_notesLoaded = false;
 
     std::vector<MatchRow> m_sourceRows;
     int m_totalCount = 0;

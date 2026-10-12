@@ -191,6 +191,39 @@ div.value { display: block; }
 }
 .player-flags .label { display: block; font-size: 11dp; line-height: 1.2; text-align: right; }
 .player-flags .encounter { cursor: default; }
+
+/* Player notes: a quiet amber tag when a note exists; "+ Note" appears on row
+   hover only, so cards without notes stay unchanged. */
+.note-badge {
+    display: inline-block;
+    flex-shrink: 0;
+    padding: 0 4dp;
+    border: 1dp #ffb45466;
+    border-radius: 4dp;
+    background-color: #ffb45414;
+    color: #ffc976;
+    font-size: 9dp;
+    font-weight: 700;
+    letter-spacing: 0.3dp;
+    line-height: 1.5;
+    cursor: pointer;
+}
+.note-badge:hover { border-color: #ffb454; }
+.note-add {
+    display: none;
+    flex-shrink: 0;
+    padding: 0 4dp;
+    border: 1dp #eef1f526;
+    border-radius: 4dp;
+    color: #9da6b3;
+    font-size: 9dp;
+    font-weight: 600;
+    line-height: 1.5;
+    cursor: pointer;
+}
+.note-add:hover { color: #eef1f5; border-color: #eef1f566; }
+.note-add.always, .player-row:hover .note-add { display: inline-block; }
+.tooltip-bubble.note-preview { width: 220dp; min-width: 0; max-width: 220dp; white-space: normal; line-height: 1.35; }
 .player-name {
     flex-grow: 1;
     flex-shrink: 0;
@@ -1241,6 +1274,31 @@ body.view-document { pointer-events: none; }
     line-height: 1.4;
 }
 
+.callout.error { border-color: #ff303066; background-color: #ff303014; }
+
+.player-note-card { display: flex; flex-direction: column; width: 460dp; max-width: 94%; max-height: 92%; padding: 16dp 18dp; }
+.player-note-header { align-items: flex-start; padding-bottom: 10dp; margin-bottom: 10dp; border-bottom: 1dp #eef1f517; }
+.player-note-identity .label { margin-top: 3dp; }
+.player-note-name { font-size: 17dp; }
+.player-note-context { color: #c3cad6; }
+.player-note-body { display: block; }
+.player-note-input {
+    display: block;
+    width: 100%;
+    height: 150dp;
+    padding: 7dp 8dp;
+    background-color: #121212;
+    border: 1dp #303030;
+    border-radius: 5dp;
+    color: #eef1f5;
+    font-size: 13dp;
+    line-height: 1.4;
+    overflow-y: auto;
+}
+.player-note-input:focus { border-color: #ff0021; }
+.player-note-meta { margin-top: 5dp; margin-bottom: 8dp; gap: 8dp; }
+.player-note-status { margin-bottom: 8dp; }
+.player-note-actions { margin-top: 4dp; }
 .recap-card {
     display: block;
     background-color: #0d0d0d;

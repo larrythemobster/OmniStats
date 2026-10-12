@@ -157,6 +157,19 @@ class DatabaseManager {
     bool DeleteTrackedAccount(const std::string& primaryId);
     int ImportTrackedAccounts(const std::vector<TrackedAccounts::AccountRecord>& records);
 
+    // Player notes. Text is normalized before storage; saving an empty note
+    // fails rather than storing a blank row. Load/save/delete publish results to
+    // SessionState::notes.
+    std::optional<std::vector<PlayerNotes::Note>> ListPlayerNotes();
+    std::optional<PlayerNotes::Note> GetPlayerNote(const PlayerNotes::Identity& identity);
+    bool SavePlayerNote(const PlayerNotes::Identity& identity, std::string_view text, std::string_view lastKnownName,
+                        int64_t nowUnix, std::string* error = nullptr);
+    bool DeletePlayerNote(const PlayerNotes::Identity& identity, std::string* error = nullptr);
+    void AsyncLoadPlayerNotes();
+    // An empty normalized note deletes the stored one.
+    void AsyncSavePlayerNote(PlayerNotes::Identity identity, std::string text, std::string lastKnownName, uint64_t requestId);
+    void AsyncDeletePlayerNote(PlayerNotes::Identity identity, uint64_t requestId);
+
     [[nodiscard]] bool SetSetting(const std::string& key, const std::string& value);
     void AsyncSetSetting(std::string key, std::string value);
     std::string GetSetting(const std::string& key, const std::string& defaultValue = "");

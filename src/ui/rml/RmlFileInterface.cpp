@@ -28,6 +28,7 @@ std::string RmlFileInterface::ResourceNameForPath(const std::string& rawPath) {
     if (path == "insights.rml") return "RML_INSIGHTS";
     if (path == "history.rml") return "RML_HISTORY";
     if (path == "accounts.rml") return "RML_ACCOUNTS";
+    if (path == "player_note.rml") return "RML_PLAYER_NOTE";
     return {};
 }
 

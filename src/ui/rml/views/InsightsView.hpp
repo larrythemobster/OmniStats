@@ -8,6 +8,7 @@
 #include <RmlUi/Core/Types.h>
 
 #include <string>
+#include <unordered_set>
 #include <vector>
 
 #include "core/Insights.hpp"
@@ -40,6 +41,10 @@ struct PersonRow {
     int tone = 0;
     // The record in the relationship the active tab does not list, e.g. "4-2".
     Rml::String other_record;
+    Rml::String encounter;
+    Rml::String primary_id;
+    bool can_note = false;
+    bool has_note = false;
 };
 
 struct TrendRow {
@@ -110,6 +115,8 @@ class InsightsView {
         return m_tab;
     }
     void SetPeopleFilter(Insights::PeopleFilter filter);
+    // Identity keys (PlayerNotes::Identity::Key) that have a stored note.
+    void SetNotedPlayers(const std::unordered_set<std::string>& keys, bool loaded);
     void SetTrendPlaylistFilter(const std::string& playlist);
     const std::string& TrendPlaylistFilter() const {
         return m_trendPlaylistFilter;
@@ -222,6 +229,8 @@ class InsightsView {
     std::vector<PersonRow> m_people;
     Rml::String m_peopleEmpty;
     Rml::String m_peopleOtherLabel = "Vs";
+    std::unordered_set<std::string> m_notedKeys;
+    bool m_notesLoaded = false;
 
     Rml::String m_tiltMessage;
     Rml::String m_gapCallout;

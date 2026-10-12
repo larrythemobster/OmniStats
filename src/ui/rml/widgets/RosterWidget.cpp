@@ -66,6 +66,24 @@ std::string RmlUiController::RenderRankBadge(const std::string& tier, bool fetch
     return out.str();
 }
 
+const std::string* RmlUiController::NotePreviewFor(const std::string& primaryId) const {
+    const auto identity = PlayerNotes::IdentityFromPrimaryId(primaryId);
+    if (!identity) return nullptr;
+    const auto it = m_snap.notePreviews.find(identity->Key());
+    return it == m_snap.notePreviews.end() ? nullptr : &it->second;
+}
+
+std::string RmlUiController::RenderNoteControl(const std::string& primaryId, const std::string& name, bool allowAdd) const {
+    if (!PlayerNotes::IdentityFromPrimaryId(primaryId)) return {};
+    const std::string attrs = " data-action='player-note-open' data-pid='" + Escape(primaryId) + "' data-name='" + Escape(name) + "'";
+    if (const std::string* preview = NotePreviewFor(primaryId)) {
+        return "<span class='note-badge tooltip-host'" + attrs + ">NOTE<span class='tooltip-bubble note-preview'>" + Escape(*preview) +
+               "</span></span>";
+    }
+    if (!allowAdd || !m_snap.notesLoaded) return {};
+    return "<span class='note-add'" + attrs + ">+ Note</span>";
+}
+
 std::string RmlUiController::RenderPlayerRoster(int team, const char* label) {
     std::vector<const PlayerData*> players;
     const std::string category = MmrCategoryToString(m_state ? m_state->ui.rosterMmrCategory.load() : MmrCategory::Best);
@@ -154,6 +172,7 @@ std::string RmlUiController::RenderPlayerRoster(int team, const char* label) {
             out << "<span class='badge " << PlatformClass(platformKind) << "'>"
                 << Escape(PlatformBadgeLabel(platformKind, platform)) << "</span>";
         }
+        if (!self) out << RenderNoteControl(p->primaryId, p->name, true);
         out << "</div><div class='player-chips'>";
 
         // MMR chip. Without rank crests it also has to name the tier, and when

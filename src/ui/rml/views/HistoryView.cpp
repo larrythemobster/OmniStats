@@ -7,6 +7,7 @@
 #include <cstdio>
 #include <ctime>
 #include <sstream>
+#include <unordered_set>
 
 #include "ui/Formatting.hpp"
 #include "ui/rml/RmlUiController.hpp"
@@ -74,9 +75,11 @@ namespace {
         return row.gamemode.empty() ? "Unknown" : row.gamemode;
     }
 
-    HistoryDetailPlayerRow FormatDetailPlayer(const MatchDetailPlayer& p) {
+    HistoryDetailPlayerRow FormatDetailPlayer(const MatchDetailPlayer& p, const std::unordered_set<std::string>* notedKeys = nullptr,
+                                              bool notesLoaded = false) {
         HistoryDetailPlayerRow row;
         row.name = p.name.empty() ? p.primaryId : p.name;
+        row.primary_id = p.primaryId;
         if (!p.platform.empty()) {
             const PlatformKind kind = PlatformKindFor(p.platform);
             row.platform = PlatformBadgeLabel(kind, p.platform);
@@ -94,6 +97,12 @@ namespace {
             row.encounter = "You";
         } else if (p.encounter) {
             row.encounter = EncounterSummary(*p.encounter);
+        }
+        if (!p.isMe && notesLoaded && notedKeys) {
+            if (const auto identity = PlayerNotes::IdentityFromPrimaryId(p.primaryId)) {
+                row.can_note = true;
+                row.has_note = notedKeys->count(identity->Key()) > 0;
+            }
         }
         row.score = p.hasStats ? FormatOptInt(p.score) : "--";
         row.goals = p.hasStats ? FormatOptInt(p.goals) : "--";
@@ -141,6 +150,9 @@ bool HistoryView::Create(Rml::Context* context) {
         player.RegisterMember("tier", &HistoryDetailPlayerRow::tier);
         player.RegisterMember("tier_color", &HistoryDetailPlayerRow::tier_color);
         player.RegisterMember("encounter", &HistoryDetailPlayerRow::encounter);
+        player.RegisterMember("primary_id", &HistoryDetailPlayerRow::primary_id);
+        player.RegisterMember("can_note", &HistoryDetailPlayerRow::can_note);
+        player.RegisterMember("has_note", &HistoryDetailPlayerRow::has_note);
         player.RegisterMember("score", &HistoryDetailPlayerRow::score);
         player.RegisterMember("goals", &HistoryDetailPlayerRow::goals);
         player.RegisterMember("assists", &HistoryDetailPlayerRow::assists);
@@ -402,6 +414,13 @@ void HistoryView::CloseDetail() {
     Dirty("detail_loading");
 }
 
+void HistoryView::SetNotedPlayers(const std::unordered_set<std::string>& keys, bool loaded) {
+    if (keys == m_notedKeys && loaded == m_notesLoaded) return;
+    m_notedKeys = keys;
+    m_notesLoaded = loaded;
+    if (m_detailSource.has_value()) RebuildDetail();
+}
+
 void HistoryView::RebuildRows() {
     m_rows.clear();
     m_rows.reserve(m_sourceRows.size());
@@ -495,10 +514,10 @@ void HistoryView::RebuildDetail() {
         m_detailBallchasingUrl = d.ballchasingUrl;
 
         for (const auto& p : d.ourTeam) {
-            m_detailOurTeam.push_back(FormatDetailPlayer(p));
+            m_detailOurTeam.push_back(FormatDetailPlayer(p, &m_notedKeys, m_notesLoaded));
         }
         for (const auto& p : d.theirTeam) {
-            m_detailTheirTeam.push_back(FormatDetailPlayer(p));
+            m_detailTheirTeam.push_back(FormatDetailPlayer(p, &m_notedKeys, m_notesLoaded));
         }
     }
 

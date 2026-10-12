@@ -929,7 +929,7 @@ TEST_F(DatabaseManagerTest, MigratesAllHistoricalSchemasToV2WithBackupsAndIdempo
         {
             auto db = std::make_shared<DatabaseManager>(sessionState);
             ASSERT_TRUE(db->Initialize(path)) << tc.label;
-            EXPECT_EQ(db->GetSchemaVersion(), 5) << tc.label;
+            EXPECT_EQ(db->GetSchemaVersion(), 6) << tc.label;
             EXPECT_EQ(QueryIntScalar(db->GetRawDb(), "SELECT COUNT(*) FROM Matches;"), 2) << tc.label;
             EXPECT_EQ(QueryIntScalar(db->GetRawDb(), "SELECT COUNT(*) FROM MatchPlayers;"), 3) << tc.label;
             EXPECT_EQ(QueryIntScalar(db->GetRawDb(),
@@ -947,7 +947,7 @@ TEST_F(DatabaseManagerTest, MigratesAllHistoricalSchemasToV2WithBackupsAndIdempo
         {
             auto db = std::make_shared<DatabaseManager>(sessionState);
             ASSERT_TRUE(db->Initialize(path)) << tc.label;
-            EXPECT_EQ(db->GetSchemaVersion(), 5) << tc.label;
+            EXPECT_EQ(db->GetSchemaVersion(), 6) << tc.label;
             EXPECT_EQ(QueryIntScalar(db->GetRawDb(), "SELECT COUNT(*) FROM Matches;"), 2) << tc.label;
             EXPECT_EQ(QueryIntScalar(db->GetRawDb(), "SELECT COUNT(*) FROM MatchPlayers;"), 3) << tc.label;
         }
@@ -1517,7 +1517,7 @@ TEST_F(DatabaseManagerTest, MigrationV2ToV3CreatesSessionsTableAndMatchSessionIn
     {
         auto db = std::make_shared<DatabaseManager>(sessionState);
         ASSERT_TRUE(db->Initialize(path));
-        EXPECT_EQ(db->GetSchemaVersion(), 5);
+        EXPECT_EQ(db->GetSchemaVersion(), 6);
         EXPECT_TRUE(std::filesystem::exists(backupPath));
         EXPECT_EQ(QueryIntScalar(db->GetRawDb(), "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='Sessions';"), 1);
         EXPECT_EQ(QueryIntScalar(db->GetRawDb(), "SELECT COUNT(*) FROM sqlite_master WHERE type='index' AND name='idx_matches_session';"), 1);
@@ -2274,7 +2274,7 @@ TEST_F(DatabaseManagerTest, MigrationV3ToV4CreatesReplayUploadsTable) {
     {
         auto db = std::make_shared<DatabaseManager>(sessionState);
         ASSERT_TRUE(db->Initialize(path));
-        EXPECT_EQ(db->GetSchemaVersion(), 5);
+        EXPECT_EQ(db->GetSchemaVersion(), 6);
         EXPECT_TRUE(std::filesystem::exists(backupPath));
         EXPECT_EQ(QueryIntScalar(db->GetRawDb(), "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='ReplayUploads';"), 1);
         EXPECT_EQ(QueryIntScalar(db->GetRawDb(), "SELECT COUNT(*) FROM sqlite_master WHERE type='index' AND name='idx_replay_uploads_match_guid';"), 1);

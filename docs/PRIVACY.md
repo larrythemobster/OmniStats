@@ -27,7 +27,7 @@ Tracker Network, Discord, Ballchasing, GitHub, and other third-party services ap
 
 ## Locally stored match data
 
-OmniStats stores match and session history on your PC in `%APPDATA%\omnistats\omnistats.db` (`Matches`, `MatchPlayers`, `MatchPlayerStats`, `MatchLocalStats`, `Sessions`, and `ReplayUploads`). The legacy `matches.jsonl` journal is no longer written:
+OmniStats stores match and session history on your PC in `%APPDATA%\omnistats\omnistats.db` (`Matches`, `MatchPlayers`, `MatchPlayerStats`, `MatchLocalStats`, `Sessions`, `ReplayUploads`, and `PlayerNotes`). The legacy `matches.jsonl` journal is no longer written:
 
 - `Matches` stores the timestamp, arena, team scores, win/loss outcome, match GUID, playlist ID, gamemode, player count, and linked session ID.
 - `MatchPlayers` stores each participant's platform primary ID, display name, team number, opponent flag, and MMR at match time.
@@ -35,8 +35,9 @@ OmniStats stores match and session history on your PC in `%APPDATA%\omnistats\om
 - `MatchLocalStats` stores the local player's boost collected, times demolished, crossbars hit, hardest crossbar impact, max ball speed, own goals, match duration, overtime duration, and stats schema version.
 - `Sessions` stores the local account ID, start and end timestamps, win/loss counts, per-playlist MMR change JSON, session totals JSON, and whether the row came from a live reset or historical backfill.
 - `ReplayUploads` stores local replay file paths, file names, associated match GUIDs, upload queue states (pending, uploading, done, duplicate, failed, skipped), retry attempt counts and scheduling, last HTTP status and errors, and Ballchasing replay IDs and URLs.
+- `PlayerNotes` stores notes you write about other players: the player's platform, platform account ID, splitscreen slot, the note text (up to 2,000 characters), the display name they used when you last saved the note, and created/updated timestamps.
 
-These tables remain on your machine and are never uploaded by OmniStats. **Export Local Data** writes them to `%APPDATA%\omnistats\exports`, and **Delete History & Identity** clears match and player records along with any legacy JSONL files.
+These tables remain on your machine and are never uploaded by OmniStats. **Export Local Data** writes them to `%APPDATA%\omnistats\exports` (notes go to `player_notes.json`), and **Delete History & Identity** clears match and player records along with any legacy JSONL files. Player notes are not match history, so that button leaves them alone; delete a note from its editor.
 
 ## Local controls
 
