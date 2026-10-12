@@ -35,6 +35,7 @@ struct ConfigData {
     int key_menu = VK_F5;
     int key_graph_pan_left = VK_LEFT;
     int key_graph_pan_right = VK_RIGHT;
+    int key_lifetime_graph = VK_F9;
     int gamepad_overlay = 4; // SDL_CONTROLLER_BUTTON_BACK
     bool gamepad_overlay_raw = false;
     int gamepad_overlay_raw_button = 4;

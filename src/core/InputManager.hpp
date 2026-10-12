@@ -21,6 +21,7 @@ class InputManager {
         HotKeyDashboardEdit = 5,
         HotKeyPanLeft = 6,
         HotKeyPanRight = 7,
+        HotKeyLifetimeGraph = 8,
     };
 
     static void HandleHotKeyAction(
@@ -58,6 +59,7 @@ class InputManager {
     std::atomic<int> m_keyMenu{VK_F5};
     std::atomic<int> m_keyGraphPanLeft{VK_LEFT};
     std::atomic<int> m_keyGraphPanRight{VK_RIGHT};
+    std::atomic<int> m_keyLifetimeGraph{VK_F9};
     std::atomic<int> m_gamepadOverlay{4};
     std::atomic<bool> m_gamepadOverlayRaw{false};
     std::atomic<int> m_gamepadOverlayRawButton{4};

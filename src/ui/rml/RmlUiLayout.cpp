@@ -86,9 +86,12 @@ std::string RmlUiController::RenderWidget(DashboardLayout::WidgetId id, bool das
         std::string controls;
         if (dashboard) {
             const auto graphCategory = m_state ? m_state->ui.graphMmrCategory.load() : MmrCategory::TwoVTwo;
-            controls = controlRow("Playlist", SelectControl("graph_mmr_category", MmrCategoryOptions(false, m_config.show_extra_playlists), MmrCategoryToString(graphCategory), "compact-select"));
+            const std::string lifetimeBadge = m_snap.showLifetimeGraph ? "<span class='badge graph-mode-badge'>Lifetime</span>" : "";
+            controls = controlRow("Playlist", lifetimeBadge + SelectControl("graph_mmr_category", MmrCategoryOptions(false, m_config.show_extra_playlists), MmrCategoryToString(graphCategory), "compact-select graph-select") +
+                                                  RenderGraphPanControls());
         }
-        return controls + RenderMmrGraph(true, !dashboard && m_config.show_rank_progress);
+        // On the dashboard the controls row names the playlist and holds the pan buttons.
+        return controls + RenderMmrGraph(!dashboard, !dashboard && m_config.show_rank_progress, !dashboard);
     }
     case DashboardLayout::WidgetId::StreaksStats:
         return RenderStreaksStats();

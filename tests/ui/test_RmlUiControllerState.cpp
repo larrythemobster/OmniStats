@@ -86,7 +86,7 @@ class RmlUiControllerStateTest : public ::testing::Test {
         return RmlUiDetail::Escape(text);
     }
     std::string RenderGraph(RmlUiController& controller) {
-        return controller.RenderMmrGraph(true, true);
+        return controller.RenderMmrGraph(true, true, true);
     }
     std::string RenderCompactSession(RmlUiController& controller) {
         return controller.RenderSessionStats(true, false);
@@ -2753,9 +2753,7 @@ TEST_F(RmlUiControllerStateTest, MmrGraphShowsRankProgressAndLabeledBoundariesPe
     EXPECT_NE(html.find("graph-rank-line"), std::string::npos);
     EXPECT_NE(html.find("graph-band-label"), std::string::npos);
     EXPECT_NE(html.find("'>" + std::to_string(doubles.next->mmr) + "</div>"), std::string::npos);
-    // The existing graph pieces remain.
     EXPECT_NE(html.find("mmrgraphlines"), std::string::npos);
-    EXPECT_NE(html.find("graph-current"), std::string::npos);
 
     // Switching playlists swaps the table; without a reported division the table supplies it.
     SeedGraph(*state, "3v3", {1180.0f, 1190.0f, 1200.0f}, 0, "");
@@ -2769,7 +2767,7 @@ TEST_F(RmlUiControllerStateTest, MmrGraphShowsRankProgressAndLabeledBoundariesPe
     EXPECT_EQ(html.find("estimate"), std::string::npos);
 }
 
-TEST_F(RmlUiControllerStateTest, SessionGraphStartsFromThePreSessionRatingAndSummarisesResults) {
+TEST_F(RmlUiControllerStateTest, SessionGraphStartsFromThePreSessionRating) {
     auto state = std::make_shared<SessionState>();
     SeedGraph(*state, "2v2", {1009.0f}, 1009, "");
     {
@@ -2789,14 +2787,11 @@ TEST_F(RmlUiControllerStateTest, SessionGraphStartsFromThePreSessionRatingAndSum
     EXPECT_NE(html.find("graph-point start"), std::string::npos);
     EXPECT_NE(html.find("Session start \xC2\xB7 1000 MMR"), std::string::npos);
     EXPECT_NE(html.find("Game 1 \xC2\xB7 1009 MMR (+9)"), std::string::npos);
-    EXPECT_NE(html.find("<span class='win'>1</span>-<span class='loss'>0</span>"), std::string::npos);
-    EXPECT_NE(html.find("Net</span><span class='graph-stat-value mono win'>+9<"), std::string::npos);
 
     SeedGraph(*state, "2v2", {1009.0f, 1000.0f}, 1000, "");
     controller.Update(Config::Read());
     html = RenderGraph(controller);
     EXPECT_NE(html.find("Game 2 \xC2\xB7 1000 MMR (-9)"), std::string::npos);
-    EXPECT_NE(html.find("<span class='win'>1</span>-<span class='loss'>1</span>"), std::string::npos);
 
     // Without a rank table the generic value gridlines come back and no bands are drawn.
     SeedGraph(*state, "casual", {900.0f, 910.0f}, 910, "");

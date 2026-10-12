@@ -43,7 +43,7 @@ namespace {
         "#app .match-header .match-time, #app .previous-games-footer, #app .tooltip-bubble";
     constexpr std::string_view kMonoFontSelectors =
         "#app .mono, #app .chip.chip-mmr, #app .graph-zoom .zoom-step, #app .color-channel-label, #app .graph-label, "
-        "#app .graph-current, #app .match-score, #app .match-mmr, #app .debug-value, #app .recap-hero-value, "
+        "#app .match-score, #app .match-mmr, #app .debug-value, #app .recap-hero-value, "
         "#app .recap-strip-value, #app .recap-mode-record, #app .recap-mode-mmr";
     constexpr std::string_view kDisplayFontSelectors =
         "#app .card-title, #app .summary-score, #app .brand-title, #app .dashboard-widget-title .name, "

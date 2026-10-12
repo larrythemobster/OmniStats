@@ -178,6 +178,19 @@ namespace {
             state.ui.graphOffset.store(0);
         }
     }
+
+    // Switches every graph between this session and lifetime history. On the
+    // overlay the graph only exists in the session card, so turning lifetime on
+    // opens that card on its graph.
+    void ToggleLifetimeGraph(SessionState& state) {
+        const bool lifetime = !state.history.showLifetimeGraph.load();
+        state.history.showLifetimeGraph.store(lifetime);
+        state.ui.graphOffset.store(0);
+        if (lifetime) {
+            state.ui.showSessionView.store(true);
+            state.ui.showGraphView.store(true);
+        }
+    }
 } // namespace
 
 void InputManager::HandleHotKeyAction(
@@ -207,6 +220,9 @@ void InputManager::HandleHotKeyAction(
         break;
     case HotKeyPanRight:
         PanGraph(state, 1);
+        break;
+    case HotKeyLifetimeGraph:
+        ToggleLifetimeGraph(state);
         break;
     }
 }
@@ -295,6 +311,7 @@ void InputManager::RefreshConfigCache() {
     m_gamepadMenuRawButton.store(conf.gamepad_menu_raw_button, std::memory_order_relaxed);
     m_keyGraphPanLeft.store(conf.key_graph_pan_left, std::memory_order_relaxed);
     m_keyGraphPanRight.store(conf.key_graph_pan_right, std::memory_order_relaxed);
+    m_keyLifetimeGraph.store(conf.key_lifetime_graph, std::memory_order_relaxed);
     m_gamepadGraphPanLeft.store(conf.gamepad_graph_pan_left, std::memory_order_relaxed);
     m_gamepadGraphPanLeftRaw.store(conf.gamepad_graph_pan_left_raw, std::memory_order_relaxed);
     m_gamepadGraphPanLeftRawButton.store(conf.gamepad_graph_pan_left_raw_button, std::memory_order_relaxed);
@@ -363,6 +380,7 @@ void InputManager::KeyboardThreadLoop() {
     int registeredSessionKey = -1;
     int registeredPanLeftKey = -1;
     int registeredPanRightKey = -1;
+    int registeredLifetimeKey = -1;
     bool registeredDashboardEdit = false;
     auto unregisterRegisteredHotkeys = [&]() {
         UnregisterHotKey(NULL, HotKeyMenu);
@@ -372,12 +390,14 @@ void InputManager::KeyboardThreadLoop() {
         UnregisterHotKey(NULL, HotKeyDashboardEdit);
         UnregisterHotKey(NULL, HotKeyPanLeft);
         UnregisterHotKey(NULL, HotKeyPanRight);
+        UnregisterHotKey(NULL, HotKeyLifetimeGraph);
         registeredMenuKey = -1;
         registeredCycleKey = -1;
         registeredExpandKey = -1;
         registeredSessionKey = -1;
         registeredPanLeftKey = -1;
         registeredPanRightKey = -1;
+        registeredLifetimeKey = -1;
         registeredDashboardEdit = false;
     };
 
@@ -447,6 +467,7 @@ void InputManager::KeyboardThreadLoop() {
             registerHotKeyIfNeeded(HotKeyCycle, m_keyCycle.load(std::memory_order_relaxed), registeredCycleKey);
             registerHotKeyIfNeeded(HotKeyExpand, m_keyExpand.load(std::memory_order_relaxed), registeredExpandKey);
             registerHotKeyIfNeeded(HotKeySession, m_keySession.load(std::memory_order_relaxed), registeredSessionKey);
+            registerHotKeyIfNeeded(HotKeyLifetimeGraph, m_keyLifetimeGraph.load(std::memory_order_relaxed), registeredLifetimeKey);
             registerDashboardEditIfNeeded();
             if (m_state && m_state->ui.showGraphView.load(std::memory_order_relaxed)) {
                 registerHotKeyIfNeeded(HotKeyPanLeft, m_keyGraphPanLeft.load(std::memory_order_relaxed), registeredPanLeftKey);
@@ -543,6 +564,9 @@ LRESULT CALLBACK InputManager::LowLevelKeyboardProc(int nCode, WPARAM wParam,
 
         if (kb->vkCode == keyExpand && wParam == WM_KEYDOWN) {
             ExpandActiveView(*st);
+        }
+        if (kb->vkCode == static_cast<DWORD>(self->m_keyLifetimeGraph.load(std::memory_order_relaxed)) && wParam == WM_KEYDOWN) {
+            ToggleLifetimeGraph(*st);
         }
         if (st->ui.showGraphView.load()) {
             const int keyPanLeft = self->m_keyGraphPanLeft.load(std::memory_order_relaxed);

@@ -911,6 +911,9 @@ void RmlUiController::ClearBind(BindCaptureTarget target) {
         case BindCaptureTarget::KeyGraphPanRight:
             c.key_graph_pan_right = -1;
             break;
+        case BindCaptureTarget::KeyLifetimeGraph:
+            c.key_lifetime_graph = -1;
+            break;
         case BindCaptureTarget::GamepadOverlay:
             c.gamepad_overlay = -1;
             c.gamepad_overlay_raw = false;
@@ -1028,6 +1031,9 @@ void RmlUiController::UpdateInputCapture() {
                 break;
             case BindCaptureTarget::KeyGraphPanRight:
                 c.key_graph_pan_right = vk;
+                break;
+            case BindCaptureTarget::KeyLifetimeGraph:
+                c.key_lifetime_graph = vk;
                 break;
             default:
                 break;

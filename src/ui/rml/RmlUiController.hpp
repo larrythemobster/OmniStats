@@ -138,6 +138,7 @@ class RmlUiController final : public Rml::EventListener {
         KeySaveReplay,
         KeyGraphPanLeft,
         KeyGraphPanRight,
+        KeyLifetimeGraph,
         GamepadOverlay,
         GamepadCycle,
         GamepadExpand,
@@ -215,7 +216,9 @@ class RmlUiController final : public Rml::EventListener {
     std::string RenderSessionStats(bool compact = false, bool includeStreak = true);
     std::string RenderStreaksStats();
     std::string RenderGamemodeBreakdown(GamemodeBreakdownScope scope);
-    std::string RenderMmrGraph(bool showCategoryBadge, bool showRankProgress);
+    std::string RenderMmrGraph(bool showCategoryBadge, bool showRankProgress, bool showPanControls);
+    // Visible-range label and pan buttons; empty while every match fits.
+    std::string RenderGraphPanControls() const;
     // Progress for `mmr` in `playlist`; the player's fetched division is used
     // only when it was reported for that same rating.
     RankProgress::Progress RankProgressFor(const PlayerData* player, const std::string& playlist, int mmr) const;

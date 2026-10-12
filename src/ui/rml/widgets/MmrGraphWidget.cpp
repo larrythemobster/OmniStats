@@ -47,7 +47,29 @@
 
 using namespace RmlUiDetail;
 
-std::string RmlUiController::RenderMmrGraph(bool showCategoryBadge, bool showRankProgress) {
+namespace {
+    constexpr int kVisibleGraphMatches = 25;
+}
+
+std::string RmlUiController::RenderGraphPanControls() const {
+    int total = 0;
+    if (m_snap.showLifetimeGraph) {
+        total = static_cast<int>(m_snap.lifetimeMmrY.size());
+    } else {
+        const std::string playlist = MmrCategoryToString(m_state ? m_state->ui.graphMmrCategory.load() : MmrCategory::TwoVTwo);
+        if (auto it = m_snap.playlistHistoryY.find(playlist); it != m_snap.playlistHistoryY.end()) total = static_cast<int>(it->second.size());
+    }
+    if (total <= kVisibleGraphMatches) return {};
+    const int offset = m_state ? std::clamp(m_state->ui.graphOffset.load(), 0, total - kVisibleGraphMatches) : 0;
+    const int firstIndex = total - kVisibleGraphMatches - offset;
+    std::ostringstream out;
+    out << "<span class='label mono graph-range'>" << (firstIndex + 1) << '-' << (firstIndex + kVisibleGraphMatches) << " of " << total
+        << "</span><div class='graph-zoom'>" << Button("graph-pan-older", "\xE2\x86\x90", "ghost zoom-step")
+        << Button("graph-pan-newer", "\xE2\x86\x92", "ghost zoom-step") << "</div>";
+    return out.str();
+}
+
+std::string RmlUiController::RenderMmrGraph(bool showCategoryBadge, bool showRankProgress, bool showPanControls) {
     const auto category = m_state ? m_state->ui.graphMmrCategory.load() : MmrCategory::TwoVTwo;
     const std::string playlist = MmrCategoryToString(category);
     std::vector<float> series;
@@ -65,12 +87,11 @@ std::string RmlUiController::RenderMmrGraph(bool showCategoryBadge, bool showRan
         if (auto it = m_snap.playlistInitialMmr.find(playlist); it != m_snap.playlistInitialMmr.end()) baseline = static_cast<float>(it->second);
     }
 
-    constexpr int kVisibleMatches = 25;
     const int total = static_cast<int>(series.size());
-    const int maxOffset = std::max(0, total - kVisibleMatches);
+    const int maxOffset = std::max(0, total - kVisibleGraphMatches);
     const int offset = m_state ? std::clamp(m_state->ui.graphOffset.load(), 0, maxOffset) : 0;
-    const int firstIndex = std::max(0, total - kVisibleMatches - offset);
-    const int windowCount = std::min(kVisibleMatches, total - firstIndex);
+    const int firstIndex = std::max(0, total - kVisibleGraphMatches - offset);
+    const int windowCount = std::min(kVisibleGraphMatches, total - firstIndex);
 
     // Progression follows the latest rating even while older matches are panned
     // into view. Before a graph point exists, the fetched lobby rating stands in.
@@ -99,18 +120,13 @@ std::string RmlUiController::RenderMmrGraph(bool showCategoryBadge, bool showRan
     }
 
     std::ostringstream header;
-    header << "<div class='row graph-header'>";
-    if (showCategoryBadge) {
-        header << "<span class='badge'>" << Escape(MmrLabel(category)) << "</span>";
+    const std::string pan = showPanControls ? RenderGraphPanControls() : std::string{};
+    if (showCategoryBadge || !pan.empty()) {
+        header << "<div class='row graph-header'>";
+        if (showCategoryBadge) header << "<span class='badge'>" << Escape(MmrLabel(category)) << "</span>";
+        header << "<div class='grow'></div>" << pan << "</div>";
     }
-    header << "<div class='grow'></div>";
-    if (total > kVisibleMatches) {
-        header << "<div class='graph-zoom'>"
-               << Button("graph-pan-older", "\xE2\x86\x90", "ghost zoom-step")
-               << Button("graph-pan-newer", "\xE2\x86\x92", "ghost zoom-step")
-               << "</div>";
-    }
-    header << "</div>" << rankProgress;
+    header << rankProgress;
 
     if (values.empty()) {
         std::ostringstream empty;
@@ -152,38 +168,14 @@ std::string RmlUiController::RenderMmrGraph(bool showCategoryBadge, bool showRan
     if (!rankTable.empty()) RankProgress::ExpandRangeForBoundaries(rankTable, plotted.back(), kBoundaryReach, minV, maxV);
 
     constexpr float xMin = 4.0f;
-    constexpr float xMax = 80.0f;
+    constexpr float xMax = 95.0f;
     constexpr float yMin = 6.0f;
     constexpr float yMax = 86.0f;
     auto yPct = [&](float value) { return yMax - ((value - minV) / (maxV - minV)) * (yMax - yMin); };
     auto xPct = [&](size_t index) { return plotted.size() <= 1 ? xMax : xMin + static_cast<float>(index) / static_cast<float>(plotted.size() - 1) * (xMax - xMin); };
 
-    // Summary over the whole series, not only the visible window. A ranked
-    // result always moves MMR, so the direction of each step is the result.
-    int wins = 0;
-    int losses = 0;
-    const bool fromBaseline = !m_snap.showLifetimeGraph && hasBaseline;
-    float previous = fromBaseline ? baseline : series.front();
-    for (size_t i = fromBaseline ? 0 : 1; i < series.size(); ++i) {
-        if (series[i] > previous) ++wins;
-        if (series[i] < previous) ++losses;
-        previous = series[i];
-    }
-    const auto [lowIt, peakIt] = std::minmax_element(series.begin(), series.end());
-    const auto stat = [](const char* label, const std::string& value) {
-        return std::string("<div class='graph-stat'><span class='label'>") + label + "</span><span class='graph-stat-value mono'>" + value + "</span></div>";
-    };
-    const int net = static_cast<int>(std::lround(series.back() - (fromBaseline ? baseline : series.front())));
     std::ostringstream out;
-    out << header.str() << "<div class='row graph-stats'>" << stat("Games", std::to_string(total))
-        << "<div class='graph-stat'><span class='label'>W-L</span><span class='graph-stat-value mono'><span class='win'>" << wins
-        << "</span>-<span class='loss'>" << losses << "</span></span></div>"
-        << "<div class='graph-stat'><span class='label'>Net</span><span class='graph-stat-value mono " << (net > 0 ? "win" : net < 0 ? "loss"
-                                                                                                                                     : "")
-        << "'>" << (net > 0 ? "+" : "") << net << "</span></div>" << stat("Peak", std::to_string(static_cast<int>(std::lround(*peakIt))))
-        << stat("Low", std::to_string(static_cast<int>(std::lround(*lowIt)))) << "<div class='grow'></div>";
-    if (total > kVisibleMatches) out << "<span class='label mono'>" << (firstIndex + 1) << '-' << (firstIndex + windowCount) << " of " << total << "</span>";
-    out << "</div><div class='graph-wrap'>";
+    out << header.str() << "<div class='graph-wrap'>";
 
     // Division bands are the y-axis when the playlist has a rank table; their
     // boundary values replace generic gridlines.
@@ -311,16 +303,7 @@ std::string RmlUiController::RenderMmrGraph(bool showCategoryBadge, bool showRan
             << (firstIndex + windowCount) << "</div>";
     }
 
-    const int current = static_cast<int>(std::lround(plotted.back()));
-    out << "<div class='graph-current' style='left:83%;top:" << (currentTop - 5.0f) << "%;'>" << current;
-    if (hasBaseline) {
-        const int change = static_cast<int>(std::lround(plotted.back() - baseline));
-        out << "<div class='graph-current-change " << (change > 0 ? "win" : change < 0 ? "loss"
-                                                                                       : "muted")
-            << "'>" << (change > 0 ? "+" : "") << change
-            << "</div>";
-    }
-    out << "</div></div>";
+    out << "</div>";
     return out.str();
 }
 
@@ -411,10 +394,9 @@ void RmlUiController::PanGraph(int direction) {
             total = static_cast<int>(it->second.size());
         }
     }
-    constexpr int kVisibleMatches = 25;
-    if (total <= kVisibleMatches) return;
+    if (total <= kVisibleGraphMatches) return;
     constexpr int step = 5;
-    const int maxOffset = total - kVisibleMatches;
+    const int maxOffset = total - kVisibleGraphMatches;
     const int currentOffset = m_state->ui.graphOffset.load();
     const int newOffset = std::clamp(currentOffset - direction * step, 0, maxOffset);
     m_state->ui.graphOffset.store(newOffset);

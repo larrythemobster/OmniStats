@@ -78,6 +78,7 @@ std::string RmlUiController::RenderSettingsShortcuts() {
         << keyRow("Session view", BindCaptureTarget::KeySession, m_config.key_session)
         << keyRow("Graph pan older", BindCaptureTarget::KeyGraphPanLeft, m_config.key_graph_pan_left)
         << keyRow("Graph pan newer", BindCaptureTarget::KeyGraphPanRight, m_config.key_graph_pan_right)
+        << keyRow("Session / lifetime graph", BindCaptureTarget::KeyLifetimeGraph, m_config.key_lifetime_graph)
         << keyRow("Settings", BindCaptureTarget::KeyMenu, m_config.key_menu, false)
         << keyRow("Save replay", BindCaptureTarget::KeySaveReplay, m_config.key_save_replay)
         << SectionEnd();

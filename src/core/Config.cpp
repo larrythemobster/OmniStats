@@ -295,6 +295,7 @@ namespace Config {
             if (j.contains("key_menu")) Current.key_menu = j["key_menu"];
             if (j.contains("key_graph_pan_left")) Current.key_graph_pan_left = j["key_graph_pan_left"];
             if (j.contains("key_graph_pan_right")) Current.key_graph_pan_right = j["key_graph_pan_right"];
+            if (j.contains("key_lifetime_graph")) Current.key_lifetime_graph = j["key_lifetime_graph"];
             // Load gamepad overlay with migration for the old bad default
             if (j.contains("gamepad_overlay")) {
                 Current.gamepad_overlay = j["gamepad_overlay"];
@@ -733,6 +734,7 @@ namespace Config {
         j["key_menu"] = Current.key_menu;
         j["key_graph_pan_left"] = Current.key_graph_pan_left;
         j["key_graph_pan_right"] = Current.key_graph_pan_right;
+        j["key_lifetime_graph"] = Current.key_lifetime_graph;
         j["gamepad_overlay"] = Current.gamepad_overlay;
         j["gamepad_overlay_raw"] = Current.gamepad_overlay_raw;
         j["gamepad_overlay_raw_button"] = Current.gamepad_overlay_raw_button;

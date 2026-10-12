@@ -159,11 +159,12 @@ std::string RmlUiController::RenderSessionView() {
     std::ostringstream out;
     out << "<div class='card match-summary" << FloatingCardClass() << "' data-action='floating-card-drag' data-card='session-view'"
         << FloatingCardStyle(m_config.session_view_x, m_config.session_view_y, 450.0f)
-        << "><div class='row'><div class='card-title grow'>"
+        << "><div class='row session-view-head'><div class='card-title grow'>"
         << (lifetime ? "LIFETIME MMR · " : graph ? "SESSION MMR · "
                                                  : "SESSION · ")
-        << Escape(MmrLabel(category)) << "</div><span class='badge'>F7 view · F6 playlist</span></div>";
-    out << (graph ? RenderMmrGraph(false, m_config.show_rank_progress) : RenderSessionStats(true, true));
+        << Escape(MmrLabel(category)) << "</div>" << (graph ? RenderGraphPanControls() : std::string{})
+        << "<span class='badge'>F7 view · F6 playlist</span></div>";
+    out << (graph ? RenderMmrGraph(false, m_config.show_rank_progress, false) : RenderSessionStats(true, true));
     out << "</div>";
     return out.str();
 }
