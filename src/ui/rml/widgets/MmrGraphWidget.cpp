@@ -47,7 +47,7 @@
 
 using namespace RmlUiDetail;
 
-std::string RmlUiController::RenderMmrGraph(bool showCategoryBadge) {
+std::string RmlUiController::RenderMmrGraph(bool showCategoryBadge, bool showRankProgress) {
     const auto category = m_state ? m_state->ui.graphMmrCategory.load() : MmrCategory::TwoVTwo;
     const std::string playlist = MmrCategoryToString(category);
     std::vector<float> series;
@@ -83,7 +83,7 @@ std::string RmlUiController::RenderMmrGraph(bool showCategoryBadge) {
     if (currentMmr <= 0 && self) {
         if (auto it = self->playlists.find(playlist); it != self->playlists.end()) currentMmr = it->second;
     }
-    const std::string rankProgress = RenderRankProgress(RankProgressFor(self, playlist, currentMmr));
+    const std::string rankProgress = showRankProgress ? RenderRankProgress(RankProgressFor(self, playlist, currentMmr)) : std::string{};
 
     std::vector<float> values;
     std::vector<bool> estimated;

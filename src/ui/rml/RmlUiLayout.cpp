@@ -67,7 +67,9 @@ std::string RmlUiController::RenderWidget(DashboardLayout::WidgetId id, bool das
             html << "<span class='badge'>MMR · " << Escape(categoryName) << "</span></div></div>"
                  << "<div class='label'>{{roster_arena}}</div></div>";
         }
-        html << RenderPlayerRoster(0, "BLUE") << RenderPlayerRoster(1, "ORANGE") << RenderSelfRankProgress();
+        html << RenderPlayerRoster(0, "BLUE") << RenderPlayerRoster(1, "ORANGE");
+        // The dashboard shows progress as its own card instead.
+        if (!dashboard && m_config.show_rank_progress) html << RenderSelfRankProgress(false);
         if (!dashboard) {
             const std::string cycle = m_config.key_cycle > 0 ? GetKeyDisplayName(m_config.key_cycle) : "Unbound";
             const std::string expand = m_config.key_expand > 0 ? GetKeyDisplayName(m_config.key_expand) : "Unbound";
@@ -86,7 +88,7 @@ std::string RmlUiController::RenderWidget(DashboardLayout::WidgetId id, bool das
             const auto graphCategory = m_state ? m_state->ui.graphMmrCategory.load() : MmrCategory::TwoVTwo;
             controls = controlRow("Playlist", SelectControl("graph_mmr_category", MmrCategoryOptions(false, m_config.show_extra_playlists), MmrCategoryToString(graphCategory), "compact-select"));
         }
-        return controls + RenderMmrGraph();
+        return controls + RenderMmrGraph(true, !dashboard && m_config.show_rank_progress);
     }
     case DashboardLayout::WidgetId::StreaksStats:
         return RenderStreaksStats();
@@ -103,6 +105,8 @@ std::string RmlUiController::RenderWidget(DashboardLayout::WidgetId id, bool das
         return RenderDemoTracker();
     case DashboardLayout::WidgetId::PreviousGames:
         return RenderPreviousGames(!dashboard);
+    case DashboardLayout::WidgetId::RankProgress:
+        return RenderSelfRankProgress(true);
     }
     return {};
 }
@@ -159,6 +163,7 @@ std::string RmlUiController::RenderOverlayContainer(const OverlayLayout::Contain
             if (widget == DashboardLayout::WidgetId::LobbyRanks) return m_config.show_lobby_ranks_overlay;
             if (widget == DashboardLayout::WidgetId::DemoTracker) return m_config.show_demo_tracker_overlay;
             if (widget == DashboardLayout::WidgetId::PreviousGames) return m_config.show_previous_games_summary;
+            if (widget == DashboardLayout::WidgetId::RankProgress) return m_config.show_rank_progress;
             return true;
         }
         switch (widget) {
@@ -186,6 +191,8 @@ std::string RmlUiController::RenderOverlayContainer(const OverlayLayout::Contain
             return containerVisible;
         case DashboardLayout::WidgetId::PreviousGames:
             return containerVisible && m_config.show_previous_games_summary;
+        case DashboardLayout::WidgetId::RankProgress:
+            return containerVisible && m_config.show_rank_progress;
         }
         return false;
     };
@@ -301,7 +308,7 @@ std::string RmlUiController::RenderOverlayToolbox(bool editMode) {
         << "<div class='label'>Click to add to the center, or drag onto the overlay to place it.</div>"
         << "<div class='row gap-sm' style='margin-top:8dp'>" << Button("reset-overlay", "Reset", "ghost") << "</div>"
         << "<div class='col gap-xs' style='margin-top:8dp'>";
-    const std::array<DashboardLayout::WidgetId, 9> all = {DashboardLayout::WidgetId::LiveRoster, DashboardLayout::WidgetId::LiveMatchStats, DashboardLayout::WidgetId::SessionStats, DashboardLayout::WidgetId::MmrGraph, DashboardLayout::WidgetId::StreaksStats, DashboardLayout::WidgetId::GamemodeBreakdown, DashboardLayout::WidgetId::LobbyRanks, DashboardLayout::WidgetId::DemoTracker, DashboardLayout::WidgetId::PreviousGames};
+    const std::array<DashboardLayout::WidgetId, 10> all = {DashboardLayout::WidgetId::LiveRoster, DashboardLayout::WidgetId::LiveMatchStats, DashboardLayout::WidgetId::SessionStats, DashboardLayout::WidgetId::RankProgress, DashboardLayout::WidgetId::MmrGraph, DashboardLayout::WidgetId::StreaksStats, DashboardLayout::WidgetId::GamemodeBreakdown, DashboardLayout::WidgetId::LobbyRanks, DashboardLayout::WidgetId::DemoTracker, DashboardLayout::WidgetId::PreviousGames};
     for (auto w : all) {
         const bool active = present.count(w) != 0;
         out << "<div class='row" << (active ? "" : " toolbox-draggable") << "'";
@@ -419,6 +426,7 @@ void RmlUiController::RebuildDashboard() {
             if (!editMode && p.id == DashboardLayout::WidgetId::LobbyRanks && !m_config.show_lobby_ranks_overlay) continue;
             if (!editMode && p.id == DashboardLayout::WidgetId::DemoTracker && !m_config.show_demo_tracker_overlay) continue;
             if (!editMode && p.id == DashboardLayout::WidgetId::PreviousGames && !m_config.show_previous_games_summary) continue;
+            if (!editMode && p.id == DashboardLayout::WidgetId::RankProgress && !m_config.show_rank_progress) continue;
             result.push_back(p);
         }
         std::sort(result.begin(), result.end(), [](const auto& a, const auto& b) { return a.order < b.order; });

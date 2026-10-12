@@ -664,6 +664,10 @@ void RmlUiController::HandleChange(Rml::Element* target, Rml::Event& event) {
             c.show_demo_tracker_overlay = checked;
             for (auto& w : c.dashboard_layout.widgets)
                 if (w.id == DashboardLayout::WidgetId::DemoTracker) w.zone = checked ? DashboardLayout::Zone::Right : DashboardLayout::Zone::Hidden;
+        } else if (key == "show_rank_progress") {
+            c.show_rank_progress = checked;
+            for (auto& w : c.dashboard_layout.widgets)
+                if (w.id == DashboardLayout::WidgetId::RankProgress) w.zone = checked ? DashboardLayout::Zone::Right : DashboardLayout::Zone::Hidden;
         } else if (key == "show_previous_games_summary") {
             c.show_previous_games_summary = checked;
             for (auto& w : c.dashboard_layout.widgets)

@@ -163,7 +163,7 @@ std::string RmlUiController::RenderSessionView() {
         << (lifetime ? "LIFETIME MMR · " : graph ? "SESSION MMR · "
                                                  : "SESSION · ")
         << Escape(MmrLabel(category)) << "</div><span class='badge'>F7 view · F6 playlist</span></div>";
-    out << (graph ? RenderMmrGraph(false) : RenderSessionStats(true, true));
+    out << (graph ? RenderMmrGraph(false, m_config.show_rank_progress) : RenderSessionStats(true, true));
     out << "</div>";
     return out.str();
 }

@@ -14,9 +14,10 @@ namespace DashboardLayout {
                 {WidgetId::PreviousGames, Zone::Left, 2, 0.0f, false},
                 {WidgetId::SessionStats, Zone::Right, 0, 0.0f, false},
                 {WidgetId::StreaksStats, Zone::Right, 1, 0.0f, false},
-                {WidgetId::MmrGraph, Zone::Right, 2, 220.0f, false},
-                {WidgetId::DemoTracker, Zone::Right, 3, 0.0f, false},
-                {WidgetId::LobbyRanks, Zone::Right, 4, 0.0f, false},
+                {WidgetId::RankProgress, Zone::Right, 2, 0.0f, false},
+                {WidgetId::MmrGraph, Zone::Right, 3, 220.0f, false},
+                {WidgetId::DemoTracker, Zone::Right, 4, 0.0f, false},
+                {WidgetId::LobbyRanks, Zone::Right, 5, 0.0f, false},
                 {WidgetId::GamemodeBreakdown, Zone::Hidden, 0, 0.0f, false},
             }};
     }
@@ -30,6 +31,7 @@ namespace DashboardLayout {
             WidgetId::LiveRoster,
             WidgetId::LiveMatchStats,
             WidgetId::SessionStats,
+            WidgetId::RankProgress,
             WidgetId::MmrGraph,
             WidgetId::StreaksStats,
             WidgetId::GamemodeBreakdown,
@@ -62,7 +64,7 @@ namespace DashboardLayout {
         layout.widgets = validWidgets;
 
         // Sort by zone and order
-        std::sort(layout.widgets.begin(), layout.widgets.end(), [](const WidgetPlacement& a, const WidgetPlacement& b) {
+        std::stable_sort(layout.widgets.begin(), layout.widgets.end(), [](const WidgetPlacement& a, const WidgetPlacement& b) {
             if (a.zone != b.zone) return static_cast<int>(a.zone) < static_cast<int>(b.zone);
             return a.order < b.order;
         });
@@ -94,6 +96,8 @@ namespace DashboardLayout {
             return "demo_tracker";
         case WidgetId::PreviousGames:
             return "previous_games";
+        case WidgetId::RankProgress:
+            return "rank_progress";
         }
         return "unknown";
     }
@@ -124,6 +128,7 @@ namespace DashboardLayout {
         if (value == "lobby_ranks") return WidgetId::LobbyRanks;
         if (value == "demo_tracker") return WidgetId::DemoTracker;
         if (value == "previous_games") return WidgetId::PreviousGames;
+        if (value == "rank_progress") return WidgetId::RankProgress;
         return WidgetId::LiveRoster;
     }
 
@@ -156,6 +161,8 @@ namespace DashboardLayout {
             return "Demolition Tracker";
         case WidgetId::PreviousGames:
             return "Previous Games";
+        case WidgetId::RankProgress:
+            return "Rank Progress";
         }
         return "Unknown Widget";
     }

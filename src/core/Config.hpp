@@ -156,6 +156,7 @@ struct ConfigData {
     bool show_lobby_rank_heatseeker = false;
     bool show_account_wins_overlay = true;
     bool show_demo_tracker_overlay = false;
+    bool show_rank_progress = true;
     bool show_previous_games_summary = true;
     int previous_games_limit = 20;
 

@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 
 #include <set>
+#include <vector>
 
 #include "core/DashboardLayoutConfig.hpp"
 #include "core/OverlayLayoutConfig.hpp"
@@ -13,8 +14,8 @@ TEST(RmlUiLayoutState, DefaultDashboardContainsEveryWidgetExactlyOnce) {
     for (const auto& placement : layout.widgets)
         widgets.insert(placement.id);
 
-    EXPECT_EQ(layout.widgets.size(), 9u);
-    EXPECT_EQ(widgets.size(), 9u);
+    EXPECT_EQ(layout.widgets.size(), 10u);
+    EXPECT_EQ(widgets.size(), 10u);
 }
 
 TEST(RmlUiLayoutState, OverlaySanitizeRemovesDuplicateWidgetsAndEmptyContainers) {
@@ -56,7 +57,22 @@ TEST(RmlUiLayoutState, DashboardSanitizeRestoresMissingWidgetsAndBoundsColumnWei
     DashboardLayout::Sanitize(layout);
 
     EXPECT_FLOAT_EQ(layout.leftColumnWeight, 0.75f);
-    EXPECT_EQ(layout.widgets.size(), 9u);
+    EXPECT_EQ(layout.widgets.size(), 10u);
+}
+
+TEST(RmlUiLayoutState, DashboardSanitizeSlotsRankProgressAboveTheGraphInOlderLayouts) {
+    using DashboardLayout::WidgetId;
+    using DashboardLayout::Zone;
+    DashboardLayout::LayoutConfig layout;
+    layout.widgets = {{WidgetId::LiveRoster, Zone::Left, 0, 0.0f, false}, {WidgetId::LiveMatchStats, Zone::Left, 1, 0.0f, false}, {WidgetId::PreviousGames, Zone::Left, 2, 0.0f, false}, {WidgetId::SessionStats, Zone::Right, 0, 0.0f, false}, {WidgetId::StreaksStats, Zone::Right, 1, 0.0f, false}, {WidgetId::MmrGraph, Zone::Right, 2, 220.0f, false}, {WidgetId::DemoTracker, Zone::Right, 3, 0.0f, false}, {WidgetId::LobbyRanks, Zone::Right, 4, 0.0f, false}, {WidgetId::GamemodeBreakdown, Zone::Hidden, 0, 0.0f, false}};
+
+    DashboardLayout::Sanitize(layout);
+
+    std::vector<WidgetId> right;
+    for (const auto& placement : layout.widgets)
+        if (placement.zone == Zone::Right) right.push_back(placement.id);
+    EXPECT_EQ(right, (std::vector<WidgetId>{WidgetId::SessionStats, WidgetId::StreaksStats, WidgetId::RankProgress, WidgetId::MmrGraph,
+                                            WidgetId::DemoTracker, WidgetId::LobbyRanks}));
 }
 
 TEST(RmlUiLayoutState, ContainerVisibleEvaluatorTableCoversModesBoundariesReplayAndStaleTimestamps) {

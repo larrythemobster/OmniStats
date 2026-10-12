@@ -748,7 +748,7 @@ void RmlUiController::RebuildVisibleUi(bool force, bool configChanged) {
            << m_config.show_lobby_rank_tourny << '|' << m_config.show_lobby_rank_hoops << '|'
            << m_config.show_lobby_rank_rumble << '|' << m_config.show_lobby_rank_dropshot << '|'
            << m_config.show_lobby_rank_snowday << '|' << m_config.show_lobby_rank_heatseeker << '|'
-           << m_config.show_account_wins_overlay << '|' << m_config.show_demo_tracker_overlay << '|'
+           << m_config.show_account_wins_overlay << '|' << m_config.show_demo_tracker_overlay << '|' << m_config.show_rank_progress << '|'
            << m_config.show_previous_games_summary << '|' << m_config.previous_games_limit << '|'
            << m_config.show_streaks_stats << '|' << m_config.show_longest_loss_streak << '|'
            << m_config.show_gamemode_breakdown << '|' << m_config.show_gamemode_record_1v1 << '|'
@@ -1004,7 +1004,8 @@ void RmlUiController::RefreshLiveUi(bool force, bool allowStructural) {
                                                  DashboardLayout::WidgetId::MmrGraph,
                                                  DashboardLayout::WidgetId::PreviousGames,
                                                  DashboardLayout::WidgetId::StreaksStats,
-                                                 DashboardLayout::WidgetId::GamemodeBreakdown})
+                                                 DashboardLayout::WidgetId::GamemodeBreakdown,
+                                                 DashboardLayout::WidgetId::RankProgress})
                 refreshWidget(id, true);
         }
 
@@ -1088,6 +1089,7 @@ void RmlUiController::RefreshLiveUi(bool force, bool allowStructural) {
                 m_lastRosterStructureHash = rosterHash;
                 refreshWidget(DashboardLayout::WidgetId::LiveRoster);
                 refreshWidget(DashboardLayout::WidgetId::LobbyRanks);
+                refreshWidget(DashboardLayout::WidgetId::RankProgress);
             }
         }
 
@@ -1298,6 +1300,8 @@ std::string RmlUiController::WidgetDomId(DashboardLayout::WidgetId id) {
         return "demos";
     case DashboardLayout::WidgetId::PreviousGames:
         return "previous-games";
+    case DashboardLayout::WidgetId::RankProgress:
+        return "rank-progress";
     }
     return "live-roster";
 }

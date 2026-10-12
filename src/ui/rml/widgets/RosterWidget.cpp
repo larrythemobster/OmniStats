@@ -212,20 +212,24 @@ std::string RmlUiController::RenderPlayerRoster(int team, const char* label) {
     return out.str();
 }
 
-std::string RmlUiController::RenderSelfRankProgress() const {
-    if (m_snap.myPrimaryId.empty()) return {};
-    const auto it = m_snap.roster.find(m_snap.myPrimaryId);
-    if (it == m_snap.roster.end()) return {};
-    const PlayerData& self = it->second;
+std::string RmlUiController::RenderSelfRankProgress(bool card) const {
+    const PlayerData* self = nullptr;
+    if (!m_snap.myPrimaryId.empty()) {
+        if (auto it = m_snap.roster.find(m_snap.myPrimaryId); it != m_snap.roster.end()) self = &it->second;
+    }
     const std::string category = MmrCategoryToString(m_state ? m_state->ui.rosterMmrCategory.load() : MmrCategory::Best);
     std::string playlist = category;
     int mmr = 0;
-    if (category == "best") {
-        mmr = self.mmr;
-        if (mmr > 0) playlist = BestRankSource(self, mmr, m_config.show_extra_playlists);
-    } else if (auto rating = self.playlists.find(category); rating != self.playlists.end()) {
-        mmr = rating->second;
+    if (self && category == "best") {
+        mmr = self->mmr;
+        if (mmr > 0) playlist = BestRankSource(*self, mmr, m_config.show_extra_playlists);
+    } else if (self) {
+        if (auto rating = self->playlists.find(category); rating != self->playlists.end()) mmr = rating->second;
     }
-    const std::string progress = RenderRankProgress(RankProgressFor(&self, playlist, mmr));
-    return progress.empty() ? std::string{} : "<div class='roster-rank-progress'>" + progress + "</div>";
+    const std::string progress = RenderRankProgress(RankProgressFor(self, playlist, mmr));
+    if (!card) return progress.empty() ? std::string{} : "<div class='roster-rank-progress'>" + progress + "</div>";
+
+    const std::string label = MmrLabel(StringToMmrCategory(playlist));
+    if (progress.empty()) return "<div class='label'>No rank to show for " + Escape(label) + ".</div>";
+    return "<div class='row rank-progress-card-head'><span class='badge'>" + Escape(label) + "</span></div>" + progress;
 }

@@ -15,7 +15,8 @@ namespace DashboardLayout {
         GamemodeBreakdown = 5,
         LobbyRanks = 6,
         DemoTracker = 7,
-        PreviousGames = 8
+        PreviousGames = 8,
+        RankProgress = 9
     };
 
     enum class Zone : int {

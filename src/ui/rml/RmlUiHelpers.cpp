@@ -387,6 +387,7 @@ namespace RmlUiDetail {
         if (value == "lobby-ranks") return DashboardLayout::WidgetId::LobbyRanks;
         if (value == "demos") return DashboardLayout::WidgetId::DemoTracker;
         if (value == "previous-games") return DashboardLayout::WidgetId::PreviousGames;
+        if (value == "rank-progress") return DashboardLayout::WidgetId::RankProgress;
         return DashboardLayout::WidgetId::LiveRoster;
     }
 
@@ -990,6 +991,9 @@ namespace RmlUiDetail {
             break;
         case DashboardLayout::WidgetId::PreviousGames:
             size = {560.0f, 260.0f};
+            break;
+        case DashboardLayout::WidgetId::RankProgress:
+            size = {380.0f, 80.0f};
             break;
         default:
             size = {320.0f, 200.0f};

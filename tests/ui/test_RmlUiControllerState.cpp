@@ -86,7 +86,7 @@ class RmlUiControllerStateTest : public ::testing::Test {
         return RmlUiDetail::Escape(text);
     }
     std::string RenderGraph(RmlUiController& controller) {
-        return controller.RenderMmrGraph();
+        return controller.RenderMmrGraph(true, true);
     }
     std::string RenderCompactSession(RmlUiController& controller) {
         return controller.RenderSessionStats(true, false);
@@ -126,6 +126,9 @@ class RmlUiControllerStateTest : public ::testing::Test {
     }
     std::string RenderRosterCard(RmlUiController& controller) {
         return controller.RenderWidget(DashboardLayout::WidgetId::LiveRoster, false);
+    }
+    std::string RenderWidgetHtml(RmlUiController& controller, DashboardLayout::WidgetId id, bool dashboard) {
+        return controller.RenderWidget(id, dashboard);
     }
     std::string RenderLobbyRanks(RmlUiController& controller) {
         return controller.RenderLobbyRanks();
@@ -2849,4 +2852,36 @@ TEST_F(RmlUiControllerStateTest, RosterShowsSelfRankProgressBelowBothTeams) {
     html = RenderRosterCard(controller);
     EXPECT_NE(html.find("Division progress appears once Rocket League assigns a rank."), std::string::npos);
     EXPECT_EQ(html.find("rank-progress-delta"), std::string::npos);
+}
+
+TEST_F(RmlUiControllerStateTest, DashboardShowsRankProgressOnceAsItsOwnCardAndTheToggleHidesIt) {
+    using DashboardLayout::WidgetId;
+    auto state = std::make_shared<SessionState>();
+    SeedGraph(*state, "2v2", {1180.0f, 1190.0f, 1200.0f}, 1200, "Champion II Div I");
+    state->ui.graphMmrCategory.store(MmrCategory::TwoVTwo);
+    state->ui.rosterMmrCategory.store(MmrCategory::TwoVTwo);
+    RmlUiController controller(state, nullptr);
+    controller.Update(Config::Read());
+
+    EXPECT_EQ(RenderWidgetHtml(controller, WidgetId::LiveRoster, true).find("rank-progress"), std::string::npos);
+    const std::string dashboardGraph = RenderWidgetHtml(controller, WidgetId::MmrGraph, true);
+    EXPECT_EQ(dashboardGraph.find("rank-progress"), std::string::npos);
+    EXPECT_NE(dashboardGraph.find("graph-rank-line"), std::string::npos);
+    const std::string card = RenderWidgetHtml(controller, WidgetId::RankProgress, true);
+    EXPECT_NE(card.find("rank-progress-card-head"), std::string::npos);
+    EXPECT_NE(card.find("rank-progress-delta"), std::string::npos);
+
+    EXPECT_NE(RenderWidgetHtml(controller, WidgetId::LiveRoster, false).find("roster-rank-progress"), std::string::npos);
+    EXPECT_NE(RenderWidgetHtml(controller, WidgetId::MmrGraph, false).find("rank-progress"), std::string::npos);
+
+    ConfigData config = Config::Read();
+    config.show_rank_progress = false;
+    controller.Update(config);
+    EXPECT_EQ(RenderWidgetHtml(controller, WidgetId::LiveRoster, false).find("rank-progress"), std::string::npos);
+    EXPECT_EQ(RenderWidgetHtml(controller, WidgetId::MmrGraph, false).find("rank-progress"), std::string::npos);
+
+    config.show_rank_progress = true;
+    controller.Update(config);
+    state->ui.rosterMmrCategory.store(MmrCategory::Casual);
+    EXPECT_NE(RenderWidgetHtml(controller, WidgetId::RankProgress, true).find("No rank to show"), std::string::npos);
 }

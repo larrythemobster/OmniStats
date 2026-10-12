@@ -523,6 +523,7 @@ namespace Config {
             }
             if (j.contains("show_account_wins_overlay")) Current.show_account_wins_overlay = j["show_account_wins_overlay"];
             if (j.contains("show_demo_tracker_overlay")) Current.show_demo_tracker_overlay = j["show_demo_tracker_overlay"];
+            if (j.contains("show_rank_progress")) Current.show_rank_progress = j["show_rank_progress"];
             if (j.contains("show_previous_games_summary")) Current.show_previous_games_summary = j["show_previous_games_summary"];
             if (j.contains("previous_games_limit")) Current.previous_games_limit = std::clamp(j["previous_games_limit"].get<int>(), 10, 50);
             if (j.contains("show_streaks_stats")) Current.show_streaks_stats = j["show_streaks_stats"];
@@ -855,6 +856,7 @@ namespace Config {
         j["show_lobby_rank_heatseeker"] = Current.show_lobby_rank_heatseeker;
         j["show_account_wins_overlay"] = Current.show_account_wins_overlay;
         j["show_demo_tracker_overlay"] = Current.show_demo_tracker_overlay;
+        j["show_rank_progress"] = Current.show_rank_progress;
         j["show_previous_games_summary"] = Current.show_previous_games_summary;
         j["previous_games_limit"] = Current.previous_games_limit;
         j["show_streaks_stats"] = Current.show_streaks_stats;
