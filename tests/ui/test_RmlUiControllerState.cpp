@@ -124,6 +124,9 @@ class RmlUiControllerStateTest : public ::testing::Test {
     std::string RenderRoster(RmlUiController& controller, int team = 0) {
         return controller.RenderPlayerRoster(team, team == 0 ? "BLUE" : "ORANGE");
     }
+    std::string RenderRosterCard(RmlUiController& controller) {
+        return controller.RenderWidget(DashboardLayout::WidgetId::LiveRoster, false);
+    }
     std::string RenderLobbyRanks(RmlUiController& controller) {
         return controller.RenderLobbyRanks();
     }
@@ -2781,6 +2784,65 @@ TEST_F(RmlUiControllerStateTest, MmrGraphOmitsUnsupportedProgressAndExplainsPlac
     SeedGraph(*state, "2v2", {}, 1100, "Unranked");
     controller.Update(Config::Read());
     html = RenderGraph(controller);
+    EXPECT_NE(html.find("placement or unranked"), std::string::npos);
+    EXPECT_EQ(html.find("\xE2\x89\x88"), std::string::npos);
+}
+
+TEST_F(RmlUiControllerStateTest, RosterShowsSelfRankProgressBelowBothTeams) {
+    auto state = std::make_shared<SessionState>();
+    const auto seed = [&](int mmr, const std::string& tier) {
+        std::unique_lock lock(state->game.mutex);
+        state->game.myPrimaryId = kSelfId;
+        for (const auto& [id, team] : std::vector<std::pair<std::string, int>>{{kSelfId, 0}, {kRivalId, 1}}) {
+            PlayerData p;
+            p.primaryId = id;
+            p.name = id == kSelfId ? "Me" : "Rival";
+            p.team = team;
+            p.fetched = true;
+            p.mmr = mmr;
+            p.playlists["2v2"] = mmr;
+            p.playlistTiers["2v2"] = tier;
+            p.playlists["casual"] = mmr;
+            state->game.roster[id] = p;
+        }
+        state->game.version.fetch_add(1);
+    };
+    seed(1200, "Champion II Div I");
+    state->ui.rosterMmrCategory.store(MmrCategory::TwoVTwo);
+    RmlUiController controller(state, nullptr);
+    controller.Update(Config::Read());
+
+    const auto expected = RankProgress::Compute(MMRFetcher::RankThresholdsForPlaylist("2v2"), 1200, "Champion II Div I");
+    ASSERT_TRUE(expected.next && expected.previous);
+    std::string html = RenderRosterCard(controller);
+    const size_t panel = html.find("roster-rank-progress");
+    ASSERT_NE(panel, std::string::npos);
+    EXPECT_EQ(html.find("roster-rank-progress", panel + 1), std::string::npos);
+    EXPECT_GT(panel, html.find(">ORANGE<"));
+    EXPECT_GT(panel, html.find("Rival"));
+    EXPECT_LT(panel, html.find("roster-footer"));
+    EXPECT_EQ(RenderRoster(controller, 0).find("rank-progress"), std::string::npos);
+    EXPECT_NE(html.find("\xE2\x89\x88+" + std::to_string(expected.toNext), panel), std::string::npos);
+    const auto coloredRank = [](const RankProgress::Boundary& b) {
+        return "color:" + RmlUiController::CssColor(Format::RankColor(b.label)) + "'>" + Format::AbbreviateRank(b.label) + "<";
+    };
+    EXPECT_NE(html.find(coloredRank(*expected.next), panel), std::string::npos);
+    EXPECT_NE(html.find(coloredRank(*expected.previous), panel), std::string::npos);
+    EXPECT_NE(html.find("background-color:" + RmlUiController::CssColor(Format::RankColor(expected.rank)), panel), std::string::npos);
+
+    // "Best" resolves to the playlist that produced the rating.
+    state->ui.rosterMmrCategory.store(MmrCategory::Best);
+    controller.Update(Config::Read());
+    EXPECT_NE(RenderRosterCard(controller).find("\xE2\x89\x88+" + std::to_string(expected.toNext)), std::string::npos);
+
+    state->ui.rosterMmrCategory.store(MmrCategory::Casual);
+    controller.Update(Config::Read());
+    EXPECT_EQ(RenderRosterCard(controller).find("rank-progress"), std::string::npos);
+
+    seed(1100, "Unranked");
+    state->ui.rosterMmrCategory.store(MmrCategory::TwoVTwo);
+    controller.Update(Config::Read());
+    html = RenderRosterCard(controller);
     EXPECT_NE(html.find("placement or unranked"), std::string::npos);
     EXPECT_EQ(html.find("\xE2\x89\x88"), std::string::npos);
 }

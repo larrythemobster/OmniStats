@@ -47,6 +47,23 @@
 
 using namespace RmlUiDetail;
 
+namespace {
+    // `best` is a presentation bucket, not a Rocket League playlist: name the
+    // real playlist that supplied the rating, or "best" when none matches.
+    std::string BestRankSource(const PlayerData& p, int mmr, bool extraPlaylists) {
+        const auto matchesMmr = [&](const char* key) {
+            auto it = p.playlists.find(key);
+            return it != p.playlists.end() && it->second == mmr;
+        };
+        for (const char* key : {"2v2", "3v3", "1v1"})
+            if (matchesMmr(key)) return key;
+        if (extraPlaylists)
+            for (const char* key : {"hoops", "rumble", "dropshot", "snowday", "heatseeker"})
+                if (matchesMmr(key)) return key;
+        return "best";
+    }
+}
+
 std::string RmlUiController::RenderRankBadge(const std::string& tier, bool fetched, const std::string& tooltip) const {
     const int tierIndex = fetched ? TierResourceIndex(tier) : 23;
     const int division = fetched ? DivisionLevel(tier) : 0;
@@ -120,27 +137,7 @@ std::string RmlUiController::RenderPlayerRoster(int team, const char* label) {
             else
                 tier = "Unranked";
         } else if (mmr > 0) {
-            // `best` is a presentation bucket, not a Rocket League playlist.
-            // Preserve the previous roster behavior by showing which real playlist
-            // supplied the best rank/MMR instead of presenting BEST as a mode.
-            const auto matchesMmr = [&](const char* key) {
-                auto it = p->playlists.find(key);
-                return it != p->playlists.end() && it->second == mmr;
-            };
-            for (const char* key : {"2v2", "3v3", "1v1"}) {
-                if (matchesMmr(key)) {
-                    rankSource = key;
-                    break;
-                }
-            }
-            if (rankSource == "best" && m_config.show_extra_playlists) {
-                for (const char* key : {"hoops", "rumble", "dropshot", "snowday", "heatseeker"}) {
-                    if (matchesMmr(key)) {
-                        rankSource = key;
-                        break;
-                    }
-                }
-            }
+            rankSource = BestRankSource(*p, mmr, m_config.show_extra_playlists);
         }
         if (category != "casual" && (tier.empty() || tier == "Unranked") && mmr > 0) {
             tier = MMRFetcher::GetRankTierForPlaylistMmr(category == "best" ? rankSource : category, mmr);
@@ -213,4 +210,22 @@ std::string RmlUiController::RenderPlayerRoster(int team, const char* label) {
     }
     out << "</div>";
     return out.str();
+}
+
+std::string RmlUiController::RenderSelfRankProgress() const {
+    if (m_snap.myPrimaryId.empty()) return {};
+    const auto it = m_snap.roster.find(m_snap.myPrimaryId);
+    if (it == m_snap.roster.end()) return {};
+    const PlayerData& self = it->second;
+    const std::string category = MmrCategoryToString(m_state ? m_state->ui.rosterMmrCategory.load() : MmrCategory::Best);
+    std::string playlist = category;
+    int mmr = 0;
+    if (category == "best") {
+        mmr = self.mmr;
+        if (mmr > 0) playlist = BestRankSource(self, mmr, m_config.show_extra_playlists);
+    } else if (auto rating = self.playlists.find(category); rating != self.playlists.end()) {
+        mmr = rating->second;
+    }
+    const std::string progress = RenderRankProgress(RankProgressFor(&self, playlist, mmr));
+    return progress.empty() ? std::string{} : "<div class='roster-rank-progress'>" + progress + "</div>";
 }

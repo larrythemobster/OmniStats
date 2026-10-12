@@ -62,7 +62,7 @@ Player notes are keyed by `PlayerNotes::Identity` (platform token, normalized ac
 
 Last goal speed lives in `GameState::lastGoalSpeed[Self]`, outside `MatchStats`, so `resetMatch` and disconnects leave it alone. Only `startNewSessionLocked` clears it. GUID-less goals (freeplay) always count; a goal tagged with a finalized, destroyed, or different active match does not replace the value.
 
-The MMR graph's rank progress uses `RankProgress` over the per-playlist tables in `PlaylistRankThresholds.inl` (Tracker Network's observed distribution). When the local roster entry reports a division for the same rating, that division is used and the table only supplies distances; otherwise the division is labeled as an estimate. The graph widget re-renders when history, the graph playlist, or the local player's fetched rating/division changes.
+Rank progress uses `RankProgress` over the per-playlist tables in `PlaylistRankThresholds.inl` (Tracker Network's observed distribution). `RmlUiController::RankProgressFor` uses the local roster entry's reported division when it was fetched for the same rating, so the table only supplies distances; otherwise the division is labeled as an estimate. The MMR graph shows the progress card and boundary lines, and re-renders when history, the graph playlist, or the local player's fetched rating/division changes. The roster card shows the same progress card below both teams for the roster playlist (`best` resolves to the playlist that produced the rating; casual shows nothing).
 
 ## UI update model
 

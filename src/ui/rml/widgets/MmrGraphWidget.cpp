@@ -83,15 +83,7 @@ std::string RmlUiController::RenderMmrGraph(bool showCategoryBadge) {
     if (currentMmr <= 0 && self) {
         if (auto it = self->playlists.find(playlist); it != self->playlists.end()) currentMmr = it->second;
     }
-    // A reported division only describes the rating it was fetched with. The
-    // tournament tier is itself derived from the table, so it is not evidence.
-    std::string reportedTier;
-    if (self && playlist != "t") {
-        const auto mmrIt = self->playlists.find(playlist);
-        const auto tierIt = self->playlistTiers.find(playlist);
-        if (mmrIt != self->playlists.end() && tierIt != self->playlistTiers.end() && mmrIt->second == currentMmr) reportedTier = tierIt->second;
-    }
-    const std::string rankProgress = RenderRankProgress(RankProgress::Compute(rankTable, currentMmr, reportedTier));
+    const std::string rankProgress = RenderRankProgress(RankProgressFor(self, playlist, currentMmr));
 
     std::vector<float> values;
     std::vector<bool> estimated;
@@ -264,6 +256,18 @@ std::string RmlUiController::RenderMmrGraph(bool showCategoryBadge) {
     return out.str();
 }
 
+RankProgress::Progress RmlUiController::RankProgressFor(const PlayerData* player, const std::string& playlist, int mmr) const {
+    // A reported division only describes the rating it was fetched with. The
+    // tournament tier is itself derived from the table, so it is not evidence.
+    std::string reportedTier;
+    if (player && playlist != "t") {
+        const auto mmrIt = player->playlists.find(playlist);
+        const auto tierIt = player->playlistTiers.find(playlist);
+        if (mmrIt != player->playlists.end() && tierIt != player->playlistTiers.end() && mmrIt->second == mmr) reportedTier = tierIt->second;
+    }
+    return RankProgress::Compute(MMRFetcher::RankThresholdsForPlaylist(playlist), mmr, reportedTier);
+}
+
 std::string RmlUiController::RenderRankProgress(const RankProgress::Progress& progress) const {
     using RankProgress::Status;
     if (progress.status == Status::Unavailable) return {};
@@ -285,11 +289,19 @@ std::string RmlUiController::RenderRankProgress(const RankProgress::Progress& pr
     }
 
     const auto rankName = [&](const RankProgress::Boundary& b) { return Format::RankTier(b.label, m_config.use_roman_numerals); };
+    const auto rankLabel = [&](const RankProgress::Boundary& b) {
+        return "<span class='label rank-progress-rank' style='color:" + CssColor(Format::RankColor(b.label)) + "'>" +
+               Escape(Format::AbbreviateRank(b.label)) + "</span>";
+    };
     if (progress.floor && progress.next) {
         const float span = static_cast<float>(progress.next->mmr - progress.floor->mmr);
         const float position = span > 0.0f ? std::clamp(static_cast<float>(progress.mmr - progress.floor->mmr) / span, 0.0f, 1.0f) * 100.0f : 0.0f;
-        out << "<div class='rank-progress-track'><div class='rank-progress-fill' style='width:" << position
-            << "%'></div><div class='rank-progress-marker' style='left:" << position << "%'></div></div>";
+        ColorRGBA tint = Format::RankColor(progress.rank);
+        const std::string fill = CssColor(tint);
+        tint.a = 0.22f;
+        out << "<div class='rank-progress-track' style='background-color:" << CssColor(tint) << "'><div class='rank-progress-fill' style='width:"
+            << position << "%;background-color:" << fill << "'></div><div class='rank-progress-marker' style='left:" << position
+            << "%'></div></div>";
     }
 
     out << "<div class='row rank-progress-ends'>";
@@ -307,8 +319,8 @@ std::string RmlUiController::RenderRankProgress(const RankProgress::Progress& pr
             tip = std::to_string(-progress.aboveFloor) + " MMR below the estimated start of " + floorText +
                   ". You are still reported in this division, so the demotion buffer is likely holding you there.";
         }
-        out << "<span class='rank-progress-end tooltip-host'><span class='loss mono'>" << Escape(value) << "</span> <span class='label'>"
-            << Escape(Format::AbbreviateRank(progress.previous->label)) << "</span><span class='tooltip-bubble'>" << Escape(tip) << "</span></span>";
+        out << "<span class='rank-progress-end tooltip-host'><span class='loss mono'>" << Escape(value) << "</span> " << rankLabel(*progress.previous)
+            << "<span class='tooltip-bubble'>" << Escape(tip) << "</span></span>";
     } else {
         out << "<span class='label'>Lowest division</span>";
     }
@@ -326,9 +338,8 @@ std::string RmlUiController::RenderRankProgress(const RankProgress::Progress& pr
             tip = "Your rating has reached the estimated start of " + nextText +
                   ". Rocket League does not publish exact promotion points.";
         }
-        out << "<span class='rank-progress-end tooltip-host'><span class='label'>" << Escape(Format::AbbreviateRank(progress.next->label))
-            << "</span> <span class='win mono'>" << Escape(value) << "</span><span class='tooltip-bubble align-right'>" << Escape(tip)
-            << "</span></span>";
+        out << "<span class='rank-progress-end tooltip-host'>" << rankLabel(*progress.next) << " <span class='win mono'>" << Escape(value)
+            << "</span><span class='tooltip-bubble align-right'>" << Escape(tip) << "</span></span>";
     } else {
         out << "<span class='label'>Top rank</span>";
     }

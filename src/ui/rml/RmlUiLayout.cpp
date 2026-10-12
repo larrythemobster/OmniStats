@@ -67,7 +67,7 @@ std::string RmlUiController::RenderWidget(DashboardLayout::WidgetId id, bool das
             html << "<span class='badge'>MMR · " << Escape(categoryName) << "</span></div></div>"
                  << "<div class='label'>{{roster_arena}}</div></div>";
         }
-        html << RenderPlayerRoster(0, "BLUE") << RenderPlayerRoster(1, "ORANGE");
+        html << RenderPlayerRoster(0, "BLUE") << RenderPlayerRoster(1, "ORANGE") << RenderSelfRankProgress();
         if (!dashboard) {
             const std::string cycle = m_config.key_cycle > 0 ? GetKeyDisplayName(m_config.key_cycle) : "Unbound";
             const std::string expand = m_config.key_expand > 0 ? GetKeyDisplayName(m_config.key_expand) : "Unbound";

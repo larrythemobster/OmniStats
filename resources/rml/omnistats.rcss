@@ -1152,6 +1152,19 @@ scrollbarcorner { background-color: #0e0e0eaa; }
 .rank-progress .tooltip-bubble { width: 240dp; min-width: 0; max-width: 240dp; margin-left: 0; left: 0; white-space: normal; line-height: 1.35; }
 .rank-progress .tooltip-bubble.align-right { left: auto; right: 0; }
 .rank-progress-note { font-size: 11dp; }
+.rank-progress-rank { font-weight: 700; }
+.roster-rank-progress {
+    display: block;
+    margin-top: 6dp;
+    padding: 6dp 10dp 4dp 10dp;
+    border: 1dp #292929aa;
+    border-radius: 10dp;
+    background-color: #141414b0;
+}
+.roster-rank-progress .rank-progress { margin-bottom: 0; }
+.roster-rank-progress .rank-progress-track { height: 6dp; border-radius: 3dp; }
+.roster-rank-progress .rank-progress-fill { height: 6dp; border-radius: 3dp; }
+.roster-rank-progress .rank-progress-marker { top: -3dp; height: 12dp; }
 
 .previous-games-header { min-height: 27dp; margin-bottom: 3dp; }
 .previous-games-header .card-title { margin-bottom: 0; }

@@ -216,7 +216,12 @@ class RmlUiController final : public Rml::EventListener {
     std::string RenderStreaksStats();
     std::string RenderGamemodeBreakdown(GamemodeBreakdownScope scope);
     std::string RenderMmrGraph(bool showCategoryBadge = true);
+    // Progress for `mmr` in `playlist`; the player's fetched division is used
+    // only when it was reported for that same rating.
+    RankProgress::Progress RankProgressFor(const PlayerData* player, const std::string& playlist, int mmr) const;
     std::string RenderRankProgress(const RankProgress::Progress& progress) const;
+    // Local player's progress for the roster playlist, shown below both teams.
+    std::string RenderSelfRankProgress() const;
     std::string RenderDemoTracker();
     std::string RenderPreviousGames(bool includeHeading = true);
     std::string RenderLobbyRanks();
