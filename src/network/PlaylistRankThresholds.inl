@@ -2,13 +2,11 @@
 #pragma once
 #include <array>
 
+#include "core/RankProgress.hpp"
+
 namespace {
 
-    struct RankThreshold {
-        int minMmr;
-        const char* tier;
-        const char* division;
-    };
+    using RankThreshold = RankProgress::Threshold;
     using TournamentRankThreshold = RankThreshold;
 
     static constexpr std::array<TournamentRankThreshold, 85> TournamentRankThresholds = {{{-4, "Bronze I", "Div I"},

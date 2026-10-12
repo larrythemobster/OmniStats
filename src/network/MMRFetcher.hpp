@@ -16,6 +16,7 @@
 #include <nlohmann/json.hpp>
 #include "core/SessionState.hpp"
 #include "core/SideEffects.hpp"
+#include "core/RankProgress.hpp"
 
 class DatabaseManager;
 
@@ -181,6 +182,9 @@ class MMRFetcher {
 
     static std::string GetTournamentTierForMmr(int mmr);
     static std::string GetRankTierForPlaylistMmr(const std::string& playlist, int mmr);
+    // Estimated division thresholds for a playlist key ("2v2", "hoops", "t", ...);
+    // empty for "best", "casual", and unknown keys.
+    static std::span<const RankProgress::Threshold> RankThresholdsForPlaylist(std::string_view playlist);
     static std::string PlaylistNameForTrackerId(int playlistId);
     static std::string RankTierName(int tier, int division);
     static MMRProfileTotals ExtractProfileTotals(const nlohmann::json& jsonResp);

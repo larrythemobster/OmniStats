@@ -62,6 +62,8 @@ Player notes are keyed by `PlayerNotes::Identity` (platform token, normalized ac
 
 Last goal speed lives in `GameState::lastGoalSpeed[Self]`, outside `MatchStats`, so `resetMatch` and disconnects leave it alone. Only `startNewSessionLocked` clears it. GUID-less goals (freeplay) always count; a goal tagged with a finalized, destroyed, or different active match does not replace the value.
 
+The MMR graph's rank progress uses `RankProgress` over the per-playlist tables in `PlaylistRankThresholds.inl` (Tracker Network's observed distribution). When the local roster entry reports a division for the same rating, that division is used and the table only supplies distances; otherwise the division is labeled as an estimate. The graph widget re-renders when history, the graph playlist, or the local player's fetched rating/division changes.
+
 ## UI update model
 
 RmlUi documents are kept alive instead of being recreated each frame. `RmlUiController` compares session/history versions and relevant UI/config state, refreshes only the affected roots, and caches RmlUi/D3D resources through the normal document/render-interface lifetime. Fast telemetry remains in `SessionState`; it is not serialized into an intermediate browser-style state blob. Counter and speed values reach the DOM through the `live` data model, so a telemetry tick updates bound text nodes and never rebuilds a widget.

@@ -28,6 +28,8 @@
 #include "ui/rml/RmlCapture.hpp"
 #include "ui/rml/RmlUiHelpers.hpp"
 #include "network/ExternalUpdaterLauncher.hpp"
+#include "network/MMRFetcher.hpp"
+#include "ui/Formatting.hpp"
 
 namespace {
     std::vector<unsigned char> DecodePngBgra(const std::filesystem::path& path, UINT& width, UINT& height) {
@@ -2704,3 +2706,81 @@ TEST_F(RmlUiControllerStateTest, LastGoalSpeedSitsBelowMaxAndFollowsUnitSetting)
     EXPECT_EQ(ComputeLiveValues(snap, config).last_goal_speed, "99 mph | 89 mph");
 }
 
+namespace {
+    void SeedGraph(SessionState& state, const std::string& playlist, std::vector<float> points, int rosterMmr, const std::string& rosterTier) {
+        {
+            std::unique_lock lock(state.game.mutex);
+            state.game.myPrimaryId = kSelfId;
+            PlayerData self;
+            self.primaryId = kSelfId;
+            self.name = "Me";
+            self.team = 0;
+            self.fetched = true;
+            if (rosterMmr > 0) self.playlists[playlist] = rosterMmr;
+            if (!rosterTier.empty()) self.playlistTiers[playlist] = rosterTier;
+            state.game.roster[kSelfId] = self;
+            state.game.version.fetch_add(1);
+        }
+        std::unique_lock lock(state.history.mutex);
+        if (!points.empty()) state.history.playlistHistoryY[playlist] = std::move(points);
+        state.history.version.fetch_add(1);
+    }
+}
+
+TEST_F(RmlUiControllerStateTest, MmrGraphShowsRankProgressAndLabeledBoundariesPerPlaylist) {
+    auto state = std::make_shared<SessionState>();
+    SeedGraph(*state, "2v2", {1180.0f, 1190.0f, 1200.0f}, 1200, "Champion II Div I");
+    state->ui.graphMmrCategory.store(MmrCategory::TwoVTwo);
+    RmlUiController controller(state, nullptr);
+    controller.Update(Config::Read());
+
+    const auto doubles = RankProgress::Compute(MMRFetcher::RankThresholdsForPlaylist("2v2"), 1200, "Champion II Div I");
+    ASSERT_TRUE(doubles.floor && doubles.next);
+    std::string html = RenderGraph(controller);
+    EXPECT_NE(html.find("rank-progress"), std::string::npos);
+    EXPECT_NE(html.find(EscapeText(Format::RankTier("Champion II Div I", Config::Read().use_roman_numerals))), std::string::npos);
+    EXPECT_EQ(html.find("rank-progress-est"), std::string::npos);
+    EXPECT_NE(html.find("\xE2\x89\x88+" + std::to_string(doubles.toNext)), std::string::npos);
+    EXPECT_NE(html.find("\xE2\x89\x88-" + std::to_string(doubles.aboveFloor)), std::string::npos);
+    EXPECT_NE(html.find("graph-rank-line"), std::string::npos);
+    EXPECT_NE(html.find(">" + Format::AbbreviateRank(doubles.next->label) + " <span class='mono'>" + std::to_string(doubles.next->mmr)), std::string::npos);
+    // The existing graph pieces remain.
+    EXPECT_NE(html.find("mmrgraphlines"), std::string::npos);
+    EXPECT_NE(html.find("graph-current"), std::string::npos);
+
+    // Switching playlists swaps the table; 3v3 has no reported division here, so it is an estimate.
+    SeedGraph(*state, "3v3", {1180.0f, 1190.0f, 1200.0f}, 0, "");
+    state->ui.graphMmrCategory.store(MmrCategory::ThreeVThree);
+    controller.Update(Config::Read());
+    const auto standard = RankProgress::Compute(MMRFetcher::RankThresholdsForPlaylist("3v3"), 1200, "");
+    ASSERT_TRUE(standard.next);
+    html = RenderGraph(controller);
+    EXPECT_NE(html.find("rank-progress-est"), std::string::npos);
+    EXPECT_NE(html.find("\xE2\x89\x88+" + std::to_string(standard.toNext)), std::string::npos);
+    EXPECT_NE(html.find(std::to_string(standard.next->mmr) + " MMR (estimate)"), std::string::npos);
+}
+
+TEST_F(RmlUiControllerStateTest, MmrGraphOmitsUnsupportedProgressAndExplainsPlacement) {
+    auto state = std::make_shared<SessionState>();
+    SeedGraph(*state, "casual", {900.0f, 910.0f}, 910, "");
+    state->ui.graphMmrCategory.store(MmrCategory::Casual);
+    RmlUiController controller(state, nullptr);
+    controller.Update(Config::Read());
+    std::string html = RenderGraph(controller);
+    EXPECT_EQ(html.find("rank-progress"), std::string::npos);
+    EXPECT_EQ(html.find("graph-rank-line"), std::string::npos);
+
+    SeedGraph(*state, "2v2", {}, 0, "");
+    state->ui.graphMmrCategory.store(MmrCategory::TwoVTwo);
+    controller.Update(Config::Read());
+    html = RenderGraph(controller);
+    EXPECT_EQ(html.find("rank-progress"), std::string::npos);
+    EXPECT_NE(html.find("No MMR data"), std::string::npos);
+
+    // A rating Rocket League has not ranked yet shows no promotion distances.
+    SeedGraph(*state, "2v2", {}, 1100, "Unranked");
+    controller.Update(Config::Read());
+    html = RenderGraph(controller);
+    EXPECT_NE(html.find("placement or unranked"), std::string::npos);
+    EXPECT_EQ(html.find("\xE2\x89\x88"), std::string::npos);
+}

@@ -22,8 +22,7 @@ using namespace MMRFetcherDetail;
 #include "PlaylistRankThresholds.inl"
 
 namespace {
-    template <size_t N>
-    std::string LookupTierFromThresholds(const std::array<RankThreshold, N>& table, int mmr) {
+    std::string LookupTierFromThresholds(std::span<const RankThreshold> table, int mmr) {
         if (mmr <= 0) return "Unranked";
         const RankThreshold* threshold = nullptr;
         for (const auto& entry : table) {
@@ -41,36 +40,23 @@ std::string MMRFetcher::GetTournamentTierForMmr(int mmr) {
     return LookupTierFromThresholds(TournamentRankThresholds, mmr);
 }
 
+std::span<const RankProgress::Threshold> MMRFetcher::RankThresholdsForPlaylist(std::string_view playlist) {
+    if (playlist == "1v1") return SoloDuelRankThresholds;
+    if (playlist == "2v2") return DoublesRankThresholds;
+    if (playlist == "3v3") return StandardRankThresholds;
+    if (playlist == "hoops") return HoopsRankThresholds;
+    if (playlist == "rumble") return RumbleRankThresholds;
+    if (playlist == "dropshot") return DropshotRankThresholds;
+    if (playlist == "snowday") return SnowdayRankThresholds;
+    if (playlist == "heatseeker") return HeatseekerRankThresholds;
+    if (playlist == "t") return TournamentRankThresholds;
+    return {};
+}
+
 std::string MMRFetcher::GetRankTierForPlaylistMmr(const std::string& playlist, int mmr) {
     if (mmr <= 0 || playlist == "casual") return "Unranked";
-    if (playlist == "1v1") {
-        return LookupTierFromThresholds(SoloDuelRankThresholds, mmr);
-    }
-    if (playlist == "2v2") {
-        return LookupTierFromThresholds(DoublesRankThresholds, mmr);
-    }
-    if (playlist == "3v3") {
-        return LookupTierFromThresholds(StandardRankThresholds, mmr);
-    }
-    if (playlist == "hoops") {
-        return LookupTierFromThresholds(HoopsRankThresholds, mmr);
-    }
-    if (playlist == "rumble") {
-        return LookupTierFromThresholds(RumbleRankThresholds, mmr);
-    }
-    if (playlist == "dropshot") {
-        return LookupTierFromThresholds(DropshotRankThresholds, mmr);
-    }
-    if (playlist == "snowday") {
-        return LookupTierFromThresholds(SnowdayRankThresholds, mmr);
-    }
-    if (playlist == "heatseeker") {
-        return LookupTierFromThresholds(HeatseekerRankThresholds, mmr);
-    }
-    if (playlist == "t") {
-        return LookupTierFromThresholds(TournamentRankThresholds, mmr);
-    }
-    return GetTournamentTierForMmr(mmr);
+    const auto table = RankThresholdsForPlaylist(playlist);
+    return table.empty() ? GetTournamentTierForMmr(mmr) : LookupTierFromThresholds(table, mmr);
 }
 
 std::string MMRFetcher::PlaylistNameForTrackerId(int playlistId) {

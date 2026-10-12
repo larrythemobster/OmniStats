@@ -18,6 +18,7 @@
 
 #include "core/Config.hpp"
 #include "core/SessionState.hpp"
+#include "core/RankProgress.hpp"
 #include "core/StatsScope.hpp"
 #include "ui/rml/RmlFileInterface.hpp"
 #include "ui/rml/RmlRenderInterfaceD3D11.hpp"
@@ -215,6 +216,7 @@ class RmlUiController final : public Rml::EventListener {
     std::string RenderStreaksStats();
     std::string RenderGamemodeBreakdown(GamemodeBreakdownScope scope);
     std::string RenderMmrGraph(bool showCategoryBadge = true);
+    std::string RenderRankProgress(const RankProgress::Progress& progress) const;
     std::string RenderDemoTracker();
     std::string RenderPreviousGames(bool includeHeading = true);
     std::string RenderLobbyRanks();
@@ -398,6 +400,8 @@ class RmlUiController final : public Rml::EventListener {
     uint64_t m_lastRosterStructureHash = 0;
     bool m_hasRosterStructureHash = false;
     uint64_t m_lastRenderedNotesVersion = 0;
+    uint64_t m_lastGraphRankHash = 0;
+    bool m_hasGraphRankHash = false;
     bool m_lastLiveMatchHadDemoedRow = false;
     bool m_lastLiveMatchHadOwnGoalsRow = false;
     std::string m_lastSessionViewRml;
