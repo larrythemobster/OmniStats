@@ -20,7 +20,6 @@ TEST(RankProgressTest, BelowBoundaryReportsDistancesToBothNeighbours) {
     const auto p = RankProgress::Compute(kTable, 290, "");
     ASSERT_EQ(p.status, RankProgress::Status::Ranked);
     EXPECT_EQ(p.rank, "Bronze II Div I");
-    EXPECT_FALSE(p.rankVerified);
     ASSERT_TRUE(p.floor && p.next && p.previous);
     EXPECT_EQ(p.floor->mmr, 200);
     EXPECT_EQ(p.aboveFloor, 90);
@@ -42,10 +41,9 @@ TEST(RankProgressTest, ExactlyAtBoundaryBelongsToTheHigherDivision) {
     EXPECT_EQ(above.toNext, 99);
 }
 
-TEST(RankProgressTest, ReportedDivisionWinsOverEstimateAndExposesDemotionBuffer) {
-    // Rocket League can keep a player in a division below its estimated floor.
+TEST(RankProgressTest, ReportedDivisionWinsOverTableAndExposesDemotionBuffer) {
+    // Rocket League's demotion buffer can keep a player below their division's floor.
     const auto p = RankProgress::Compute(kTable, 195, "Bronze II Div I");
-    EXPECT_TRUE(p.rankVerified);
     EXPECT_EQ(p.rank, "Bronze II Div I");
     ASSERT_TRUE(p.floor);
     EXPECT_EQ(p.aboveFloor, -5);
@@ -55,14 +53,12 @@ TEST(RankProgressTest, ReportedDivisionWinsOverEstimateAndExposesDemotionBuffer)
     EXPECT_EQ(promotedEarly.toNext, -5);
 
     const auto unknownLabel = RankProgress::Compute(kTable, 195, "Mystery Rank");
-    EXPECT_FALSE(unknownLabel.rankVerified);
     EXPECT_EQ(unknownLabel.rank, "Bronze I Div II");
 }
 
 TEST(RankProgressTest, TopAndBottomOfTheLadderOmitTheMissingSide) {
     const auto top = RankProgress::Compute(kTable, 450, "Supersonic Legend");
     EXPECT_EQ(top.rank, "Supersonic Legend");
-    EXPECT_TRUE(top.rankVerified);
     EXPECT_FALSE(top.next);
     ASSERT_TRUE(top.floor && top.previous);
     EXPECT_EQ(top.aboveFloor, 50);
@@ -110,7 +106,7 @@ TEST(RankProgressTest, GrandChampionAndSupersonicLegendUseTheirOwnRungs) {
     const auto gc3d4 = ssl - 1;
 
     const auto almost = RankProgress::Compute(table, gc3d4->minMmr + 1, "Grand Champion III Div IV");
-    EXPECT_TRUE(almost.rankVerified);
+    EXPECT_EQ(almost.rank, "Grand Champion III Div IV");
     ASSERT_TRUE(almost.next);
     EXPECT_EQ(almost.next->label, "Supersonic Legend");
     EXPECT_EQ(almost.toNext, ssl->minMmr - gc3d4->minMmr - 1);

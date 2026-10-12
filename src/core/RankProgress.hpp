@@ -1,10 +1,7 @@
 #pragma once
 
 // Distance to the neighbouring rank divisions and the division boundaries drawn
-// on the MMR graph. Thresholds are estimates (Tracker Network's observed
-// distribution per playlist); Rocket League does not publish exact promotion
-// points and applies an unpublished demotion buffer, so callers must present
-// every distance here as approximate.
+// on the MMR graph, from Tracker Network's per-playlist division table.
 
 #include <cstddef>
 #include <optional>
@@ -40,14 +37,11 @@ namespace RankProgress {
         Status status = Status::Unavailable;
         int mmr = 0;
         std::string rank;
-        // The division came from the rank source for this same rating rather
-        // than from the threshold table.
-        bool rankVerified = false;
         std::optional<Boundary> floor;    // start of the current division; absent in the lowest one
         std::optional<Boundary> next;     // next division up; absent at the top rank
         std::optional<Boundary> previous; // division a demotion would drop to
-        int toNext = 0;                   // next->mmr - mmr; <= 0 once the estimate is reached
-        int aboveFloor = 0;               // mmr - floor->mmr; < 0 below the estimated floor
+        int toNext = 0;                   // next->mmr - mmr; <= 0 once the threshold is reached
+        int aboveFloor = 0;               // mmr - floor->mmr; < 0 when the demotion buffer holds the division
     };
 
     // `reportedTier` is the source's rank label for this rating ("" when unknown),

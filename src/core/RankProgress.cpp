@@ -22,8 +22,8 @@ namespace RankProgress {
             return b;
         }
 
-        // Division containing `mmr` by the estimated thresholds; 0 below the table.
-        size_t EstimatedIndex(std::span<const Threshold> table, float mmr) {
+        // Division containing `mmr` per the table; 0 below the table.
+        size_t TableIndex(std::span<const Threshold> table, float mmr) {
             size_t index = 0;
             for (size_t i = 0; i < table.size(); ++i) {
                 if (static_cast<float>(table[i].minMmr) > mmr) break;
@@ -57,17 +57,18 @@ namespace RankProgress {
             return progress;
         }
 
+        // The reported division wins over the table: Rocket League's demotion
+        // buffer can keep a player in a division below its threshold.
         std::optional<size_t> index;
         if (!reportedTier.empty()) {
             for (size_t i = 0; i < table.size(); ++i) {
                 if (Label(table[i]) == reportedTier) {
                     index = i;
-                    progress.rankVerified = true;
                     break;
                 }
             }
         }
-        if (!index) index = EstimatedIndex(table, static_cast<float>(mmr));
+        if (!index) index = TableIndex(table, static_cast<float>(mmr));
 
         progress.status = Status::Ranked;
         progress.rank = Label(table[*index]);
@@ -85,7 +86,7 @@ namespace RankProgress {
 
     void ExpandRangeForBoundaries(std::span<const Threshold> table, float current, float maxExtension, float& minV, float& maxV) {
         if (table.empty() || !std::isfinite(current) || !(maxV > minV)) return;
-        const size_t index = EstimatedIndex(table, current);
+        const size_t index = TableIndex(table, current);
         constexpr float kEdgeMargin = 3.0f;
         if (index > 0) {
             const float below = static_cast<float>(table[index].minMmr);
@@ -109,7 +110,7 @@ namespace RankProgress {
             if (value >= minV && value <= maxV) visible.push_back(MakeBoundary(table, i));
         }
 
-        const size_t currentIndex = EstimatedIndex(table, current);
+        const size_t currentIndex = TableIndex(table, current);
         const auto distance = [&](const Boundary& b) { return std::fabs(static_cast<float>(b.mmr) - current); };
         if (visible.size() > options.maxLines) {
             std::erase_if(visible, [&](const Boundary& b) {

@@ -173,7 +173,7 @@ std::string RmlUiController::RenderMmrGraph(bool showCategoryBadge) {
         out << "<div class='graph-rank-line tooltip-host" << (b.boundary.tierStart ? " tier-start" : "") << "' style='left:" << xMin
             << "%;top:" << b.topPct << "%;width:" << (xMax - xMin) << "%'><div class='graph-rank-rule' style='background-color:" << color
             << "'></div><span class='tooltip-bubble'>"
-            << Escape(Format::RankTier(b.boundary.label, m_config.use_roman_numerals) + " starts near " + std::to_string(b.boundary.mmr) + " MMR (estimate)")
+            << Escape(Format::RankTier(b.boundary.label, m_config.use_roman_numerals) + " starts at " + std::to_string(b.boundary.mmr) + " MMR")
             << "</span></div>";
     }
 
@@ -272,76 +272,60 @@ std::string RmlUiController::RenderRankProgress(const RankProgress::Progress& pr
     using RankProgress::Status;
     if (progress.status == Status::Unavailable) return {};
 
-    std::ostringstream out;
-    out << "<div class='rank-progress'><div class='row rank-progress-head'><span class='rank-progress-tier' style='color:"
-        << CssColor(Format::RankColor(progress.rank)) << "'>" << Escape(Format::RankTier(progress.rank, m_config.use_roman_numerals)) << "</span>";
-    if (progress.status == Status::Placement) {
-        out << "<span class='label'>placement or unranked</span>";
-    } else if (!progress.rankVerified) {
-        out << "<span class='label rank-progress-est tooltip-host'>est.<span class='tooltip-bubble'>"
-            << "No reported rank for this rating, so the division is estimated from the rank table.</span></span>";
-    }
-    out << "<div class='grow'></div><span class='rank-progress-mmr mono'>" << progress.mmr << "</span></div>";
+    const auto rankName = [&](const std::string& label) { return Format::RankTier(label, m_config.use_roman_numerals); };
+    const auto coloredName = [&](const std::string& label) {
+        return "<span class='rank-progress-tier' style='color:" + CssColor(Format::RankColor(label)) + "'>" + Escape(rankName(label)) + "</span>";
+    };
+    const auto delta = [&](const char* tone, const std::string& value, const std::string& tip, bool alignRight) {
+        return std::string("<span class='rank-progress-delta mono tooltip-host ") + tone + "'>" + Escape(value) + "<span class='tooltip-bubble" +
+               (alignRight ? " align-right" : "") + "'>" + Escape(tip) + "</span></span>";
+    };
 
+    std::ostringstream out;
+    out << "<div class='rank-progress'><div class='row rank-progress-names'>" << coloredName(progress.rank);
     if (progress.status == Status::Placement) {
-        out << "<div class='label rank-progress-note'>Rank distances appear once Rocket League assigns a rank.</div></div>";
+        out << "<span class='label'>placement</span></div>"
+            << "<div class='label rank-progress-note'>Division progress appears once Rocket League assigns a rank.</div></div>";
         return out.str();
     }
+    out << "<div class='grow'></div>";
+    if (progress.next)
+        out << coloredName(progress.next->label);
+    else
+        out << "<span class='label'>Top rank</span>";
+    out << "</div><div class='row rank-progress-bar'>";
 
-    const auto rankName = [&](const RankProgress::Boundary& b) { return Format::RankTier(b.label, m_config.use_roman_numerals); };
-    const auto rankLabel = [&](const RankProgress::Boundary& b) {
-        return "<span class='label rank-progress-rank' style='color:" + CssColor(Format::RankColor(b.label)) + "'>" +
-               Escape(Format::AbbreviateRank(b.label)) + "</span>";
-    };
+    if (progress.floor && progress.previous) {
+        const std::string floorText = rankName(progress.floor->label) + " (starts at " + std::to_string(progress.floor->mmr) + " MMR)";
+        if (progress.aboveFloor >= 0) {
+            out << delta("loss", "-" + std::to_string(progress.aboveFloor),
+                         "Lose " + std::to_string(progress.aboveFloor) + " MMR and you fall below " + floorText + ". Rocket League's demotion buffer can delay the drop to " +
+                             rankName(progress.previous->label) + ".",
+                         false);
+        } else {
+            out << delta("loss", "buffer",
+                         std::to_string(-progress.aboveFloor) + " MMR below " + floorText + ". Rocket League's demotion buffer is keeping you in this division.",
+                         false);
+        }
+    }
+
     if (progress.floor && progress.next) {
         const float span = static_cast<float>(progress.next->mmr - progress.floor->mmr);
         const float position = span > 0.0f ? std::clamp(static_cast<float>(progress.mmr - progress.floor->mmr) / span, 0.0f, 1.0f) * 100.0f : 0.0f;
         ColorRGBA tint = Format::RankColor(progress.rank);
-        const std::string fill = CssColor(tint);
-        tint.a = 0.22f;
+        const std::string solid = CssColor(tint);
+        tint.a = 0.18f;
         out << "<div class='rank-progress-track' style='background-color:" << CssColor(tint) << "'><div class='rank-progress-fill' style='width:"
-            << position << "%;background-color:" << fill << "'></div><div class='rank-progress-marker' style='left:" << position
-            << "%'></div></div>";
+            << position << "%;background-color:" << solid << "'></div><div class='rank-progress-marker' style='left:" << position << "%'></div></div>";
+    } else {
+        out << "<div class='grow'></div>";
     }
 
-    out << "<div class='row rank-progress-ends'>";
-    if (progress.floor && progress.previous) {
-        std::string value;
-        std::string tip;
-        const std::string floorText = rankName(*progress.floor) + " (about " + std::to_string(progress.floor->mmr) + " MMR)";
-        if (progress.aboveFloor >= 0) {
-            value = "\xE2\x89\x88-" + std::to_string(progress.aboveFloor);
-            tip = "About " + std::to_string(progress.aboveFloor) + " MMR above the estimated start of " + floorText +
-                  ". Falling below it can drop you to " + rankName(*progress.previous) +
-                  ". Rocket League also applies a demotion buffer it does not publish.";
-        } else {
-            value = "below floor";
-            tip = std::to_string(-progress.aboveFloor) + " MMR below the estimated start of " + floorText +
-                  ". You are still reported in this division, so the demotion buffer is likely holding you there.";
-        }
-        out << "<span class='rank-progress-end tooltip-host'><span class='loss mono'>" << Escape(value) << "</span> " << rankLabel(*progress.previous)
-            << "<span class='tooltip-bubble'>" << Escape(tip) << "</span></span>";
-    } else {
-        out << "<span class='label'>Lowest division</span>";
-    }
-    out << "<div class='grow'></div>";
     if (progress.next) {
-        const std::string nextText = rankName(*progress.next) + " (about " + std::to_string(progress.next->mmr) + " MMR)";
-        std::string value;
-        std::string tip;
-        if (progress.toNext > 0) {
-            value = "\xE2\x89\x88+" + std::to_string(progress.toNext);
-            tip = "About " + std::to_string(progress.toNext) + " MMR to the estimated start of " + nextText +
-                  ". Estimates come from Tracker Network's rating distribution and shift during a season.";
-        } else {
-            value = "at boundary";
-            tip = "Your rating has reached the estimated start of " + nextText +
-                  ". Rocket League does not publish exact promotion points.";
-        }
-        out << "<span class='rank-progress-end tooltip-host'>" << rankLabel(*progress.next) << " <span class='win mono'>" << Escape(value)
-            << "</span><span class='tooltip-bubble align-right'>" << Escape(tip) << "</span></span>";
-    } else {
-        out << "<span class='label'>Top rank</span>";
+        const std::string nextText = rankName(progress.next->label) + " (starts at " + std::to_string(progress.next->mmr) + " MMR)";
+        const int gain = std::max(0, progress.toNext);
+        out << delta("win", "+" + std::to_string(gain),
+                     gain > 0 ? "Gain " + std::to_string(gain) + " MMR to reach " + nextText + "." : "You have reached " + nextText + ".", true);
     }
     out << "</div></div>";
     return out.str();

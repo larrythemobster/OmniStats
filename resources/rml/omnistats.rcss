@@ -1138,33 +1138,20 @@ scrollbarcorner { background-color: #0e0e0eaa; }
 .graph-rank-label .mono { font-weight: 400; color: #9da6b3; }
 
 .rank-progress { display: block; margin-bottom: 6dp; }
-.rank-progress-head { gap: 6dp; min-height: 18dp; }
+.rank-progress-names { gap: 8dp; min-height: 18dp; margin-bottom: 3dp; }
 .rank-progress-tier { font-size: 12dp; font-weight: 700; white-space: nowrap; }
-.rank-progress-est { font-size: 10dp; }
-.rank-progress-mmr { font-size: 13dp; font-weight: 700; }
-.rank-progress-track { display: block; position: relative; height: 4dp; margin: 4dp 0 3dp 0; border-radius: 2dp; background-color: #eef1f51a; }
-.rank-progress-fill { display: block; position: absolute; left: 0; top: 0; height: 4dp; border-radius: 2dp; background-color: #eef1f540; }
-.rank-progress-marker { display: block; position: absolute; top: -3dp; width: 4dp; height: 10dp; margin-left: -2dp; border-radius: 2dp; background-color: #eef1f5; }
-.rank-progress-ends { gap: 6dp; font-size: 11dp; min-height: 16dp; }
-.rank-progress-end { display: flex; flex-direction: row; align-items: center; gap: 4dp; white-space: nowrap; }
-.rank-progress-end .mono { font-weight: 700; }
+.rank-progress-bar { align-items: center; gap: 8dp; min-height: 18dp; }
+.rank-progress-delta { min-width: 30dp; font-size: 12dp; font-weight: 700; white-space: nowrap; }
+.rank-progress-delta.win { text-align: right; }
+.rank-progress-track { display: block; position: relative; flex-grow: 1; height: 6dp; border-radius: 3dp; }
+.rank-progress-fill { display: block; position: absolute; left: 0; top: 0; height: 6dp; border-radius: 3dp; }
+.rank-progress-marker { display: block; position: absolute; top: -4dp; width: 4dp; height: 14dp; margin-left: -2dp; border-radius: 2dp; background-color: #f4f6f9; }
 .player-note-actions button.disabled { opacity: 0.45; cursor: unavailable; }
 .rank-progress .tooltip-bubble { width: 240dp; min-width: 0; max-width: 240dp; margin-left: 0; left: 0; white-space: normal; line-height: 1.35; }
 .rank-progress .tooltip-bubble.align-right { left: auto; right: 0; }
 .rank-progress-note { font-size: 11dp; }
-.rank-progress-rank { font-weight: 700; }
-.roster-rank-progress {
-    display: block;
-    margin-top: 6dp;
-    padding: 6dp 10dp 4dp 10dp;
-    border: 1dp #292929aa;
-    border-radius: 10dp;
-    background-color: #141414b0;
-}
-.roster-rank-progress .rank-progress { margin-bottom: 0; }
-.roster-rank-progress .rank-progress-track { height: 6dp; border-radius: 3dp; }
-.roster-rank-progress .rank-progress-fill { height: 6dp; border-radius: 3dp; }
-.roster-rank-progress .rank-progress-marker { top: -3dp; height: 12dp; }
+.roster-rank-progress { display: block; margin-top: 8dp; padding: 0 2dp; }
+.roster-rank-progress .rank-progress { margin-bottom: 2dp; }
 
 .previous-games-header { min-height: 27dp; margin-bottom: 3dp; }
 .previous-games-header .card-title { margin-bottom: 0; }

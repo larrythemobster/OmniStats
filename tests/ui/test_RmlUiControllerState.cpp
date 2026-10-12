@@ -2741,26 +2741,28 @@ TEST_F(RmlUiControllerStateTest, MmrGraphShowsRankProgressAndLabeledBoundariesPe
     ASSERT_TRUE(doubles.floor && doubles.next);
     std::string html = RenderGraph(controller);
     EXPECT_NE(html.find("rank-progress"), std::string::npos);
-    EXPECT_NE(html.find(EscapeText(Format::RankTier("Champion II Div I", Config::Read().use_roman_numerals))), std::string::npos);
-    EXPECT_EQ(html.find("rank-progress-est"), std::string::npos);
-    EXPECT_NE(html.find("\xE2\x89\x88+" + std::to_string(doubles.toNext)), std::string::npos);
-    EXPECT_NE(html.find("\xE2\x89\x88-" + std::to_string(doubles.aboveFloor)), std::string::npos);
+    const bool roman = Config::Read().use_roman_numerals;
+    EXPECT_NE(html.find(EscapeText(Format::RankTier("Champion II Div I", roman))), std::string::npos);
+    EXPECT_NE(html.find(EscapeText(Format::RankTier(doubles.next->label, roman))), std::string::npos);
+    EXPECT_NE(html.find(">+" + std::to_string(doubles.toNext) + "<span"), std::string::npos);
+    EXPECT_NE(html.find(">-" + std::to_string(doubles.aboveFloor) + "<span"), std::string::npos);
+    EXPECT_EQ(html.find("estimate"), std::string::npos);
     EXPECT_NE(html.find("graph-rank-line"), std::string::npos);
     EXPECT_NE(html.find(">" + Format::AbbreviateRank(doubles.next->label) + " <span class='mono'>" + std::to_string(doubles.next->mmr)), std::string::npos);
     // The existing graph pieces remain.
     EXPECT_NE(html.find("mmrgraphlines"), std::string::npos);
     EXPECT_NE(html.find("graph-current"), std::string::npos);
 
-    // Switching playlists swaps the table; 3v3 has no reported division here, so it is an estimate.
+    // Switching playlists swaps the table; without a reported division the table supplies it.
     SeedGraph(*state, "3v3", {1180.0f, 1190.0f, 1200.0f}, 0, "");
     state->ui.graphMmrCategory.store(MmrCategory::ThreeVThree);
     controller.Update(Config::Read());
     const auto standard = RankProgress::Compute(MMRFetcher::RankThresholdsForPlaylist("3v3"), 1200, "");
     ASSERT_TRUE(standard.next);
     html = RenderGraph(controller);
-    EXPECT_NE(html.find("rank-progress-est"), std::string::npos);
-    EXPECT_NE(html.find("\xE2\x89\x88+" + std::to_string(standard.toNext)), std::string::npos);
-    EXPECT_NE(html.find(std::to_string(standard.next->mmr) + " MMR (estimate)"), std::string::npos);
+    EXPECT_NE(html.find(">+" + std::to_string(standard.toNext) + "<span"), std::string::npos);
+    EXPECT_NE(html.find(" starts at " + std::to_string(standard.next->mmr) + " MMR"), std::string::npos);
+    EXPECT_EQ(html.find("estimate"), std::string::npos);
 }
 
 TEST_F(RmlUiControllerStateTest, MmrGraphOmitsUnsupportedProgressAndExplainsPlacement) {
@@ -2784,8 +2786,8 @@ TEST_F(RmlUiControllerStateTest, MmrGraphOmitsUnsupportedProgressAndExplainsPlac
     SeedGraph(*state, "2v2", {}, 1100, "Unranked");
     controller.Update(Config::Read());
     html = RenderGraph(controller);
-    EXPECT_NE(html.find("placement or unranked"), std::string::npos);
-    EXPECT_EQ(html.find("\xE2\x89\x88"), std::string::npos);
+    EXPECT_NE(html.find("Division progress appears once Rocket League assigns a rank."), std::string::npos);
+    EXPECT_EQ(html.find("rank-progress-delta"), std::string::npos);
 }
 
 TEST_F(RmlUiControllerStateTest, RosterShowsSelfRankProgressBelowBothTeams) {
@@ -2822,18 +2824,20 @@ TEST_F(RmlUiControllerStateTest, RosterShowsSelfRankProgressBelowBothTeams) {
     EXPECT_GT(panel, html.find("Rival"));
     EXPECT_LT(panel, html.find("roster-footer"));
     EXPECT_EQ(RenderRoster(controller, 0).find("rank-progress"), std::string::npos);
-    EXPECT_NE(html.find("\xE2\x89\x88+" + std::to_string(expected.toNext), panel), std::string::npos);
-    const auto coloredRank = [](const RankProgress::Boundary& b) {
-        return "color:" + RmlUiController::CssColor(Format::RankColor(b.label)) + "'>" + Format::AbbreviateRank(b.label) + "<";
+    EXPECT_NE(html.find(">+" + std::to_string(expected.toNext) + "<span", panel), std::string::npos);
+    EXPECT_NE(html.find(">-" + std::to_string(expected.aboveFloor) + "<span", panel), std::string::npos);
+    const auto coloredName = [this](const std::string& label) {
+        return "color:" + RmlUiController::CssColor(Format::RankColor(label)) + "'>" + EscapeText(Format::RankTier(label, Config::Read().use_roman_numerals)) + "<";
     };
-    EXPECT_NE(html.find(coloredRank(*expected.next), panel), std::string::npos);
-    EXPECT_NE(html.find(coloredRank(*expected.previous), panel), std::string::npos);
+    const size_t current = html.find(coloredName(expected.rank), panel);
+    ASSERT_NE(current, std::string::npos);
+    EXPECT_GT(html.find(coloredName(expected.next->label), panel), current);
     EXPECT_NE(html.find("background-color:" + RmlUiController::CssColor(Format::RankColor(expected.rank)), panel), std::string::npos);
 
     // "Best" resolves to the playlist that produced the rating.
     state->ui.rosterMmrCategory.store(MmrCategory::Best);
     controller.Update(Config::Read());
-    EXPECT_NE(RenderRosterCard(controller).find("\xE2\x89\x88+" + std::to_string(expected.toNext)), std::string::npos);
+    EXPECT_NE(RenderRosterCard(controller).find(">+" + std::to_string(expected.toNext) + "<span"), std::string::npos);
 
     state->ui.rosterMmrCategory.store(MmrCategory::Casual);
     controller.Update(Config::Read());
@@ -2843,6 +2847,6 @@ TEST_F(RmlUiControllerStateTest, RosterShowsSelfRankProgressBelowBothTeams) {
     state->ui.rosterMmrCategory.store(MmrCategory::TwoVTwo);
     controller.Update(Config::Read());
     html = RenderRosterCard(controller);
-    EXPECT_NE(html.find("placement or unranked"), std::string::npos);
-    EXPECT_EQ(html.find("\xE2\x89\x88"), std::string::npos);
+    EXPECT_NE(html.find("Division progress appears once Rocket League assigns a rank."), std::string::npos);
+    EXPECT_EQ(html.find("rank-progress-delta"), std::string::npos);
 }
