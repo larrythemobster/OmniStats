@@ -2496,3 +2496,8 @@ TEST_F(RmlUiControllerStateTest, DeferredSelectRebuildSurvivesBlockedUpdateUntil
     EXPECT_NE(OverlayRoot(controller)->QuerySelector("[data-setting='overlay_vis_event:main_stack']"), nullptr);
     EXPECT_NE(OverlayRoot(controller)->QuerySelector("[data-setting='overlay_vis_seconds:main_stack']"), nullptr);
 }
+
+TEST_F(RmlUiControllerStateTest, EscapeNeutralizesDataBindingBraces) {
+    EXPECT_EQ(EscapeText("{{match_saves}}"), "&#123;&#123;match_saves&#125;&#125;");
+    EXPECT_EQ(EscapeText("<b>&'\""), "&lt;b&gt;&amp;&#39;&quot;");
+}

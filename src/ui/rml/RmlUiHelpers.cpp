@@ -529,6 +529,14 @@ namespace RmlUiDetail {
             case '\'':
                 out += "&#39;";
                 break;
+            // RmlUi scans raw text for {{ }} data expressions before decoding
+            // entities, so encoded braces always render literally.
+            case '{':
+                out += "&#123;";
+                break;
+            case '}':
+                out += "&#125;";
+                break;
             default:
                 out.push_back(static_cast<char>(c));
                 break;
