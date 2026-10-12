@@ -26,6 +26,9 @@ class TelemetryReducer {
   private:
     void HandleUpdateState(const nlohmann::json& data, SideEffects& effects);
     void CapturePreMatchMmrLocked();
+    // Encounter records are relative to the local account, so a new identity
+    // invalidates every roster player's record.
+    void RequeueEncounterRecordsLocked(SideEffects& effects);
     void HandleStatFeed(const nlohmann::json& data);
     void HandleGoalScored(const nlohmann::json& data, SideEffects& effects);
     void HandleBallHit(const nlohmann::json& data);

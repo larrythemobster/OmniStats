@@ -92,6 +92,11 @@ namespace RmlUiDetail {
         std::string label;
     };
 
+    // Plain text; callers escape. One relationship, e.g. "8 matches · 5W 3L · 63%".
+    std::string EncounterDetail(int wins, int losses);
+    // Plain text; callers escape. Both relationships, e.g. "With 5-3 · Vs 4-2".
+    std::string EncounterSummary(const PersonRecord& record);
+
     // Every helper below escapes the text it is given; callers pass plain text,
     // never markup.
     std::string Escape(std::string_view text);

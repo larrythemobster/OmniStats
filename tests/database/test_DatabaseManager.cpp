@@ -2005,7 +2005,7 @@ TEST_F(DatabaseManagerTest, QueryMatchesEscapesWildcardAndInjectionCharactersInN
     EXPECT_EQ(rows[0].matchGuid, "inj-3");
 }
 
-TEST_F(DatabaseManagerTest, GetMatchDetailReturnsFullScoreboardForV2AndReducedForV1WithMetBeforeCounts) {
+TEST_F(DatabaseManagerTest, GetMatchDetailReturnsFullScoreboardForV2AndReducedForV1WithEncounterRecords) {
     const std::string me = "Steam|me";
     const std::string mate = "Epic|zylo";
     const std::string opp1 = "PS4|rival1";
@@ -2114,17 +2114,26 @@ TEST_F(DatabaseManagerTest, GetMatchDetailReturnsFullScoreboardForV2AndReducedFo
 
     EXPECT_EQ(d2.ourTeam[1].name, "Zylo");
     EXPECT_EQ(d2.ourTeam[1].platform, "Epic");
-    // Zylo is also in match 1 and match 3 -> 2 other matches with `me`
-    EXPECT_EQ(d2.ourTeam[1].metBeforeCount, 2);
+    // Other matches with `me`: Zylo was a teammate in a win (m1) and a loss (m3).
+    ASSERT_TRUE(d2.ourTeam[1].encounter.has_value());
+    EXPECT_EQ(d2.ourTeam[1].encounter->winsWith, 1);
+    EXPECT_EQ(d2.ourTeam[1].encounter->lossesWith, 1);
+    EXPECT_EQ(d2.ourTeam[1].encounter->GamesAgainst(), 0);
 
     EXPECT_EQ(d2.theirTeam[0].name, "RivalOne");
     EXPECT_EQ(d2.theirTeam[0].platform, "PlayStation");
-    EXPECT_EQ(d2.theirTeam[0].metBeforeCount, 2);
+    ASSERT_TRUE(d2.theirTeam[0].encounter.has_value());
+    EXPECT_EQ(d2.theirTeam[0].encounter->winsAgainst, 1);
+    EXPECT_EQ(d2.theirTeam[0].encounter->lossesAgainst, 1);
+    EXPECT_EQ(d2.theirTeam[0].encounter->GamesWith(), 0);
 
     EXPECT_EQ(d2.theirTeam[1].name, "RivalTwo");
     EXPECT_EQ(d2.theirTeam[1].platform, "Xbox");
-    // RivalTwo is in match 2 and match 3 -> 1 other match with `me`
-    EXPECT_EQ(d2.theirTeam[1].metBeforeCount, 1);
+    // RivalTwo's only other match with `me` is the m3 loss.
+    ASSERT_TRUE(d2.theirTeam[1].encounter.has_value());
+    EXPECT_EQ(d2.theirTeam[1].encounter->winsAgainst, 0);
+    EXPECT_EQ(d2.theirTeam[1].encounter->lossesAgainst, 1);
+    EXPECT_FALSE(d2.ourTeam[0].encounter.has_value());
 
     // Verify Match 3 (v1) detail
     MatchDetail d3;

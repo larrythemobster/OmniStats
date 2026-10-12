@@ -22,7 +22,7 @@ releases.
 - Optional live rank lookup through your OmniStats account with one-click browser device approval, or through Tracker Network.
 - Local SQLite and JSONL history.
 - Click-through overlay and second-monitor dashboard, with per-container visibility rules.
-- Player roster context and browser links to public player profiles.
+- Player roster context and browser links to public player profiles. Each player shows separate "with" and "vs" records from your saved matches.
 - Insights window with a session recap card you can save as a PNG, a persisted session archive with previous-session comparisons, win rates with and against the people you play with most, and trends by playlist, time of day, session length, loss streaks, and lobby MMR gap.
 - Match history browser with playlist, result, date, arena, teammate, opponent, and player-name filters, plus a per-match scoreboard detail view and plain-text clipboard summary. Open it from the tray menu, the Settings window footer, the dashboard header, or Previous Games ("View all" or a row).
 - First-run setup that fixes the Stats API config, picks overlay or dashboard, and asks about each optional integration.

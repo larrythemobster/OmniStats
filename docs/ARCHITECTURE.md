@@ -54,6 +54,10 @@ A playlist's session baseline (`playlistInitialMmr`) comes only from a rating ob
 
 The local player's rating is the session baseline and the pre-match snapshot. When the custom API is enabled and a Tracker request for the local player is rate limited or fails after its retries, `MMRFetcher` asks the custom API before giving up. Other players and later requests stay on Tracker; only a Tracker 403 switches every request to the custom API. The custom API returns live ratings with no history, so it shortens the window in which a pre-match rating is missing but cannot recover one after the match.
 
+## Player context
+
+With/against records come from one query, `DatabaseManager::QueryEncounterRecordsLocked`, which the roster, Insights > People, and the History detail scoreboard all use. It collapses each (match, player) pair to one row, skips `result_pending` matches, and reads team and result relative to the local account's own `MatchPlayers` row, so a match saved by another local account still counts from the right side. A roster player's record loads when they join and again after each finalized match; the executor queues that lookup behind the match save. `PlayerData::hasLifetimeData` stays false until a lookup succeeds, and the roster shows `NEW` only for a confirmed zero.
+
 ## UI update model
 
 RmlUi documents are kept alive instead of being recreated each frame. `RmlUiController` compares session/history versions and relevant UI/config state, refreshes only the affected roots, and caches RmlUi/D3D resources through the normal document/render-interface lifetime. Fast telemetry remains in `SessionState`; it is not serialized into an intermediate browser-style state blob. Counter and speed values reach the DOM through the `live` data model, so a telemetry tick updates bound text nodes and never rebuilds a widget.

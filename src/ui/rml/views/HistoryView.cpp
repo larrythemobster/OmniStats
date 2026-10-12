@@ -91,9 +91,9 @@ namespace {
         row.tier = p.tier.empty() ? "Unranked" : p.tier;
         row.tier_color = RmlUiController::CssColor(Format::RankColor(p.tier));
         if (p.isMe) {
-            row.met_before = "You";
-        } else {
-            row.met_before = "Met before: " + std::to_string(p.metBeforeCount) + "\xC3\x97";
+            row.encounter = "You";
+        } else if (p.encounter) {
+            row.encounter = EncounterSummary(*p.encounter);
         }
         row.score = p.hasStats ? FormatOptInt(p.score) : "--";
         row.goals = p.hasStats ? FormatOptInt(p.goals) : "--";
@@ -140,7 +140,7 @@ bool HistoryView::Create(Rml::Context* context) {
         player.RegisterMember("mmr", &HistoryDetailPlayerRow::mmr);
         player.RegisterMember("tier", &HistoryDetailPlayerRow::tier);
         player.RegisterMember("tier_color", &HistoryDetailPlayerRow::tier_color);
-        player.RegisterMember("met_before", &HistoryDetailPlayerRow::met_before);
+        player.RegisterMember("encounter", &HistoryDetailPlayerRow::encounter);
         player.RegisterMember("score", &HistoryDetailPlayerRow::score);
         player.RegisterMember("goals", &HistoryDetailPlayerRow::goals);
         player.RegisterMember("assists", &HistoryDetailPlayerRow::assists);
@@ -540,7 +540,7 @@ std::string HistoryView::BuildScoreboardSummary(const MatchDetail& detail) {
             out << " | " << r.tier << " | " << r.mmr
                 << " | " << r.score << " | " << r.goals << " | " << r.assists
                 << " | " << r.saves << " | " << r.shots << " | " << r.demos
-                << " | " << r.met_before << "\n";
+                << " | " << r.encounter << "\n";
         }
     };
 

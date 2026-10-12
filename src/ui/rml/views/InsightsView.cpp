@@ -162,6 +162,7 @@ bool InsightsView::Create(Rml::Context* context) {
         person.RegisterMember("rate", &PersonRow::rate);
         person.RegisterMember("last_seen", &PersonRow::last_seen);
         person.RegisterMember("tone", &PersonRow::tone);
+        person.RegisterMember("other_record", &PersonRow::other_record);
     }
     constructor.RegisterArray<std::vector<PersonRow>>();
     if (auto row = constructor.RegisterStruct<TrendRow>()) {
@@ -245,6 +246,7 @@ bool InsightsView::Create(Rml::Context* context) {
     constructor.Bind("people_filter", &m_peopleFilterName);
     constructor.Bind("people", &m_people);
     constructor.Bind("people_empty", &m_peopleEmpty);
+    constructor.Bind("people_other_label", &m_peopleOtherLabel);
     constructor.Bind("tilt_message", &m_tiltMessage);
     constructor.Bind("gap_callout", &m_gapCallout);
     constructor.Bind("trend_playlist_filter", &m_trendPlaylistFilter);
@@ -740,12 +742,17 @@ void InsightsView::RebuildPeople() {
         row.tone = rate > 0.5f ? 1 : rate < 0.5f ? -1
                                                  : 0;
         row.last_seen = FormatClock(person.lastSeenUnix);
+        const int otherWins = teammates ? person.winsAgainst : person.winsWith;
+        const int otherLosses = teammates ? person.lossesAgainst : person.lossesWith;
+        row.other_record = otherWins + otherLosses > 0 ? FormatRecord(otherWins, otherLosses) : "--";
         m_people.push_back(std::move(row));
     }
+    m_peopleOtherLabel = teammates ? "Vs" : "With";
     m_peopleEmpty = !m_hasAccount      ? "Play a match so OmniStats can identify your account."
                     : !m_historyLoaded ? "Loading your match history..."
                     : teammates        ? "No saved games with teammates yet."
                                        : "No saved games against opponents yet.";
     Dirty("people");
     Dirty("people_empty");
+    Dirty("people_other_label");
 }

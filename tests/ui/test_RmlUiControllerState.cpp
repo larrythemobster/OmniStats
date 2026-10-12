@@ -335,36 +335,57 @@ TEST_F(RmlUiControllerStateTest, RosterKeepsLegacyPlatformLabelsAndBotsNonClicka
     EXPECT_EQ(html.find("data-action='open-player-tracker'"), std::string::npos);
 }
 
-TEST_F(RmlUiControllerStateTest, RosterMarksUnknownEncounterHistoryAsNew) {
+TEST_F(RmlUiControllerStateTest, RosterSeparatesUnloadedFirstMeetingAndBothEncounterRecords) {
     auto state = std::make_shared<SessionState>();
     {
         std::unique_lock lock(state->game.mutex);
         state->game.myPrimaryId = "Steam|self";
 
-        PlayerData self;
-        self.primaryId = state->game.myPrimaryId;
-        self.name = "Self";
-        self.team = 0;
-        self.fetched = true;
-        state->game.roster[self.primaryId] = self;
-
-        PlayerData newcomer;
-        newcomer.primaryId = "Epic|new";
-        newcomer.name = "FirstEncounter";
-        newcomer.team = 0;
-        newcomer.fetched = true;
-        newcomer.hasLifetimeData = false;
-        state->game.roster[newcomer.primaryId] = newcomer;
+        const auto add = [&](const std::string& id, const std::string& name, bool loaded, int ww, int lw, int wa, int la) {
+            PlayerData p;
+            p.primaryId = id;
+            p.name = name;
+            p.team = 0;
+            p.fetched = true;
+            p.hasLifetimeData = loaded;
+            p.lifetimeWinsWith = ww;
+            p.lifetimeLossesWith = lw;
+            p.lifetimeWinsAgainst = wa;
+            p.lifetimeLossesAgainst = la;
+            state->game.roster[id] = p;
+        };
+        add("Steam|self", "Self", false, 0, 0, 0, 0);
+        add("Epic|pending", "StillLoading", false, 0, 0, 0, 0);
+        add("Epic|new", "FirstEncounter", true, 0, 0, 0, 0);
+        add("Epic|both", "BothSides", true, 5, 3, 4, 2);
         state->game.version.fetch_add(1);
     }
 
     RmlUiController controller(state, nullptr);
     controller.Update(Config::Read());
     const std::string html = RenderRoster(controller);
+    const auto rowFor = [&](const std::string& name) {
+        const size_t start = html.find(name);
+        if (start == std::string::npos) return std::string{};
+        const size_t end = html.find("player-row", start);
+        return html.substr(start, end == std::string::npos ? std::string::npos : end - start);
+    };
 
-    const size_t playerPos = html.find("FirstEncounter");
-    ASSERT_NE(playerPos, std::string::npos);
-    EXPECT_NE(html.find("NEW", playerPos), std::string::npos);
+    const std::string pending = rowFor("StillLoading");
+    ASSERT_FALSE(pending.empty());
+    EXPECT_EQ(pending.find("NEW"), std::string::npos);
+
+    const std::string first = rowFor("FirstEncounter");
+    ASSERT_FALSE(first.empty());
+    EXPECT_NE(first.find(">NEW<"), std::string::npos);
+
+    const std::string both = rowFor("BothSides");
+    ASSERT_FALSE(both.empty());
+    EXPECT_NE(both.find("with 5-3"), std::string::npos);
+    EXPECT_NE(both.find("vs 4-2"), std::string::npos);
+    EXPECT_NE(both.find("8 matches · 5W 3L · 63%"), std::string::npos);
+    EXPECT_NE(both.find("6 matches · 4W 2L · 67%"), std::string::npos);
+    EXPECT_EQ(both.find(">NEW<"), std::string::npos);
 }
 
 TEST_F(RmlUiControllerStateTest, RosterSortFallsBackToBestMmrWhenSelectedPlaylistIsMissing) {
@@ -2339,7 +2360,8 @@ TEST_F(RmlUiControllerStateTest, HistoryViewOpensClosesIgnoresStaleResponsesAndO
     EXPECT_NE(summaryText.find("Mannfield"), std::string::npos);
     EXPECT_NE(summaryText.find("1200 -> 1209 (+9)"), std::string::npos);
     EXPECT_NE(summaryText.find("Zylo"), std::string::npos);
-    EXPECT_NE(summaryText.find("Met before: 1"), std::string::npos);
+    EXPECT_NE(summaryText.find("With 1-0"), std::string::npos);
+    EXPECT_NE(summaryText.find("Vs 1-0"), std::string::npos);
 
     // 4. First Escape closes detail modal; a later filter query must not reopen it; second Escape closes History view
     EXPECT_TRUE(controller.ProcessWindowMessage(nullptr, WM_KEYDOWN, VK_ESCAPE, 0));

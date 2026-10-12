@@ -190,6 +190,7 @@ div.value { display: block; }
     gap: 2dp;
 }
 .player-flags .label { display: block; font-size: 11dp; line-height: 1.2; text-align: right; }
+.player-flags .encounter { cursor: default; }
 .player-name {
     flex-grow: 1;
     flex-shrink: 0;
@@ -1165,6 +1166,7 @@ scrollbarcorner { background-color: #0e0e0eaa; }
     pointer-events: none;
 }
 .tooltip-host:hover .tooltip-bubble { display: block; }
+.tooltip-bubble.align-right { left: auto; right: 0; margin-left: 0; }
 
 .controller-debug { margin-top: 10dp; padding-top: 8dp; border-top: 1dp #303030; }
 .debug-grid { display: flex; flex-direction: column; margin-top: 5dp; font-size: 11dp; }

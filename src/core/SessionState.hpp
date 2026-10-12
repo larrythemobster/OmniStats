@@ -322,7 +322,8 @@ struct MatchDetailPlayer {
     std::optional<int> carTouches;
     std::optional<float> maxGoalSpeed;
     std::optional<float> fastestGoalTime;
-    int metBeforeCount = 0;
+    // Record with this player in other saved matches; nullopt when unavailable.
+    std::optional<PersonRecord> encounter;
 };
 
 struct MatchDetail {

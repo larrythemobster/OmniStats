@@ -604,6 +604,24 @@ namespace RmlUiDetail {
         return std::to_string(wins) + "-" + std::to_string(losses);
     }
 
+    std::string EncounterDetail(int wins, int losses) {
+        const int games = wins + losses;
+        if (games <= 0) return "No matches";
+        const int rate = static_cast<int>(std::lround(100.0 * wins / games));
+        return std::to_string(games) + (games == 1 ? " match · " : " matches · ") + std::to_string(wins) + "W " +
+               std::to_string(losses) + "L · " + std::to_string(rate) + "%";
+    }
+
+    std::string EncounterSummary(const PersonRecord& record) {
+        std::string out;
+        if (record.GamesWith() > 0) out = "With " + FormatRecord(record.winsWith, record.lossesWith);
+        if (record.GamesAgainst() > 0) {
+            if (!out.empty()) out += " · ";
+            out += "Vs " + FormatRecord(record.winsAgainst, record.lossesAgainst);
+        }
+        return out.empty() ? "First meeting" : out;
+    }
+
     std::string FormatClock(int64_t unixSeconds) {
         if (unixSeconds <= 0) return "--";
         int64_t now = static_cast<int64_t>(std::time(nullptr));

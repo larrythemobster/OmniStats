@@ -38,6 +38,8 @@ struct PersonRow {
     Rml::String rate;
     Rml::String last_seen;
     int tone = 0;
+    // The record in the relationship the active tab does not list, e.g. "4-2".
+    Rml::String other_record;
 };
 
 struct TrendRow {
@@ -219,6 +221,7 @@ class InsightsView {
     Rml::String m_peopleFilterName = "teammates";
     std::vector<PersonRow> m_people;
     Rml::String m_peopleEmpty;
+    Rml::String m_peopleOtherLabel = "Vs";
 
     Rml::String m_tiltMessage;
     Rml::String m_gapCallout;

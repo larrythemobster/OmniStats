@@ -170,19 +170,24 @@ std::string RmlUiController::RenderPlayerRoster(int team, const char* label) {
         if (m_config.show_account_wins_overlay && p->totalWins >= 0) out << "<span class='chip'>" << p->totalWins << " wins</span>";
         out << "</div></div>";
 
-        // Trailing status column, one state per player: yourself, a player with
-        // shared history, or someone new. A with/vs record against yourself is
-        // meaningless, so YOU stands alone.
+        // Trailing status column: yourself, both shared-history records, or a
+        // confirmed first meeting. Nothing is shown until the record has loaded,
+        // so a slow or failed lookup is never presented as NEW.
         const int withGames = p->lifetimeWinsWith + p->lifetimeLossesWith;
         const int againstGames = p->lifetimeWinsAgainst + p->lifetimeLossesAgainst;
-        const bool hasEncounterRecord = p->hasLifetimeData && (withGames > 0 || againstGames > 0);
         out << "<div class='player-flags'>";
         if (self) {
             out << "<span class='badge accent'>YOU</span>";
-        } else if (hasEncounterRecord) {
-            if (withGames) out << "<div class='label'>with " << p->lifetimeWinsWith << '-' << p->lifetimeLossesWith << "</div>";
-            if (againstGames) out << "<div class='label'>vs " << p->lifetimeWinsAgainst << '-' << p->lifetimeLossesAgainst << "</div>";
-        } else {
+        } else if (p->hasLifetimeData && (withGames > 0 || againstGames > 0)) {
+            if (withGames)
+                out << "<div class='label encounter tooltip-host'>with " << FormatRecord(p->lifetimeWinsWith, p->lifetimeLossesWith)
+                    << "<span class='tooltip-bubble align-right'>As teammates: " << Escape(EncounterDetail(p->lifetimeWinsWith, p->lifetimeLossesWith))
+                    << "</span></div>";
+            if (againstGames)
+                out << "<div class='label encounter tooltip-host'>vs " << FormatRecord(p->lifetimeWinsAgainst, p->lifetimeLossesAgainst)
+                    << "<span class='tooltip-bubble align-right'>As opponents: " << Escape(EncounterDetail(p->lifetimeWinsAgainst, p->lifetimeLossesAgainst))
+                    << "</span></div>";
+        } else if (p->hasLifetimeData) {
             out << "<span class='badge'>NEW</span>";
         }
         out << "</div></div>";

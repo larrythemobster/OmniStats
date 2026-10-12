@@ -240,35 +240,11 @@ void TelemetryReducer::FinalizeCapturedMatchLocked(
     }
 
     const auto& currentMatch = match.stats;
-    for (auto& [primaryId, player] : match.roster) {
-        const bool isTeammate = player.team == match.myTeam;
-        if (isTeammate) {
-            if (iWon) {
-                player.lifetimeWinsWith++;
-            } else {
-                player.lifetimeLossesWith++;
-            }
-        } else {
-            if (iWon) {
-                player.lifetimeWinsAgainst++;
-            } else {
-                player.lifetimeLossesAgainst++;
-            }
-        }
-        player.hasLifetimeData = true;
-
-        const auto livePlayer = m_state->game.roster.find(primaryId);
-        if (livePlayer != m_state->game.roster.end()) {
-            livePlayer->second.lifetimeWinsWith =
-                player.lifetimeWinsWith;
-            livePlayer->second.lifetimeLossesWith =
-                player.lifetimeLossesWith;
-            livePlayer->second.lifetimeWinsAgainst =
-                player.lifetimeWinsAgainst;
-            livePlayer->second.lifetimeLossesAgainst =
-                player.lifetimeLossesAgainst;
-            livePlayer->second.hasLifetimeData = true;
-        }
+    // The executor queues these lookups after the match save, so the database
+    // stays the single source of each with/against record.
+    for (const auto& [primaryId, player] : match.roster) {
+        if (primaryId == match.myPrimaryId || primaryId.rfind("Unknown|", 0) == 0) continue;
+        effects.fetchEncounterQueue.push_back(primaryId);
     }
 
     const char* sourceName = "match-ended";

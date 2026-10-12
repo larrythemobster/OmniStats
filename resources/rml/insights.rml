@@ -141,6 +141,7 @@
                         <div class="people-cell">Games</div>
                         <div class="people-cell">Record</div>
                         <div class="people-cell">Win rate</div>
+                        <div class="people-cell">{{people_other_label}}</div>
                         <div class="people-cell wide">Last played</div>
                     </div>
                     <div class="people-row" data-for="person : people">
@@ -151,6 +152,7 @@
                         <div class="people-cell mono">{{person.games}}</div>
                         <div class="people-cell mono">{{person.record}}</div>
                         <div class="people-cell mono" data-class-win="person.tone == 1" data-class-loss="person.tone == -1">{{person.rate}}</div>
+                        <div class="people-cell mono label">{{person.other_record}}</div>
                         <div class="people-cell wide label">{{person.last_seen}}</div>
                     </div>
                 </div>

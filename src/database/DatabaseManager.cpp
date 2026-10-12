@@ -1135,72 +1135,61 @@ void DatabaseManager::GetRecentMatchHistory(const std::string& primaryId, std::v
     sqlite3_finalize(stmt);
 }
 
-void DatabaseManager::GetPlayerEncounterRecord(const std::string& primaryId, int& winsWith, int& lossesWith, int& winsAgainst, int& lossesAgainst) {
-    std::lock_guard<std::mutex> lock(m_dbMutex);
-    winsWith = 0;
-    lossesWith = 0;
-    winsAgainst = 0;
-    lossesAgainst = 0;
-    if (!m_db) return;
+std::optional<std::vector<PersonRecord>> DatabaseManager::QueryEncounterRecordsLocked(const std::string& account,
+                                                                                      const std::string& onlyPlayer,
+                                                                                      int64_t excludeMatchId) {
+    if (!m_db || account.empty()) return std::nullopt;
 
-    const char* sql = R"(
-        SELECT
-            SUM(CASE WHEN Matches.win = 1 AND MatchPlayers.is_opponent = 0 THEN 1 ELSE 0 END),
-            SUM(CASE WHEN Matches.win = 0 AND MatchPlayers.is_opponent = 0 THEN 1 ELSE 0 END),
-            SUM(CASE WHEN Matches.win = 1 AND MatchPlayers.is_opponent = 1 THEN 1 ELSE 0 END),
-            SUM(CASE WHEN Matches.win = 0 AND MatchPlayers.is_opponent = 1 THEN 1 ELSE 0 END)
-        FROM MatchPlayers
-        JOIN Matches ON MatchPlayers.match_id = Matches.id
-        WHERE MatchPlayers.primary_id = ?;
+    // The inner query collapses each (match, player) pair to one row, so
+    // duplicate MatchPlayers rows count once. Team and result are taken
+    // relative to the account's own row: a match saved by a different local
+    // account stores `win` and `is_opponent` from that account's side. Bare
+    // `name` in the outer query comes from the row holding MAX(ts).
+    std::string sql = R"(
+        SELECT pid, name,
+               SUM(CASE WHEN against = 0 AND won = 1 THEN 1 ELSE 0 END),
+               SUM(CASE WHEN against = 0 AND won = 0 THEN 1 ELSE 0 END),
+               SUM(CASE WHEN against = 1 AND won = 1 THEN 1 ELSE 0 END),
+               SUM(CASE WHEN against = 1 AND won = 0 THEN 1 ELSE 0 END),
+               MAX(ts)
+        FROM (
+            SELECT p.primary_id AS pid,
+                   p.name AS name,
+                   CASE WHEN MIN(me.team) IN (0, 1) AND MIN(p.team) IN (0, 1)
+                        THEN MIN(p.team) != MIN(me.team)
+                        ELSE MAX(COALESCE(p.is_opponent, 0)) != MIN(COALESCE(me.is_opponent, 0)) END AS against,
+                   CASE WHEN MIN(COALESCE(me.is_opponent, 0)) = 0 THEN m.win ELSE 1 - m.win END AS won,
+                   CAST(strftime('%s', m.timestamp) AS INTEGER) AS ts
+            FROM MatchPlayers p
+            JOIN MatchPlayers me ON me.match_id = p.match_id AND me.primary_id = ?1
+            JOIN Matches m ON m.id = p.match_id
+            WHERE p.primary_id != ?1
+              AND p.primary_id NOT LIKE 'Unknown|%'
+              AND COALESCE(m.result_pending, 0) = 0
+              AND m.win IS NOT NULL
     )";
-
-    sqlite3_stmt* stmt;
-    if (sqlite3_prepare_v2(m_db, sql, -1, &stmt, nullptr) != SQLITE_OK) {
-        return;
-    }
-
-    sqlite3_bind_text(stmt, 1, primaryId.c_str(), -1, SQLITE_TRANSIENT);
-
-    if (sqlite3_step(stmt) == SQLITE_ROW) {
-        winsWith = sqlite3_column_int(stmt, 0);
-        lossesWith = sqlite3_column_int(stmt, 1);
-        winsAgainst = sqlite3_column_int(stmt, 2);
-        lossesAgainst = sqlite3_column_int(stmt, 3);
-    }
-
-    sqlite3_finalize(stmt);
-}
-
-void DatabaseManager::GetPeopleRecords(const std::string& primaryId, std::vector<PersonRecord>& outPeople) {
-    std::lock_guard<std::mutex> lock(m_dbMutex);
-    outPeople.clear();
-    if (!m_db || primaryId.empty()) return;
-
-    // Everyone who shared a saved match with the local account. The bare
-    // MatchPlayers.name column takes its value from the row that supplied
-    // MAX(timestamp), so each person shows the most recent name they used.
-    const char* sql = R"(
-        SELECT MatchPlayers.primary_id,
-               MatchPlayers.name,
-               SUM(CASE WHEN Matches.win = 1 AND MatchPlayers.is_opponent = 0 THEN 1 ELSE 0 END),
-               SUM(CASE WHEN Matches.win = 0 AND MatchPlayers.is_opponent = 0 THEN 1 ELSE 0 END),
-               SUM(CASE WHEN Matches.win = 1 AND MatchPlayers.is_opponent = 1 THEN 1 ELSE 0 END),
-               SUM(CASE WHEN Matches.win = 0 AND MatchPlayers.is_opponent = 1 THEN 1 ELSE 0 END),
-               MAX(strftime('%s', Matches.timestamp))
-        FROM MatchPlayers
-        JOIN Matches ON MatchPlayers.match_id = Matches.id
-        WHERE MatchPlayers.primary_id != ?1
-          AND MatchPlayers.primary_id NOT LIKE 'Unknown|%'
-          AND Matches.id IN (SELECT match_id FROM MatchPlayers WHERE primary_id = ?1)
-        GROUP BY MatchPlayers.primary_id
-        ORDER BY COUNT(*) DESC
+    if (!onlyPlayer.empty()) sql += " AND p.primary_id = ?2";
+    if (excludeMatchId > 0) sql += " AND m.id != ?3";
+    sql += R"(
+            GROUP BY m.id, p.primary_id
+        )
+        GROUP BY pid
+        ORDER BY COUNT(*) DESC, 7 DESC
         LIMIT 500;
     )";
 
     sqlite3_stmt* stmt = nullptr;
-    if (sqlite3_prepare_v2(m_db, sql, -1, &stmt, nullptr) != SQLITE_OK) return;
-    sqlite3_bind_text(stmt, 1, primaryId.c_str(), -1, SQLITE_TRANSIENT);
-    while (sqlite3_step(stmt) == SQLITE_ROW) {
+    if (sqlite3_prepare_v2(m_db, sql.c_str(), -1, &stmt, nullptr) != SQLITE_OK) {
+        std::cerr << "[Database] Encounter query failed: " << sqlite3_errmsg(m_db) << "\n";
+        return std::nullopt;
+    }
+    sqlite3_bind_text(stmt, 1, account.c_str(), -1, SQLITE_TRANSIENT);
+    if (!onlyPlayer.empty()) sqlite3_bind_text(stmt, 2, onlyPlayer.c_str(), -1, SQLITE_TRANSIENT);
+    if (excludeMatchId > 0) sqlite3_bind_int64(stmt, 3, excludeMatchId);
+
+    std::vector<PersonRecord> people;
+    int rc = SQLITE_ROW;
+    while ((rc = sqlite3_step(stmt)) == SQLITE_ROW) {
         PersonRecord person;
         person.primaryId = SqlColumnText(stmt, 0);
         person.name = SqlColumnText(stmt, 1);
@@ -1209,9 +1198,28 @@ void DatabaseManager::GetPeopleRecords(const std::string& primaryId, std::vector
         person.winsAgainst = sqlite3_column_int(stmt, 4);
         person.lossesAgainst = sqlite3_column_int(stmt, 5);
         person.lastSeenUnix = sqlite3_column_int64(stmt, 6);
-        outPeople.push_back(std::move(person));
+        people.push_back(std::move(person));
     }
     sqlite3_finalize(stmt);
+    if (rc != SQLITE_DONE) return std::nullopt;
+    return people;
+}
+
+std::optional<PersonRecord> DatabaseManager::GetPlayerEncounterRecord(const std::string& account, const std::string& primaryId) {
+    std::lock_guard<std::mutex> lock(m_dbMutex);
+    if (primaryId.empty()) return std::nullopt;
+    auto records = QueryEncounterRecordsLocked(account, primaryId);
+    if (!records) return std::nullopt;
+    if (!records->empty()) return std::move(records->front());
+    PersonRecord none;
+    none.primaryId = primaryId;
+    return none;
+}
+
+void DatabaseManager::GetPeopleRecords(const std::string& primaryId, std::vector<PersonRecord>& outPeople) {
+    std::lock_guard<std::mutex> lock(m_dbMutex);
+    outPeople.clear();
+    if (auto records = QueryEncounterRecordsLocked(primaryId)) outPeople = std::move(*records);
 }
 
 void DatabaseManager::GetMatchOutcomes(const std::string& primaryId, std::vector<MatchOutcome>& outMatches) {
@@ -2783,26 +2791,31 @@ void DatabaseManager::AsyncRefreshDbStats(const std::string& primaryId) {
 }
 
 void DatabaseManager::AsyncGetPlayerEncounterRecord(const std::string& primaryId) {
-    if (primaryId.empty()) return;
+    if (primaryId.empty() || !m_state) return;
     std::string pid = primaryId;
+    // Not coalesced: a lookup queued after a match save must not be absorbed by
+    // an older pending lookup that would run before the save.
     (void)EnqueueDbJob([this, pid]() {
-        int winsWith = 0, lossesWith = 0, winsAgainst = 0, lossesAgainst = 0;
-        GetPlayerEncounterRecord(pid, winsWith, lossesWith, winsAgainst, lossesAgainst);
-        if (winsWith > 0 || lossesWith > 0 || winsAgainst > 0 || lossesAgainst > 0) {
-            if (m_state) {
-                std::unique_lock<std::shared_mutex> lk(m_state->game.mutex);
-                if (m_state->game.roster.count(pid)) {
-                    m_state->game.roster[pid].lifetimeWinsWith = winsWith;
-                    m_state->game.roster[pid].lifetimeLossesWith = lossesWith;
-                    m_state->game.roster[pid].lifetimeWinsAgainst = winsAgainst;
-                    m_state->game.roster[pid].lifetimeLossesAgainst = lossesAgainst;
-                    m_state->game.roster[pid].hasLifetimeData = true;
-                    m_state->game.version++;
-                }
-            }
+        std::string account;
+        {
+            std::shared_lock<std::shared_mutex> lk(m_state->game.mutex);
+            account = m_state->game.myPrimaryId;
         }
-    },
-                       DbJobPriority::Coalescable, "encounter:" + pid);
+        if (account.empty() || account == pid) return;
+        const auto record = GetPlayerEncounterRecord(account, pid);
+        if (!record) return;
+        std::unique_lock<std::shared_mutex> lk(m_state->game.mutex);
+        if (m_state->game.myPrimaryId != account) return;
+        auto it = m_state->game.roster.find(pid);
+        if (it == m_state->game.roster.end()) return;
+        auto& player = it->second;
+        player.lifetimeWinsWith = record->winsWith;
+        player.lifetimeLossesWith = record->lossesWith;
+        player.lifetimeWinsAgainst = record->winsAgainst;
+        player.lifetimeLossesAgainst = record->lossesAgainst;
+        player.hasLifetimeData = true;
+        m_state->game.version++;
+    });
 }
 
 static std::string SerializeMmrChangeJson(const std::map<std::string, int>& changes) {
@@ -4424,21 +4437,6 @@ bool DatabaseManager::GetMatchDetail(int64_t matchId, MatchDetail& outDetail, co
     }
     outDetail.accountPrimaryId = resolvedAccount;
 
-    sqlite3_stmt* metStmt = nullptr;
-    if (!resolvedAccount.empty()) {
-        const char* metSql = R"(
-            SELECT COUNT(DISTINCT mp1.match_id)
-            FROM MatchPlayers mp1
-            JOIN MatchPlayers mp2 ON mp2.match_id = mp1.match_id
-            JOIN Matches m2 ON m2.id = mp1.match_id
-            WHERE mp1.primary_id = ?1
-              AND mp2.primary_id = ?2
-              AND mp1.match_id != ?3
-              AND COALESCE(m2.result_pending, 0) = 0;
-        )";
-        sqlite3_prepare_v2(m_db, metSql, -1, &metStmt, nullptr);
-    }
-
     for (auto& p : allPlayers) {
         p.isMe = (!resolvedAccount.empty() && p.primaryId == resolvedAccount);
         if (p.isMe) {
@@ -4446,14 +4444,13 @@ bool DatabaseManager::GetMatchDetail(int64_t matchId, MatchDetail& outDetail, co
             if (p.mmr > 0) {
                 outDetail.mmrAfter = p.mmr;
             }
-        } else if (metStmt && !p.primaryId.empty() && p.primaryId.rfind("Unknown|", 0) != 0) {
-            sqlite3_reset(metStmt);
-            sqlite3_clear_bindings(metStmt);
-            sqlite3_bind_text(metStmt, 1, resolvedAccount.c_str(), -1, SQLITE_TRANSIENT);
-            sqlite3_bind_text(metStmt, 2, p.primaryId.c_str(), -1, SQLITE_TRANSIENT);
-            sqlite3_bind_int64(metStmt, 3, matchId);
-            if (sqlite3_step(metStmt) == SQLITE_ROW) {
-                p.metBeforeCount = sqlite3_column_int(metStmt, 0);
+        } else if (!resolvedAccount.empty() && !p.primaryId.empty() && p.primaryId.rfind("Unknown|", 0) != 0) {
+            if (auto records = QueryEncounterRecordsLocked(resolvedAccount, p.primaryId, matchId)) {
+                if (!records->empty()) {
+                    p.encounter = std::move(records->front());
+                } else {
+                    p.encounter = PersonRecord{.primaryId = p.primaryId, .name = p.name};
+                }
             }
         }
 
@@ -4463,7 +4460,6 @@ bool DatabaseManager::GetMatchDetail(int64_t matchId, MatchDetail& outDetail, co
             outDetail.ourTeam.push_back(std::move(p));
         }
     }
-    if (metStmt) sqlite3_finalize(metStmt);
 
     if (!resolvedAccount.empty()) {
         const std::string partitionKey = !outDetail.gamemode.empty()

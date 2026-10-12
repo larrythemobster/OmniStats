@@ -102,7 +102,10 @@ class DatabaseManager {
     void AsyncGetLifetimeMmrHistory(const std::string& primaryId, const std::string& playlist);
     void GetRecentMatchHistory(const std::string& primaryId, std::vector<SessionMatchSummary>& outMatches, int limit = kPreviousGamesDefaultLimit);
     void AsyncGetRecentMatchHistory(const std::string& primaryId, int limit = kPreviousGamesDefaultLimit);
-    void GetPlayerEncounterRecord(const std::string& primaryId, int& winsWith, int& lossesWith, int& winsAgainst, int& lossesAgainst);
+    // With/against record between the local `account` and `primaryId`; nullopt
+    // when the database cannot answer, which is distinct from zero encounters.
+    std::optional<PersonRecord> GetPlayerEncounterRecord(const std::string& account, const std::string& primaryId);
+    // Resolves the local account from session state when the job runs.
     void AsyncGetPlayerEncounterRecord(const std::string& primaryId);
     void GetPeopleRecords(const std::string& primaryId, std::vector<PersonRecord>& outPeople);
     void GetMatchOutcomes(const std::string& primaryId, std::vector<MatchOutcome>& outMatches);
@@ -181,6 +184,12 @@ class DatabaseManager {
     bool CreateTables();
     void ResolvePendingMatchLocked(sqlite3_int64 matchId, const MatchSaveSnapshot& snapshot);
     bool UpsertMatchStatsLocked(sqlite3_int64 matchId, const MatchSaveSnapshot& snapshot);
+    // Shared by the roster, People, and match detail so the screens cannot
+    // disagree. Empty `onlyPlayer` returns everyone; `excludeMatchId` > 0 leaves
+    // that match out. nullopt means the query failed.
+    std::optional<std::vector<PersonRecord>> QueryEncounterRecordsLocked(const std::string& account,
+                                                                         const std::string& onlyPlayer = {},
+                                                                         int64_t excludeMatchId = 0);
     bool HasStatsTablesLocked() const;
     bool m_hasStatsTables = false;
     bool HasSessionsTableLocked() const;

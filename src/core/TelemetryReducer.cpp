@@ -365,6 +365,17 @@ SideEffects TelemetryReducer::Reduce(const std::string& eventName, const nlohman
     return effects;
 }
 
+void TelemetryReducer::RequeueEncounterRecordsLocked(SideEffects& effects) {
+    for (auto& [pid, player] : m_state->game.roster) {
+        player.lifetimeWinsWith = 0;
+        player.lifetimeLossesWith = 0;
+        player.lifetimeWinsAgainst = 0;
+        player.lifetimeLossesAgainst = 0;
+        player.hasLifetimeData = false;
+        if (pid.rfind("Unknown|", 0) != 0) effects.fetchEncounterQueue.push_back(pid);
+    }
+}
+
 bool TelemetryReducer::IsSelf(const std::string& name) const {
     if (name.empty() || m_state->game.myPrimaryId.empty()) return false;
     for (const auto& [pid, player] : m_state->game.roster)

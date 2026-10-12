@@ -41,7 +41,8 @@ struct HistoryDetailPlayerRow {
     Rml::String mmr;
     Rml::String tier;
     Rml::String tier_color;
-    Rml::String met_before;
+    // Both relationships from other saved matches, e.g. "With 3-1 · Vs 2-0".
+    Rml::String encounter;
     Rml::String score;
     Rml::String goals;
     Rml::String assists;

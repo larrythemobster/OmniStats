@@ -474,7 +474,8 @@ void TelemetryReducer::HandleUpdateState(const nlohmann::json& data, SideEffects
                             .fetched = isBot,
                             .enqueued = true};
                         effects.fetchMmrQueue.emplace_back(pid, p["Name"].get<std::string>());
-                        effects.fetchEncounterQueue.push_back(pid);
+                        // Bot IDs are name-derived, so a shared bot name is not one person.
+                        if (!isBot) effects.fetchEncounterQueue.push_back(pid);
                     } else {
                         auto& existing = m_state->game.roster[pid];
                         existing.name = p["Name"].get<std::string>();
@@ -598,6 +599,7 @@ void TelemetryReducer::HandleUpdateState(const nlohmann::json& data, SideEffects
                         effects.lifetimeCategory = MmrCategoryToString(m_state->ui.graphMmrCategory.load());
                         effects.refreshDbStats = true;
                         effects.refreshStatsPrimaryId = newId;
+                        RequeueEncounterRecordsLocked(effects);
                         // reset missed count since we resolved identity
                         m_missedMyIdCount = 0;
                     }
@@ -663,6 +665,7 @@ void TelemetryReducer::HandleUpdateState(const nlohmann::json& data, SideEffects
                         effects.lifetimeCategory = MmrCategoryToString(m_state->ui.graphMmrCategory.load());
                         effects.refreshDbStats = true;
                         effects.refreshStatsPrimaryId = identifiedId;
+                        RequeueEncounterRecordsLocked(effects);
                     } else if (m_identityCandidates.empty()) {
                         m_identityCandidates = currentCandidates;
                     }

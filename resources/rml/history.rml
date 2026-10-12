@@ -131,7 +131,7 @@
                                         <span class="value">{{p.name}}</span>
                                         <span class="badge" data-attr-class="p.platform_class" data-if="p.platform != ''">{{p.platform}}</span>
                                     </div>
-                                    <div class="label history-sb-met">{{p.met_before}}</div>
+                                    <div class="label history-sb-met" data-if="p.encounter != ''">{{p.encounter}}</div>
                                 </div>
                                 <div class="history-sb-tier" data-style-color="p.tier_color">{{p.tier}}</div>
                                 <div class="history-sb-mmr mono">{{p.mmr}}</div>
@@ -165,7 +165,7 @@
                                         <span class="value">{{p.name}}</span>
                                         <span class="badge" data-attr-class="p.platform_class" data-if="p.platform != ''">{{p.platform}}</span>
                                     </div>
-                                    <div class="label history-sb-met">{{p.met_before}}</div>
+                                    <div class="label history-sb-met" data-if="p.encounter != ''">{{p.encounter}}</div>
                                 </div>
                                 <div class="history-sb-tier" data-style-color="p.tier_color">{{p.tier}}</div>
                                 <div class="history-sb-mmr mono">{{p.mmr}}</div>

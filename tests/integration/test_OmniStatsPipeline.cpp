@@ -328,13 +328,21 @@ TEST_F(OmniStatsPipelineTest, FullLifecycleMatchFlow) {
 
     // 8. Verify the match was successfully written to SQLite
     std::this_thread::sleep_for(std::chrono::milliseconds(500));
-    int winsWith = 0, lossesWith = 0, winsAgainst = 0, lossesAgainst = 0;
-    db->GetPlayerEncounterRecord("epic|opponent2222", winsWith, lossesWith, winsAgainst, lossesAgainst);
+    const auto record = db->GetPlayerEncounterRecord("steam|76561198000000001", "epic|opponent2222");
+    ASSERT_TRUE(record.has_value());
+    // We were team 0, the opponent team 1, and we won.
+    EXPECT_EQ(record->winsAgainst, 1);
+    EXPECT_EQ(record->lossesAgainst, 0);
+    EXPECT_EQ(record->GamesWith(), 0);
 
-    // We were team 0, opponent was team 1. We won.
-    // So we won against the opponent.
-    EXPECT_EQ(winsAgainst, 1);
-    EXPECT_EQ(lossesAgainst, 0);
+    // Finalization queues a lookup behind the save, so the live roster reflects
+    // the stored record without in-memory increments.
+    std::shared_lock<std::shared_mutex> lock(session->game.mutex);
+    const auto opponent = session->game.roster.find("epic|opponent2222");
+    ASSERT_NE(opponent, session->game.roster.end());
+    EXPECT_TRUE(opponent->second.hasLifetimeData);
+    EXPECT_EQ(opponent->second.lifetimeWinsAgainst, 1);
+    EXPECT_EQ(opponent->second.lifetimeWinsWith + opponent->second.lifetimeLossesWith, 0);
 }
 
 TEST_F(OmniStatsPipelineTest, MatchEndedFollowedByMatchDestroyedDoesNotDoubleSave) {
