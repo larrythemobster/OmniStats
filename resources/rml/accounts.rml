@@ -20,7 +20,7 @@
             </div>
 
             <div class="callout accounts-provider-banner" data-if="provider_unavailable">
-                <div class="grow">No rank source is configured. Enable Tracker rank lookup or sign in to OmniStats in Settings &#x203A; Integrations.</div>
+                <div class="grow">No rank source is configured. Enable Tracker rank lookup or sign in to OmniStats in Settings &#x203A; Services &amp; API.</div>
                 <button class="ghost compact" data-action="accounts-open-settings">Open Settings</button>
             </div>
 

@@ -314,7 +314,7 @@ void Overlay::RunLoop() {
             if (m_trayIcon && m_state->ui.customApiKeyRejected.load()) {
                 m_trayIcon->ShowNotification(
                     L"OmniStats API key rejected",
-                    L"Custom API rank lookups are paused. Enter a valid key from your account in Settings > Integrations.");
+                    L"Custom API rank lookups are paused. Enter a valid key from your account in Settings > Services & API.");
             }
         }
 

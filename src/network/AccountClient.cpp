@@ -789,7 +789,7 @@ bool AccountClient::Refresh() {
     }
 
     if (resp.statusCode == 401 || resp.statusCode == 403) {
-        MarkSignedOut("Your OmniStats session expired or this device was revoked. Sign in again in Settings > Integrations.");
+        MarkSignedOut("Your OmniStats session expired or this device was revoked. Sign in again in Settings > Services & API.");
         return finish(false);
     }
 
@@ -1068,7 +1068,7 @@ void AccountClient::SyncFromConfig() {
         }
     } else if (conf.credentials_decryption_failed && !conf.account_device_public_id.empty()) {
         m_state = AccountAuthState::Error;
-        m_errorMessage = "Saved credentials could not be decrypted on this device. Sign in again in Settings > Integrations.";
+        m_errorMessage = "Saved credentials could not be decrypted on this device. Sign in again in Settings > Services & API.";
         m_accessToken.clear();
         m_accessTokenExpiresAt = 0;
     } else if (m_state == AccountAuthState::SignedIn) {

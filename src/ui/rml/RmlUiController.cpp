@@ -606,7 +606,7 @@ void RmlUiController::RebuildVisibleUi(bool force, bool configChanged) {
         if (rejectedVersion != m_lastCustomApiKeyRejectedVersion) {
             m_lastCustomApiKeyRejectedVersion = rejectedVersion;
             if (m_state->ui.customApiKeyRejected.load()) {
-                ShowToast("Your OmniStats API key was rejected. Custom API lookups are paused until you enter a valid key in Settings > Integrations.", true);
+                ShowToast("Your OmniStats API key was rejected. Custom API lookups are paused until you enter a valid key in Settings > Services & API.", true);
                 if (m_state->ui.showMenu.load()) RebuildSettings();
             }
         }

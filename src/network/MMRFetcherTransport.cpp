@@ -274,7 +274,7 @@ MMRFetcherDetail::CustomApiBatchResult MMRFetcher::FetchBatchFromCustomApi(const
             accessToken = accountClient.AccessToken();
             deviceId = accountClient.DevicePublicId();
             if (accessToken.empty() || deviceId.empty()) {
-                accountClient.MarkSignedOut("Your OmniStats session expired or this device was revoked. Sign in again in Settings > Integrations.");
+                accountClient.MarkSignedOut("Your OmniStats session expired or this device was revoked. Sign in again in Settings > Services & API.");
                 result.httpResult = CustomApiFetchResult::AuthFailure;
                 return result;
             }
@@ -283,7 +283,7 @@ MMRFetcherDetail::CustomApiBatchResult MMRFetcher::FetchBatchFromCustomApi(const
                 return result;
             }
             if (res == 0 && httpCode == 401) {
-                accountClient.MarkSignedOut("Your OmniStats session expired or this device was revoked. Sign in again in Settings > Integrations.");
+                accountClient.MarkSignedOut("Your OmniStats session expired or this device was revoked. Sign in again in Settings > Services & API.");
                 std::cout << "[MMRFetcher] Custom API rejected refreshed device token (HTTP 401). Signed out.\n";
                 result.httpResult = CustomApiFetchResult::AuthFailure;
                 return result;
@@ -388,7 +388,7 @@ void MMRFetcher::ProcessCustomApiBatch(const AssembledBatch& batch) {
                 if (!requeued) FinishRequest(req);
             } else {
                 PublishFetchFailure(req, TrackedAccountFetchStatus::AuthRequired,
-                                    "The rank API rejected the request. Sign in again or check the API key in Settings > Integrations.");
+                                    "The rank API rejected the request. Sign in again or check the API key in Settings > Services & API.");
                 FinishRequest(req);
             }
         }
@@ -511,7 +511,7 @@ bool MMRFetcher::FetchProfile(MMRRequest req) {
             m_useCustomApiFallback.store(false);
             if (req.reason == MMRRequestReason::TrackedAccount && !config.enable_mmr_tracking) {
                 PublishFetchFailure(req, TrackedAccountFetchStatus::AuthRequired,
-                                    "The rank API rejected the request. Sign in again or check the API key in Settings > Integrations.");
+                                    "The rank API rejected the request. Sign in again or check the API key in Settings > Services & API.");
                 return false;
             }
         } else if (!config.enable_mmr_tracking || !signedInPrimary) {
