@@ -20,6 +20,7 @@ TEST(RmlUiLayoutState, DefaultDashboardContainsEveryWidgetExactlyOnce) {
 
 TEST(RmlUiLayoutState, OverlaySanitizeRemovesDuplicateWidgetsAndEmptyContainers) {
     OverlayLayout::LayoutConfig layout;
+    layout.version = OverlayLayout::kCurrentLayoutVersion;
     layout.containers = {
         {.id = "one", .x = 10.0f, .y = 10.0f, .widgets = {DashboardLayout::WidgetId::LiveRoster, DashboardLayout::WidgetId::SessionStats}},
         {.id = "two", .x = 20.0f, .y = 20.0f, .widgets = {DashboardLayout::WidgetId::LiveRoster}},
@@ -47,6 +48,31 @@ TEST(RmlUiLayoutState, OverlaySanitizeV3ResetsLobbyRanksDimensions) {
     EXPECT_EQ(layout.containers[0].h, 0.0f);
     EXPECT_EQ(layout.containers[1].w, 300.0f);
     EXPECT_EQ(layout.containers[1].h, 200.0f);
+}
+
+TEST(RmlUiLayoutState, OverlaySanitizeV5DocksRankProgressUnderTheRosterOnce) {
+    using DashboardLayout::WidgetId;
+    OverlayLayout::LayoutConfig layout;
+    layout.version = 4;
+    layout.containers = {
+        {.id = "games", .widgets = {WidgetId::PreviousGames}},
+        {.id = "stack", .widgets = {WidgetId::LiveRoster, WidgetId::LiveMatchStats}}};
+
+    OverlayLayout::Sanitize(layout);
+    EXPECT_EQ(layout.version, OverlayLayout::kCurrentLayoutVersion);
+    EXPECT_EQ(layout.containers[0].widgets, (std::vector<WidgetId>{WidgetId::PreviousGames}));
+    EXPECT_EQ(layout.containers[1].widgets, (std::vector<WidgetId>{WidgetId::LiveRoster, WidgetId::RankProgress, WidgetId::LiveMatchStats}));
+
+    // A current layout without the widget means the user removed it.
+    layout.containers[1].widgets = {WidgetId::LiveRoster};
+    OverlayLayout::Sanitize(layout);
+    EXPECT_EQ(layout.containers[1].widgets, (std::vector<WidgetId>{WidgetId::LiveRoster}));
+
+    // An older layout that already placed it elsewhere keeps that placement.
+    layout.version = 4;
+    layout.containers[0].widgets = {WidgetId::PreviousGames, WidgetId::RankProgress};
+    OverlayLayout::Sanitize(layout);
+    EXPECT_EQ(layout.containers[1].widgets, (std::vector<WidgetId>{WidgetId::LiveRoster}));
 }
 
 TEST(RmlUiLayoutState, DashboardSanitizeRestoresMissingWidgetsAndBoundsColumnWeight) {

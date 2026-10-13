@@ -72,7 +72,7 @@ std::string RmlUiController::RenderSettingsCards() {
         << ToggleControl("show_lobby_ranks_overlay", "Lobby ranks", "", m_config.show_lobby_ranks_overlay)
         << ToggleControl("show_account_wins_overlay", "Account wins", "", m_config.show_account_wins_overlay)
         << ToggleControl("show_demo_tracker_overlay", "Demolition tracker", "", m_config.show_demo_tracker_overlay)
-        << ToggleControl("show_rank_progress", "Rank progress", "Shows below the overlay roster and MMR graph, or as its own card on the dashboard.", m_config.show_rank_progress)
+        << ToggleControl("show_rank_progress", "Rank progress", "The Rank Progress widget on the overlay and dashboard.", m_config.show_rank_progress)
         << ToggleControl("show_previous_games_summary", "Previous games", "", m_config.show_previous_games_summary)
         << ToggleControl("show_streaks_stats", "Streaks & stats", "", m_config.show_streaks_stats)
         << ToggleControl("show_gamemode_breakdown", "Gamemode breakdown", "", m_config.show_gamemode_breakdown)

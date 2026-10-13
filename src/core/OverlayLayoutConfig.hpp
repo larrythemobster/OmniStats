@@ -13,7 +13,7 @@ namespace OverlayLayout {
     inline constexpr int kMinVisibilitySeconds = 1;
     inline constexpr int kMaxVisibilitySeconds = 30;
     inline constexpr int kDefaultVisibilitySeconds = 8;
-    inline constexpr int kCurrentLayoutVersion = 4;
+    inline constexpr int kCurrentLayoutVersion = 5;
 
     struct ContainerConfig {
         struct Visibility {

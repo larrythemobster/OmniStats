@@ -1104,27 +1104,7 @@ void RmlUiController::RefreshLiveUi(bool force, bool allowStructural) {
             m_lastLiveMatchHadOwnGoalsRow = hasOwnGoals;
         }
 
-        // The graph's rank progression reads the local player's fetched rating
-        // and division, which arrive with game.version rather than history.
-        bool graphRankChanged = false;
-        if (gameChanged || graphCategoryChanged || m_liveDomNeedsPrime) {
-            uint64_t rankHash = kFnvOffset;
-            const std::string graphPlaylist = MmrCategoryToString(graphCategory);
-            if (auto self = m_snap.roster.find(m_snap.myPrimaryId); self != m_snap.roster.end()) {
-                if (auto it = self->second.playlists.find(graphPlaylist); it != self->second.playlists.end())
-                    HashAppend(rankHash, static_cast<uint64_t>(static_cast<int64_t>(it->second)));
-                if (auto it = self->second.playlistTiers.find(graphPlaylist); it != self->second.playlistTiers.end())
-                    HashAppend(rankHash, it->second);
-            }
-            if (m_liveDomNeedsPrime || !m_hasGraphRankHash) {
-                m_lastGraphRankHash = rankHash;
-                m_hasGraphRankHash = true;
-            } else if (m_lastGraphRankHash != rankHash) {
-                m_lastGraphRankHash = rankHash;
-                graphRankChanged = true;
-            }
-        }
-        if (historyChanged || graphCategoryChanged || graphOffsetChanged || lifetimeGraphChanged || graphRankChanged)
+        if (historyChanged || graphCategoryChanged || graphOffsetChanged || lifetimeGraphChanged)
             refreshWidget(DashboardLayout::WidgetId::MmrGraph);
         if (historyChanged) refreshWidget(DashboardLayout::WidgetId::PreviousGames);
         if (dbChanged) refreshWidget(DashboardLayout::WidgetId::StreaksStats);
@@ -1155,7 +1135,7 @@ void RmlUiController::RefreshLiveUi(bool force, bool allowStructural) {
         const bool sessionViewVisible = m_state->ui.showSessionView.load(std::memory_order_relaxed);
         const bool sessionGraphVisible = m_state->ui.showGraphView.load(std::memory_order_relaxed);
         const bool sessionViewStructureChanged = graphCategoryChanged ||
-                                                 (sessionGraphVisible && (historyChanged || graphOffsetChanged || lifetimeGraphChanged || graphRankChanged));
+                                                 (sessionGraphVisible && (historyChanged || graphOffsetChanged || lifetimeGraphChanged));
         if (sessionViewVisible && (m_liveDomNeedsPrime || sessionViewStructureChanged)) {
             if (auto* overlayRoot = Root("overlay-root")) {
                 Rml::ElementList specials;

@@ -69,7 +69,7 @@ std::string RmlUiController::RenderGraphPanControls() const {
     return out.str();
 }
 
-std::string RmlUiController::RenderMmrGraph(bool showCategoryBadge, bool showRankProgress, bool showPanControls) {
+std::string RmlUiController::RenderMmrGraph(bool showCategoryBadge, bool showPanControls) {
     const auto category = m_state ? m_state->ui.graphMmrCategory.load() : MmrCategory::TwoVTwo;
     const std::string playlist = MmrCategoryToString(category);
     std::vector<float> series;
@@ -93,18 +93,7 @@ std::string RmlUiController::RenderMmrGraph(bool showCategoryBadge, bool showRan
     const int firstIndex = std::max(0, total - kVisibleGraphMatches - offset);
     const int windowCount = std::min(kVisibleGraphMatches, total - firstIndex);
 
-    // Progression follows the latest rating even while older matches are panned
-    // into view. Before a graph point exists, the fetched lobby rating stands in.
     const auto rankTable = MMRFetcher::RankThresholdsForPlaylist(playlist);
-    const PlayerData* self = nullptr;
-    if (!m_snap.myPrimaryId.empty()) {
-        if (auto it = m_snap.roster.find(m_snap.myPrimaryId); it != m_snap.roster.end()) self = &it->second;
-    }
-    int currentMmr = series.empty() ? 0 : static_cast<int>(std::lround(series.back()));
-    if (currentMmr <= 0 && self) {
-        if (auto it = self->playlists.find(playlist); it != self->playlists.end()) currentMmr = it->second;
-    }
-    const std::string rankProgress = showRankProgress ? RenderRankProgress(RankProgressFor(self, playlist, currentMmr)) : std::string{};
 
     std::vector<float> values;
     std::vector<bool> estimated;
@@ -126,7 +115,6 @@ std::string RmlUiController::RenderMmrGraph(bool showCategoryBadge, bool showRan
         if (showCategoryBadge) header << "<span class='badge'>" << Escape(MmrLabel(category)) << "</span>";
         header << "<div class='grow'></div>" << pan << "</div>";
     }
-    header << rankProgress;
 
     if (values.empty()) {
         std::ostringstream empty;

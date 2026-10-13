@@ -216,13 +216,15 @@ class RmlUiController final : public Rml::EventListener {
     std::string RenderSessionStats(bool compact = false, bool includeStreak = true);
     std::string RenderStreaksStats();
     std::string RenderGamemodeBreakdown(GamemodeBreakdownScope scope);
-    std::string RenderMmrGraph(bool showCategoryBadge, bool showRankProgress, bool showPanControls);
+    std::string RenderMmrGraph(bool showCategoryBadge, bool showPanControls);
     // Visible-range label and pan buttons; empty while every match fits.
     std::string RenderGraphPanControls() const;
     // Progress for `mmr` in `playlist`; the player's fetched division is used
     // only when it was reported for that same rating.
     RankProgress::Progress RankProgressFor(const PlayerData* player, const std::string& playlist, int mmr) const;
     std::string RenderRankProgress(const RankProgress::Progress& progress) const;
+    // Rank Progress widget for the roster playlist: the bare bar on the overlay,
+    // or with a playlist badge and an empty-state line when `card`.
     std::string RenderSelfRankProgress(bool card) const;
     std::string RenderDemoTracker();
     std::string RenderPreviousGames(bool includeHeading = true);
@@ -232,6 +234,8 @@ class RmlUiController final : public Rml::EventListener {
     std::string FloatingCardClass() const;
     std::string FloatingCardStyle(float x, float y, float widthDp) const;
     std::string RenderOverlayContainer(const OverlayLayout::ContainerConfig& container, bool editMode);
+    // Overlay key hints (cycle / expand / session) that close the roster block.
+    std::string RenderRosterFooter() const;
     std::string RenderOverlayContainerVisibilityControls(const OverlayLayout::ContainerConfig& container) const;
     std::string RenderOverlayToolbox(bool editMode);
 
@@ -407,8 +411,6 @@ class RmlUiController final : public Rml::EventListener {
     uint64_t m_lastRosterStructureHash = 0;
     bool m_hasRosterStructureHash = false;
     uint64_t m_lastRenderedNotesVersion = 0;
-    uint64_t m_lastGraphRankHash = 0;
-    bool m_hasGraphRankHash = false;
     bool m_lastLiveMatchHadDemoedRow = false;
     bool m_lastLiveMatchHadOwnGoalsRow = false;
     std::string m_lastSessionViewRml;

@@ -167,7 +167,7 @@ namespace OverlayLayout {
             config.containers.push_back(c);
         }
 
-        // 4. Main H2H Stack (Live Roster, Live Match Stats, Gamemode Breakdown) (docked)
+        // 4. Main H2H Stack (Live Roster, Rank Progress, Live Match Stats, Gamemode Breakdown) (docked)
         {
             ContainerConfig c;
             c.id = "main_stack";
@@ -177,6 +177,7 @@ namespace OverlayLayout {
             c.h = 759.0f;
             c.widgets = {
                 DashboardLayout::WidgetId::LiveRoster,
+                DashboardLayout::WidgetId::RankProgress,
                 DashboardLayout::WidgetId::LiveMatchStats,
                 DashboardLayout::WidgetId::GamemodeBreakdown};
             config.containers.push_back(c);
@@ -236,8 +237,25 @@ namespace OverlayLayout {
 
         // Version 4 adds per-container visibility rules. Existing layouts keep
         // their deserialized visibility (KeyHeld when absent in older configs).
-        if (layout.version < kCurrentLayoutVersion) {
-            layout.version = kCurrentLayoutVersion;
+        if (layout.version < 4) layout.version = 4;
+
+        // Version 5 moves rank progress out of the roster card into its own
+        // widget, placed directly below the roster so existing layouts look the same.
+        if (layout.version < 5) {
+            const auto hasWidget = [](const ContainerConfig& c, DashboardLayout::WidgetId id) {
+                return std::find(c.widgets.begin(), c.widgets.end(), id) != c.widgets.end();
+            };
+            const bool placed = std::any_of(layout.containers.begin(), layout.containers.end(),
+                                            [&](const ContainerConfig& c) { return hasWidget(c, DashboardLayout::WidgetId::RankProgress); });
+            if (!placed) {
+                for (auto& container : layout.containers) {
+                    auto roster = std::find(container.widgets.begin(), container.widgets.end(), DashboardLayout::WidgetId::LiveRoster);
+                    if (roster == container.widgets.end()) continue;
+                    container.widgets.insert(roster + 1, DashboardLayout::WidgetId::RankProgress);
+                    break;
+                }
+            }
+            layout.version = 5;
         }
 
         // Ensure we don't have duplicate widgets across multiple containers

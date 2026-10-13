@@ -164,7 +164,7 @@ std::string RmlUiController::RenderSessionView() {
                                                  : "SESSION · ")
         << Escape(MmrLabel(category)) << "</div>" << (graph ? RenderGraphPanControls() : std::string{})
         << "<span class='badge'>F7 view · F6 playlist</span></div>";
-    out << (graph ? RenderMmrGraph(false, m_config.show_rank_progress, false) : RenderSessionStats(true, true));
+    out << (graph ? RenderMmrGraph(false, false) : RenderSessionStats(true, true));
     out << "</div>";
     return out.str();
 }

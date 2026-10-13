@@ -68,14 +68,6 @@ std::string RmlUiController::RenderWidget(DashboardLayout::WidgetId id, bool das
                  << "<div class='label'>{{roster_arena}}</div></div>";
         }
         html << RenderPlayerRoster(0, "BLUE") << RenderPlayerRoster(1, "ORANGE");
-        // The dashboard shows progress as its own card instead.
-        if (!dashboard && m_config.show_rank_progress) html << RenderSelfRankProgress(false);
-        if (!dashboard) {
-            const std::string cycle = m_config.key_cycle > 0 ? GetKeyDisplayName(m_config.key_cycle) : "Unbound";
-            const std::string expand = m_config.key_expand > 0 ? GetKeyDisplayName(m_config.key_expand) : "Unbound";
-            const std::string session = m_config.key_session > 0 ? GetKeyDisplayName(m_config.key_session) : "Unbound";
-            html << "<div class='roster-footer'><span><b>" << Escape(cycle) << "</b> cycle MMR</span><span><b>" << Escape(expand) << "</b> " << (m_state && m_state->ui.h2hExpanded.load() ? "shrink" : "expand") << "</span><span><b>" << Escape(session) << "</b> session</span></div>";
-        }
         return html.str();
     }
     case DashboardLayout::WidgetId::LiveMatchStats:
@@ -91,7 +83,7 @@ std::string RmlUiController::RenderWidget(DashboardLayout::WidgetId id, bool das
                                                   RenderGraphPanControls());
         }
         // On the dashboard the controls row names the playlist and holds the pan buttons.
-        return controls + RenderMmrGraph(!dashboard, !dashboard && m_config.show_rank_progress, !dashboard);
+        return controls + RenderMmrGraph(!dashboard, !dashboard);
     }
     case DashboardLayout::WidgetId::StreaksStats:
         return RenderStreaksStats();
@@ -109,7 +101,8 @@ std::string RmlUiController::RenderWidget(DashboardLayout::WidgetId id, bool das
     case DashboardLayout::WidgetId::PreviousGames:
         return RenderPreviousGames(!dashboard);
     case DashboardLayout::WidgetId::RankProgress:
-        return RenderSelfRankProgress(true);
+        // The overlay keeps the bare bar so it reads as part of the card it is docked to.
+        return RenderSelfRankProgress(dashboard);
     }
     return {};
 }
@@ -284,15 +277,29 @@ std::string RmlUiController::RenderOverlayContainer(const OverlayLayout::Contain
                 << "<div class='card-subtitle grow'>" << Escape(DashboardLayout::GetWidgetDisplayName(widget)) << "</div>"
                 << "<button class='widget-close' data-action='overlay-remove-widget' data-container='" << Escape(container.id)
                 << "' data-widget='" << WidgetDomId(widget) << "'>×</button></div>";
-        } else if (widgets.size() > 1 && widget != DashboardLayout::WidgetId::PreviousGames) {
+        } else if (widgets.size() > 1 && widget != DashboardLayout::WidgetId::PreviousGames && widget != DashboardLayout::WidgetId::RankProgress) {
             out << "<div class='overlay-widget-title' style='margin-top:" << (i ? 8 : 2) << "dp'>" << Escape(DashboardLayout::GetWidgetDisplayName(widget)) << "</div>";
         }
         out << "<div class='live-widget' data-live-widget='" << WidgetDomId(widget)
             << "' data-live-surface='overlay'>" << RenderWidget(widget, false) << "</div>";
+        // The roster's key hints close the roster block, below a progress bar docked under it.
+        const bool rosterThenProgress = widget == DashboardLayout::WidgetId::LiveRoster && i + 1 < widgets.size() &&
+                                        widgets[i + 1] == DashboardLayout::WidgetId::RankProgress;
+        const bool progressAfterRoster =
+            widget == DashboardLayout::WidgetId::RankProgress && i > 0 && widgets[i - 1] == DashboardLayout::WidgetId::LiveRoster;
+        if ((widget == DashboardLayout::WidgetId::LiveRoster && !rosterThenProgress) || progressAfterRoster) out << RenderRosterFooter();
     }
     if (editMode) out << "<div class='overlay-resize' data-action='overlay-resize' data-container='" << Escape(container.id) << "'></div>";
     out << "</div>";
     return out.str();
+}
+
+std::string RmlUiController::RenderRosterFooter() const {
+    const std::string cycle = m_config.key_cycle > 0 ? GetKeyDisplayName(m_config.key_cycle) : "Unbound";
+    const std::string expand = m_config.key_expand > 0 ? GetKeyDisplayName(m_config.key_expand) : "Unbound";
+    const std::string session = m_config.key_session > 0 ? GetKeyDisplayName(m_config.key_session) : "Unbound";
+    return "<div class='roster-footer'><span><b>" + Escape(cycle) + "</b> cycle MMR</span><span><b>" + Escape(expand) + "</b> " +
+           (m_state && m_state->ui.h2hExpanded.load() ? "shrink" : "expand") + "</span><span><b>" + Escape(session) + "</b> session</span></div>";
 }
 
 std::string RmlUiController::RenderOverlayToolbox(bool editMode) {
