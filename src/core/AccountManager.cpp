@@ -332,6 +332,10 @@ size_t AccountManagerService::RefreshStale() {
     return queued;
 }
 
+void AccountManagerService::QueueStartupRefresh() {
+    m_worker.Enqueue([this]() { RefreshStale(); }, true);
+}
+
 std::vector<AccountManagerService::ImportCandidate> AccountManagerService::ImportCandidates() const {
     const ConfigData config = Config::Read();
     std::vector<std::string> ids = config.known_primary_ids;
@@ -412,7 +416,6 @@ void AccountManagerService::ObserveLocked(const std::string& primaryId, const st
         m_seenThisRun.insert(identity->primaryId);
         std::cout << "[Accounts] Registered local account "
                   << PrivacyLog::Sensitive(identity->primaryId, "player ID") << ".\n";
-        if (AccountView* added = FindLocked(identity->primaryId)) RefreshLocked(*added, now, false);
         return;
     }
 

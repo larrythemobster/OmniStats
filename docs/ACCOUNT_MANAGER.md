@@ -48,7 +48,7 @@ Display names, Steam vanity URLs and Tracker links for Epic or consoles are reje
 
 `AccountManagerService::ObserveLocalAccount` then:
 
-- registers an unknown identity with `discovery_source = auto` and queues a refresh,
+- registers an unknown identity with `discovery_source = auto` without fetching it (it shows "Never fetched" until Refresh All or the next launch),
 - updates `last_known_name` when the name changed,
 - stamps `last_seen_at` once per app run.
 
@@ -64,7 +64,7 @@ Tracked refreshes go through the existing `MMRFetcher` queue as `MMRRequestReaso
 
 ```mermaid
 stateDiagram-v2
-    [*] --> Queued: Refresh / Refresh All / view opened (stale)
+    [*] --> Queued: Refresh / Refresh All / Add / Import / app start (stale)
     Queued --> Fetching: worker dequeues
     Fetching --> Queued: transient failure, retry scheduled
     Fetching --> RateLimited: 429 or Tracker 403, retry scheduled
@@ -90,7 +90,7 @@ Service rules (`src/core/AccountManager.*`):
 - A success upserts only the playlists the provider reported. Other playlists keep their saved values.
 - A failure keeps every saved value and stamps only `last_refresh_attempt_at`.
 - Manual refreshes have a 60 second cooldown per account. Refresh All applies the same cooldown.
-- Opening the view queues accounts with no success in 30 minutes whose last attempt is over 5 minutes old. There is no timer or polling loop.
+- Accounts are fetched only on Refresh, Refresh All, Add, Import, and once per app launch. At launch, `QueueStartupRefresh` queues accounts with no success in 30 minutes whose last attempt is over 5 minutes old. Opening the view and discovering an account during a match fetch nothing. There is no timer or polling loop.
 - All SQLite work runs on the service worker thread. UI calls only touch memory.
 
 ## Provider requirements

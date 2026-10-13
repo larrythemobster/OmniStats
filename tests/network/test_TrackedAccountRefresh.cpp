@@ -658,6 +658,30 @@ TEST_F(TrackedAccountRefreshTest, ManualRefreshCooldownAndStaleRefresh) {
     EXPECT_EQ(service->Refresh(kSteam), AccountManagerService::RefreshRequest::Queued);
 }
 
+TEST_F(TrackedAccountRefreshTest, OnlyLaunchQueuesStaleAccountsAndDiscoveryDoesNotFetch) {
+    RegisterInDb(kEpic);
+    RegisterInDb(kSteam);
+    ASSERT_TRUE(db->SaveTrackedAccountRanks(kSteam, {TrackedAccounts::PlaylistRank{"2v2", 1500, "", std::nullopt, "OmniStats API", 0}}, 1'800'000'000));
+    StartService(1'800'000'100);
+    EXPECT_EQ(fetcher->PendingRequestCountForTests(), 0u);
+
+    service->QueueStartupRefresh();
+    service->FlushForTests();
+    EXPECT_EQ(fetcher->PendingRequestCountForTests(), 1u);
+    const auto launched = service->GetSnapshot();
+    const auto* queued = FindView(launched, kEpic);
+    ASSERT_NE(queued, nullptr);
+    EXPECT_EQ(queued->refreshState, AccountManagerService::RefreshState::Queued);
+
+    service->ObserveLocalAccount(kEpicOther + "|0", "New Alt");
+    service->FlushForTests();
+    EXPECT_EQ(fetcher->PendingRequestCountForTests(), 1u);
+    const auto snapshot = service->GetSnapshot();
+    const auto* discovered = FindView(snapshot, kEpicOther);
+    ASSERT_NE(discovered, nullptr);
+    EXPECT_EQ(discovered->refreshState, AccountManagerService::RefreshState::Idle);
+}
+
 TEST_F(TrackedAccountRefreshTest, RemovingDuringInFlightRefreshDoesNotRecreateAccount) {
     StartService();
     const auto added = service->AddManual(TrackedAccounts::Platform::Epic, "0123456789ABCDEF0123456789ABCDEF", "Alt");

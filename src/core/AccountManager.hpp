@@ -98,6 +98,8 @@ class AccountManagerService {
     RefreshRequest Refresh(const std::string& primaryId);
     size_t RefreshAll();
     size_t RefreshStale();
+    // Runs RefreshStale on the worker after Start's initial load.
+    void QueueStartupRefresh();
 
     std::vector<ImportCandidate> ImportCandidates() const;
     size_t ImportKnown();

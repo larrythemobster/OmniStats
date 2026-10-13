@@ -269,6 +269,7 @@ int main(int argc, char* argv[]) {
     mmrFetcher->Start();
     auto accountManager = std::make_shared<AccountManagerService>(dbManager, mmrFetcher);
     accountManager->Start();
+    accountManager->QueueStartupRefresh();
     StatsClient statsClient(g_state, mmrFetcher, dbManager);
     statsClient.SetAccountManager(accountManager);
     statsClient.Start();

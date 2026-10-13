@@ -170,9 +170,6 @@ void RmlUiController::ShowAccounts() {
     if (!m_accountsVisible) {
         m_accountsDoc->Show();
         m_accountsVisible = true;
-        if (m_accountsService) {
-            m_accountsService->RefreshStale();
-        }
     }
     m_accountsDoc->PullToFront();
     if (m_onboardingVisible && m_onboardingDoc) m_onboardingDoc->PullToFront();
