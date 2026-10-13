@@ -1,61 +1,38 @@
 # Privacy
 
-OmniStats is a local Windows companion. It reads Rocket League telemetry from the loopback Stats API and stores configuration and history under `%APPDATA%\omnistats`.
-
-## Required startup diagnostics
-
-After the user accepts the Privacy Policy and Terms of Use, OmniStats sends one startup diagnostic request to `api.omnistats.org/api/v1/telemetry`. The request contains the app version, a persistent pseudonymous installation ID, and the enabled/disabled status of Ballchasing uploads, Discord Rich Presence, and automatic updates, plus the always-enabled update-check status. Match data and player names are not included.
-
-The startup diagnostic is required to use OmniStats and cannot be disabled in Settings. Users who do not agree can exit from the privacy notice before the application starts.
+OmniStats is a local-first Windows companion application for Rocket League. Telemetry is read from Rocket League's local loopback socket, and match history remains stored on your computer in `%APPDATA%\omnistats`.
 
 ## Network data flows
 
-| Feature | Destination and fields | Default |
-| --- | --- | --- |
-| OmniStats account sign-in and rank lookup | Signing in sends the device public key, derived device ID, computer name, `windows` platform string, and app version to `api.omnistats.org/v1/auth/device/*`, then opens the approval page in the default browser. When enabled, rank lookups coalesce up to 16 lobby player platform and account IDs per request to `api.omnistats.org/v1/ranks` using device bearer token and device ID or configured API key. | Off until signed in |
-| Tracker rank lookup | Tracker Network receives the lobby player's public name and platform identifier needed to request public Rocket League rank information. | Off |
-| Discord Rich Presence | Match/session presence is sent to the user's local Discord client. | Off |
-| Ballchasing replay upload | Selected replay files are uploaded to ballchasing.com using the user's token. | Off |
-| Crash reports | A pending Windows minidump, app version, and pseudonymous installation ID are uploaded to `api.omnistats.org/api/v1/crash`. Minidumps may contain sensitive process memory. | Off |
-| Update checks | Version metadata is requested from `omnistats.org` at startup, periodically while OmniStats is running, and when Settings is opened. Release files are only downloaded when an update is installed and are checked against published SHA-256 values. | Always on |
-| Service announcements | `api.omnistats.org/api/v1/client/config` is requested after privacy acceptance and about every 15 minutes with only the app version. It returns service announcements and the minimum recommended version, which shows an update reminder on older versions. The last response is cached in `%APPDATA%\omnistats\remote_config_cache.json`, and dismissed announcements in `remote_config_dismissed.json`. | Always on |
-| Player profile links | The user's default browser opens the selected public profile page. | User action |
+| Feature | Destination | Transmitted data | Default |
+|---|---|---|---|
+| **Startup diagnostics** | `api.omnistats.org` | App version, pseudonymous installation ID, and integration toggle states. No match data or player names. | Required (startup) |
+| **Update checks** | `omnistats.org` | App version. Receives version metadata and announcements. Binaries verified via SHA-256 before staging. | Always on |
+| **OmniStats rank lookup** | `api.omnistats.org` | Up to 16 player platform and account IDs per batch, authenticated with Ed25519 device signatures. | Opt-in |
+| **Tracker rank lookup** | Tracker Network | Lobby player public display names and platform identifiers. | Opt-in |
+| **Replay uploads** | `ballchasing.com` | Rocket League `.replay` files containing match participant identities and gameplay data. | Opt-in |
+| **Crash reports** | `api.omnistats.org` | Windows minidump, app version, and installation ID. May contain process memory. | Opt-in |
+| **Discord Rich Presence** | Discord (Local IPC) | Current match score and playlist status sent to the local Discord client. | Opt-in |
 
-The installation ID is persistent and pseudonymous, not anonymous. It is created during startup after privacy acceptance and is stored in local configuration/database state.
+The installation ID is a persistent pseudonymous identifier used to correlate diagnostic pings. It is not linked to personal accounts.
 
-Tracker Network, Discord, Ballchasing, GitHub, and other third-party services apply their own privacy practices to requests sent to them. The Tracker integration may stop working if its service or access requirements change.
+## Local data storage
 
-## Locally stored match data
+All match and user data is stored locally in `%APPDATA%\omnistats\omnistats.db` (SQLite 3 in WAL mode):
 
-OmniStats stores match and session history on your PC in `%APPDATA%\omnistats\omnistats.db` (`Matches`, `MatchPlayers`, `MatchPlayerStats`, `MatchLocalStats`, `Sessions`, `ReplayUploads`, and `PlayerNotes`). The legacy `matches.jsonl` journal is no longer written:
+- **Match history:** Timestamps, arenas, scores, match outcomes, player platform IDs, names, MMR, and scoreboard statistics.
+- **Player notes:** Private scouting notes keyed by normalized platform account identity.
+- **Tracked accounts:** Curated list of local and alt accounts with nicknames and cached playlist ranks.
+- **Replay queue:** Local replay paths, upload status, and Ballchasing URLs.
+- **Configuration:** Stored in `config.json`. Account signing keys and tokens are encrypted using Windows DPAPI (`CryptProtectData`).
 
-- `Matches` stores the timestamp, arena, team scores, win/loss outcome, match GUID, playlist ID, gamemode, player count, and linked session ID.
-- `MatchPlayers` stores each participant's platform primary ID, display name, team number, opponent flag, and MMR at match time.
-- `MatchPlayerStats` stores each participant's scoreboard score, goals, assists, saves, shots, demolitions, ball touches, car touches, max goal speed, and fastest goal time.
-- `MatchLocalStats` stores the local player's boost collected, times demolished, crossbars hit, hardest crossbar impact, max ball speed, own goals, match duration, overtime duration, and stats schema version.
-- `Sessions` stores the local account ID, start and end timestamps, win/loss counts, per-playlist MMR change JSON, session totals JSON, and whether the row came from a live reset or historical backfill.
-- `ReplayUploads` stores local replay file paths, file names, associated match GUIDs, upload queue states (pending, uploading, done, duplicate, failed, skipped), retry attempt counts and scheduling, last HTTP status and errors, and Ballchasing replay IDs and URLs.
-- `PlayerNotes` stores notes you write about other players: the player's platform, platform account ID, splitscreen slot, the note text (up to 2,000 characters), the display name they used when you last saved the note, and created/updated timestamps.
+OmniStats does not upload your local database. Settings provides controls to export data (`%APPDATA%\omnistats\exports`), merge external databases, or delete history.
 
-These tables remain on your machine and are never uploaded by OmniStats. **Export Local Data** writes them to `%APPDATA%\omnistats\exports` (notes go to `player_notes.json`), and **Delete History & Identity** clears match and player records along with any legacy JSONL files. Player notes are not match history, so that button leaves them alone; delete a note from its editor.
+## Diagnostic logs and support bundles
 
-## Local controls
+- **Local logs:** Rotated on application startup. Up to 5 historical sessions (`omnistats_log.1.txt` through `omnistats_log.5.txt`) are retained. Player IDs, tokens, and credentials are redacted by default.
+- **Support bundles:** Created only upon explicit user request via **Settings > Troubleshooting**. Bundles contain sanitized logs, configuration with secrets stripped, database row counts (no player data), and system environment details. Bundles are never transmitted automatically.
 
-In Settings, **Integrations** controls OmniStats account sign-in, the OmniStats rank API toggle, and optional third-party services. Signing in generates an Ed25519 device keypair and stores the private key and rotating refresh token in `config.json` encrypted with Windows DPAPI `CryptProtectData` (machine-scoped with user fallback to support local user account migration), alongside the signed-in display name and derived device public ID. Signing out revokes the device session and clears the stored refresh token and display name. **Data** contains crash report sharing, history exports, and **Delete History & Identity**. Deletion requires confirmation and keeps settings and tokens. Ballchasing tokens are hidden unless **Show** is selected.
+## Contact
 
-Deleting `%APPDATA%\omnistats` while OmniStats is closed removes local configuration, history, logs, crash dumps, and the installation ID. Back up anything you want to keep first.
-## Local logs and support bundles
-
-OmniStats rotates local logs on launch and keeps up to 5 previous sessions (`omnistats_log.1.txt` through `omnistats_log.5.txt`). Older logs are deleted automatically.
-
-In Settings, **Troubleshooting** provides **Create support bundle** and **Copy diagnostics summary**. A support bundle is created only on explicit user action and is never uploaded automatically. The bundle archives:
-- Current and rotated application logs with sensitive secrets, authorization tokens, and the installation ID redacted.
-- A sanitized copy of `config.json` with all credentials, API keys, tokens, device keys, and the installation ID removed.
-- Database statistics (schema version and row counts per table only, with no player names or identifiers).
-- The application version, Windows build, Rocket League Stats API connection status, and service announcement metadata.
-- A plain-text diagnostics summary that matches the clipboard export.
-
-
-Normal HTTPS infrastructure may process the connecting IP address. Current retention details and the contact method for privacy requests are published at <https://omnistats.org/privacy>.
-
-Treat configuration, replay tokens, history, logs, and minidumps as private. Redact them before sharing diagnostics.
+For privacy questions or data deletion requests regarding optional accounts, visit the [OmniStats Discord](https://discord.gg/4KBW35ApvF) or see [https://omnistats.org/privacy](https://omnistats.org/privacy).

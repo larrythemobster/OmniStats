@@ -1,97 +1,71 @@
 # Architecture
 
-OmniStats is a native Windows companion application. It does not inject into Rocket League. The main process reads the local Stats API, reduces incoming events into a synchronized session model, stores selected history locally, and presents the overlay/dashboard through a native Win32 + DirectX 11 + RmlUi stack.
+OmniStats is a native Windows desktop companion for Rocket League. It connects to the game's loopback Stats API over TCP, reduces events into a synchronized session state, persists match and player history to SQLite, and renders an overlay and dashboard using DirectX 11 and RmlUi. It does not inject DLLs into or read memory from Rocket League.
 
-## Runtime flow
+```mermaid
+flowchart LR
+    RL[Rocket League] -->|TCP:49123| TP[TelemetryParser]
+    TP --> TR[TelemetryReducer]
+    TR --> SS[(SessionState)]
+    TR --> SE[SideEffectExecutor]
+    SE --> DB[(SQLite: omnistats.db)]
+    SE --> MF[MMRFetcher]
+    SS --> RC[RmlUiController]
+    RC --> D3D[Direct3D 11 + RmlUi]
+```
 
-1. `TelemetryParser` connects to the configured loopback Stats API endpoint.
-2. `StatsClient` passes complete events to `TelemetryReducer`.
-3. `TelemetryReducer` updates `SessionState` and emits explicit side effects.
-4. `SideEffectExecutor` performs database writes, replay actions, and optional integrations outside the parser path.
-5. `MMRFetcher` performs optional Tracker Network rank requests on its own bounded worker queue.
-6. `DatabaseManager` serializes SQLite work and publishes completed queries back to the session model.
-7. `Overlay` owns the native Win32 window, tray, DirectX 11 device/swap chain, focus/click-through behavior, and the frame loop.
-8. `RmlUiController` snapshots only the shared state needed by the presentation layer, updates persistent RmlUi documents when relevant state changes, and binds UI actions back to the existing configuration/database/application systems.
-9. `RmlRenderInterfaceD3D11` translates RmlUi geometry, textures, clipping, and transforms onto OmniStats' existing D3D11 device/context.
+## Subsystem overview
 
-## UI architecture
+| Subsystem | Location | Responsibility |
+|---|---|---|
+| **Telemetry** | `src/network/TelemetryParser.*` | Asynchronous TCP client (Asio) connected to `127.0.0.1:49123`. Deserializes JSON event feeds. |
+| **State reduction** | `src/core/TelemetryReducer*` | Pure state machine. Processes raw match events, handles overtime and disconnects, and emits side effects. |
+| **Storage** | `src/database/DatabaseManager.*` | SQLite 3 in WAL mode. Manages schema migrations with pre-migration backups, asynchronous batch writes, and encounter queries. |
+| **Rank lookups** | `src/network/MMRFetcher*` | Bounded worker queue with rate limiting. Requests player ratings from the OmniStats API (using Ed25519-signed requests) or Tracker Network. |
+| **Window & D3D** | `src/ui/Overlay*`, `D3D11Device.*` | Win32 host window, swap chain management, DPI scaling, and borderless click-through overlay behavior. |
+| **UI controller** | `src/ui/rml/RmlUiController*` | Snapshots state, invalidates widgets on version changes, and translates input events. |
+| **Rendering** | `src/ui/rml/RmlRenderInterfaceD3D11.*` | Translates RmlUi 6 geometry, compiled textures, scissor rects, and transforms to D3D11 draws. |
+| **Data model** | `src/ui/rml/RmlLiveModel.*` | RmlUi data bindings. Telemetry ticks update bound DOM text nodes directly without rebuilding elements. |
+| **Auto-updater** | `src/updater/` | Standalone updater process. Handles SHA-256 validation, extraction, and binary replacement. |
 
-The UI remains native C++ and keeps the existing DirectX 11 renderer/window infrastructure. There is no browser runtime and no JavaScript UI layer.
+## Data pipeline and session lifecycle
 
-- `src/ui/Overlay.*`: host lifecycle, frame pacing, focus gating, transparent/click-through overlay behavior, second-monitor desktop-window behavior, DPI/resizing, device-loss recovery, tray integration, and Win32 message routing.
-- `src/ui/D3D11Device.*`: DirectX 11 device, context, swap chain, render target, resize, and Present handling.
-- `src/ui/OverlayWindow.*`: native window creation, persisted bounds, monitor placement, and style changes.
-- `src/ui/rml/RmlUiController.*`: persistent RmlUi document/controller, application-state snapshots, and the invalidation logic that decides when a widget or Settings page is rebuilt. Member definitions are split by concern: `widgets/*.cpp` (roster, lobby ranks, stats cards, MMR graph, previous games, floating cards), `settings/*.cpp` (one file per Settings page plus the window shell), `RmlUiLayout.cpp` (overlay containers and dashboard zones), `RmlUiEvents.cpp` and `RmlUiPointer.cpp` (input and drag handling), `RmlUiTheme.cpp` (theme stylesheet, color picker, hot reload), and `RmlUiViews.cpp` (Insights and first-run wizard).
-- `src/ui/rml/RmlUiHelpers.*`: stateless markup helpers. `ToggleControl`, `SelectControl`, `SelectRow`, `StatCell`, `Button`, and `SectionStart` escape every string they receive, so callers pass plain text.
-- `src/ui/rml/RmlLiveModel.*`: the `live` RmlUi data model. Widgets bind telemetry values with `{{match_saves}}`-style text and `data-class-win` tone expressions; a telemetry tick marks only changed variables dirty, so no widget DOM is rebuilt for a counter change.
-- `src/ui/rml/views/*` with `resources/rml/insights.rml`, `history.rml`, `onboarding.rml`, `accounts.rml`, and `player_note.rml`: RML templates for the Insights window (session recap, session archive, people, trends), the Match History browser and detail scoreboard, the first-run wizard, the account manager, and the player-note editor. Their static structure lives in the RML; the view classes own the matching data models and format rows for `data-for` lists.
-- `src/ui/rml/RmlCapture.*`: reads a region of the bound D3D11 render target back to the CPU and writes a PNG through WIC. Used by the recap card's Save as PNG.
-- `src/ui/rml/RmlRenderInterfaceD3D11.*`: compact native RmlUi 6 render interface using the existing D3D11 device/context. It supports compiled geometry, per-draw textures, premultiplied-alpha blending, scissoring, and transforms without the legacy compatibility adapter.
-- `src/ui/rml/RmlSystemInterfaceWin32.*`: timers, cursors, clipboard, path handling, and IME positioning.
-- `src/ui/rml/RmlInputWin32.*`: Win32 mouse, wheel, keyboard, and Unicode text input translation.
-- `src/ui/rml/RmlFileInterface.*`: embedded RML/RCSS resources with a disk fallback for unpacked runs.
-- `resources/rml/`: the reusable RCSS design system, the persistent `main.rml` shell, and the templated view documents. `RmlFileInterface` can read these from a development folder instead of the embedded copies; see [Building](BUILDING.md#editing-the-ui-without-rebuilding).
-- `src/core/Insights.*`: pure aggregation for the Insights window (trend buckets, sittings split on two-hour gaps, tilt detection, lobby MMR-gap analytics, people ranking). `DatabaseManager::AsyncLoadInsights` supplies the raw rows.
-- `resources/fonts/`: the bundled Inter (UI), JetBrains Mono (numeric), and Russo One (display) faces. They are embedded as RCDATA and registered by `RmlUiController::LoadBundledFonts` with an explicit family and weight; Segoe UI and MS Gothic are registered as fallback faces for glyphs the bundled faces lack.
-- `src/core/DashboardLayoutConfig.*` and `src/core/OverlayLayoutConfig.*`: renderer-independent persisted layout formats. Existing user layouts remain the source of truth.
+1. **Ingestion.** `TelemetryParser` receives JSON packets from Rocket League's loopback interface.
+2. **Reduction.** `TelemetryReducer` updates `SessionState` under a shared lock. Fast counters and live speeds update the `live` data model without touching the DOM tree.
+3. **Side effects.** Non-render work (saving matches to SQLite, queueing Ballchasing uploads, triggering rank lookups) is emitted as discrete effects and executed on dedicated worker threads.
+4. **Session boundaries.** A session ends on game close (if `reset_session_on_close` is enabled) or after two hours of inactivity. Resetting generates a session recap record, clears session totals, and increments `sessionGeneration` while leaving lifetime history and player notes intact.
+5. **Baselines.** A playlist's session baseline rating (`playlistInitialMmr`) is captured from the first rating observed before any session match in that playlist. It is never seeded from post-match ratings.
 
-Core telemetry, storage, networking, updater, replay, and integration code does not depend on RmlUi. The UI consumes snapshots and calls the existing APIs rather than duplicating application logic.
+## Storage schema
 
-## Ownership boundaries
+Persisted under `%APPDATA%\omnistats\omnistats.db` using versioned migrations (`PRAGMA user_version`):
 
-- `src/core`: configuration, session state, pure reduction logic, input, storage paths, persisted layout configuration, and shared value types. `TelemetryReducer` is split into event dispatch (`TelemetryReducer.cpp`), `UpdateState` handling, stat feed events, match-end validation, and finalization, with shared helpers in `TelemetryReducerDetail`.
-- `src/network`: local telemetry input, required startup diagnostics, Tracker rank lookup, updater support, and other external services. `MMRFetcher` is split into HTTP transport, profile parsing and rank tables, the request queue and rate limiting, and post-match reconciliation, with tuning constants in `MMRFetcherDetail`.
-- `src/database`: SQLite ownership, `PRAGMA user_version` schema migrations with pre-migration backups (`omnistats.db.bak-v<old>`), and asynchronous persistence across `Matches`, `MatchPlayers`, `MatchPlayerStats`, `MatchLocalStats`, `Sessions`, `Settings`, and `PlayerNotes` (schema v6).
-- `src/ui`: Win32/D3D11 host plus RmlUi presentation and native UI bindings.
-- `src/updater`: the separate updater process, dependency repair, download, checksum verification, and process replacement.
-- `installer/wix`: the supported public installer.
+- `Matches`: Match timestamps, arena, scores, outcome, playlist, gamemode, and session links.
+- `MatchPlayers`: Participant platform IDs, names, teams, and MMR at match time.
+- `MatchPlayerStats`: Standard scoreboard stats, touches, max goal speed, and fastest goal time.
+- `MatchLocalStats`: Local player metrics including boost collected, demolitions sustained, and crossbar hits.
+- `Sessions`: Session start and end timestamps, outcomes, and playlist MMR deltas.
+- `TrackedAccounts`: Main and alt accounts with nicknames and current playlist ranks.
+- `PlayerNotes`: User-authored scouting notes keyed by normalized platform account identity.
+- `ReplayUploads`: Replay file paths, upload queue state, and Ballchasing URLs.
 
-Session MMR graphs belong to the local account ID. `HistoryState` keeps the selected account's graph active and stores other accounts' graphs separately, so an account switch restores that account's existing session points. Post-match responses update the requesting account's history even if they arrive after a switch.
+## UI architecture and update model
 
-A session ends when `reset_session_on_close` fires after Rocket League closes, or after two hours of inactivity (`Insights::kSessionGapSeconds`) when `reset_session_on_close` is disabled. `SessionState::startNewSessionLocked` is the only reset path: it clears session totals and every account's session MMR history, bumps `GameState::sessionGeneration`, and keeps lifetime history and saved matches. A session with at least one game becomes `lastSessionRecap`, which records the session's generation, MMR owner, starting ratings, and time bounds, and is persisted to `Sessions` with matching `Matches.session_id` links. Historical unlinked matches are backfilled into `Sessions` on the database worker in 500-match chunks using the same two-hour gap rule as `Insights::ComputeTrends`. `MMRFetcher` stamps each fetch and each post-match record with the generation, so a response or Tracker confirmation from an ended session can still update the roster, database, and stored session recap without adding points to, or setting the baseline of, the new session. When an ended session's last match in a playlist is confirmed late, its rating replaces the provisional estimate in `lastSessionRecap`, updates the persisted `Sessions` row, and seeds the new session's baseline if the new session has not played that playlist yet.
+- **RmlUi DOM.** RmlUi templates (`resources/rml/*.rml`) are compiled into persistent DOM trees rather than being reconstructed every frame.
+- **Granular invalidation.** `RmlUiController` checks version counters across session state, history, and layout configuration to redraw only the affected widgets or views.
+- **Dual surfaces.**
+  - *Overlay:* Borderless transparent window with click-through support and configurable container visibility triggers (scoreboard hold, kickoff countdown, goal, podium).
+  - *Dashboard:* Second-monitor window with draggable, dockable cards managed through `DashboardLayoutConfig`.
+- **Hardware rendering.** `RmlRenderInterfaceD3D11` issues batched, hardware-accelerated draw calls with premultiplied alpha blending directly to the swap chain.
 
-A playlist's session baseline (`playlistInitialMmr`) comes only from a rating observed before any session match in that playlist: a profile fetched in this session, a captured pre-match snapshot, or the last confirmed profile when Tracker's match counter shows no untracked games since. If none exists, the baseline stays unset and that playlist reports no session change rather than measuring from a post-match rating. `sessionTotals.mmrChangeByPlaylist` is always derived from the active account's history, so it follows account switches. Post-match records and Tracker publication counters are keyed per account and playlist.
+## External network boundaries
 
-The local player's rating is the session baseline and the pre-match snapshot. When the custom API is enabled and a Tracker request for the local player is rate limited or fails after its retries, `MMRFetcher` asks the custom API before giving up. Other players and later requests stay on Tracker; only a Tracker 403 switches every request to the custom API. The custom API returns live ratings with no history, so it shortens the window in which a pre-match rating is missing but cannot recover one after the match.
-
-## Player context
-
-With/against records come from one query, `DatabaseManager::QueryEncounterRecordsLocked`, which the roster, Insights > People, and the History detail scoreboard all use. It collapses each (match, player) pair to one row, skips `result_pending` matches, and reads team and result relative to the local account's own `MatchPlayers` row, so a match saved by another local account still counts from the right side. A roster player's record loads when they join and again after each finalized match; the executor queues that lookup behind the match save. `PlayerData::hasLifetimeData` stays false until a lookup succeeds, and the roster shows `NEW` only for a confirmed zero.
-
-Player notes are keyed by `PlayerNotes::Identity` (platform token, normalized account ID, splitscreen slot) parsed from `PrimaryId` through `TrackedAccounts::FromPrimaryId`. Bots and IDs that are not valid platform account IDs get no identity and cannot hold a note. The database worker mirrors the table into `SessionState::notes`; widgets read that cache and only Save/Delete in `player_note.rml` write to SQLite.
-
-Last goal speed lives in `GameState::lastGoalSpeed[Self]`, outside `MatchStats`, so `resetMatch` and disconnects leave it alone. Only `startNewSessionLocked` clears it. GUID-less goals (freeplay) always count; a goal tagged with a finalized, destroyed, or different active match does not replace the value.
-
-Rank progress uses `RankProgress` over Tracker Network's per-playlist division tables in `PlaylistRankThresholds.inl`. `RmlUiController::RankProgressFor` prefers the local roster entry's reported division when it was fetched for the same rating, since Rocket League's demotion buffer can hold a player below the division's threshold; otherwise the table picks the division. It is only ever the `RankProgress` widget, for the roster playlist (`best` resolves to the playlist that produced the rating; casual shows nothing), and it refreshes with the roster. On the overlay it renders as a bare bar without a widget title so it reads as part of the card it is docked to; overlay layout v5 inserts it after the roster once. On the dashboard it adds a playlist badge and an empty-state line. `show_rank_progress` hides it on both.
-
-The MMR graph uses division bands (`RankProgress::LayoutGraphBands`) as its y-axis when the playlist has a rank table, with boundary values from `LayoutGraphBoundaries`; playlists without one fall back to min/mid/max gridlines. A session graph prepends the pre-session rating (`playlistInitialMmr`) as a start point while the window includes the first match. `RmlMmrGraphLines` draws the line and a fading area fill down to its `fill-to` fraction. The graph re-renders when history, the graph playlist, the pan offset, or the session/lifetime mode changes.
-
-`ResolveGraphSeries` borrows ratings and timestamps from the render snapshot. The visible plot uses a fixed 26-point buffer, including the optional session-start point, rather than copying full histories. `ComputeGraphWindow` supplies the same clamped range to rendering and pan controls. The y-axis fits the visible points; an offscreen session-start rating does not stretch a panned window. Pan buttons disable at either end, and a clamped no-op does not rebuild the UI.
-
-## UI update model
-
-RmlUi documents are kept alive instead of being recreated each frame. `RmlUiController` compares session/history versions and relevant UI/config state, refreshes only the affected roots, and caches RmlUi/D3D resources through the normal document/render-interface lifetime. Fast telemetry remains in `SessionState`; it is not serialized into an intermediate browser-style state blob. Counter and speed values reach the DOM through the `live` data model, so a telemetry tick updates bound text nodes and never rebuilds a widget.
-
-On first run (`onboarding_completed` unset) the wizard replaces the old startup message boxes for the Stats API fix and the optional integrations. When `reset_session_on_close` resets a session with at least one game, `StatsClient` stores the totals in `GameState::lastSessionRecap` and Insights opens on the recap. While the wizard, Insights, or History is open, the overlay window stays drawn and interactive even if Rocket League is closed or unfocused.
-
-The editable dashboard and transparent overlay keep separate persisted layouts. Dashboard drag/drop updates `DashboardLayoutConfig`; overlay move/resize/widget docking and per-container visibility rules (`KeyHeld`, `AlwaysInMatch`, `AfterEvent`, `MenusOnly`, plus `alsoWhileKeyHeld` and `hideDuringReplay`) update `OverlayLayoutConfig`. Timed visibility windows schedule an exact wake deadline on `RmlUiController` so the on-demand renderer wakes when a window opens or closes without rendering extra idle frames. Settings controls write through `Config::Update` and continue using the existing persistence and side-effect paths.
-
-## External network requests
-
-The core Rocket League telemetry connection is loopback-only. Startup diagnostics and version checks are required after privacy acceptance; the other internet-facing features are optional:
-
-| Destination | Purpose | Trigger |
-| --- | --- | --- |
-| Tracker Network Rocket League profile service | Public rank and MMR lookup for lobby players | User enables MMR tracking |
-| `api.omnistats.org/api/v1/telemetry` | App version, pseudonymous installation ID, and feature-toggle status | Every startup after privacy acceptance |
-| `api.omnistats.org/api/v1/crash` | Native crash dump upload | User enables crash reports and a pending dump exists |
-| `omnistats.org/version.txt` and release files | Update checks and updates | Version checks run at startup, periodically while running, and when Settings opens; release files download only when an update is installed |
-| Discord local RPC | Rich Presence | User enables Discord Rich Presence |
-| ballchasing.com | Replay upload | User supplies a token and enables uploads |
-| GitHub curl-impersonate release archive | Repair the Tracker compatibility runtime | User runs updater repair and the runtime is missing or invalid |
-
-The Tracker integration sends the platform identifier and public player name needed for rank lookup. It uses a compatibility runtime because the third-party service expects browser-compatible transport behavior. The integration is isolated behind an opt-in setting, rate limited, and expected to fail safely when the service changes.
-
-## Update trust boundary
-
-The updater downloads files over HTTPS and validates the application executable against its published SHA-256 value before replacement. The curl-impersonate repair archive and extracted DLL also use pinned SHA-256 values. This protects against transfer corruption and unexpected content when the HTTPS origin remains trusted, but it is not equivalent to paid Authenticode publisher identity.
+| Destination | Purpose | Protocol | Trigger |
+|---|---|---|---|
+| `127.0.0.1:49123` | In-game match telemetry | TCP (Loopback) | Active match |
+| `api.omnistats.org` | Device sign-in and rank lookups | HTTPS (Ed25519) | Optional rank lookup |
+| `api.omnistats.org` | Startup diagnostic ping and crash dumps | HTTPS | Startup / On crash (opt-in) |
+| `omnistats.org` | Version checks and announcement feed | HTTPS | Startup / Periodic |
+| Tracker Network | Public player rank and MMR lookup | HTTPS | Optional rank lookup |
+| `ballchasing.com` | Replay file uploads | HTTPS | Post-match (opt-in) |
+| Discord (Local IPC) | Rich Presence status | Named pipe | Active match (opt-in) |
