@@ -118,7 +118,19 @@ namespace RmlUiDetail {
     std::string StatGrid(std::string_view title, const std::vector<std::pair<std::string, std::string>>& rows);
     std::string SectionStart(std::string_view title);
     std::string SectionEnd();
-    std::string Button(std::string_view action, std::string_view label, const char* klass = "");
+    std::string Button(std::string_view action, std::string_view label, const char* klass = "", bool disabled = false);
+
+    struct GraphWindow {
+        int total = 0;
+        int offset = 0;
+        int maxOffset = 0;
+        int firstIndex = 0;
+        int count = 0;
+        bool canPanOlder = false;
+        bool canPanNewer = false;
+    };
+
+    GraphWindow ComputeGraphWindow(int totalMatches, int rawOffset, int visibleMatches = 25);
 
     ColorRGBA* ThemeColorForKey(ConfigData& config, std::string_view key);
     const ColorRGBA* ThemeColorForKey(const ConfigData& config, std::string_view key);

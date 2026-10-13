@@ -1111,7 +1111,7 @@ scrollbarcorner { background-color: #0e0e0eaa; }
 .graph-wrap { position: relative; height: 220dp; background-color: #0a0a0a; border: 1dp #242424; border-radius: 6dp; overflow: hidden; }
 .graph-empty { min-height: 150dp; display: flex; flex-direction: column; justify-content: center; gap: 4dp; padding: 0 8dp; }
 .graph-gridline { position: absolute; height: 1dp; background-color: #69728040; }
-.graph-label { position: absolute; color: #778190; font-family: "JetBrains Mono"; font-size: 10dp; white-space: nowrap; }
+.graph-label { position: absolute; color: #778190; font-family: "JetBrains Mono"; font-size: 10dp; white-space: nowrap; pointer-events: none; }
 .graph-last { text-align: right; }
 /* Division bands are the y-axis: a translucent tier tint per division with its
    name in the top-left corner. */
@@ -1153,7 +1153,7 @@ scrollbarcorner { background-color: #0e0e0eaa; }
 .graph-rank-line, .graph-rank-line.tooltip-host { position: absolute; height: 9dp; margin-top: -4dp; }
 .graph-rank-rule { position: absolute; left: 0; right: 0; top: 4dp; height: 1dp; opacity: 0.45; }
 .graph-rank-line.tier-start .graph-rank-rule { opacity: 0.8; }
-.graph-rank-line .tooltip-bubble { left: auto; right: 0; margin-left: 0; }
+.graph-rank-line .tooltip-bubble { left: 50%; right: auto; margin-left: -70dp; }
 .graph-rank-label {
     position: absolute;
     padding: 0 3dp;

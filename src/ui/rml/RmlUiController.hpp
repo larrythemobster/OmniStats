@@ -15,6 +15,7 @@
 #include <string_view>
 #include <unordered_map>
 #include <vector>
+#include <span>
 
 #include "core/Config.hpp"
 #include "core/SessionState.hpp"
@@ -216,9 +217,19 @@ class RmlUiController final : public Rml::EventListener {
     std::string RenderSessionStats(bool compact = false, bool includeStreak = true);
     std::string RenderStreaksStats();
     std::string RenderGamemodeBreakdown(GamemodeBreakdownScope scope);
+    struct GraphSeriesData {
+        std::string playlist;
+        std::span<const float> ratings;
+        std::span<const float> times;
+        const std::vector<bool>* estimated = nullptr;
+        float baseline = -1.0f;
+    };
+
+    GraphSeriesData ResolveGraphSeries() const;
     std::string RenderMmrGraph(bool showCategoryBadge, bool showPanControls);
     // Visible-range label and pan buttons; empty while every match fits.
     std::string RenderGraphPanControls() const;
+    std::string RenderGraphPanControls(const RmlUiDetail::GraphWindow& window) const;
     // Progress for `mmr` in `playlist`; the player's fetched division is used
     // only when it was reported for that same rating.
     RankProgress::Progress RankProgressFor(const PlayerData* player, const std::string& playlist, int mmr) const;

@@ -752,15 +752,40 @@ namespace RmlUiDetail {
         return "</div>";
     }
 
-    std::string Button(std::string_view action, std::string_view label, const char* klass) {
+    std::string Button(std::string_view action, std::string_view label, const char* klass, bool disabled) {
         std::string out = "<button data-action='" + Escape(action) + '\'';
         if (klass && *klass) {
             out += " class='";
             out += klass;
             out += '\'';
         }
+        if (disabled) {
+            out += " disabled='disabled'";
+        }
         out += '>' + Escape(label) + "</button>";
         return out;
+    }
+
+    GraphWindow ComputeGraphWindow(int totalMatches, int rawOffset, int visibleMatches) {
+        GraphWindow win;
+        win.total = std::max(0, totalMatches);
+        if (win.total <= visibleMatches) {
+            win.maxOffset = 0;
+            win.offset = 0;
+            win.firstIndex = 0;
+            win.count = win.total;
+            win.canPanOlder = false;
+            win.canPanNewer = false;
+            return win;
+        }
+
+        win.maxOffset = win.total - visibleMatches;
+        win.offset = std::clamp(rawOffset, 0, win.maxOffset);
+        win.firstIndex = win.total - visibleMatches - win.offset;
+        win.count = std::min(visibleMatches, win.total - win.firstIndex);
+        win.canPanOlder = win.offset < win.maxOffset;
+        win.canPanNewer = win.offset > 0;
+        return win;
     }
 
     ColorRGBA* ThemeColorForKey(ConfigData& config, std::string_view key) {

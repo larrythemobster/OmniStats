@@ -86,6 +86,7 @@ void RmlUiController::HandleClick(Rml::Element* target) {
     Rml::Element* actionTarget = target;
     std::string action;
     while (actionTarget && action.empty()) {
+        if (actionTarget->IsPseudoClassSet("disabled") || actionTarget->HasAttribute("disabled")) return;
         action = Attribute(actionTarget, "data-action");
         if (action.empty()) actionTarget = actionTarget->GetParentNode();
     }

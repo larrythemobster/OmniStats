@@ -5,6 +5,7 @@
 
 #include "core/DashboardLayoutConfig.hpp"
 #include "core/OverlayLayoutConfig.hpp"
+#include "ui/rml/RmlUiHelpers.hpp"
 
 TEST(RmlUiLayoutState, DefaultDashboardContainsEveryWidgetExactlyOnce) {
     auto layout = DashboardLayout::DefaultLayout();
@@ -286,4 +287,65 @@ TEST(RmlUiLayoutState, NextVisibilityChangeMsReturnsExactDeadlinesAndNulloptWhen
     // Stale timestamp from previous match requests no wake deadline.
     state.timestamps.matchStartMs = 20000;
     EXPECT_EQ(OverlayLayout::NextVisibilityChangeMs(layout, state, 21000), std::nullopt);
+}
+
+TEST(RmlUiLayoutState, ComputeGraphWindowCalculatesCorrectBoundsAndPanAvailability) {
+    using RmlUiDetail::ComputeGraphWindow;
+
+    auto smallWin = ComputeGraphWindow(10, 0, 25);
+    EXPECT_EQ(smallWin.total, 10);
+    EXPECT_EQ(smallWin.maxOffset, 0);
+    EXPECT_EQ(smallWin.offset, 0);
+    EXPECT_EQ(smallWin.firstIndex, 0);
+    EXPECT_EQ(smallWin.count, 10);
+    EXPECT_FALSE(smallWin.canPanOlder);
+    EXPECT_FALSE(smallWin.canPanNewer);
+
+    auto exactWin = ComputeGraphWindow(25, 0, 25);
+    EXPECT_EQ(exactWin.total, 25);
+    EXPECT_EQ(exactWin.maxOffset, 0);
+    EXPECT_EQ(exactWin.offset, 0);
+    EXPECT_EQ(exactWin.firstIndex, 0);
+    EXPECT_EQ(exactWin.count, 25);
+    EXPECT_FALSE(exactWin.canPanOlder);
+    EXPECT_FALSE(exactWin.canPanNewer);
+
+    auto newestWin = ComputeGraphWindow(30, 0, 25);
+    EXPECT_EQ(newestWin.total, 30);
+    EXPECT_EQ(newestWin.maxOffset, 5);
+    EXPECT_EQ(newestWin.offset, 0);
+    EXPECT_EQ(newestWin.firstIndex, 5);
+    EXPECT_EQ(newestWin.count, 25);
+    EXPECT_TRUE(newestWin.canPanOlder);
+    EXPECT_FALSE(newestWin.canPanNewer);
+
+    auto midWin = ComputeGraphWindow(30, 2, 25);
+    EXPECT_EQ(midWin.total, 30);
+    EXPECT_EQ(midWin.maxOffset, 5);
+    EXPECT_EQ(midWin.offset, 2);
+    EXPECT_EQ(midWin.firstIndex, 3);
+    EXPECT_EQ(midWin.count, 25);
+    EXPECT_TRUE(midWin.canPanOlder);
+    EXPECT_TRUE(midWin.canPanNewer);
+
+    auto oldestWin = ComputeGraphWindow(30, 5, 25);
+    EXPECT_EQ(oldestWin.total, 30);
+    EXPECT_EQ(oldestWin.maxOffset, 5);
+    EXPECT_EQ(oldestWin.offset, 5);
+    EXPECT_EQ(oldestWin.firstIndex, 0);
+    EXPECT_EQ(oldestWin.count, 25);
+    EXPECT_FALSE(oldestWin.canPanOlder);
+    EXPECT_TRUE(oldestWin.canPanNewer);
+
+    auto clampNeg = ComputeGraphWindow(30, -10, 25);
+    EXPECT_EQ(clampNeg.offset, 0);
+    EXPECT_EQ(clampNeg.firstIndex, 5);
+    EXPECT_TRUE(clampNeg.canPanOlder);
+    EXPECT_FALSE(clampNeg.canPanNewer);
+
+    auto clampHigh = ComputeGraphWindow(30, 999, 25);
+    EXPECT_EQ(clampHigh.offset, 5);
+    EXPECT_EQ(clampHigh.firstIndex, 0);
+    EXPECT_FALSE(clampHigh.canPanOlder);
+    EXPECT_TRUE(clampHigh.canPanNewer);
 }

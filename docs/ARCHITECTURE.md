@@ -66,6 +66,8 @@ Rank progress uses `RankProgress` over Tracker Network's per-playlist division t
 
 The MMR graph uses division bands (`RankProgress::LayoutGraphBands`) as its y-axis when the playlist has a rank table, with boundary values from `LayoutGraphBoundaries`; playlists without one fall back to min/mid/max gridlines. A session graph prepends the pre-session rating (`playlistInitialMmr`) as a start point while the window includes the first match. `RmlMmrGraphLines` draws the line and a fading area fill down to its `fill-to` fraction. The graph re-renders when history, the graph playlist, the pan offset, or the session/lifetime mode changes.
 
+`ResolveGraphSeries` borrows ratings and timestamps from the render snapshot. The visible plot uses a fixed 26-point buffer, including the optional session-start point, rather than copying full histories. `ComputeGraphWindow` supplies the same clamped range to rendering and pan controls. The y-axis fits the visible points; an offscreen session-start rating does not stretch a panned window. Pan buttons disable at either end, and a clamped no-op does not rebuild the UI.
+
 ## UI update model
 
 RmlUi documents are kept alive instead of being recreated each frame. `RmlUiController` compares session/history versions and relevant UI/config state, refreshes only the affected roots, and caches RmlUi/D3D resources through the normal document/render-interface lifetime. Fast telemetry remains in `SessionState`; it is not serialized into an intermediate browser-style state blob. Counter and speed values reach the DOM through the `live` data model, so a telemetry tick updates bound text nodes and never rebuilds a widget.

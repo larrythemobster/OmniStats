@@ -3028,3 +3028,56 @@ TEST_F(RmlUiControllerStateTest, DashboardLobbyRanksFitANarrowColumnWithoutScrol
         EXPECT_LE(cell->GetAbsoluteLeft() + cell->GetOffsetWidth(), tableRight + 1.0f);
     }
 }
+
+TEST_F(RmlUiControllerStateTest, PannedGraphUsesVisibleRatingsAndDisablesBoundaryActions) {
+    WarpDevice warp;
+    ASSERT_TRUE(warp.Create(1200, 1000));
+    Config::Update([](ConfigData& config) {
+        config.second_monitor_mode = true;
+        config.dashboard_layout = DashboardLayout::DefaultLayout();
+    },
+                   true);
+    auto state = std::make_shared<SessionState>();
+    std::vector<float> ratings;
+    for (int i = 0; i < 40; ++i)
+        ratings.push_back(800.0f + i * 2.0f);
+    SeedGraph(*state, "casual", std::move(ratings), 878, "");
+    state->ui.graphMmrCategory.store(MmrCategory::Casual);
+    state->history.playlistInitialMmr["casual"] = 100;
+    RmlUiController controller(state, nullptr);
+    ASSERT_TRUE(controller.Initialize(nullptr, warp.device.Get(), warp.context.Get(), 1200, 1000, 1.0f));
+    controller.Update(Config::Read());
+    controller.Render();
+
+    auto* graph = DashboardRoot(controller)->QuerySelector("[data-widget='mmr-graph']");
+    ASSERT_NE(graph, nullptr);
+    auto* plot = graph->QuerySelector(".graph-wrap");
+    ASSERT_NE(plot, nullptr);
+    Rml::ElementList points;
+    plot->QuerySelectorAll(points, ".graph-point");
+    ASSERT_EQ(points.size(), 25u);
+    const float firstY = points.front()->GetAbsoluteTop();
+    const float lastY = points.back()->GetAbsoluteTop();
+    EXPECT_GT(firstY - lastY, plot->GetOffsetHeight() * 0.5f);
+
+    auto* newer = graph->QuerySelector("[data-action='graph-pan-newer']");
+    ASSERT_NE(newer, nullptr);
+    EXPECT_TRUE(newer->HasAttribute("disabled"));
+    Click(controller, newer);
+    EXPECT_EQ(state->ui.graphOffset.load(), 0);
+
+    for (int offset : {5, 10, 15}) {
+        auto* older = DashboardRoot(controller)->QuerySelector("[data-action='graph-pan-older']");
+        ASSERT_NE(older, nullptr);
+        EXPECT_FALSE(older->HasAttribute("disabled"));
+        Click(controller, older);
+        controller.Update(Config::Read());
+        controller.Render();
+        EXPECT_EQ(state->ui.graphOffset.load(), offset);
+    }
+    auto* older = DashboardRoot(controller)->QuerySelector("[data-action='graph-pan-older']");
+    ASSERT_NE(older, nullptr);
+    EXPECT_TRUE(older->HasAttribute("disabled"));
+    Click(controller, older);
+    EXPECT_EQ(state->ui.graphOffset.load(), 15);
+}
