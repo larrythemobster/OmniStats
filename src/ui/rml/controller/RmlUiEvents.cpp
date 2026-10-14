@@ -330,13 +330,19 @@ void RmlUiController::HandleClick(Rml::Element* target) {
         if (!m_dbManager) {
             ShowToast("Export failed: database is unavailable.", true);
         } else {
-            std::string exportPath, error;
-            if (m_dbManager->ExportLocalData(exportPath, error)) {
-                ShowToast("Exported local history.");
-                const std::string arg = "/select,\"" + exportPath + "matches.json\"";
-                ShellExecuteA(nullptr, "open", "explorer.exe", arg.c_str(), nullptr, SW_SHOWNORMAL);
-            } else
-                ShowToast("Export failed: " + error, true);
+            StartBackgroundTask("Exporting local history...", [this, db = m_dbManager](std::stop_token) -> std::function<void()> {
+                std::string exportPath, error;
+                const bool ok = db->ExportLocalData(exportPath, error);
+                return [this, ok, exportPath = std::move(exportPath), error = std::move(error)] {
+                    if (!ok) {
+                        ShowToast("Export failed: " + error, true);
+                        return;
+                    }
+                    ShowToast("Exported local history.");
+                    const std::string arg = "/select,\"" + exportPath + "matches.json\"";
+                    ShellExecuteA(nullptr, "open", "explorer.exe", arg.c_str(), nullptr, SW_SHOWNORMAL);
+                };
+            });
         }
     } else if (action == "merge-database") {
         if (!m_dbManager) {
