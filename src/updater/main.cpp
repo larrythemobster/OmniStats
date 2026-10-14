@@ -1,3 +1,4 @@
+#include <cstring>
 #include <ctime>
 #include <iostream>
 #include <string>
@@ -18,6 +19,7 @@
 #define OMNISTATS_VERSION "2.0.0"
 #endif
 #include "network/http/SigningConfig.hpp"
+#include "network/http/CurlRuntime.hpp"
 
 // Global override for test server URL
 static std::string g_serverOverride = "";
@@ -95,17 +97,21 @@ static bool extractFromTar(const std::vector<unsigned char>& tarData,
         const TarHeader* hdr = reinterpret_cast<const TarHeader*>(&tarData[pos]);
         if (hdr->name[0] == '\0') break;
 
-        long long fileSize = parseTarOctal(hdr->size, 12);
+        const long long fileSize = parseTarOctal(hdr->size, 12);
         pos += 512; // skip header
+        if (fileSize < 0 || static_cast<unsigned long long>(fileSize) > tarData.size() - pos) {
+            return false;
+        }
 
-        std::string name(hdr->name);
+        std::string name(hdr->name, strnlen(hdr->name, sizeof(hdr->name)));
         if (name.substr(0, 2) == "./") name = name.substr(2);
 
         if (name == targetName && hdr->typeflag == '0') {
             std::ofstream out(outputPath, std::ios::binary);
             if (!out) return false;
-            out.write(reinterpret_cast<const char*>(&tarData[pos]), fileSize);
+            out.write(reinterpret_cast<const char*>(&tarData[pos]), static_cast<std::streamsize>(fileSize));
             out.close();
+            if (!out) return false;
             std::cout << "[Updater] Extracted " << targetName << " to " << outputPath << "\n";
             return true;
         }
@@ -116,25 +122,21 @@ static bool extractFromTar(const std::vector<unsigned char>& tarData,
 }
 
 bool RepairDependencies(const std::string& appDataDir) {
-    std::string dllPath = appDataDir + "libcurl-impersonate.dll";
-    std::string zlibPath = appDataDir + "zlib.dll";
+    const std::string dllPath = appDataDir + std::string(CurlRuntime::kLibcurlDllName);
+    const std::string zlibPath = appDataDir + std::string(CurlRuntime::kZlibDllName);
+    const auto dependenciesValid = [&]() {
+        return UpdaterCommon::VerifyFileSHA256(dllPath, std::string(CurlRuntime::kLibcurlDllSha256)) &&
+               UpdaterCommon::VerifyFileSHA256(zlibPath, std::string(CurlRuntime::kZlibDllSha256));
+    };
 
-    bool dllExists = (GetFileAttributesA(dllPath.c_str()) != INVALID_FILE_ATTRIBUTES);
-    bool zlibExists = (GetFileAttributesA(zlibPath.c_str()) != INVALID_FILE_ATTRIBUTES);
-
-    static const std::string EXPECTED_DLL_HASH = "97f1e2988e2edd296d902a4bdc4f12d61b3b565ff2a320fff72d65075afb9d33";
-    if (dllExists && zlibExists) {
-        if (UpdaterCommon::VerifyFileSHA256(dllPath, EXPECTED_DLL_HASH)) {
-            std::cout << "[Updater] DLL dependencies are already present and valid.\n";
-            return true;
-        }
-        std::cout << "[Updater] Hash mismatch on existing libcurl-impersonate.dll. Repairing...\n";
-    } else {
-        std::cout << "[Updater] DLL dependencies missing. Repairing...\n";
+    if (dependenciesValid()) {
+        std::cout << "[Updater] DLL dependencies are already present and valid.\n";
+        return true;
     }
+    std::cout << "[Updater] DLL dependencies missing or modified. Repairing...\n";
 
     std::string tempArchive = appDataDir + "updates\\libcurl-impersonate.tar.gz";
-    std::string archiveUrl = "https://github.com/lexiforest/curl-impersonate/releases/download/v1.5.6/libcurl-impersonate-v1.5.6.x86_64-win32.tar.gz";
+    const std::string archiveUrl(CurlRuntime::kArchiveUrl);
 
     std::cout << "[Updater] Downloading official curl-impersonate archive...\n";
     if (!UpdaterCommon::DownloadFile(archiveUrl, tempArchive, 120)) {
@@ -142,8 +144,7 @@ bool RepairDependencies(const std::string& appDataDir) {
         return false;
     }
 
-    static const std::string EXPECTED_ARCHIVE_HASH = "fe8ce2488d5467fda6061b8b130b5834bc30cdfff40712692e8c5685dbbda6c7";
-    if (!UpdaterCommon::VerifyFileSHA256(tempArchive, EXPECTED_ARCHIVE_HASH)) {
+    if (!UpdaterCommon::VerifyFileSHA256(tempArchive, std::string(CurlRuntime::kArchiveSha256))) {
         std::cout << "[Updater] Archive hash verification failed.\n";
         DeleteFileA(tempArchive.c_str());
         return false;
@@ -184,6 +185,10 @@ bool RepairDependencies(const std::string& appDataDir) {
 
     if (!ok1 || !ok2) {
         std::cout << "[Updater] Failed to extract runtime DLLs from archive.\n";
+        return false;
+    }
+    if (!dependenciesValid()) {
+        std::cout << "[Updater] Extracted runtime DLLs do not match the pinned hashes.\n";
         return false;
     }
 

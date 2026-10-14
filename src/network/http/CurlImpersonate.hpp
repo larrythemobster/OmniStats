@@ -74,7 +74,6 @@ class CurlImpersonate {
   private:
     CurlImpersonate() = default;
     bool LoadDLL();
-    bool DownloadAndExtract();
     std::string GetDLLPath();
     std::string GetZlibPath();
 
