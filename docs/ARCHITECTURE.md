@@ -26,7 +26,7 @@ flowchart LR
 | **UI controller** | `src/ui/rml/controller/RmlUiController*` | Snapshots state, invalidates widgets on version changes, and translates input events. |
 | **Rendering** | `src/ui/rml/backend/RmlRenderInterfaceD3D11.*` | Translates RmlUi 6 geometry, compiled textures, scissor rects, and transforms to D3D11 draws. |
 | **Data model** | `src/ui/rml/controller/RmlLiveModel.*` | RmlUi data bindings. Telemetry ticks update bound DOM text nodes directly without rebuilding elements. |
-| **Auto-updater** | `src/updater/` | Standalone updater process. Handles SHA-256 validation, extraction, and binary replacement. |
+| **Auto-updater** | `src/updater/` | Standalone updater process. Checks the MSI's SHA-256 checksum and pinned Authenticode signature, then runs Windows Installer. |
 
 ## Data pipeline and session lifecycle
 

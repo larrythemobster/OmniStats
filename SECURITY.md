@@ -29,10 +29,10 @@ Official releases should:
 - be built from reviewed source code;
 - pass the Windows build and test workflow;
 - be distributed over HTTPS;
-- publish SHA-256 checksums for the application, updater, and MSI; and
+- publish the MSI with its SHA-256 checksum; and
 - clearly state whether the binaries are digitally signed or unsigned.
 
-The updater verifies downloaded application files against their expected SHA-256 checksum before replacement. Checksums help detect corrupted or modified downloads, but they are not a substitute for digital code signing. Unsigned builds may display an **Unknown publisher** or Microsoft Defender SmartScreen warning.
+The updater checks the downloaded MSI against its published SHA-256 checksum and requires a valid Authenticode signature from the pinned OmniStats certificate before running Windows Installer. Unsigned builds may display an **Unknown publisher** or Microsoft Defender SmartScreen warning.
 
 ## External services
 
@@ -43,8 +43,10 @@ The following features are optional:
 - OmniStats and Tracker Network rank lookup;
 - Discord Rich Presence;
 - Ballchasing replay uploads;
-- update checks; and
+- automatic update installation; and
 - crash-report uploads.
+
+Update checks always run at startup, periodically and when Settings opens.
 
 Changes to an external endpoint, transmitted field, stored identifier, consent flow, download process, or update behavior require security and privacy review before release.
 

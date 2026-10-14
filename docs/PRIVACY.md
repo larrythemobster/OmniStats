@@ -7,7 +7,7 @@ OmniStats is a local-first Windows companion application for Rocket League. Tele
 | Feature | Destination | Transmitted data | Default |
 |---|---|---|---|
 | **Startup diagnostics** | `api.omnistats.org` | App version, pseudonymous installation ID, and integration toggle states. No match data or player names. | Required (startup) |
-| **Update checks** | `omnistats.org` | App version. Receives version metadata and announcements. Binaries verified via SHA-256 before staging. | Always on |
+| **Update checks** | `omnistats.org` | App version. Receives version metadata and announcements. The MSI is checked against its SHA-256 checksum and pinned Authenticode signature before installation. | Always on |
 | **OmniStats rank lookup** | `api.omnistats.org` | Up to 8 player platform and account IDs per batch, sent with the signed-in access token or an API key. | Opt-in |
 | **Tracker rank lookup** | Tracker Network | Lobby player public display names and platform identifiers. | Opt-in |
 | **Replay uploads** | `ballchasing.com` | Rocket League `.replay` files containing match participant identities and gameplay data. | Opt-in |
