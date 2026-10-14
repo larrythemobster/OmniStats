@@ -1,3 +1,5 @@
+#include <io.h>
+#include <cstdio>
 #include <cstring>
 #include <ctime>
 #include <iostream>
@@ -362,13 +364,17 @@ int main(int argc, char* argv[]) {
     UpdaterCommon::EnsureDirExists(appDataDir);
     const std::string logPath = appDataDir + "omnistats_updater_log.txt";
 
-    FILE* logFile = nullptr;
-    freopen_s(&logFile, logPath.c_str(), "w", stdout);
+    // freopen_s opens without sharing, so a concurrent updater could not open the log and failed fast on its first write.
+#pragma warning(suppress : 4996)
+    FILE* logFile = std::freopen(logPath.c_str(), "w", stdout);
     if (logFile) {
         setvbuf(logFile, nullptr, _IONBF, 0);
+    } else {
+#pragma warning(suppress : 4996)
+        (void)std::freopen("NUL", "w", stdout);
     }
-    FILE* errFile = nullptr;
-    freopen_s(&errFile, logPath.c_str(), "a", stderr);
+#pragma warning(suppress : 4996)
+    if (std::freopen("NUL", "w", stderr) && logFile) _dup2(_fileno(stdout), _fileno(stderr));
 
     std::cout << "[Updater] Started. Arguments: ";
     for (int i = 0; i < argc; ++i) {

@@ -7,6 +7,7 @@
 #include <memory>
 #include <thread>
 #include <ctime>
+#include <io.h>
 #include "core/config/Config.hpp"
 #include "core/accounts/AccountManager.hpp"
 #include "platform/InputManager.hpp"
@@ -204,10 +205,21 @@ int main(int argc, char* argv[]) {
     // Redirect stdout to a log file in APPDATA
     std::string logPath =
         Storage::GetDataDirectory() + Storage::APP_NAME + "_log.txt";
-    FILE* outStream = nullptr;
-    freopen_s(&outStream, logPath.c_str(), "w", stdout);
-    if (outStream)
+    // freopen_s opens without sharing: a second process could not open the log, lost stdout, and failed fast on its first write.
+#pragma warning(suppress : 4996)
+    FILE* outStream = std::freopen(logPath.c_str(), "w", stdout);
+    if (outStream) {
         setvbuf(outStream, NULL, _IONBF, 0);
+    } else {
+#pragma warning(suppress : 4996)
+        (void)std::freopen("NUL", "w", stdout);
+    }
+    FILE* errStream = nullptr;
+    freopen_s(&errStream, "NUL", "w", stderr);
+    if (errStream) {
+        if (outStream) _dup2(_fileno(stdout), _fileno(stderr));
+        setvbuf(errStream, nullptr, _IONBF, 0);
+    }
     std::cout << "OmniStats Starting...\n";
     Config::Load();
     AccountClient::Instance().SyncFromConfig();
