@@ -25,7 +25,7 @@ TEST(StatsClientTest, Lifecycle) {
 class MockDiscordManager : public DiscordManager {
   public:
     MockDiscordManager(std::shared_ptr<SessionState> s) : DiscordManager(s) {}
-    void PushPresenceUpdate(const DiscordPresenceSnapshot& snap) override {
+    void PushPresenceUpdate(const DiscordPresenceSnapshot&) override {
         pushCount++;
     }
     std::atomic<int> pushCount{0};

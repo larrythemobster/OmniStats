@@ -84,12 +84,12 @@ namespace {
 
     // Helper function for libcurl to write the HTTP response into a std::string
     size_t WriteCallback(void* contents, size_t size, size_t nmemb, void* userp) {
-        ((std::string*)userp)->append((char*)contents, size * nmemb);
+        static_cast<std::string*>(userp)->append(static_cast<const char*>(contents), size * nmemb);
         return size * nmemb;
     }
 
-    int CIProgressCallback(void* clientp, double dltotal, double dlnow, double ultotal, double ulnow) {
-        std::atomic<bool>* running = (std::atomic<bool>*)clientp;
+    int CIProgressCallback(void* clientp, double, double, double, double) {
+        const auto* running = static_cast<std::atomic<bool>*>(clientp);
         if (running && !running->load()) {
             return 1; // Abort
         }

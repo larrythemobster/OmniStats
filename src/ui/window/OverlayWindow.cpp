@@ -199,7 +199,7 @@ struct MonitorData {
     bool foundSecondary;
 };
 
-static BOOL CALLBACK MonitorEnumProc(HMONITOR hMonitor, HDC hdcMonitor, LPRECT lprcMonitor, LPARAM dwData) {
+static BOOL CALLBACK MonitorEnumProc(HMONITOR hMonitor, HDC, LPRECT, LPARAM dwData) {
     MonitorData* data = reinterpret_cast<MonitorData*>(dwData);
     MONITORINFO mi = {};
     mi.cbSize = sizeof(mi);

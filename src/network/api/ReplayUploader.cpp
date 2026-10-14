@@ -2,6 +2,7 @@
 #include "core/config/Config.hpp"
 #include "platform/KeyPressSimulator.hpp"
 #include "utils/PrivacyLog.hpp"
+#include "utils/Env.hpp"
 #include "core/state/SessionState.hpp"
 #include "database/DatabaseManager.hpp"
 #include <nlohmann/json.hpp>
@@ -471,8 +472,9 @@ void ReplayUploader::WorkerLoop() {
         base_tagame = str + "\\My Games\\Rocket League\\TAGame\\";
         CoTaskMemFree(path);
     } else {
-        char* upath = getenv("USERPROFILE");
-        if (upath) base_tagame = std::string(upath) + "\\Documents\\My Games\\Rocket League\\TAGame\\";
+        if (const std::optional<std::string> userProfile = Env::Get("USERPROFILE")) {
+            base_tagame = *userProfile + "\\Documents\\My Games\\Rocket League\\TAGame\\";
+        }
     }
 
     std::vector<std::string> target_dirs;

@@ -33,7 +33,7 @@ namespace TelemetryReducerDetail {
                 auto varIt = ARENA_VARIANT.find(variant);
                 if (varIt != ARENA_VARIANT.end()) return candIt->second + " (" + varIt->second + ")";
                 if (!variant.empty()) {
-                    variant[0] = toupper(variant[0]);
+                    variant[0] = static_cast<char>(std::toupper(static_cast<unsigned char>(variant[0])));
                     return candIt->second + " (" + variant + ")";
                 }
                 return candIt->second;

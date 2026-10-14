@@ -16,7 +16,7 @@ static void* g_int_write_data = nullptr;
 static std::string g_int_mock_response = "";
 static long g_int_mock_response_code = 200;
 
-static int int_mock_easy_setopt(void* curl, int option, ...) {
+static int int_mock_easy_setopt(void*, int option, ...) {
     va_list args;
     va_start(args, option);
     if (option == CI_CURLOPT_WRITEFUNCTION) {
@@ -28,14 +28,14 @@ static int int_mock_easy_setopt(void* curl, int option, ...) {
     return 0;
 }
 
-static int int_mock_easy_perform(void* curl) {
+static int int_mock_easy_perform(void*) {
     if (g_int_write_callback && g_int_write_data && g_int_mock_response_code == 200) {
         g_int_write_callback((void*)g_int_mock_response.data(), 1, g_int_mock_response.size(), g_int_write_data);
     }
     return 0; // CURLE_OK
 }
 
-static int int_mock_easy_getinfo(void* curl, int info, ...) {
+static int int_mock_easy_getinfo(void*, int info, ...) {
     va_list args;
     va_start(args, info);
     if (info == CI_CURLINFO_RESPONSE_CODE) {
@@ -46,9 +46,9 @@ static int int_mock_easy_getinfo(void* curl, int info, ...) {
     return 0;
 }
 
-static void int_mock_easy_cleanup(void* curl) {}
-static void int_mock_slist_free_all(void* list) {}
-static void* int_mock_slist_append(void* list, const char* str) {
+static void int_mock_easy_cleanup(void*) {}
+static void int_mock_slist_free_all(void*) {}
+static void* int_mock_slist_append(void*, const char*) {
     return (void*)1;
 }
 static void* int_mock_easy_init() {

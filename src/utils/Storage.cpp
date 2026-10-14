@@ -1,32 +1,33 @@
 #include "utils/Storage.hpp"
-#include <cstdlib>
+#include "utils/Env.hpp"
 #include <filesystem>
 #include <iostream>
+#include <system_error>
 
 namespace fs = std::filesystem;
 
 namespace Storage {
     std::string GetDataDirectory() {
 #ifdef OMNISTATS_TEST_ENVIRONMENT
-        const char* temp = std::getenv("TEMP");
-        if (!temp) {
-            temp = std::getenv("TMP");
-        }
-        return std::string(temp ? temp : ".") + "\\omnistats_test\\";
+        const std::optional<std::string> temp = Env::Get("TEMP") ? Env::Get("TEMP") : Env::Get("TMP");
+        return temp.value_or(".") + "\\omnistats_test\\";
 #else
-        const char* appData = std::getenv("APPDATA");
-        if (appData) {
-            return std::string(appData) + "\\" + APP_NAME + "\\";
+        if (const std::optional<std::string> appData = Env::Get("APPDATA")) {
+            return *appData + "\\" + APP_NAME + "\\";
         }
         return "data\\"; // Fallback
 #endif
     }
 
     void InitializeEnvironment() {
-        std::string dir = GetDataDirectory();
-        if (!fs::exists(dir)) {
-            fs::create_directories(dir);
-            std::cout << "[Storage] Created data directory." << std::endl;
+        const std::string dir = GetDataDirectory();
+        std::error_code ec;
+        if (!fs::exists(dir, ec)) {
+            if (fs::create_directories(dir, ec)) {
+                std::cout << "[Storage] Created data directory." << std::endl;
+            } else if (ec) {
+                std::cerr << "[Storage] Failed to create data directory: " << ec.message() << std::endl;
+            }
         }
     }
 

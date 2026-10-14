@@ -32,7 +32,7 @@ static std::string g_mock_impersonation_profile;
 static std::string g_mock_user_agent_header;
 static std::vector<std::string> g_mock_request_headers;
 static std::vector<long> g_mock_custom_api_status_sequence;
-static int mock_easy_setopt(void* curl, int option, ...) {
+static int mock_easy_setopt(void*, int option, ...) {
     va_list args;
     va_start(args, option);
     if (option == CI_CURLOPT_URL) {
@@ -54,7 +54,7 @@ static int mock_easy_setopt(void* curl, int option, ...) {
     return 0;
 }
 
-static int mock_easy_perform(void* curl) {
+static int mock_easy_perform(void*) {
     g_mock_perform_count.fetch_add(1);
     long code = g_mock_response_code;
     const std::string* body = &g_mock_response;
@@ -77,7 +77,7 @@ static int mock_easy_perform(void* curl) {
     return res;
 }
 
-static int mock_easy_getinfo(void* curl, int info, ...) {
+static int mock_easy_getinfo(void*, int info, ...) {
     va_list args;
     va_start(args, info);
     if (info == CI_CURLINFO_RESPONSE_CODE) {
@@ -99,9 +99,9 @@ static int mock_easy_getinfo(void* curl, int info, ...) {
     return 0;
 }
 
-static void mock_easy_cleanup(void* curl) {}
-static void mock_slist_free_all(void* list) {}
-static void* mock_slist_append(void* list, const char* str) {
+static void mock_easy_cleanup(void*) {}
+static void mock_slist_free_all(void*) {}
+static void* mock_slist_append(void*, const char* str) {
     const std::string header = str ? str : "";
     g_mock_request_headers.push_back(header);
     if (header.rfind("User-Agent: ", 0) == 0) {

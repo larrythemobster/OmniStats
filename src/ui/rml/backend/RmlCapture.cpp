@@ -148,8 +148,8 @@ namespace RmlCapture {
             unsigned char* dst = pixels.data() + static_cast<size_t>(row) * outWidth * 4;
             for (UINT col = 0; col < outWidth; ++col, src += 4, dst += 4) {
                 const unsigned char alpha = src[3];
-                const auto straight = [alpha](unsigned char channel) {
-                    return alpha == 0 ? 0 : static_cast<unsigned char>(std::min(255, channel * 255 / alpha));
+                const auto straight = [alpha](unsigned char channel) -> unsigned char {
+                    return alpha == 0 ? static_cast<unsigned char>(0) : static_cast<unsigned char>(std::min(255, channel * 255 / alpha));
                 };
                 dst[0] = straight(rgba ? src[2] : src[0]);
                 dst[1] = straight(src[1]);

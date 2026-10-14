@@ -22,7 +22,7 @@ jobs:
         run: |
           $root = Join-Path $env:RUNNER_TEMP 'vcpkg'
           git clone --filter=blob:none https://github.com/microsoft/vcpkg.git $root
-          git -C $root checkout 2026.03.18
+          git -C $root checkout 8bfaff200d02125861b1239f2ecb0a671a5945db
           & (Join-Path $root 'bootstrap-vcpkg.bat') -disableMetrics
           "VCPKG_ROOT=$root" | Out-File -FilePath $env:GITHUB_ENV -Append
           New-Item -ItemType Directory -Force $env:VCPKG_DEFAULT_BINARY_CACHE | Out-Null

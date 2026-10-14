@@ -45,6 +45,7 @@ set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 if(MSVC)
     add_compile_options(/MP /W4)
 endif()
+option(OMNISTATS_WARNINGS_AS_ERRORS "Treat compiler warnings as errors in OmniStats, OmniStatsUpdater and OmniStatsTests" ON)
 
 # Find the packages defined in vcpkg.json
 find_package(nlohmann_json CONFIG REQUIRED)
@@ -191,6 +192,7 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
 if(MSVC)
     # Target-specific compiler options for MSVC
     target_compile_options(${PROJECT_NAME} PRIVATE
+        $<$<BOOL:${OMNISTATS_WARNINGS_AS_ERRORS}>:/WX>
         $<$<CONFIG:Release>:/O2>          # Optimize for speed
         $<$<CONFIG:Release>:/GF>          # Eliminate Duplicate Strings
         $<$<CONFIG:Release>:/Gy>          # Function-Level Linking
@@ -231,6 +233,7 @@ if(OMNISTATS_BUILD_UPDATER)
     )
     if(MSVC)
         target_compile_options(OmniStatsUpdater PRIVATE
+            $<$<BOOL:${OMNISTATS_WARNINGS_AS_ERRORS}>:/WX>
             $<$<CONFIG:Release>:/O2>
             $<$<CONFIG:Release>:/GF>
             $<$<CONFIG:Release>:/Gy>
@@ -297,6 +300,7 @@ if(BUILD_TESTING)
 
     if(MSVC)
         target_compile_options(OmniStatsTests PRIVATE
+            $<$<BOOL:${OMNISTATS_WARNINGS_AS_ERRORS}>:/WX>
             $<$<CONFIG:Release>:/O2>
             $<$<CONFIG:Release>:/GF>
             $<$<CONFIG:Release>:/Gy>

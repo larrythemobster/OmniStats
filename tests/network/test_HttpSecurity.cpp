@@ -213,7 +213,7 @@ TEST(HttpSecurityTest, AccountClientFollowsSameOriginRedirectAndPreservesBody) {
 TEST(HttpSecurityTest, AccountClientRejectsCrossOriginRedirectAndNeverSendsCredentials) {
     std::atomic<bool> attackerHit{false};
 
-    MockHttpServer attacker([&](const std::string& req, std::string& resp) {
+    MockHttpServer attacker([&](const std::string&, std::string& resp) {
         attackerHit.store(true);
         resp = "HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n";
     });
@@ -242,7 +242,7 @@ TEST(HttpSecurityTest, AccountClientRejectsCrossOriginRedirectAndNeverSendsCrede
 TEST(HttpSecurityTest, AccountClientRejectsRedirectDowngradeAttempt) {
     std::atomic<bool> insecureTargetHit{false};
 
-    MockHttpServer insecureServer([&](const std::string& req, std::string& resp) {
+    MockHttpServer insecureServer([&](const std::string&, std::string& resp) {
         insecureTargetHit.store(true);
         resp = "HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n";
     });
@@ -256,7 +256,7 @@ TEST(HttpSecurityTest, NormalAuthenticatedRequestSucceeds) {
     std::atomic<bool> hit{false};
     std::string receivedAuth;
 
-    MockHttpServer server([&](const std::string& req, std::string& resp) {
+    MockHttpServer server([&](const std::string&, std::string& resp) {
         hit.store(true);
         resp = "HTTP/1.1 200 OK\r\n"
                "Content-Type: application/json\r\n"
@@ -319,7 +319,7 @@ TEST(HttpSecurityTest, RedirectStatusCodes301_302_308_HandledCorrectly) {
 
     // 303 See Other is rejected for credential POST endpoints
     {
-        MockHttpServer server([&](const std::string& req, std::string& resp) {
+        MockHttpServer server([&](const std::string&, std::string& resp) {
             resp = "HTTP/1.1 303 See Other\r\nLocation: /to303\r\nContent-Length: 0\r\n\r\n";
         });
         AccountClient client;
@@ -330,7 +330,7 @@ TEST(HttpSecurityTest, RedirectStatusCodes301_302_308_HandledCorrectly) {
 }
 
 TEST(HttpSecurityTest, ReusedRequestConfigurationsDoNotLeakState) {
-    MockHttpServer server([&](const std::string& req, std::string& resp) {
+    MockHttpServer server([&](const std::string&, std::string& resp) {
         resp = "HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nOK";
     });
 

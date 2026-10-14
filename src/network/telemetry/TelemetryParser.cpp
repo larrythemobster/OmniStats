@@ -26,7 +26,7 @@ void TelemetryParser::ConnectAndRead(JsonLineCallback onJsonLine) {
         m_socket.close(ec);
     }
     ConfigData conf = Config::Read();
-    asio::ip::tcp::endpoint endpoint(asio::ip::make_address(conf.host), conf.port);
+    asio::ip::tcp::endpoint endpoint(asio::ip::make_address(conf.host), static_cast<asio::ip::port_type>(conf.port));
 
     constexpr int maxBindAttempts = 4;
     bool safeSourcePortBound = false;
@@ -77,7 +77,7 @@ void TelemetryParser::ConnectAndRead(JsonLineCallback onJsonLine) {
         timer.cancel();
     });
 
-    timer.async_wait([&](const asio::error_code& ec) {
+    timer.async_wait([&](const asio::error_code&) {
         if (!connect_done) {
             asio::error_code cancel_ec;
             m_socket.close(cancel_ec);

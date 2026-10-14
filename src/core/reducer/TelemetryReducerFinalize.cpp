@@ -239,7 +239,6 @@ void TelemetryReducer::FinalizeCapturedMatchLocked(
         effects.updateSession = recap;
     }
 
-    const auto& currentMatch = match.stats;
     // The executor queues these lookups after the match save, so the database
     // stays the single source of each with/against record.
     for (const auto& [primaryId, player] : match.roster) {

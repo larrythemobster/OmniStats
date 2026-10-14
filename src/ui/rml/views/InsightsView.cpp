@@ -328,10 +328,10 @@ std::vector<RecapModeRow> InsightsView::BuildRecapModes(const SessionRecap& reca
         if (!played && (change == recap.totals.mmrChangeByPlaylist.end() || change->second == 0)) continue;
         RecapModeRow row;
         row.name = MmrLabel(StringToMmrCategory(key));
-        if (auto it = recap.gamemodes.find(key); it != recap.gamemodes.end()) {
-            row.record = FormatRecord(it->second.wins, it->second.losses);
-            const int played = it->second.wins + it->second.losses;
-            if (played > 0) row.win_width = Percent(static_cast<float>(it->second.wins) / static_cast<float>(played));
+        if (games != recap.gamemodes.end()) {
+            row.record = FormatRecord(games->second.wins, games->second.losses);
+            const int gamesPlayed = games->second.wins + games->second.losses;
+            if (gamesPlayed > 0) row.win_width = Percent(static_cast<float>(games->second.wins) / static_cast<float>(gamesPlayed));
         } else {
             row.record = "-";
         }

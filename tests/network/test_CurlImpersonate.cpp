@@ -6,6 +6,7 @@
 #include <curl/curl.h>
 #include <nlohmann/json.hpp>
 #include "network/http/CurlImpersonate.hpp"
+#include "utils/Env.hpp"
 #include <cstdlib>
 #include <string>
 #include <vector>
@@ -20,8 +21,7 @@ static size_t WriteCallback(void* contents, size_t size, size_t nmemb, void* use
 class CurlRealNetworkTest : public ::testing::Test {
   protected:
     void SetUp() override {
-        const char* enabled = std::getenv("OMNISTATS_RUN_NETWORK_TESTS");
-        if (enabled == nullptr || std::string(enabled) != "1") {
+        if (Env::Get("OMNISTATS_RUN_NETWORK_TESTS").value_or("") != "1") {
             GTEST_SKIP() << "Set OMNISTATS_RUN_NETWORK_TESTS=1 to run live HTTP tests";
         }
 

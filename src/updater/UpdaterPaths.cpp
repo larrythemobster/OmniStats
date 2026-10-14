@@ -1,5 +1,5 @@
 #include "updater/UpdaterPaths.hpp"
-#include <cstdlib>
+#include "utils/Env.hpp"
 #include <filesystem>
 #include <windows.h>
 
@@ -9,28 +9,22 @@ namespace UpdaterCommon {
 
     std::string GetAppDataDir() {
 #ifdef OMNISTATS_TEST_ENVIRONMENT
-        const char* temp = std::getenv("TEMP");
-        if (!temp) {
-            temp = std::getenv("TMP");
-        }
-        return std::string(temp ? temp : ".") + "\\omnistats_test\\";
+        const std::optional<std::string> temp = Env::Get("TEMP") ? Env::Get("TEMP") : Env::Get("TMP");
+        return temp.value_or(".") + "\\omnistats_test\\";
 #else
-        const char* appData = std::getenv("APPDATA");
-        if (appData) {
-            return std::string(appData) + "\\omnistats\\";
+        if (const std::optional<std::string> appData = Env::Get("APPDATA")) {
+            return *appData + "\\omnistats\\";
         }
         return "data\\";
 #endif
     }
 
     std::string GetLocalAppDataDir() {
-        const char* localAppData = std::getenv("LOCALAPPDATA");
-        if (localAppData) {
-            return std::string(localAppData) + "\\OmniStats\\";
+        if (const std::optional<std::string> localAppData = Env::Get("LOCALAPPDATA")) {
+            return *localAppData + "\\OmniStats\\";
         }
-        const char* userProfile = std::getenv("USERPROFILE");
-        if (userProfile) {
-            return std::string(userProfile) + "\\AppData\\Local\\OmniStats\\";
+        if (const std::optional<std::string> userProfile = Env::Get("USERPROFILE")) {
+            return *userProfile + "\\AppData\\Local\\OmniStats\\";
         }
         return "C:\\OmniStats\\";
     }
