@@ -153,6 +153,10 @@ namespace {
         }
         return fallback.empty() ? "OmniStats User" : fallback;
     }
+
+    std::string ErrorBody(std::string_view code, const std::string& message) {
+        return nlohmann::json{{"error", {{"code", code}, {"message", message}}}}.dump();
+    }
 } // namespace
 
 AccountClient& AccountClient::Instance() {
@@ -1175,7 +1179,7 @@ AccountClient::HttpResponse AccountClient::PerformHttpPost(const std::string& ur
     if (!HttpSecurity::IsAllowedSensitiveUrl(parsedUrl, &urlError)) {
         response.curlCode = CURLE_FAILED_INIT;
         response.statusCode = 0;
-        response.body = "{\"error\":{\"code\":\"insecure_url\",\"message\":\"" + urlError + "\"}}";
+        response.body = ErrorBody("insecure_url", urlError);
         return response;
     }
 
@@ -1246,7 +1250,7 @@ AccountClient::HttpResponse AccountClient::PerformHttpPost(const std::string& ur
             const auto val = HttpSecurity::ValidateRedirect(currentUrl, headerState.location, /*isSensitiveRequest=*/true);
             if (!val.allowed) {
                 response.curlCode = CURLE_PEER_FAILED_VERIFICATION;
-                response.body = "{\"error\":{\"code\":\"unsafe_redirect\",\"message\":\"" + val.reason + "\"}}";
+                response.body = ErrorBody("unsafe_redirect", val.reason);
                 return response;
             }
             if (response.statusCode == 303) {
