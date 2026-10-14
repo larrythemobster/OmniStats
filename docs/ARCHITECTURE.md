@@ -49,6 +49,8 @@ Persisted under `%APPDATA%\omnistats\omnistats.db` using versioned migrations (`
 - `PlayerNotes`: User-authored scouting notes keyed by normalized platform account identity.
 - `ReplayUploads`: Replay file paths, upload queue state, and Ballchasing URLs.
 
+CSV exports prefix formula-like text cells with an apostrophe before applying CSV quoting, including formulas preceded by whitespace. JSON exports preserve the original text.
+
 Provisional `result_pending` matches are excluded from W/L records, streaks and Insights outcomes/MMR context until confirmation. Merge preserves the flag. Longest streaks scan all confirmed history with constant application memory. The internal recent-match cache still retains provisional rows for confirmation and MMR reconciliation.
 
 Database startup checks existing foreign-key integrity before enabling enforcement on the connection. Declared cascading deletes remove dependent stats and tracked ranks. An integrity violation stops startup and names the affected table in the application log; existing rows are not deleted or rewritten.

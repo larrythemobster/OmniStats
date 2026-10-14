@@ -100,6 +100,38 @@ TEST_F(DatabaseManagerTest, MergeKeepsProvisionalResultHiddenUntilConfirmation) 
     EXPECT_EQ(losses, 0);
 }
 
+TEST_F(DatabaseManagerTest, CsvExportTreatsPlayerFormulasAsTextWithoutChangingJson) {
+    Storage::InitializeEnvironment();
+    const std::string name = "=HYPERLINK(\"https://audit.invalid\",\"click\")";
+    MatchSaveSnapshot snap;
+    snap.arenaName = "DFH Stadium";
+    snap.matchGuid = "csv-formula";
+    snap.myPrimaryId = "Steam|csv";
+    snap.myTeam = 0;
+    snap.winnerTeam = 0;
+    snap.validResult = true;
+    snap.roster[snap.myPrimaryId] = PlayerData{
+        .primaryId = snap.myPrimaryId, .name = name, .team = 0};
+    dbManager->SaveMatch(snap);
+    std::string exportPath;
+    std::string error;
+    ASSERT_TRUE(dbManager->ExportLocalData(exportPath, error)) << error;
+    {
+        std::ifstream csv(exportPath + "match_players.csv", std::ios::binary);
+        const std::string content{
+            std::istreambuf_iterator<char>(csv), std::istreambuf_iterator<char>()};
+        EXPECT_NE(content.find(
+                      "\"'=HYPERLINK(\"\"https://audit.invalid\"\",\"\"click\"\")\""),
+                  std::string::npos);
+        std::ifstream input(exportPath + "matches.json");
+        const auto matches = nlohmann::json::parse(input);
+        ASSERT_EQ(matches.size(), 1u);
+        EXPECT_EQ(matches[0]["players"][0]["name"], name);
+    }
+    std::error_code cleanupError;
+    std::filesystem::remove_all(exportPath, cleanupError);
+}
+
 TEST_F(DatabaseManagerTest, InitializeCreatesTables) {
     // Already initialized in SetUp. We can verify it by writing a setting.
     EXPECT_TRUE(dbManager->SetSetting("test_key", "test_value"));

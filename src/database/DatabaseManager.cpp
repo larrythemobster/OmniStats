@@ -319,17 +319,24 @@ static const std::vector<Migration> kMigrations = {
 };
 
 static std::string CsvEscape(const std::string& value) {
-    bool needsQuotes = value.find_first_of(",\"\r\n") != std::string::npos;
-    if (!needsQuotes) return value;
+    const auto first = value.find_first_not_of(" \t\r\n");
+    const bool formula = (!value.empty() && value.find_first_of("\t\r\n") == 0) ||
+                         (first != std::string::npos && value.find_first_of("=+-@", first) == first);
+    const bool needsQuotes = value.find_first_of(",\"\r\n") != std::string::npos;
+    if (!needsQuotes) return formula ? "'" + value : value;
 
-    std::string escaped = "\"";
+    std::string escaped;
+    escaped.reserve(value.size() + 2 + (formula ? 1 : 0) +
+                    static_cast<size_t>(std::count(value.begin(), value.end(), '\"')));
+    escaped += '\"';
+    if (formula) escaped += '\'';
     for (char c : value) {
         if (c == '\"')
             escaped += "\"\"";
         else
             escaped += c;
     }
-    escaped += "\"";
+    escaped += '\"';
     return escaped;
 }
 
