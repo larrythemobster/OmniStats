@@ -43,7 +43,7 @@ add_compile_definitions(NOMINMAX _WIN32_WINNT=0x0A00)
 set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 
 if(MSVC)
-    add_compile_options(/MP)
+    add_compile_options(/MP /W4)
 endif()
 
 # Find the packages defined in vcpkg.json
