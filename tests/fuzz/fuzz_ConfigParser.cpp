@@ -1,19 +1,26 @@
-#include <stdint.h>
-#include <stddef.h>
+#include <cstddef>
+#include <cstdint>
+#include <cstdlib>
+#include <fstream>
 #include <string>
-#include <nlohmann/json.hpp>
 
+#include "core/config/Config.hpp"
+#include "utils/Storage.hpp"
+
+extern "C" int LLVMFuzzerInitialize(int*, char***) {
+    Storage::InitializeEnvironment();
+    return 0;
+}
+
+// Feeds arbitrary bytes through the real config.json load path, including corrupt-file recovery.
 extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
-    if (size == 0) return 0;
-
-    std::string input(reinterpret_cast<const char*>(data), size);
-
-    // Invalid JSON is expected; this target only checks for crashes.
-    try {
-        auto parsed = nlohmann::json::parse(input);
-    } catch (const nlohmann::json::exception&) {
-    } catch (...) {
+    const std::string path = Storage::GetDataDirectory() + "config.json";
+    {
+        std::ofstream out(path, std::ios::binary | std::ios::trunc);
+        out.write(reinterpret_cast<const char*>(data), static_cast<std::streamsize>(size));
     }
-
+    Config::Load();
+    const ConfigData config = Config::Read();
+    if (config.match_summary_seconds < 5 || config.match_summary_seconds > 60) std::abort();
     return 0;
 }
