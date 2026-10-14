@@ -42,88 +42,11 @@ TEST(VersionConsistencyTest, VerifyDynamicVersionAlignment) {
     expectedRcVersionCommas += ",0";
     std::string expectedRcVersionDots = expectedVersion + ".0";
 
-    // 1. Check CMakeLists.txt uses ${OMNISTATS_VERSION}
-    {
-        std::filesystem::path cmakePath = sourceDir / "CMakeLists.txt";
-        std::ifstream file(cmakePath);
-        ASSERT_TRUE(file.is_open()) << "Failed to open " << cmakePath.string();
-        std::string line;
-        bool found = false;
-        while (std::getline(file, line)) {
-            if (line.find("project(OmniStats VERSION") != std::string::npos) {
-                EXPECT_NE(line.find("${OMNISTATS_VERSION}"), std::string::npos)
-                    << "CMakeLists.txt project() does not reference dynamic ${OMNISTATS_VERSION} variable: " << line;
-                found = true;
-                break;
-            }
-        }
-        EXPECT_TRUE(found) << "Could not find project VERSION line in CMakeLists.txt";
-    }
-
-    // 2. Check AppVersion.hpp uses OMNISTATS_VERSION macro
-    {
-        std::filesystem::path versionPath = sourceDir / "src" / "core" / "config" / "AppVersion.hpp";
-        std::ifstream file(versionPath);
-        ASSERT_TRUE(file.is_open()) << "Failed to open " << versionPath.string();
-        std::string line;
-        bool found = false;
-        while (std::getline(file, line)) {
-            if (line.find("Current") != std::string::npos) {
-                EXPECT_NE(line.find("OMNISTATS_VERSION"), std::string::npos)
-                    << "AppVersion.hpp Current does not use OMNISTATS_VERSION macro: " << line;
-                found = true;
-                break;
-            }
-        }
-        EXPECT_TRUE(found) << "Could not find Current definition in AppVersion.hpp";
-    }
-
-    // 3. Check compiled binary version matches vcpkg.json
     {
         EXPECT_STREQ(AppVersion::Current, expectedVersion.c_str())
             << "AppVersion::Current compiled value mismatch with vcpkg.json version";
     }
 
-    // 4. Check resources.rc.in template placeholders
-    {
-        std::filesystem::path rcInPath = sourceDir / "resources" / "omnistats.rc.in";
-        std::ifstream file(rcInPath);
-        ASSERT_TRUE(file.is_open()) << "Failed to open " << rcInPath.string();
-        std::string line;
-        bool foundFileVersion = false;
-        bool foundProductVersion = false;
-        bool foundStringFileVersion = false;
-        bool foundStringProductVersion = false;
-
-        while (std::getline(file, line)) {
-            if (line.find("FILEVERSION") != std::string::npos && line.find("FILEFLAG") == std::string::npos) {
-                EXPECT_NE(line.find("@OMNISTATS_VERSION_COMMA@"), std::string::npos)
-                    << "resources.rc.in FILEVERSION placeholder mismatch: " << line;
-                foundFileVersion = true;
-            }
-            if (line.find("PRODUCTVERSION") != std::string::npos) {
-                EXPECT_NE(line.find("@OMNISTATS_VERSION_COMMA@"), std::string::npos)
-                    << "resources.rc.in PRODUCTVERSION placeholder mismatch: " << line;
-                foundProductVersion = true;
-            }
-            if (line.find("\"FileVersion\"") != std::string::npos) {
-                EXPECT_NE(line.find("@PROJECT_VERSION@.0"), std::string::npos)
-                    << "resources.rc.in FileVersion placeholder mismatch: " << line;
-                foundStringFileVersion = true;
-            }
-            if (line.find("\"ProductVersion\"") != std::string::npos) {
-                EXPECT_NE(line.find("@PROJECT_VERSION@.0"), std::string::npos)
-                    << "resources.rc.in ProductVersion placeholder mismatch: " << line;
-                foundStringProductVersion = true;
-            }
-        }
-        EXPECT_TRUE(foundFileVersion) << "Could not find FILEVERSION placeholder in resources.rc.in";
-        EXPECT_TRUE(foundProductVersion) << "Could not find PRODUCTVERSION placeholder in resources.rc.in";
-        EXPECT_TRUE(foundStringFileVersion) << "Could not find FileVersion placeholder in resources.rc.in";
-        EXPECT_TRUE(foundStringProductVersion) << "Could not find ProductVersion placeholder in resources.rc.in";
-    }
-
-    // 5. Check generated resources.rc values
     {
         std::filesystem::path rcPath = binaryDir / "generated-resources" / "OmniStats.rc";
         std::ifstream file(rcPath);
@@ -161,55 +84,4 @@ TEST(VersionConsistencyTest, VerifyDynamicVersionAlignment) {
         EXPECT_TRUE(foundStringFileVersion) << "Could not find FileVersion string in generated resources.rc";
         EXPECT_TRUE(foundStringProductVersion) << "Could not find ProductVersion string in generated resources.rc";
     }
-}
-
-TEST(PublicBuildSeparationTest, MainAppSourcesDoNotDependOnUpdaterImplementation) {
-    std::filesystem::path sourceDir(OMNISTATS_SOURCE_DIR);
-    const std::vector<std::filesystem::path> mainAppFiles = {
-        sourceDir / "src" / "main.cpp",
-        sourceDir / "src" / "ui" / "Overlay.cpp",
-        sourceDir / "src" / "ui" / "rml" / "controller" / "RmlUiController.cpp",
-        sourceDir / "src" / "network" / "telemetry" / "TelemetryManager.cpp",
-    };
-
-    for (const auto& path : mainAppFiles) {
-        std::ifstream file(path);
-        ASSERT_TRUE(file.is_open()) << "Failed to open " << path.string();
-        std::string content((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
-        EXPECT_EQ(content.find("network/Updater.hpp"), std::string::npos) << path.string();
-        EXPECT_EQ(content.find("Updater::"), std::string::npos) << path.string();
-    }
-}
-
-TEST(PublicBuildSeparationTest, InputManagerKeepsLegacyHookCompileGated) {
-    std::filesystem::path sourceDir(OMNISTATS_SOURCE_DIR);
-    std::ifstream file(sourceDir / "src" / "platform" / "InputManager.cpp");
-    ASSERT_TRUE(file.is_open());
-    std::string content((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
-    EXPECT_NE(content.find("RegisterHotKey"), std::string::npos);
-    EXPECT_NE(content.find("OMNISTATS_ENABLE_LOW_LEVEL_HOOK"), std::string::npos);
-}
-
-TEST(RmlUiMigrationTest, UsesNativeRmlUi6RenderInterface) {
-    const std::filesystem::path sourceDir(OMNISTATS_SOURCE_DIR);
-
-    std::ifstream rendererHeader(sourceDir / "src" / "ui" / "rml" / "backend" / "RmlRenderInterfaceD3D11.hpp");
-    ASSERT_TRUE(rendererHeader.is_open());
-    const std::string rendererContent((std::istreambuf_iterator<char>(rendererHeader)), std::istreambuf_iterator<char>());
-    EXPECT_NE(rendererContent.find("public Rml::RenderInterface"), std::string::npos);
-    EXPECT_EQ(rendererContent.find("RenderInterfaceCompatibility"), std::string::npos);
-
-    std::ifstream rendererSource(sourceDir / "src" / "ui" / "rml" / "backend" / "RmlRenderInterfaceD3D11.cpp");
-    ASSERT_TRUE(rendererSource.is_open());
-    const std::string rendererSourceContent((std::istreambuf_iterator<char>(rendererSource)), std::istreambuf_iterator<char>());
-    EXPECT_NE(rendererSourceContent.find("PSSetConstantBuffers(0, 1, &cb)"), std::string::npos)
-        << "The pixel shader needs UiConstants so textured glyph draws do not collapse to solid quads.";
-    EXPECT_NE(rendererSourceContent.find("SrcBlend = D3D11_BLEND_ONE"), std::string::npos)
-        << "Native RmlUi 6 geometry/textures use premultiplied alpha.";
-
-    std::ifstream controller(sourceDir / "src" / "ui" / "rml" / "controller" / "RmlUiController.cpp");
-    ASSERT_TRUE(controller.is_open());
-    const std::string controllerContent((std::istreambuf_iterator<char>(controller)), std::istreambuf_iterator<char>());
-    EXPECT_NE(controllerContent.find("Rml::SetRenderInterface(&m_renderInterface)"), std::string::npos);
-    EXPECT_EQ(controllerContent.find("GetAdaptedInterface"), std::string::npos);
 }

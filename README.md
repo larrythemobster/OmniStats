@@ -32,7 +32,7 @@
 | **Storage** | SQLite 3 (WAL mode) | Local persistence for matches, player stats, notes, and tracked accounts. Uses versioned schema migrations. |
 | **Rank lookup** | Device auth + PsyNet / Tracker | Signed client requests via Ed25519 device keypair (libsodium), protected with Windows DPAPI. Optional Tracker Network support. |
 | **Packaging** | WiX Toolset v4 (MSI) | Authenticode-signed installer. The updater validates SHA-256 checksums over HTTPS before staging updates. |
-| **Test suite** | GoogleTest (576 cases) | Unit and integration tests, including offscreen headless UI tests rendered through DirectX 11 WARP. |
+| **Test suite** | GoogleTest | Unit and integration tests, including offscreen headless UI tests rendered through DirectX 11 WARP. |
 
 ## Supported surfaces
 

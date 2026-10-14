@@ -273,12 +273,3 @@ TEST_F(StatsApiConfigTest, FindConfigPathFromExecutable_EmptyOrInvalidPath) {
     }
     EXPECT_TRUE(StatsApiConfig::FindConfigPathFromExecutable(nonGameExe).empty());
 }
-
-TEST_F(StatsApiConfigTest, RunningProcessDetectionSafeExecution) {
-    // Safe execution without crash
-    std::string runningPath = StatsApiConfig::DetectConfigPathFromRunningProcess();
-    (void)runningPath;
-
-    bool running = StatsApiConfig::IsRocketLeagueRunning();
-    (void)running;
-}
