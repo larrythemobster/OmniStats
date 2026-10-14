@@ -425,6 +425,7 @@ DiscordPresenceSnapshot TelemetryReducer::BuildDiscordSnapshotLocked() const {
     DiscordPresenceSnapshot snapshot;
     snapshot.showPresence = true;
     snapshot.inMatch = m_state->game.inMatch;
+    snapshot.matchGuid = m_state->game.matchGuid;
     snapshot.arenaName = m_state->game.arenaName;
     snapshot.score[0] = m_state->game.score[0];
     snapshot.score[1] = m_state->game.score[1];

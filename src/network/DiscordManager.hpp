@@ -33,4 +33,5 @@ class DiscordManager {
     std::mutex m_snapshotMutex;
     std::condition_variable m_cv;
     DiscordPresenceSnapshot m_latestSnapshot;
+    DiscordActivityClock m_activityClock;
 };

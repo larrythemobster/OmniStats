@@ -109,6 +109,7 @@ void DiscordManager::ApplyPresence(const DiscordPresenceSnapshot& snapshot) {
 
     ConfigData conf = Config::Read();
     if (!conf.discord_rpc_enabled || !snapshot.showPresence) {
+        m_activityClock.Reset();
         Discord_ClearPresence();
         return;
     }
@@ -118,7 +119,7 @@ void DiscordManager::ApplyPresence(const DiscordPresenceSnapshot& snapshot) {
 
     std::string stateStr;
     std::string detailsStr;
-    std::time_t timestamp = std::time(nullptr);
+    const std::time_t timestamp = m_activityClock.StartFor(snapshot, std::time(nullptr));
 
     if (snapshot.inMatch) {
         // In a match — show arena and score
