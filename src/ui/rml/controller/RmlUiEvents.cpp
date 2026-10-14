@@ -374,14 +374,19 @@ void RmlUiController::HandleClick(Rml::Element* target) {
         const std::string arg = "/select,\"" + path + "\"";
         ShellExecuteA(nullptr, "open", "explorer.exe", arg.c_str(), nullptr, SW_SHOWNORMAL);
     } else if (action == "create-support-bundle") {
-        std::string bundlePath, error;
-        if (SupportBundle::CreateSupportBundle(bundlePath, error)) {
-            ShowToast("Saved support bundle to Desktop.");
-            const std::string arg = "/select,\"" + bundlePath + "\"";
-            ShellExecuteA(nullptr, "open", "explorer.exe", arg.c_str(), nullptr, SW_SHOWNORMAL);
-        } else {
-            ShowToast("Failed to create support bundle: " + (error.empty() ? "unknown error" : error), true);
-        }
+        StartBackgroundTask("Creating support bundle...", [this](std::stop_token) -> std::function<void()> {
+            std::string bundlePath, error;
+            const bool ok = SupportBundle::CreateSupportBundle(bundlePath, error);
+            return [this, ok, bundlePath = std::move(bundlePath), error = std::move(error)] {
+                if (!ok) {
+                    ShowToast("Failed to create support bundle: " + (error.empty() ? "unknown error" : error), true);
+                    return;
+                }
+                ShowToast("Saved support bundle to Desktop.");
+                const std::string arg = "/select,\"" + bundlePath + "\"";
+                ShellExecuteA(nullptr, "open", "explorer.exe", arg.c_str(), nullptr, SW_SHOWNORMAL);
+            };
+        });
     } else if (action == "copy-diagnostics-summary") {
         const std::string summary = SupportBundle::BuildDiagnosticsSummary();
         m_systemInterface.SetClipboardText(summary);
