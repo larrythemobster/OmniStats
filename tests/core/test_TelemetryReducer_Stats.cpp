@@ -794,6 +794,29 @@ TEST(TelemetryReducerStats, SessionResetClearsLastGoalSpeed) {
     EXPECT_FLOAT_EQ(state->game.lastGoalSpeed, 0.0f);
     EXPECT_FLOAT_EQ(state->game.lastGoalSpeedSelf, 0.0f);
 }
+
+TEST(TelemetryReducerStats, OtherMatchGoalCannotMutateActiveMatchStats) {
+    auto state = StateWithLocalPlayer();
+    TelemetryReducer reducer(state);
+    reducer.Reduce(std::string(Constants::EVT_MATCH_CREATED), nlohmann::json{{"MatchGuid", "current"}});
+    state->game.roster["Steam|1"] = PlayerData{.primaryId = "Steam|1", .name = "P1", .team = 0};
+    auto current = GoalEvent(100.0, "Steam|1", "current");
+    current["GoalTime"] = 12.0;
+    reducer.Reduce(std::string(Constants::EVT_GOAL_SCORED), current);
+    auto stale = GoalEvent(180.0, "Steam|1", "previous");
+    stale["GoalTime"] = 2.0;
+    const auto effects = reducer.Reduce(std::string(Constants::EVT_GOAL_SCORED), stale);
+
+    EXPECT_EQ(state->game.currentMatch.goals, 1);
+    EXPECT_EQ(state->game.currentMatch.goalsSelf, 1);
+    EXPECT_FLOAT_EQ(state->game.currentMatch.maxGoalSpeed, 100.0f);
+    EXPECT_FLOAT_EQ(state->game.currentMatch.fastestGoalTime, 12.0f);
+    EXPECT_EQ(state->game.roster.at("Steam|1").goals, 1);
+    EXPECT_FLOAT_EQ(state->game.roster.at("Steam|1").maxGoalSpeed, 100.0f);
+    EXPECT_FLOAT_EQ(state->game.roster.at("Steam|1").fastestGoalTime, 12.0f);
+    EXPECT_FALSE(effects.pushDiscord);
+}
+
 TEST(TelemetryReducerStats, BoostCountsSmallPadsButNotKickoffOrDemolitionRefills) {
     auto state = StateWithLocalPlayer();
     TelemetryReducer reducer(state);

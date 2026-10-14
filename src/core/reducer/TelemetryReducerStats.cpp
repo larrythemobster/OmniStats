@@ -80,6 +80,7 @@ void TelemetryReducer::HandleGoalScored(const nlohmann::json& data, SideEffects&
          (m_finalizedMatchGuids.count(goalGuid) > 0 || m_pendingDestroyedMatches.count(goalGuid) > 0 ||
           (m_state->game.inMatch && !m_state->game.matchFinalized && !m_state->game.matchGuid.empty() &&
            goalGuid != m_state->game.matchGuid)));
+    if (staleGoal) return;
     m_roundActive = false;
     m_state->game.currentMatch.goals++;
     std::string scorerName = "", scorerId = "";
@@ -104,10 +105,8 @@ void TelemetryReducer::HandleGoalScored(const nlohmann::json& data, SideEffects&
                 m_state->game.currentMatch.maxGoalSpeedSelf = std::max(m_state->game.currentMatch.maxGoalSpeedSelf, currentSpeed);
             if (!scorerId.empty() && m_state->game.roster.count(scorerId))
                 m_state->game.roster[scorerId].maxGoalSpeed = std::max(m_state->game.roster[scorerId].maxGoalSpeed, currentSpeed);
-            if (!staleGoal) {
-                m_state->game.lastGoalSpeed = currentSpeed;
-                if (hasScorer && isScorerSelf) m_state->game.lastGoalSpeedSelf = currentSpeed;
-            }
+            m_state->game.lastGoalSpeed = currentSpeed;
+            if (hasScorer && isScorerSelf) m_state->game.lastGoalSpeedSelf = currentSpeed;
         }
     }
     if (data.contains("GoalTime") && data["GoalTime"].is_number()) {
