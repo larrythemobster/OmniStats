@@ -22,6 +22,45 @@ class DatabaseManagerTest : public ::testing::Test {
     std::shared_ptr<DatabaseManager> dbManager;
 };
 
+TEST_F(DatabaseManagerTest, MergeKeepsProvisionalResultHiddenUntilConfirmation) {
+    const auto directory = std::filesystem::temp_directory_path() /
+                           ("omnistats_pending_merge_" + std::to_string(
+                                                             std::chrono::steady_clock::now().time_since_epoch().count()));
+    std::filesystem::create_directory(directory);
+    const auto path = directory / "source.db";
+    MatchSaveSnapshot match;
+    match.arenaName = "DFH Stadium";
+    match.matchGuid = "merged-pending";
+    match.playlistId = 11;
+    match.myTeam = 0;
+    match.winnerTeam = 0;
+    match.validResult = true;
+    match.resultPending = true;
+    match.myPrimaryId = "Steam|merged";
+    match.roster[match.myPrimaryId] = PlayerData{
+        .primaryId = match.myPrimaryId, .name = "Player", .team = 0};
+    {
+        DatabaseManager source(std::make_shared<SessionState>());
+        ASSERT_TRUE(source.Initialize(path.string()));
+        source.SaveMatch(match);
+    }
+    const auto result = dbManager->MergeDatabase(path.string());
+    std::filesystem::remove_all(directory);
+    ASSERT_TRUE(result.success) << result.error;
+    int wins, losses, played;
+    dbManager->GetGamemodeStats(match.myPrimaryId, "2v2", wins, losses, played);
+    EXPECT_EQ(played, 0);
+    std::vector<MatchOutcome> outcomes;
+    dbManager->GetMatchOutcomes(match.myPrimaryId, outcomes);
+    EXPECT_TRUE(outcomes.empty());
+    match.resultPending = false;
+    dbManager->SaveMatch(match);
+    dbManager->GetGamemodeStats(match.myPrimaryId, "2v2", wins, losses, played);
+    EXPECT_EQ(played, 1);
+    EXPECT_EQ(wins, 1);
+    EXPECT_EQ(losses, 0);
+}
+
 TEST_F(DatabaseManagerTest, InitializeCreatesTables) {
     // Already initialized in SetUp. We can verify it by writing a setting.
     EXPECT_TRUE(dbManager->SetSetting("test_key", "test_value"));

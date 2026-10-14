@@ -1849,6 +1849,7 @@ DbMergeResult DatabaseManager::MergeDatabase(const std::string& sourceDbPath) {
     }
 
     const bool srcHasPlaylistId = SqliteTableHasColumn(srcDb, "Matches", "playlist_id");
+    const bool srcHasResultPending = SqliteTableHasColumn(srcDb, "Matches", "result_pending");
     const bool srcHasMmrEstimated = SqliteTableHasColumn(srcDb, "MatchPlayers", "mmr_estimated");
     const bool srcHasIsOpponent = SqliteTableHasColumn(srcDb, "MatchPlayers", "is_opponent");
 
@@ -1870,8 +1871,8 @@ DbMergeResult DatabaseManager::MergeDatabase(const std::string& sourceDbPath) {
     sqlite3_stmt* checkFallbackStmt = nullptr;
 
     const char* insertMatchSql =
-        "INSERT INTO Matches (timestamp, arena, our_score, their_score, win, match_guid, playlist_id, gamemode, player_count) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);";
+        "INSERT INTO Matches (timestamp, arena, our_score, their_score, win, match_guid, playlist_id, gamemode, player_count, result_pending) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);";
     sqlite3_stmt* insertMatchStmt = nullptr;
 
     const char* insertPlayerSql =
@@ -1895,7 +1896,9 @@ DbMergeResult DatabaseManager::MergeDatabase(const std::string& sourceDbPath) {
 
     std::string selectMatchesSql = "SELECT id, timestamp, arena, our_score, their_score, win, match_guid, ";
     selectMatchesSql += srcHasPlaylistId ? "playlist_id, " : "NULL, ";
-    selectMatchesSql += "gamemode, player_count FROM Matches ORDER BY id ASC;";
+    selectMatchesSql += "gamemode, player_count, ";
+    selectMatchesSql += srcHasResultPending ? "COALESCE(result_pending, 0) " : "0 ";
+    selectMatchesSql += "FROM Matches ORDER BY id ASC;";
 
     sqlite3_stmt* selectMatchesStmt = nullptr;
     if (sqlite3_prepare_v2(srcDb, selectMatchesSql.c_str(), -1, &selectMatchesStmt, nullptr) != SQLITE_OK) {
@@ -1995,6 +1998,7 @@ DbMergeResult DatabaseManager::MergeDatabase(const std::string& sourceDbPath) {
         int playlistId = playlistNull ? 0 : sqlite3_column_int(selectMatchesStmt, 7);
         std::string gamemode = SqlColumnText(selectMatchesStmt, 8);
         int playerCount = sqlite3_column_int(selectMatchesStmt, 9);
+        const int resultPending = sqlite3_column_int(selectMatchesStmt, 10);
 
         if (arena.empty()) {
             result.matchesSkipped++;
@@ -2044,6 +2048,7 @@ DbMergeResult DatabaseManager::MergeDatabase(const std::string& sourceDbPath) {
         }
         sqlite3_bind_text(insertMatchStmt, 8, gamemode.c_str(), -1, SQLITE_STATIC);
         sqlite3_bind_int(insertMatchStmt, 9, playerCount);
+        sqlite3_bind_int(insertMatchStmt, 10, resultPending);
 
         if (sqlite3_step(insertMatchStmt) != SQLITE_DONE) {
             result.error = "Failed to insert match into target database: " + std::string(sqlite3_errmsg(m_db));
