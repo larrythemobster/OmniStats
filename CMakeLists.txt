@@ -197,6 +197,13 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
     windowscodecs.lib
 )
 
+include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/ThirdPartyNotices.cmake")
+set(OMNISTATS_NOTICES_FILE "${CMAKE_CURRENT_BINARY_DIR}/THIRD_PARTY_NOTICES.txt")
+omnistats_generate_third_party_notices("${OMNISTATS_NOTICES_FILE}")
+add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different "${OMNISTATS_NOTICES_FILE}" "$<TARGET_FILE_DIR:${PROJECT_NAME}>/THIRD_PARTY_NOTICES.txt"
+)
+
 if(MSVC)
     # Target-specific compiler options for MSVC
     target_compile_options(${PROJECT_NAME} PRIVATE

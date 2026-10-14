@@ -63,7 +63,8 @@ CMakeSettings.json
 vcpkg/
 vcpkg_installed/
 .vcpkg/
-third_party/
+third_party/*
+!third_party/licenses/
 PythonSource/
 
 # Runtime/user data

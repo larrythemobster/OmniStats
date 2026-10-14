@@ -37,6 +37,10 @@
                     Icon="LogoIcon" />
           <RegistryValue Root="HKCU" Key="Software\OmniStats" Name="installed" Type="integer" Value="1" />
         </Component>
+        <Component Id="ThirdPartyNotices" Guid="5E8D7E2B-3C7A-4F35-9B61-8D2B6A4C1F07">
+          <File Id="ThirdPartyNoticesTxt" Source="$(var.SourceDir)\THIRD_PARTY_NOTICES.txt" KeyPath="yes" />
+          <RegistryValue Root="HKCU" Key="Software\OmniStats" Name="notices_installed" Type="integer" Value="1" />
+        </Component>
       </Directory>
     </StandardDirectory>
 
@@ -69,6 +73,7 @@
 
     <Feature Id="MainFeature" Title="OmniStats Application" Level="1">
       <ComponentRef Id="ApplicationFiles" />
+      <ComponentRef Id="ThirdPartyNotices" />
       <ComponentRef Id="CurlDll" />
       <ComponentRef Id="ZlibDll" />
     </Feature>
