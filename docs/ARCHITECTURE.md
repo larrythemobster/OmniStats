@@ -49,6 +49,8 @@ Persisted under `%APPDATA%\omnistats\omnistats.db` using versioned migrations (`
 - `PlayerNotes`: User-authored scouting notes keyed by normalized platform account identity.
 - `ReplayUploads`: Replay file paths, upload queue state, and Ballchasing URLs.
 
+Stats API checks and repairs follow the game's lookup: `TAGame\Config\TAStatsAPI.ini`, or `DefaultStatsAPI.ini` when `TAStatsAPI.ini` does not exist. Only keys under `[TAGame.MatchStatsExporter_TA]` count; repair rewrites or adds `PacketSendRate=30` and `Port` in that section and leaves every other section unchanged.
+
 ## UI architecture and update model
 
 - **RmlUi DOM.** RmlUi templates (`resources/rml/*.rml`) are compiled into persistent DOM trees rather than being reconstructed every frame.

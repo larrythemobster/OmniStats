@@ -1,4 +1,5 @@
 #include "core/config/StatsApiConfig.hpp"
+#include "core/config/StatsApiIni.hpp"
 #include <fstream>
 #include <iostream>
 #include <filesystem>
@@ -11,11 +12,9 @@
 
 namespace StatsApiConfig {
 
-    static std::string Trim(const std::string& str) {
-        size_t first = str.find_first_not_of(" \t\r\n");
-        if (first == std::string::npos) return "";
-        size_t last = str.find_last_not_of(" \t\r\n");
-        return str.substr(first, last - first + 1);
+    static bool PathExists(const std::filesystem::path& path) {
+        std::error_code error;
+        return std::filesystem::exists(path, error);
     }
 
     std::string GetStatusMessage(Status status) {
@@ -225,6 +224,7 @@ namespace StatsApiConfig {
     }
 
     std::string DetectConfigPath() {
+        std::error_code error;
         // 0. Try currently running Rocket League process first
         std::string runningPath = DetectConfigPathFromRunningProcess();
         if (!runningPath.empty()) {
@@ -235,7 +235,7 @@ namespace StatsApiConfig {
         std::string steamInstall = GetUninstallInstallLocation("252950");
         if (!steamInstall.empty()) {
             std::string fullPath = steamInstall + "\\TAGame\\Config\\DefaultStatsAPI.ini";
-            if (std::filesystem::exists(fullPath)) {
+            if (PathExists(fullPath)) {
                 return fullPath;
             }
         }
@@ -263,7 +263,7 @@ namespace StatsApiConfig {
 
         if (!steamPath.empty()) {
             std::string libFoldersPath = steamPath + "\\steamapps\\libraryfolders.vdf";
-            if (std::filesystem::exists(libFoldersPath)) {
+            if (PathExists(libFoldersPath)) {
                 std::ifstream file(libFoldersPath);
                 std::string line;
                 while (std::getline(file, line)) {
@@ -284,7 +284,7 @@ namespace StatsApiConfig {
                                     }
                                 }
                                 std::string fullPath = cleanPath + "\\steamapps\\common\\rocketleague\\TAGame\\Config\\DefaultStatsAPI.ini";
-                                if (std::filesystem::exists(fullPath)) {
+                                if (PathExists(fullPath)) {
                                     return fullPath;
                                 }
                             }
@@ -306,8 +306,10 @@ namespace StatsApiConfig {
             programData = "C:\\ProgramData";
         }
         std::string manifestsPath = programData + "\\Epic\\EpicGamesLauncher\\Data\\Manifests";
-        if (std::filesystem::exists(manifestsPath)) {
-            for (const auto& entry : std::filesystem::directory_iterator(manifestsPath)) {
+        if (PathExists(manifestsPath)) {
+            for (auto it = std::filesystem::directory_iterator(manifestsPath, error);
+                 !error && it != std::filesystem::directory_iterator(); it.increment(error)) {
+                const auto& entry = *it;
                 if (entry.path().extension() == ".item") {
                     try {
                         std::ifstream file(entry.path());
@@ -322,7 +324,7 @@ namespace StatsApiConfig {
                         if (isRL && j.contains("InstallLocation")) {
                             std::string loc = j["InstallLocation"];
                             std::string fullPath = loc + "\\TAGame\\Config\\DefaultStatsAPI.ini";
-                            if (std::filesystem::exists(fullPath)) {
+                            if (PathExists(fullPath)) {
                                 return fullPath;
                             }
                         }
@@ -335,7 +337,7 @@ namespace StatsApiConfig {
         // 4. Fallbacks
         std::vector<std::string> fallbacks = {
             "C:\\Program Files (x86)\\Steam\\steamapps\\common\\rocketleague\\TAGame\\Config\\DefaultStatsAPI.ini",
-            "C:\\Program Files\\Epic Games\rocketleague\\TAGame\\Config\\DefaultStatsAPI.ini",
+            "C:\\Program Files\\Epic Games\\rocketleague\\TAGame\\Config\\DefaultStatsAPI.ini",
             "C:\\Program Files\\Steam\\steamapps\\common\\rocketleague\\TAGame\\Config\\DefaultStatsAPI.ini",
             "D:\\SteamLibrary\\steamapps\\common\\rocketleague\\TAGame\\Config\\DefaultStatsAPI.ini",
             "E:\\SteamLibrary\\steamapps\\common\\rocketleague\\TAGame\\Config\\DefaultStatsAPI.ini",
@@ -343,7 +345,7 @@ namespace StatsApiConfig {
             "E:\\Games\\Epic Games\\rocketleague\\TAGame\\Config\\DefaultStatsAPI.ini"};
 
         for (const auto& path : fallbacks) {
-            if (std::filesystem::exists(path)) {
+            if (PathExists(path)) {
                 return path;
             }
         }
@@ -351,67 +353,40 @@ namespace StatsApiConfig {
         return "";
     }
 
-    CheckResult VerifyConfig(const std::string& filePath, int expectedPort) {
+    CheckResult VerifyConfig(const std::string& requestedPath, int expectedPort) {
         CheckResult result;
-        result.path = filePath;
         result.expectedPort = expectedPort;
         result.rlRunning = IsRocketLeagueRunning();
-        if (filePath.empty()) {
+        if (requestedPath.empty()) {
             result.status = Status::NotFound;
             result.message = "Stats API config file path is empty.";
             return result;
         }
+        const std::string filePath = StatsApiIni::EffectiveConfigPath(std::filesystem::path(requestedPath)).string();
+        result.path = filePath;
 
-        if (!std::filesystem::exists(filePath)) {
+        if (!PathExists(filePath)) {
             result.status = Status::NotFound;
             result.message = "Stats API config file not found.";
             return result;
         }
 
-        std::ifstream file(filePath);
+        std::ifstream file{std::filesystem::path(filePath)};
         if (!file.is_open()) {
             result.status = Status::ReadError;
             result.message = "Could not open Stats API config file for reading.";
             return result;
         }
-
-        bool hasPacketSendRate = false;
-        bool hasPort = false;
-
-        std::string line;
-        while (std::getline(file, line)) {
-            std::string trimmed = Trim(line);
-            if (trimmed.empty() || trimmed[0] == ';' || trimmed[0] == '#') {
-                continue;
-            }
-            if (trimmed[0] == '[' && trimmed[trimmed.length() - 1] == ']') {
-                continue;
-            }
-
-            size_t eq = trimmed.find('=');
-            if (eq != std::string::npos) {
-                std::string key = Trim(trimmed.substr(0, eq));
-                std::string val = Trim(trimmed.substr(eq + 1));
-
-                std::string keyLower = key;
-                std::transform(keyLower.begin(), keyLower.end(), keyLower.begin(), ::tolower);
-
-                if (keyLower == "packetsendrate") {
-                    try {
-                        result.packetSendRate = std::stof(val);
-                        hasPacketSendRate = true;
-                    } catch (...) {
-                    }
-                } else if (keyLower == "port") {
-                    try {
-                        result.actualPort = std::stoi(val);
-                        hasPort = true;
-                    } catch (...) {
-                    }
-                }
-            }
-        }
+        std::vector<std::string> lines;
+        for (std::string line; std::getline(file, line);)
+            lines.push_back(std::move(line));
         file.close();
+
+        const StatsApiIni::ExporterValues values = StatsApiIni::ReadExporterValues(lines);
+        const bool hasPacketSendRate = values.packetSendRate.has_value();
+        const bool hasPort = values.port.has_value();
+        if (hasPacketSendRate) result.packetSendRate = *values.packetSendRate;
+        if (hasPort) result.actualPort = *values.port;
 
         if (!hasPacketSendRate) {
             result.status = Status::MissingPacketSendRate;

@@ -35,6 +35,7 @@
 #include "core/config/AppVersion.hpp"
 #include "utils/Storage.hpp"
 #include "core/config/StatsApiConfig.hpp"
+#include "core/config/StatsApiIni.hpp"
 #include "database/DatabaseManager.hpp"
 #include "network/ExternalUpdaterLauncher.hpp"
 #include "network/mmr/MMRFetcher.hpp"
@@ -1207,8 +1208,8 @@ bool RmlUiController::ValidateStatsApiPath(std::string input, std::string& norma
     if (normalized.empty()) return true;
 
     const std::filesystem::path path(normalized);
-    if (ToLower(path.filename().string()) != "defaultstatsapi.ini") {
-        error = "Filename must be exactly DefaultStatsAPI.ini";
+    if (!StatsApiIni::IsStatsApiFileName(path)) {
+        error = "Choose TAStatsAPI.ini or DefaultStatsAPI.ini.";
         return false;
     }
     if (!std::filesystem::exists(path)) {

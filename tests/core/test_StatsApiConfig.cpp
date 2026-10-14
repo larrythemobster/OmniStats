@@ -32,7 +32,7 @@ class StatsApiConfigTest : public ::testing::Test {
 
 TEST_F(StatsApiConfigTest, VerifyValidConfig) {
     std::string content =
-        "[StatsAPI]\r\n"
+        "[TAGame.MatchStatsExporter_TA]\r\n"
         "PacketSendRate=30\r\n"
         "Port=49123\r\n";
     WriteFile(content);
@@ -45,7 +45,7 @@ TEST_F(StatsApiConfigTest, VerifyValidConfig) {
 
 TEST_F(StatsApiConfigTest, VerifyDisabledPacketSendRate) {
     std::string content =
-        "[StatsAPI]\r\n"
+        "[TAGame.MatchStatsExporter_TA]\r\n"
         "PacketSendRate=0\r\n"
         "Port=49123\r\n";
     WriteFile(content);
@@ -56,7 +56,7 @@ TEST_F(StatsApiConfigTest, VerifyDisabledPacketSendRate) {
 
 TEST_F(StatsApiConfigTest, VerifyWrongPacketSendRate) {
     std::string content =
-        "[StatsAPI]\r\n"
+        "[TAGame.MatchStatsExporter_TA]\r\n"
         "PacketSendRate=10\r\n"
         "Port=49123\r\n";
     WriteFile(content);
@@ -67,7 +67,7 @@ TEST_F(StatsApiConfigTest, VerifyWrongPacketSendRate) {
 
 TEST_F(StatsApiConfigTest, VerifyMissingPacketSendRate) {
     std::string content =
-        "[StatsAPI]\r\n"
+        "[TAGame.MatchStatsExporter_TA]\r\n"
         "Port=49123\r\n";
     WriteFile(content);
 
@@ -77,7 +77,7 @@ TEST_F(StatsApiConfigTest, VerifyMissingPacketSendRate) {
 
 TEST_F(StatsApiConfigTest, VerifyMissingPort) {
     std::string content =
-        "[StatsAPI]\r\n"
+        "[TAGame.MatchStatsExporter_TA]\r\n"
         "PacketSendRate=30\r\n";
     WriteFile(content);
 
@@ -87,7 +87,7 @@ TEST_F(StatsApiConfigTest, VerifyMissingPort) {
 
 TEST_F(StatsApiConfigTest, VerifyWrongPort) {
     std::string content =
-        "[StatsAPI]\r\n"
+        "[TAGame.MatchStatsExporter_TA]\r\n"
         "PacketSendRate=30\r\n"
         "Port=55555\r\n";
     WriteFile(content);
@@ -99,7 +99,7 @@ TEST_F(StatsApiConfigTest, VerifyWrongPort) {
 
 TEST_F(StatsApiConfigTest, VerifyWhitespaceAndCaseInsensitive) {
     std::string content =
-        " [statsapi] \r\n"
+        " [tagame.matchstatsexporter_ta] \r\n"
         " packetsendrate = 30 \r\n"
         " port = 49123 \r\n";
     WriteFile(content);
@@ -113,7 +113,7 @@ TEST_F(StatsApiConfigTest, VerifyWhitespaceAndCaseInsensitive) {
 TEST_F(StatsApiConfigTest, FixConfigPreservesCommentsAndFormat) {
     std::string content =
         "; Some initial comment\r\n"
-        "[StatsAPI]\r\n"
+        "[TAGame.MatchStatsExporter_TA]\r\n"
         "PacketSendRate=0\r\n"
         "; Another comment\r\n"
         "Port=12345\r\n"
@@ -179,6 +179,43 @@ TEST_F(StatsApiConfigTest, FixConfigStrictValidationErrors) {
     std::filesystem::path missingSubdir = tempDir / "missing_subdir" / "DefaultStatsAPI.ini";
     exitCode = UpdaterStatsApiRepair::FixConfigStrictHeadless(missingSubdir.string(), 49123);
     EXPECT_EQ(exitCode, 2);
+}
+
+TEST_F(StatsApiConfigTest, VerifyIgnoresKeysOutsideExporterSection) {
+    WriteFile("[StatsAPI]\r\nPacketSendRate=30\r\nPort=49123\r\n");
+    const auto res = StatsApiConfig::VerifyConfig(testFilePath.string(), 49123);
+    EXPECT_EQ(res.status, StatsApiConfig::Status::MissingPacketSendRate);
+}
+
+TEST_F(StatsApiConfigTest, TAStatsApiOverridesDefaultForVerifyAndRepair) {
+    const std::string defaultContent = "[TAGame.MatchStatsExporter_TA]\r\nPacketSendRate=30\r\nPort=49123\r\n";
+    WriteFile(defaultContent);
+    const std::filesystem::path overridePath = tempDir / "TAStatsAPI.ini";
+    {
+        std::ofstream file(overridePath, std::ios::binary);
+        file << "[TAGame.MatchStatsExporter_TA]\r\nPacketSendRate=0\r\nPort=49123\r\n";
+    }
+
+    auto res = StatsApiConfig::VerifyConfig(testFilePath.string(), 49123);
+    EXPECT_EQ(std::filesystem::path(res.path).filename(), "TAStatsAPI.ini");
+    EXPECT_EQ(res.status, StatsApiConfig::Status::DisabledPacketSendRate);
+
+    EXPECT_EQ(UpdaterStatsApiRepair::FixConfigStrictHeadless(testFilePath.string(), 49123), 0);
+    EXPECT_EQ(ReadFile(testFilePath), defaultContent);
+    res = StatsApiConfig::VerifyConfig(testFilePath.string(), 49123);
+    EXPECT_EQ(res.status, StatsApiConfig::Status::Valid);
+}
+
+TEST_F(StatsApiConfigTest, RepairAddsExporterKeysWithoutTouchingOtherSections) {
+    WriteFile("[Other]\r\nPort=1\r\n\r\n[TAGame.MatchStatsExporter_TA]\r\nPacketSendRate=0\r\nWebPort=49124\r\n\r\n[Tail]\r\nKey=Value\r\n");
+    EXPECT_EQ(UpdaterStatsApiRepair::FixConfigStrictHeadless(testFilePath.string(), 49123), 0);
+    EXPECT_EQ(ReadFile(testFilePath),
+              "[Other]\r\nPort=1\r\n\r\n[TAGame.MatchStatsExporter_TA]\r\nPacketSendRate=30\r\nWebPort=49124\r\nPort=49123\r\n\r\n[Tail]\r\nKey=Value\r\n");
+
+    WriteFile("[StatsAPI]\r\nPacketSendRate=30\r\nPort=49123\r\n");
+    std::filesystem::remove(testFilePath.string() + ".omnistats.bak");
+    EXPECT_EQ(UpdaterStatsApiRepair::FixConfigStrictHeadless(testFilePath.string(), 49123), 0);
+    EXPECT_EQ(StatsApiConfig::VerifyConfig(testFilePath.string(), 49123).status, StatsApiConfig::Status::Valid);
 }
 
 TEST_F(StatsApiConfigTest, FindConfigPathFromExecutable_Standard64Bit) {

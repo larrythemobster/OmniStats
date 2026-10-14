@@ -261,7 +261,7 @@ int main(int argc, char* argv[]) {
                 checkRes = StatsApiConfig::VerifyConfig(apiPath, startupConf.port);
                 MessageBoxW(NULL, L"Rocket League Stats API configuration successfully updated!", title.c_str(), MB_OK | MB_ICONINFORMATION | MB_SYSTEMMODAL);
             } else {
-                MessageBoxW(NULL, L"Failed to update Stats API configuration. Please check permissions or edit DefaultStatsAPI.ini manually.", title.c_str(), MB_OK | MB_ICONERROR | MB_SYSTEMMODAL);
+                MessageBoxW(NULL, L"Failed to update Stats API configuration. Check permissions, or set PacketSendRate=30 and Port under [TAGame.MatchStatsExporter_TA] in TAStatsAPI.ini (or DefaultStatsAPI.ini) manually.", title.c_str(), MB_OK | MB_ICONERROR | MB_SYSTEMMODAL);
             }
         }
     }

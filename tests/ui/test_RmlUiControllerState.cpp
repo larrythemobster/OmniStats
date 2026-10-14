@@ -757,7 +757,7 @@ TEST_F(RmlUiControllerStateTest, StatsApiBackgroundStateParticipatesInUiInvalida
     EXPECT_NE(LastConfigFingerprint(controller), before);
 }
 
-TEST_F(RmlUiControllerStateTest, ManualStatsApiPathKeepsLegacyValidationRules) {
+TEST_F(RmlUiControllerStateTest, ManualStatsApiPathAcceptsOnlyStatsApiIniFiles) {
     std::string normalized;
     std::string error;
 
@@ -766,13 +766,13 @@ TEST_F(RmlUiControllerStateTest, ManualStatsApiPathKeepsLegacyValidationRules) {
     EXPECT_TRUE(error.empty());
 
     EXPECT_FALSE(ValidateStatsPath("WrongName.ini", normalized, error));
-    EXPECT_EQ(error, "Filename must be exactly DefaultStatsAPI.ini");
+    EXPECT_FALSE(error.empty());
 
-    const std::string missing = (std::filesystem::temp_directory_path() /
-                                 "definitely-missing-omnistats-path" / "DefaultStatsAPI.ini")
-                                    .string();
-    EXPECT_FALSE(ValidateStatsPath(missing, normalized, error));
-    EXPECT_EQ(error, "File does not exist.");
+    const auto missingDir = std::filesystem::temp_directory_path() / "definitely-missing-omnistats-path";
+    for (const char* name : {"DefaultStatsAPI.ini", "TAStatsAPI.ini"}) {
+        EXPECT_FALSE(ValidateStatsPath((missingDir / name).string(), normalized, error));
+        EXPECT_EQ(error, "File does not exist.") << name;
+    }
 }
 
 TEST_F(RmlUiControllerStateTest, CapturedKeyChangesOnlySelectedShortcut) {
