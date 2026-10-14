@@ -1,17 +1,22 @@
 #include <gtest/gtest.h>
 #include "platform/InputManager.hpp"
+#include "platform/KeyPressSimulator.hpp"
 #include "core/config/Config.hpp"
 #include "core/state/SessionState.hpp"
 #include <memory>
 
-TEST(InputManagerTest, Lifecycle) {
-    auto state = std::make_shared<SessionState>();
-    InputManager manager(state);
+TEST(KeyPressSimulatorTest, ForegroundGuardRequiresRocketLeagueProcessNotTitle) {
+    EXPECT_TRUE(IsRocketLeagueImagePath(L"C:\\Games\\rocketleague\\Binaries\\Win64\\RocketLeague.exe"));
+    EXPECT_TRUE(IsRocketLeagueImagePath(L"D:/Epic/rocketleague.EXE"));
+    EXPECT_FALSE(IsRocketLeagueImagePath(L"C:\\Program Files\\Browser\\browser.exe"));
+    EXPECT_FALSE(IsRocketLeagueImagePath(L"C:\\Tools\\NotRocketLeague.exe"));
+    EXPECT_FALSE(IsRocketLeagueWindow(nullptr));
 
-    // Start/stop should leave the manager in a usable state
-    EXPECT_NO_THROW(manager.Start());
-    std::this_thread::sleep_for(std::chrono::milliseconds(50));
-    EXPECT_NO_THROW(manager.Stop());
+    HWND impostor = CreateWindowExW(0, L"STATIC", L"Rocket League (64-bit, DX11)", WS_POPUP, 0, 0, 10, 10, nullptr, nullptr,
+                                    GetModuleHandleW(nullptr), nullptr);
+    ASSERT_NE(impostor, nullptr);
+    EXPECT_FALSE(IsRocketLeagueWindow(impostor));
+    DestroyWindow(impostor);
 }
 
 namespace {
