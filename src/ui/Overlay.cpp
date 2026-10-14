@@ -276,9 +276,9 @@ void Overlay::RunLoop() {
         }
 
         MSG msg{};
-        while (PeekMessage(&msg, nullptr, 0U, 0U, PM_REMOVE)) {
+        while (PeekMessageW(&msg, nullptr, 0U, 0U, PM_REMOVE)) {
             TranslateMessage(&msg);
-            DispatchMessage(&msg);
+            DispatchMessageW(&msg);
             if (msg.message == WM_QUIT) done = true;
         }
         if (done) break;

@@ -368,9 +368,9 @@ void TrayIcon::ThreadFunc() {
     }
 
     MSG msg;
-    while (GetMessage(&msg, nullptr, 0, 0)) {
+    while (GetMessageW(&msg, nullptr, 0, 0)) {
         TranslateMessage(&msg);
-        DispatchMessage(&msg);
+        DispatchMessageW(&msg);
     }
 
     RemoveIcon();
