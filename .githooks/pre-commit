@@ -13,9 +13,16 @@ fi
 
 echo "Running clang-format on staged C/C++ files..."
 
+status=0
 for file in "${files[@]}"; do
-    if [[ -f "$file" ]]; then
-        clang-format -i --style=file -- "$file"
-        git add -- "$file"
+    [[ -f "$file" ]] || continue
+    # Re-adding a partially staged file would also stage the hunks left out on purpose.
+    if ! git diff --quiet -- "$file"; then
+        echo "pre-commit: $file has unstaged changes. Format and stage it yourself, or stash the unstaged hunks." >&2
+        status=1
+        continue
     fi
+    clang-format -i --style=file -- "$file"
+    git add -- "$file"
 done
+exit "$status"
