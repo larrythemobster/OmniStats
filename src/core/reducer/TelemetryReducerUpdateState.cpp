@@ -515,9 +515,8 @@ void TelemetryReducer::HandleUpdateState(const nlohmann::json& data, SideEffects
             bool seenMyIdInLobby = false;
             std::unordered_set<std::string> currentCandidates;
             std::string mySavedId = m_state->game.myPrimaryId;
-            static std::string lastKnownMyId = "";
-            if (mySavedId != lastKnownMyId) {
-                lastKnownMyId = mySavedId;
+            if (mySavedId != m_lastKnownMyId) {
+                m_lastKnownMyId = mySavedId;
                 m_identityCandidates.clear();
                 m_missedMyIdCount = 0;
             }

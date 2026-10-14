@@ -78,3 +78,33 @@ TEST(TelemetryReducerIdentity, AutoSwitchesWhenSavedIdMissing) {
     // Clean up
     Config::Update([](ConfigData& c) { c.last_primary_id = ""; }, true);
 }
+
+TEST(TelemetryReducerIdentity, InterleavedReducersKeepIndependentCandidateHistories) {
+    Storage::InitializeEnvironment();
+    const auto original = Config::Read();
+    Config::Update([](ConfigData& c) { c.last_primary_id.clear(); }, false);
+    auto firstState = std::make_shared<SessionState>();
+    auto secondState = std::make_shared<SessionState>();
+    secondState->game.myPrimaryId = "Steam|other";
+    TelemetryReducer first(firstState);
+    TelemetryReducer second(secondState);
+    auto players = [](std::initializer_list<const char*> ids) {
+        nlohmann::json data;
+        data["Players"] = nlohmann::json::array();
+        for (const auto* id : ids) {
+            data["Players"].push_back({{"PrimaryId", id}, {"Name", id}, {"TeamNum", 0}, {"Boost", 50}});
+        }
+        return data;
+    };
+    const std::string event(Constants::EVT_UPDATE_STATE);
+    first.Reduce(event, players({"Steam|self", "Steam|first-candidate"}));
+    EXPECT_TRUE(firstState->game.myPrimaryId.empty());
+    second.Reduce(event, players({"Steam|other"}));
+    const auto effects = first.Reduce(
+        event, players({"Steam|self", "Steam|second-candidate"}));
+    EXPECT_EQ(firstState->game.myPrimaryId, "Steam|self");
+    EXPECT_EQ(secondState->game.myPrimaryId, "Steam|other");
+    EXPECT_TRUE(effects.fetchLifetimeHistory);
+    EXPECT_EQ(effects.lifetimePrimaryId, "Steam|self");
+    Config::Update([&original](ConfigData& c) { c = original; }, false);
+}
