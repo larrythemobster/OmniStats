@@ -49,6 +49,8 @@ Persisted under `%APPDATA%\omnistats\omnistats.db` using versioned migrations (`
 - `PlayerNotes`: User-authored scouting notes keyed by normalized platform account identity.
 - `ReplayUploads`: Replay file paths, upload queue state, and Ballchasing URLs.
 
+Database startup checks existing foreign-key integrity before enabling enforcement on the connection. Declared cascading deletes remove dependent stats and tracked ranks. An integrity violation stops startup and names the affected table in the application log; existing rows are not deleted or rewritten.
+
 ## Configuration and startup failures
 
 Config fields load independently. Wrong types, out-of-range numbers and non-finite values leave that field at its default without discarding valid settings or credentials. A malformed JSON document still follows the corrupt-file recovery path.
@@ -58,6 +60,8 @@ Credentials use user-scoped Windows DPAPI. Successfully decrypted legacy machine
 Application, updater and test executables embed a UTF-8 active-code-page manifest for Unicode profile and game paths. Stats API config detection uses non-throwing filesystem probes.
 
 Stats API checks and repairs follow the game's lookup: `TAGame\Config\TAStatsAPI.ini`, or `DefaultStatsAPI.ini` when `TAStatsAPI.ini` does not exist. Only keys under `[TAGame.MatchStatsExporter_TA]` count; repair rewrites or adds `PacketSendRate=30` and `Port` in that section and leaves every other section unchanged.
+
+An unavailable local database stops startup with a visible error and exit code 1, rather than running without match persistence. The Release build sends stdout and stderr to the rotated application log. C++ termination, pure virtual calls and invalid CRT parameters write a fatal cause through Win32 file I/O, capture a minidump and terminate without invoking the failing CRT stream again.
 
 The application and updater open their logs in shared mode. If a log cannot be opened, output goes to `NUL` instead of a closed stream, so a second process or an external lock cannot crash startup or a concurrent updater run.
 

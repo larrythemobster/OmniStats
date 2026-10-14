@@ -804,6 +804,29 @@ static int QueryIntScalar(sqlite3* db, const char* sql) {
     return val;
 }
 
+TEST_F(DatabaseManagerTest, DeletingMatchesCascadesStatsAndRejectsOrphanStats) {
+    MatchSaveSnapshot match;
+    match.arenaName = "DFH Stadium";
+    match.matchGuid = "foreign-key-stats";
+    match.myPrimaryId = "Steam|cascade";
+    match.myTeam = 0;
+    match.winnerTeam = 0;
+    match.validResult = true;
+    match.roster[match.myPrimaryId] = PlayerData{
+        .primaryId = match.myPrimaryId, .name = "Player", .team = 0, .goals = 2};
+    dbManager->SaveMatch(match);
+    auto* db = dbManager->GetRawDb();
+    ASSERT_EQ(QueryIntScalar(db, "SELECT goals FROM MatchPlayerStats;"), 2);
+    ASSERT_EQ(sqlite3_exec(db, "DELETE FROM MatchPlayers; DELETE FROM Matches;",
+                           nullptr, nullptr, nullptr),
+              SQLITE_OK);
+    EXPECT_EQ(QueryIntScalar(db, "SELECT COUNT(*) FROM MatchPlayerStats;"), 0);
+    EXPECT_EQ(QueryIntScalar(db, "SELECT COUNT(*) FROM MatchLocalStats;"), 0);
+    EXPECT_EQ(sqlite3_exec(db, "INSERT INTO MatchLocalStats(match_id) VALUES(999);",
+                           nullptr, nullptr, nullptr),
+              SQLITE_CONSTRAINT);
+}
+
 TEST_F(DatabaseManagerTest, MigratesAllHistoricalSchemasToV2WithBackupsAndIdempotency) {
     struct HistoricalSchemaCase {
         const char* label;

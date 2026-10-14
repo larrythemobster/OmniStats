@@ -442,10 +442,37 @@ bool DatabaseManager::Initialize(const std::string& dbPath) {
     int rc = sqlite3_open(dbPath.c_str(), &m_db);
     if (rc != SQLITE_OK) {
         std::cerr << "Failed to open SQLite database: " << sqlite3_errmsg(m_db) << "\n";
+        sqlite3_close(m_db);
+        m_db = nullptr;
         return false;
     }
 
     sqlite3_busy_timeout(m_db, 3000);
+
+    sqlite3_stmt* integrity = nullptr;
+    rc = sqlite3_prepare_v2(m_db, "PRAGMA foreign_key_check;", -1, &integrity, nullptr);
+    if (rc == SQLITE_OK) rc = sqlite3_step(integrity);
+    if (rc != SQLITE_DONE) {
+        if (rc == SQLITE_ROW) {
+            std::cerr << "[Database] Existing foreign-key violations in "
+                      << sqlite3_column_text(integrity, 0) << "; database left unchanged.\n";
+        } else {
+            std::cerr << "[Database] Foreign-key check failed: " << sqlite3_errmsg(m_db) << '\n';
+        }
+        sqlite3_finalize(integrity);
+        sqlite3_close(m_db);
+        m_db = nullptr;
+        return false;
+    }
+    sqlite3_finalize(integrity);
+    int foreignKeysEnabled = 0;
+    rc = sqlite3_db_config(m_db, SQLITE_DBCONFIG_ENABLE_FKEY, 1, &foreignKeysEnabled);
+    if (rc != SQLITE_OK || foreignKeysEnabled != 1) {
+        std::cerr << "[Database] Cannot enable foreign-key enforcement: " << sqlite3_errmsg(m_db) << '\n';
+        sqlite3_close(m_db);
+        m_db = nullptr;
+        return false;
+    }
 
     // Enable WAL (Write-Ahead Logging) and synchronous NORMAL mode
     char* errMsg = nullptr;
@@ -455,7 +482,10 @@ bool DatabaseManager::Initialize(const std::string& dbPath) {
         if (errMsg) sqlite3_free(errMsg);
     }
 
-    return CreateTables();
+    if (CreateTables()) return true;
+    sqlite3_close(m_db);
+    m_db = nullptr;
+    return false;
 }
 
 bool DatabaseManager::CreateTables() {

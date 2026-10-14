@@ -315,14 +315,22 @@ int main(int argc, char* argv[]) {
     } else {
         std::cout << "[StatsApiConfig] Rocket League Stats API config check failed: " << StatsApiConfig::GetStatusMessage(checkRes.status) << "\n";
     }
+    auto dbManager = std::make_shared<DatabaseManager>(g_state);
+    if (!dbManager->Initialize(Storage::GetDataDirectory() + Storage::APP_NAME + ".db")) {
+        std::cerr << "[Database] Initialization failed. Match recording is unavailable.\n";
+        MessageBoxW(nullptr,
+                    L"OmniStats could not open or upgrade your local database and cannot save matches.\n\n"
+                    L"Check disk space and access to your OmniStats data folder, then restart the app.",
+                    L"OmniStats database error", MB_OK | MB_ICONERROR);
+        Config::ShutdownSaver();
+        curl_global_cleanup();
+        return 1;
+    }
     ConfigData updateConf = Config::Read();
     if (!updateConf.enable_auto_updates) {
         ExternalUpdaterLauncher::StartBackgroundUpdateCheck(
             g_state, ExternalUpdaterLauncher::BackgroundUpdateCheckReason::Initial);
     }
-    auto dbManager = std::make_shared<DatabaseManager>(g_state);
-    (void)dbManager->Initialize(Storage::GetDataDirectory() + Storage::APP_NAME +
-                                ".db");
     TelemetryManager::Initialize(dbManager);
     RemoteConfig::Instance().Start();
     // Start Backend Threads
