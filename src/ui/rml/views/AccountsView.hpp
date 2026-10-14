@@ -9,8 +9,8 @@
 #include <string>
 #include <vector>
 
-#include "core/AccountManager.hpp"
-#include "core/TrackedAccounts.hpp"
+#include "core/accounts/AccountManager.hpp"
+#include "core/accounts/TrackedAccounts.hpp"
 
 namespace Rml {
     class Context;

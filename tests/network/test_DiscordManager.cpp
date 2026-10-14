@@ -1,6 +1,6 @@
 #include <gtest/gtest.h>
 #include "network/DiscordManager.hpp"
-#include "core/SessionState.hpp"
+#include "core/state/SessionState.hpp"
 #include <memory>
 
 TEST(DiscordManagerTest, LifecycleAndPush) {

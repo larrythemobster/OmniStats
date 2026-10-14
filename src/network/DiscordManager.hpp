@@ -6,9 +6,9 @@
 #include <mutex>
 #include <condition_variable>
 #include <array>
-#include "core/SessionState.hpp"
+#include "core/state/SessionState.hpp"
 
-#include "core/DiscordPresenceSnapshot.hpp"
+#include "core/state/DiscordPresenceSnapshot.hpp"
 
 class DiscordManager {
   public:

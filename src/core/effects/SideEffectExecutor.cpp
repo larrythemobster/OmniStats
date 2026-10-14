@@ -1,0 +1,121 @@
+#include "core/effects/SideEffectExecutor.hpp"
+#include "utils/Storage.hpp"
+#include "platform/KeyPressSimulator.hpp"
+#include "database/DatabaseManager.hpp"
+#include "network/DiscordManager.hpp"
+#include "network/mmr/MMRFetcher.hpp"
+#include "core/accounts/AccountManager.hpp"
+#include <iostream>
+#include <utility>
+#include <windows.h>
+
+SideEffectExecutor::SideEffectExecutor() {
+    m_worker = std::jthread([this]() {
+        while (true) {
+            std::function<void()> job;
+            {
+                std::unique_lock<std::mutex> lock(m_mutex);
+                m_cv.wait(lock, [&] { return m_stop || !m_jobs.empty(); });
+                if (m_stop && m_jobs.empty()) break;
+                job = std::move(m_jobs.front());
+                m_jobs.pop();
+            }
+            try {
+                job();
+            } catch (...) {
+            }
+        }
+    });
+}
+
+SideEffectExecutor::~SideEffectExecutor() {
+    Stop();
+}
+
+bool SideEffectExecutor::Enqueue(std::function<void()> job, bool critical) {
+    {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        if (m_stop) return false;
+        if (m_jobs.size() >= 256 && !critical) {
+            std::cerr << "[SideEffectExecutor] Queue full; dropping non-critical side effect.\n";
+            return false;
+        }
+        m_jobs.push(std::move(job));
+    }
+    m_cv.notify_one();
+    return true;
+}
+
+void SideEffectExecutor::Stop() {
+    {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        m_stop = true;
+    }
+    m_cv.notify_all();
+    if (m_worker.joinable()) m_worker.join();
+}
+
+void SideEffectExecutor::Execute(SideEffects&& effects,
+                                 std::shared_ptr<DatabaseManager> dbManager,
+                                 std::shared_ptr<DiscordManager> discordManager,
+                                 std::shared_ptr<MMRFetcher> mmrFetcher,
+                                 std::shared_ptr<AccountManagerService> accountManager) {
+    if (effects.confirmedLocalAccount && accountManager) {
+        accountManager->ObserveLocalAccount(effects.confirmedLocalAccount->primaryId,
+                                            effects.confirmedLocalAccount->name);
+    }
+    if (effects.pushDiscord && discordManager) {
+        discordManager->PushPresenceUpdate(effects.discordSnapshot);
+    }
+    if (effects.fetchLifetimeHistory && dbManager) {
+        dbManager->AsyncGetLifetimeMmrHistory(effects.lifetimePrimaryId, effects.lifetimeCategory);
+    }
+    if (effects.refreshDbStats && dbManager) {
+        dbManager->AsyncRefreshDbStats(effects.refreshStatsPrimaryId);
+    }
+    for (const auto& [pid, name] : effects.fetchMmrQueue) {
+        if (mmrFetcher) mmrFetcher->Enqueue(pid, name);
+    }
+    if (effects.persistSession && dbManager) {
+        dbManager->AsyncSaveSession(std::move(*effects.persistSession));
+    }
+    // Queue the committed match before its post-match fetch can enqueue an MMR
+    // correction. DatabaseManager preserves critical-job FIFO ordering.
+    if (effects.saveMatch) {
+        if (dbManager) dbManager->AsyncSaveMatch(std::move(effects.saveSnapshot));
+    }
+    if (effects.provisionalSaveSnapshot && dbManager) {
+        dbManager->AsyncSaveMatch(std::move(*effects.provisionalSaveSnapshot));
+    }
+    if (effects.updateSession && dbManager) {
+        dbManager->AsyncUpdateSession(std::move(*effects.updateSession));
+    }
+
+    if (effects.resolvedDestroyedMatch && mmrFetcher) {
+        mmrFetcher->ResolvePendingDestroyedMatch(
+            effects.resolvedDestroyedMatch->matchGuid,
+            effects.resolvedDestroyedMatch->won);
+    }
+    if (effects.pendingDestroyedMatch && mmrFetcher) {
+        mmrFetcher->EnqueuePendingDestroyedMatch(
+            *effects.pendingDestroyedMatch);
+    }
+
+    if (effects.postMatchMmrRefresh && mmrFetcher) {
+        const auto& refresh = *effects.postMatchMmrRefresh;
+        mmrFetcher->EnqueuePostMatch(refresh.primaryId,
+                                     refresh.name,
+                                     refresh.matchGuid,
+                                     refresh.playlist,
+                                     refresh.previousMmr,
+                                     refresh.previousMatches,
+                                     refresh.previousMmrIsPlaylistSpecific,
+                                     refresh.won,
+                                     refresh.provisionalImmediately);
+    }
+    if (dbManager) {
+        for (const auto& pid : effects.fetchEncounterQueue) {
+            dbManager->AsyncGetPlayerEncounterRecord(pid);
+        }
+    }
+}

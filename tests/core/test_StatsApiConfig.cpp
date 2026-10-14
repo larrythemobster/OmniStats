@@ -1,5 +1,5 @@
 #include <gtest/gtest.h>
-#include "core/StatsApiConfig.hpp"
+#include "core/config/StatsApiConfig.hpp"
 #include "updater/StatsApiRepair.hpp"
 #include <fstream>
 #include <filesystem>

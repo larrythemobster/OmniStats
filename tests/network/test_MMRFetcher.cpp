@@ -1,10 +1,10 @@
 #include <gtest/gtest.h>
-#include "network/MMRFetcher.hpp"
-#include "network/CurlImpersonate.hpp"
-#include "network/AccountClient.hpp"
-#include "network/MMRFetcherDetail.hpp"
-#include "core/SessionState.hpp"
-#include "core/Config.hpp"
+#include "network/mmr/MMRFetcher.hpp"
+#include "network/http/CurlImpersonate.hpp"
+#include "network/api/AccountClient.hpp"
+#include "network/mmr/MMRFetcherDetail.hpp"
+#include "core/state/SessionState.hpp"
+#include "core/config/Config.hpp"
 
 using namespace MMRFetcherDetail;
 #include <chrono>

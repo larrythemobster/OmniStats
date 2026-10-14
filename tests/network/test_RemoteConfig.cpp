@@ -1,9 +1,9 @@
 #include <gtest/gtest.h>
-#include "network/RemoteConfig.hpp"
-#include "network/AccountClient.hpp"
-#include "network/MMRFetcher.hpp"
-#include "core/Config.hpp"
-#include "core/SessionState.hpp"
+#include "network/api/RemoteConfig.hpp"
+#include "network/api/AccountClient.hpp"
+#include "network/mmr/MMRFetcher.hpp"
+#include "core/config/Config.hpp"
+#include "core/state/SessionState.hpp"
 #include <filesystem>
 #include <string>
 

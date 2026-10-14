@@ -1,9 +1,9 @@
 #include <gtest/gtest.h>
-#include "network/StatsClient.hpp"
-#include "network/MMRFetcher.hpp"
+#include "network/api/StatsClient.hpp"
+#include "network/mmr/MMRFetcher.hpp"
 #include "database/DatabaseManager.hpp"
-#include "core/SessionState.hpp"
-#include "core/Config.hpp"
+#include "core/state/SessionState.hpp"
+#include "core/config/Config.hpp"
 #include <chrono>
 #include <functional>
 #include <memory>

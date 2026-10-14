@@ -1,6 +1,6 @@
 #include <gtest/gtest.h>
 #include "database/DatabaseManager.hpp"
-#include "core/SessionState.hpp"
+#include "core/state/SessionState.hpp"
 #include <chrono>
 #include <filesystem>
 #include <memory>

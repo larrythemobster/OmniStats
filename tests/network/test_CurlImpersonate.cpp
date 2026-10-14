@@ -5,7 +5,7 @@
 #include <gtest/gtest.h>
 #include <curl/curl.h>
 #include <nlohmann/json.hpp>
-#include "network/CurlImpersonate.hpp"
+#include "network/http/CurlImpersonate.hpp"
 #include <cstdlib>
 #include <string>
 #include <vector>

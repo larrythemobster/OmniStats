@@ -2,9 +2,9 @@
 #include <filesystem>
 #include <fstream>
 #include <gtest/gtest.h>
-#include "core/AppVersion.hpp"
-#include "network/UpdaterCommon.hpp"
-#include "core/FileHash.hpp"
+#include "core/config/AppVersion.hpp"
+#include "updater/UpdaterCommon.hpp"
+#include "utils/FileHash.hpp"
 TEST(UpdaterTest, VersionStringIsPopulated) {
     EXPECT_NE(AppVersion::Current[0], '\0');
 }

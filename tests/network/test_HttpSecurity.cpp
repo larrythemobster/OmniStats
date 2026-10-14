@@ -1,6 +1,6 @@
 #include <gtest/gtest.h>
-#include "network/HttpSecurity.hpp"
-#include "network/AccountClient.hpp"
+#include "network/http/HttpSecurity.hpp"
+#include "network/api/AccountClient.hpp"
 
 #include <asio.hpp>
 #include <atomic>

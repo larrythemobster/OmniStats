@@ -31,7 +31,7 @@ Other data paths:
 
 ## Identity
 
-`TrackedAccounts::FromPrimaryId` and `ParseManualInput` (`src/core/TrackedAccounts.*`) do all validation.
+`TrackedAccounts::FromPrimaryId` and `ParseManualInput` (`src/core/accounts/TrackedAccounts.*`) do all validation.
 
 | Platform | Accepted ID |
 |---|---|
@@ -85,7 +85,7 @@ Separation from live tracking:
 
 Batched `/v1/ranks` responses are matched on platform and account ID. A player whose `platform` differs from the request is ignored. An unlabeled player is ignored when two requests in the batch share that account ID.
 
-Service rules (`src/core/AccountManager.*`):
+Service rules (`src/core/accounts/AccountManager.*`):
 
 - A success upserts only the playlists the provider reported. Other playlists keep their saved values.
 - A failure keeps every saved value and stamps only `last_refresh_attempt_at`.

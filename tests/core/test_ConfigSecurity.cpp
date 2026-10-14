@@ -1,6 +1,6 @@
 #include <gtest/gtest.h>
-#include "core/Config.hpp"
-#include "core/Storage.hpp"
+#include "core/config/Config.hpp"
+#include "utils/Storage.hpp"
 
 #include <filesystem>
 #include <fstream>

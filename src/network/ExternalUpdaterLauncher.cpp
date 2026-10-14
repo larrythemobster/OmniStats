@@ -1,5 +1,5 @@
 #include "ExternalUpdaterLauncher.hpp"
-#include "core/SessionState.hpp"
+#include "core/state/SessionState.hpp"
 #include <atomic>
 #include <fstream>
 #include <iostream>

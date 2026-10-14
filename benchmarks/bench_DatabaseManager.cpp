@@ -1,6 +1,6 @@
 #include <benchmark/benchmark.h>
 #include "database/DatabaseManager.hpp"
-#include "core/SessionState.hpp"
+#include "core/state/SessionState.hpp"
 #include <memory>
 #include <sqlite3.h>
 #include <filesystem>

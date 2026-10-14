@@ -2,7 +2,7 @@
 #include <string>
 #include <memory>
 #include <mutex>
-#include "core/SessionState.hpp"
+#include "core/state/SessionState.hpp"
 #include <sqlite3.h>
 
 #include <deque>
@@ -15,8 +15,8 @@
 #include <optional>
 #include <vector>
 
-#include "core/MatchSaveSnapshot.hpp"
-#include "core/TrackedAccounts.hpp"
+#include "core/state/MatchSaveSnapshot.hpp"
+#include "core/accounts/TrackedAccounts.hpp"
 
 struct DbMergeResult {
     int matchesImported = 0;

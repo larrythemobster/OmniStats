@@ -1,14 +1,14 @@
 #include <gtest/gtest.h>
 
-#include "core/AccountManager.hpp"
-#include "core/Config.hpp"
-#include "core/Constants.hpp"
-#include "core/SessionState.hpp"
-#include "core/Storage.hpp"
-#include "core/TelemetryReducer.hpp"
-#include "core/TrackedAccounts.hpp"
+#include "core/accounts/AccountManager.hpp"
+#include "core/config/Config.hpp"
+#include "core/config/Constants.hpp"
+#include "core/state/SessionState.hpp"
+#include "utils/Storage.hpp"
+#include "core/reducer/TelemetryReducer.hpp"
+#include "core/accounts/TrackedAccounts.hpp"
 #include "database/DatabaseManager.hpp"
-#include "network/MMRFetcher.hpp"
+#include "network/mmr/MMRFetcher.hpp"
 
 #include <memory>
 

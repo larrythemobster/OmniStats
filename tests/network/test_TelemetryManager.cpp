@@ -1,6 +1,6 @@
 #include <gtest/gtest.h>
-#include "network/TelemetryManager.hpp"
-#include "core/SessionState.hpp"
+#include "network/telemetry/TelemetryManager.hpp"
+#include "core/state/SessionState.hpp"
 #include "database/DatabaseManager.hpp"
 #include <memory>
 #include <regex>

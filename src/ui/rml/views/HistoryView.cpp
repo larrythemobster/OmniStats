@@ -10,8 +10,8 @@
 #include <unordered_set>
 
 #include "ui/Formatting.hpp"
-#include "ui/rml/RmlUiController.hpp"
-#include "ui/rml/RmlUiHelpers.hpp"
+#include "ui/rml/controller/RmlUiController.hpp"
+#include "ui/rml/controller/RmlUiHelpers.hpp"
 
 using namespace RmlUiDetail;
 

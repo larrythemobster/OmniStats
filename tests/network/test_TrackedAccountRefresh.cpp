@@ -1,13 +1,13 @@
 #include <gtest/gtest.h>
 
-#include "core/AccountManager.hpp"
-#include "core/Config.hpp"
-#include "core/SessionState.hpp"
+#include "core/accounts/AccountManager.hpp"
+#include "core/config/Config.hpp"
+#include "core/state/SessionState.hpp"
 #include "database/DatabaseManager.hpp"
-#include "network/AccountClient.hpp"
-#include "network/CurlImpersonate.hpp"
-#include "network/MMRFetcher.hpp"
-#include "network/MMRFetcherDetail.hpp"
+#include "network/api/AccountClient.hpp"
+#include "network/http/CurlImpersonate.hpp"
+#include "network/mmr/MMRFetcher.hpp"
+#include "network/mmr/MMRFetcherDetail.hpp"
 
 #include <algorithm>
 #include <atomic>

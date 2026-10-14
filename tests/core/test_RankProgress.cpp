@@ -3,8 +3,8 @@
 #include <algorithm>
 #include <array>
 
-#include "core/RankProgress.hpp"
-#include "network/MMRFetcher.hpp"
+#include "core/game/RankProgress.hpp"
+#include "network/mmr/MMRFetcher.hpp"
 
 namespace {
     constexpr std::array<RankProgress::Threshold, 5> kTable = {{

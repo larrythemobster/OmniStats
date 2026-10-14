@@ -2,7 +2,7 @@
 
 #include <string>
 
-#include "core/PlayerNotes.hpp"
+#include "core/accounts/PlayerNotes.hpp"
 
 TEST(PlayerNotesTest, IdentityIsPlatformQualifiedAndNormalized) {
     const auto steam = PlayerNotes::IdentityFromPrimaryId("Steam|76561198000000001|0");

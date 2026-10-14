@@ -1,0 +1,286 @@
+#pragma once
+#include <string>
+#include <cstdint>
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+// rpcndr.h (included transitively via windows.h) defines 'small' as a macro that
+// collides with field names. Undefine it after windows.h is fully processed.
+#ifdef small
+#undef small
+#endif
+#include <shared_mutex>
+#include <vector>
+#include "ui/config/DashboardLayoutConfig.hpp"
+#include "ui/config/OverlayLayoutConfig.hpp"
+
+// Lightweight renderer-independent RGBA color stored in configuration
+struct ColorRGBA {
+    float r, g, b, a;
+};
+
+// Holds all user preferences
+struct ConfigData {
+    std::string host = "127.0.0.1";
+    int port = 49123;
+
+    int key_overlay = VK_TAB;
+    int key_cycle = VK_F6;
+    int key_expand = VK_F7;
+    int key_session = VK_F8;
+    int key_menu = VK_F5;
+    int key_graph_pan_left = VK_LEFT;
+    int key_graph_pan_right = VK_RIGHT;
+    int key_lifetime_graph = VK_F9;
+    int gamepad_overlay = 4; // SDL_CONTROLLER_BUTTON_BACK
+    bool gamepad_overlay_raw = false;
+    int gamepad_overlay_raw_button = 4;
+    int gamepad_cycle = -1;
+    bool gamepad_cycle_raw = false;
+    int gamepad_cycle_raw_button = -1;
+    int gamepad_expand = -1;
+    bool gamepad_expand_raw = false;
+    int gamepad_expand_raw_button = -1;
+    int gamepad_session = -1;
+    bool gamepad_session_raw = false;
+    int gamepad_session_raw_button = -1;
+    int gamepad_menu = -1;
+    bool gamepad_menu_raw = false;
+    int gamepad_menu_raw_button = -1;
+    int gamepad_graph_pan_left = -1;
+    bool gamepad_graph_pan_left_raw = false;
+    int gamepad_graph_pan_left_raw_button = -1;
+    int gamepad_graph_pan_right = -1;
+    bool gamepad_graph_pan_right_raw = false;
+    int gamepad_graph_pan_right_raw_button = -1;
+    std::string mmr_category = "best";
+    std::string graph_mmr_category = "2v2";
+    bool graph_follow_current_playlist = true;
+    std::string last_primary_id = "";
+    std::vector<std::string> known_primary_ids; // previously used/seen accounts for faster identity detection
+
+    bool require_rl_focus = true;
+    bool show_match_summary = true;
+    int match_summary_seconds = 20;
+    bool discord_rpc_enabled = false;
+    bool enable_mmr_tracking = false;
+    bool auto_switch_mmr_category = true;
+    bool enable_auto_updates = false;
+    bool crash_reports_enabled = false;
+    bool debug_logging = false;
+    bool imperial_units = false;
+    bool run_on_startup = false;
+    bool reset_session_on_close = true;
+    bool show_session_recap_on_close = true;
+    std::string client_uuid = "";
+    std::string privacy_policy_accepted_version = "";
+    std::string terms_accepted_version = "";
+    std::string privacy_accepted_at = "";
+    bool onboarding_completed = false;
+
+    std::string position = "top-right";
+    bool show_running_indicator = true;
+    bool use_roman_numerals = true;
+    bool use_rank_icons = false;
+    bool show_extra_playlists = true;
+
+    // Custom API rank lookup settings
+    bool custom_api_enabled = true;
+    std::string custom_api_base_url = "https://api.omnistats.org";
+    std::string custom_api_key = "";
+
+    std::string account_signed_in_name = "";
+    std::string account_device_public_id = "";
+    std::string account_refresh_token = "";
+    std::string account_device_key = "";
+    std::string rocket_league_stats_api_config_path = "";
+    bool check_stats_api_config_on_startup = true;
+    bool credentials_decryption_failed = false;
+
+    // Ballchasing uploader settings
+    std::string ballchasing_token = ""; // API token for ballchasing.com
+    bool auto_upload_replays = false;   // Toggle background auto-uploading of replays
+    bool ballchasing_upload_notice_accepted = false;
+    std::string ballchasing_visibility = "unlisted";
+    bool ballchasing_filter_ranked_only = false;
+    bool ballchasing_filter_wins_only = false;
+
+    // Replay auto-save settings
+    bool auto_save_replays = false; // Automatically trigger the "Save Replay" keybind mid-game
+    int key_save_replay = VK_BACK;  // Key code for saving replays in Rocket League
+
+    // Theme colors
+    ColorRGBA themeBg = {0.05254244804382324f, 0.05254244804382324f, 0.05254244804382324f, 0.9843137264251709f};
+    ColorRGBA themeSettingsPanel = {0.048387110233306885f, 0.048387110233306885f, 0.048387110233306885f, 1.00f};
+    // Dashboard top bar and graph panel: shades of black, kept independent of
+    // the main background so both read as their own layer.
+    ColorRGBA themeTopbar = {0.05098039284348488f, 0.05098039284348488f, 0.05098039284348488f, 1.00f};
+    ColorRGBA themeGraphPanel = {0.03921568766236305f, 0.03921568766236305f, 0.03921568766236305f, 1.00f};
+    ColorRGBA themeText = {0.9200000166893005f, 0.9399999976158142f, 0.9599999785423279f, 1.00f};
+    ColorRGBA themeAccent = {0.4646187424659729f, 0.0f, 0.0f, 1.00f};
+    ColorRGBA themeWin = {0.09470447152853012f, 0.5524193644523621f, 0.006682485807687044f, 1.00f};
+    ColorRGBA themeLoss = {1.00f, 0.012096762657165527f, 0.012096762657165527f, 1.00f};
+    ColorRGBA themeDim = {1.00f, 1.00f, 1.00f, 1.00f};
+    ColorRGBA themeMuted = {0.6499999761581421f, 0.699999988079071f, 0.75f, 1.00f};
+    ColorRGBA themeGraphLine = {0.20201940834522247f, 0.36447927355766296f, 0.7056452035903931f, 1.00f};
+    ColorRGBA themeGraphBaseline = {0.913241446018219f, 0.9516128897666931f, 0.0f, 1.00f};
+
+    // Component background colors
+    ColorRGBA themeRosterCard = {0.05635613203048706f, 0.05635613203048706f, 0.05635613203048706f, 0.75f};
+    ColorRGBA themeRosterCardSelf = {0.054901961237192154f, 0.054901961237192154f, 0.054901961237192154f, 0.7490196228027344f};
+    ColorRGBA themeStatBox = {0.054901961237192154f, 0.054901961237192154f, 0.054901961237192154f, 0.7490196228027344f};
+    ColorRGBA themeMatchRow = {0.06927955150604248f, 0.06927955150604248f, 0.06927955150604248f, 0.7490196228027344f};
+    ColorRGBA themeMatchRowAlt = {0.05098039284348488f, 0.05098039284348488f, 0.05098039284348488f, 0.9843137264251709f};
+    // Session Card Visibility Toggles
+    bool show_session_record = true;
+    bool show_session_goals = true;
+    bool show_session_saves = true;
+    bool show_session_demos = true;
+    bool show_session_assists = true;
+    bool show_session_goal_participation = true;
+    bool show_session_mmr_change = true;
+    bool show_session_boost = true;
+    bool show_lobby_ranks_overlay = false;
+    bool show_lobby_rank_1v1 = true;
+    bool show_lobby_rank_2v2 = true;
+    bool show_lobby_rank_3v3 = true;
+    bool show_lobby_rank_casual = true;
+    bool show_lobby_rank_tourny = true;
+    bool show_lobby_rank_hoops = false;
+    bool show_lobby_rank_rumble = false;
+    bool show_lobby_rank_dropshot = false;
+    bool show_lobby_rank_snowday = false;
+    bool show_lobby_rank_heatseeker = false;
+    bool show_account_wins_overlay = true;
+    bool show_demo_tracker_overlay = false;
+    bool show_rank_progress = true;
+    bool show_previous_games_summary = true;
+    int previous_games_limit = 20;
+
+    // Overlay Component Visibility Toggles
+    bool show_streaks_stats = true;
+    bool show_longest_loss_streak = false;
+    bool show_gamemode_breakdown = true;
+    bool show_gamemode_record_1v1 = true;
+    bool show_gamemode_record_2v2 = true;
+    bool show_gamemode_record_3v3 = true;
+    std::string gamemode_breakdown_scope = "current_session";
+
+    std::string crossbar_display_mode = "raw"; // "raw" or "speed"
+
+    bool second_monitor_mode = false;
+    bool second_monitor_show_roster = true;
+    bool second_monitor_show_session = true;
+    bool second_monitor_show_settings = true;
+    bool second_monitor_has_bounds = false;
+    int second_monitor_x = 0;
+    int second_monitor_y = 0;
+    int second_monitor_w = 1024;
+    int second_monitor_h = 768;
+
+    float ui_scale = 1.0f;
+    // Font family per text role; empty keeps the bundled default (Inter,
+    // JetBrains Mono, Russo One). Values are bundled or installed family names.
+    std::string font_ui;
+    std::string font_mono;
+    std::string font_display;
+
+    // Overlay cards that are not part of overlay_layout: the F8 session view and
+    // the post-match summary. -1 keeps the legacy centered placement.
+    float session_view_x = 439.0f;
+    float session_view_y = 2.2f;
+    float match_summary_x = 1496.0f;
+    float match_summary_y = 677.2f;
+
+    int overlay_fps_cap = 60;
+    bool vsync = false;
+
+    DashboardLayout::LayoutConfig dashboard_layout = DashboardLayout::DefaultLayout();
+    OverlayLayout::LayoutConfig overlay_layout = OverlayLayout::DefaultOverlayLayout();
+
+    void ResetThemeColors() {
+        const ConfigData defaults;
+        themeBg = defaults.themeBg;
+        themeSettingsPanel = defaults.themeSettingsPanel;
+        themeTopbar = defaults.themeTopbar;
+        themeGraphPanel = defaults.themeGraphPanel;
+        themeText = defaults.themeText;
+        themeAccent = defaults.themeAccent;
+        themeWin = defaults.themeWin;
+        themeLoss = defaults.themeLoss;
+        themeDim = defaults.themeDim;
+        themeMuted = defaults.themeMuted;
+        themeGraphLine = defaults.themeGraphLine;
+        themeGraphBaseline = defaults.themeGraphBaseline;
+        themeRosterCard = defaults.themeRosterCard;
+        themeRosterCardSelf = defaults.themeRosterCardSelf;
+        themeStatBox = defaults.themeStatBox;
+        themeMatchRow = defaults.themeMatchRow;
+        themeMatchRowAlt = defaults.themeMatchRowAlt;
+    }
+    void ResetLayouts() {
+        const ConfigData defaults;
+        dashboard_layout = defaults.dashboard_layout;
+        overlay_layout = defaults.overlay_layout;
+        session_view_x = defaults.session_view_x;
+        session_view_y = defaults.session_view_y;
+        match_summary_x = defaults.match_summary_x;
+        match_summary_y = defaults.match_summary_y;
+    }
+    void ResetFonts() {
+        font_ui.clear();
+        font_mono.clear();
+        font_display.clear();
+    }
+
+    void ResetThemeAndLayout() {
+        ResetThemeColors();
+        ResetFonts();
+        ResetLayouts();
+    }
+};
+
+#include <functional>
+namespace Config {
+    inline constexpr const char* CurrentPrivacyPolicyVersion = "2026-07-12";
+    inline constexpr const char* CurrentTermsVersion = "2026-07-12";
+
+    // Safely reads a point-in-time snapshot of the configuration under a shared lock
+    ConfigData Read();
+
+    // Monotonic in-process revision. Readers can cheaply avoid copying the full
+    // ConfigData object every render frame when nothing has changed.
+    uint64_t Revision();
+
+    // Safely updates the configuration under an exclusive lock and saves to disk
+    void Update(std::function<void(ConfigData&)> fn, bool saveToDisk = true);
+
+    // Loads data/config.json from disk (or creates it with defaults if missing)
+    void Load();
+
+    // Initializes the background thread for saving config to disk asynchronously
+    void InitSaver();
+
+    // Shuts down the background save thread safely
+    void ShutdownSaver();
+
+    // Saves the current settings back to data/config.json
+    void Save();
+
+    // Requests an asynchronous save without blocking the caller
+    void RequestSave();
+
+    // Sets or removes the Windows registry key for running on startup
+    void SetWindowsAutoStart(bool enable);
+#ifdef OMNISTATS_TEST_ENVIRONMENT
+    using CryptProtectHook = std::function<bool(const std::string&, std::string&, DWORD&)>;
+    using CryptUnprotectHook = std::function<bool(const std::string&, std::string&, DWORD&)>;
+    void SetCryptProtectHookForTests(CryptProtectHook hook);
+    void SetCryptUnprotectHookForTests(CryptUnprotectHook hook);
+    void ResetCryptHooksForTests();
+#endif
+}

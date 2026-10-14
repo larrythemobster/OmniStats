@@ -1,9 +1,9 @@
 #include <gtest/gtest.h>
-#include "network/MMRFetcher.hpp"
-#include "core/SessionState.hpp"
-#include "core/Config.hpp"
-#include "core/TelemetryReducer.hpp"
-#include "core/SideEffectExecutor.hpp"
+#include "network/mmr/MMRFetcher.hpp"
+#include "core/state/SessionState.hpp"
+#include "core/config/Config.hpp"
+#include "core/reducer/TelemetryReducer.hpp"
+#include "core/effects/SideEffectExecutor.hpp"
 #include "database/DatabaseManager.hpp"
 #include <map>
 #include <memory>

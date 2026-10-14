@@ -1,4 +1,4 @@
-#include "ui/rml/RmlUiController.hpp"
+#include "ui/rml/controller/RmlUiController.hpp"
 #include <shobjidl.h>
 #include <commdlg.h>
 
@@ -32,18 +32,18 @@
 #include <sstream>
 #include <unordered_set>
 
-#include "core/AppVersion.hpp"
-#include "core/Storage.hpp"
-#include "core/StatsApiConfig.hpp"
+#include "core/config/AppVersion.hpp"
+#include "utils/Storage.hpp"
+#include "core/config/StatsApiConfig.hpp"
 #include "database/DatabaseManager.hpp"
 #include "network/ExternalUpdaterLauncher.hpp"
-#include "network/MMRFetcher.hpp"
+#include "network/mmr/MMRFetcher.hpp"
 #include "ui/Formatting.hpp"
-#include "ui/KeyNames.hpp"
-#include "ui/rml/RmlInputWin32.hpp"
-#include "ui/rml/RmlMmrGraphLines.hpp"
+#include "ui/window/KeyNames.hpp"
+#include "ui/rml/backend/RmlInputWin32.hpp"
+#include "ui/rml/widgets/RmlMmrGraphLines.hpp"
 
-#include "ui/rml/RmlUiHelpers.hpp"
+#include "ui/rml/controller/RmlUiHelpers.hpp"
 
 using namespace RmlUiDetail;
 

@@ -1,5 +1,5 @@
 #include <gtest/gtest.h>
-#include "core/LogRotation.hpp"
+#include "utils/LogRotation.hpp"
 
 #include <filesystem>
 #include <fstream>

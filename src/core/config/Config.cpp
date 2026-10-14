@@ -1,0 +1,995 @@
+#include "core/config/Config.hpp"
+#include <fstream>
+#include <iostream>
+#include <filesystem>
+#include <sstream>
+#include <iomanip>
+#include <algorithm>
+#include <thread>
+#include <atomic>
+#include <nlohmann/json.hpp>
+#include "utils/Storage.hpp"
+
+#include <windows.h>
+#include <wincrypt.h>
+
+namespace fs = std::filesystem;
+
+static std::string StringToHex(const std::string& input) {
+    std::stringstream ss;
+    ss << std::hex << std::setfill('0');
+    for (unsigned char c : input) {
+        ss << std::setw(2) << (int)c;
+    }
+    return ss.str();
+}
+
+static bool IsHexString(const std::string& s) {
+    if (s.empty() || s.length() % 2 != 0) return false;
+    for (char c : s) {
+        if (!std::isxdigit(static_cast<unsigned char>(c))) {
+            return false;
+        }
+    }
+    return true;
+}
+
+static std::string HexToString(const std::string& input) {
+    if (!IsHexString(input)) return "";
+    std::string output;
+    try {
+        for (size_t i = 0; i < input.length(); i += 2) {
+            std::string part = input.substr(i, 2);
+            char chr = (char)std::stoul(part, nullptr, 16);
+            output.push_back(chr);
+        }
+    } catch (...) {
+        return "";
+    }
+    return output;
+}
+
+struct CryptResult {
+    bool success = false;
+    std::string value;
+    DWORD errorCode = 0;
+};
+
+struct DecryptResult {
+    bool success = false;
+    std::string value;
+    bool isLegacyPlaintext = false;
+    DWORD errorCode = 0;
+};
+
+#ifdef OMNISTATS_TEST_ENVIRONMENT
+static Config::CryptProtectHook s_protectHook = nullptr;
+static Config::CryptUnprotectHook s_unprotectHook = nullptr;
+
+namespace Config {
+    void SetCryptProtectHookForTests(CryptProtectHook hook) {
+        s_protectHook = std::move(hook);
+    }
+    void SetCryptUnprotectHookForTests(CryptUnprotectHook hook) {
+        s_unprotectHook = std::move(hook);
+    }
+    void ResetCryptHooksForTests() {
+        s_protectHook = nullptr;
+        s_unprotectHook = nullptr;
+    }
+}
+#endif
+
+static std::unordered_map<std::string, std::string> s_savedCiphertexts;
+static std::unordered_map<std::string, std::string> s_encryptedPlaintexts;
+
+static bool HasDpapiSignature(std::string_view bytes) {
+    if (bytes.size() < 20) return false;
+    static const unsigned char kDpapiHeader[8] = {0x01, 0x00, 0x00, 0x00, 0xd0, 0x02, 0x9a, 0xdf};
+    return std::memcmp(bytes.data(), kDpapiHeader, sizeof(kDpapiHeader)) == 0;
+}
+
+static CryptResult EncryptSecret(const std::string& plainText) {
+    if (plainText.empty()) {
+        return {true, "", 0};
+    }
+#ifdef OMNISTATS_TEST_ENVIRONMENT
+    if (s_protectHook) {
+        std::string cipher;
+        DWORD err = 0;
+        if (s_protectHook(plainText, cipher, err)) {
+            return {true, cipher, 0};
+        }
+        return {false, "", err ? err : static_cast<DWORD>(ERROR_ENCRYPTION_FAILED)};
+    }
+#endif
+    DATA_BLOB inputBlob;
+    inputBlob.pbData = (BYTE*)plainText.data();
+    inputBlob.cbData = (DWORD)plainText.size();
+
+    DATA_BLOB outputBlob;
+    if (CryptProtectData(&inputBlob, L"OmniStats Token", nullptr, nullptr, nullptr,
+                         CRYPTPROTECT_UI_FORBIDDEN | CRYPTPROTECT_LOCAL_MACHINE, &outputBlob)) {
+        std::string encryptedBytes((char*)outputBlob.pbData, outputBlob.cbData);
+        LocalFree(outputBlob.pbData);
+        return {true, StringToHex(encryptedBytes), 0};
+    }
+    if (CryptProtectData(&inputBlob, L"OmniStats Token", nullptr, nullptr, nullptr,
+                         CRYPTPROTECT_UI_FORBIDDEN, &outputBlob)) {
+        std::string encryptedBytes((char*)outputBlob.pbData, outputBlob.cbData);
+        LocalFree(outputBlob.pbData);
+        return {true, StringToHex(encryptedBytes), 0};
+    }
+    const DWORD err = GetLastError();
+    std::cerr << "[Config] DPAPI encryption failed with error: " << err << "\n";
+    return {false, "", err};
+}
+
+static DecryptResult DecryptSecret(const std::string& raw) {
+    if (raw.empty()) {
+        return {true, "", false, 0};
+    }
+#ifdef OMNISTATS_TEST_ENVIRONMENT
+    if (s_unprotectHook) {
+        std::string plain;
+        DWORD err = 0;
+        if (s_unprotectHook(raw, plain, err)) {
+            return {true, plain, false, 0};
+        }
+        return {false, "", false, err ? err : static_cast<DWORD>(ERROR_DECRYPTION_FAILED)};
+    }
+#endif
+    if (IsHexString(raw)) {
+        std::string cipherBytes = HexToString(raw);
+        if (!cipherBytes.empty()) {
+            DATA_BLOB inputBlob;
+            inputBlob.pbData = (BYTE*)cipherBytes.data();
+            inputBlob.cbData = (DWORD)cipherBytes.size();
+
+            DATA_BLOB outputBlob;
+            if (CryptUnprotectData(&inputBlob, nullptr, nullptr, nullptr, nullptr, CRYPTPROTECT_UI_FORBIDDEN, &outputBlob)) {
+                std::string decryptedBytes((char*)outputBlob.pbData, outputBlob.cbData);
+                LocalFree(outputBlob.pbData);
+                return {true, decryptedBytes, false, 0};
+            }
+            const DWORD err = GetLastError();
+            if (HasDpapiSignature(cipherBytes)) {
+                std::cerr << "[Config] DPAPI decryption failed for ciphertext with error: " << err << "\n";
+                return {false, "", false, err};
+            }
+        }
+    }
+    return {true, raw, true, 0};
+}
+
+// Helper: serialize ColorRGBA to JSON array [r, g, b, a]
+static nlohmann::json ColorToJson(const ColorRGBA& c) {
+    return nlohmann::json::array({c.r, c.g, c.b, c.a});
+}
+
+// Helper: deserialize JSON array [r, g, b, a] to ColorRGBA
+static ColorRGBA JsonToColor(const nlohmann::json& j, const ColorRGBA& fallback) {
+    if (!j.is_array() || j.size() < 4) return fallback;
+    return {j[0].get<float>(), j[1].get<float>(), j[2].get<float>(), j[3].get<float>()};
+}
+
+static bool IsKnownMmrCategory(const std::string& category) {
+    return category == "best" || category == "1v1" ||
+           category == "2v2" || category == "3v3" ||
+           category == "casual" || category == "t" ||
+           category == "hoops" || category == "rumble" ||
+           category == "dropshot" || category == "snowday" ||
+           category == "heatseeker";
+}
+
+static bool IsGraphMmrCategory(const std::string& category) {
+    return category != "best" && IsKnownMmrCategory(category);
+}
+
+static bool IsExtraMmrCategory(const std::string& category) {
+    return category == "hoops" || category == "rumble" ||
+           category == "dropshot" || category == "snowday" ||
+           category == "heatseeker";
+}
+namespace Config {
+    static ConfigData Current;
+    static std::shared_mutex Mutex;
+    static std::atomic<bool> s_pendingSave{false};
+    static std::atomic<uint64_t> s_revision{1};
+    static std::atomic<bool> s_appRunning{true};
+    static std::jthread s_saveThread;
+
+    ConfigData Read() {
+        std::shared_lock<std::shared_mutex> lock(Mutex);
+        return Current;
+    }
+
+    uint64_t Revision() {
+        return s_revision.load(std::memory_order_acquire);
+    }
+
+    // Forward declaration of internal non-locking save
+    static void SaveInternal();
+
+    void InitSaver() {
+        s_appRunning.store(true);
+        s_saveThread = std::jthread([]() {
+            while (s_appRunning.load()) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(500));
+                if (s_pendingSave.exchange(false)) {
+                    std::unique_lock<std::shared_mutex> lock(Mutex);
+                    SaveInternal();
+                }
+            }
+        });
+    }
+
+    void ShutdownSaver() {
+        s_appRunning.store(false);
+        if (s_saveThread.joinable()) {
+            s_saveThread.join();
+        }
+        if (s_pendingSave.exchange(false)) {
+            std::unique_lock<std::shared_mutex> lock(Mutex);
+            SaveInternal();
+        }
+    }
+
+    void Update(std::function<void(ConfigData&)> fn, bool saveToDisk) {
+        std::unique_lock<std::shared_mutex> lock(Mutex);
+        if (fn) fn(Current);
+        // Fallback: Prevent the user from disabling every column.
+        if (!Current.show_lobby_rank_1v1 && !Current.show_lobby_rank_2v2 &&
+            !Current.show_lobby_rank_3v3 && !Current.show_lobby_rank_casual && !Current.show_lobby_rank_tourny &&
+            !Current.show_lobby_rank_hoops && !Current.show_lobby_rank_rumble && !Current.show_lobby_rank_dropshot &&
+            !Current.show_lobby_rank_snowday && !Current.show_lobby_rank_heatseeker) {
+            Current.show_lobby_rank_2v2 = true;
+        }
+        // Keep a small local cache of known primary ids so heuristics can prefer
+        // recently-used accounts when attempting to auto-detect identity.
+        if (!Current.last_primary_id.empty()) {
+            if (std::find(Current.known_primary_ids.begin(), Current.known_primary_ids.end(), Current.last_primary_id) == Current.known_primary_ids.end()) {
+                Current.known_primary_ids.push_back(Current.last_primary_id);
+            }
+        }
+        Current.match_summary_seconds = std::clamp(Current.match_summary_seconds, 5, 60);
+        for (auto& container : Current.overlay_layout.containers) {
+            OverlayLayout::Sanitize(container.visibility);
+        }
+        s_revision.fetch_add(1, std::memory_order_release);
+        if (saveToDisk) {
+            s_pendingSave.store(true);
+        }
+    }
+
+    std::string GetConfigPath() {
+        return Storage::GetDataDirectory() + "config.json";
+    }
+
+    void Load() {
+        std::unique_lock<std::shared_mutex> lock(Mutex);
+        std::string configFile = GetConfigPath();
+        if (!fs::exists(configFile)) {
+            std::cout << "[Config] No config found. Creating default config.\n";
+            Current = ConfigData{};
+            SaveInternal();
+            s_revision.fetch_add(1, std::memory_order_release);
+            return;
+        }
+
+        try {
+            nlohmann::json j;
+            {
+                std::ifstream file(configFile);
+                file >> j;
+            }
+            bool needsSave = false;
+
+            // Safely load values, falling back to defaults if keys are missing
+            if (j.contains("host")) Current.host = j["host"];
+            if (j.contains("port")) Current.port = j["port"];
+            if (j.contains("key_overlay")) Current.key_overlay = j["key_overlay"];
+            if (j.contains("key_cycle")) Current.key_cycle = j["key_cycle"];
+            if (j.contains("key_expand")) Current.key_expand = j["key_expand"];
+            if (j.contains("key_session")) Current.key_session = j["key_session"];
+            if (j.contains("key_menu")) Current.key_menu = j["key_menu"];
+            if (j.contains("key_graph_pan_left")) Current.key_graph_pan_left = j["key_graph_pan_left"];
+            if (j.contains("key_graph_pan_right")) Current.key_graph_pan_right = j["key_graph_pan_right"];
+            if (j.contains("key_lifetime_graph")) Current.key_lifetime_graph = j["key_lifetime_graph"];
+            // Load gamepad overlay with migration for the old bad default
+            if (j.contains("gamepad_overlay")) {
+                Current.gamepad_overlay = j["gamepad_overlay"];
+
+                // Old bug: default value was 6 (START), but intended as 4 (BACK).
+                // Migrate old configs one time so users get the intended Select/View/Back button.
+                const bool migrated = j.value("controller_default_back_migrated", false);
+                if (!migrated && Current.gamepad_overlay == 6) {
+                    std::cout << "[Config] Migrating controller overlay bind from Start(6) to Back(4).\n";
+                    Current.gamepad_overlay = 4; // SDL_CONTROLLER_BUTTON_BACK
+                    needsSave = true;
+                }
+            } else {
+                Current.gamepad_overlay = 4; // SDL_CONTROLLER_BUTTON_BACK
+                needsSave = true;
+            }
+            if (j.contains("gamepad_overlay_raw")) Current.gamepad_overlay_raw = j["gamepad_overlay_raw"];
+            if (j.contains("gamepad_overlay_raw_button")) Current.gamepad_overlay_raw_button = j["gamepad_overlay_raw_button"];
+            if (j.contains("gamepad_cycle")) Current.gamepad_cycle = j["gamepad_cycle"];
+            if (j.contains("gamepad_cycle_raw")) Current.gamepad_cycle_raw = j["gamepad_cycle_raw"];
+            if (j.contains("gamepad_cycle_raw_button")) Current.gamepad_cycle_raw_button = j["gamepad_cycle_raw_button"];
+            if (j.contains("gamepad_expand")) Current.gamepad_expand = j["gamepad_expand"];
+            if (j.contains("gamepad_expand_raw")) Current.gamepad_expand_raw = j["gamepad_expand_raw"];
+            if (j.contains("gamepad_expand_raw_button")) Current.gamepad_expand_raw_button = j["gamepad_expand_raw_button"];
+            if (j.contains("gamepad_session")) Current.gamepad_session = j["gamepad_session"];
+            if (j.contains("gamepad_session_raw")) Current.gamepad_session_raw = j["gamepad_session_raw"];
+            if (j.contains("gamepad_session_raw_button")) Current.gamepad_session_raw_button = j["gamepad_session_raw_button"];
+            if (j.contains("gamepad_menu")) Current.gamepad_menu = j["gamepad_menu"];
+            if (j.contains("gamepad_menu_raw")) Current.gamepad_menu_raw = j["gamepad_menu_raw"];
+            if (j.contains("gamepad_menu_raw_button")) Current.gamepad_menu_raw_button = j["gamepad_menu_raw_button"];
+            if (j.contains("gamepad_graph_pan_left")) Current.gamepad_graph_pan_left = j["gamepad_graph_pan_left"];
+            if (j.contains("gamepad_graph_pan_left_raw")) Current.gamepad_graph_pan_left_raw = j["gamepad_graph_pan_left_raw"];
+            if (j.contains("gamepad_graph_pan_left_raw_button")) Current.gamepad_graph_pan_left_raw_button = j["gamepad_graph_pan_left_raw_button"];
+            if (j.contains("gamepad_graph_pan_right")) Current.gamepad_graph_pan_right = j["gamepad_graph_pan_right"];
+            if (j.contains("gamepad_graph_pan_right_raw")) Current.gamepad_graph_pan_right_raw = j["gamepad_graph_pan_right_raw"];
+            if (j.contains("gamepad_graph_pan_right_raw_button")) Current.gamepad_graph_pan_right_raw_button = j["gamepad_graph_pan_right_raw_button"];
+            if (j.contains("mmr_category") && j["mmr_category"].is_string()) {
+                Current.mmr_category = j["mmr_category"];
+            }
+            if (!IsKnownMmrCategory(Current.mmr_category)) {
+                Current.mmr_category = "best";
+                needsSave = true;
+            }
+            if (j.contains("last_primary_id")) Current.last_primary_id = j["last_primary_id"];
+            if (j.contains("require_rl_focus")) Current.require_rl_focus = j["require_rl_focus"];
+            if (j.contains("show_match_summary")) Current.show_match_summary = j["show_match_summary"];
+            if (j.contains("discord_rpc_enabled")) Current.discord_rpc_enabled = j["discord_rpc_enabled"];
+            if (j.contains("enable_mmr_tracking")) Current.enable_mmr_tracking = j["enable_mmr_tracking"];
+            if (j.contains("auto_switch_mmr_category")) Current.auto_switch_mmr_category = j["auto_switch_mmr_category"];
+            if (j.contains("graph_mmr_category") &&
+                j["graph_mmr_category"].is_string() &&
+                IsGraphMmrCategory(j["graph_mmr_category"].get<std::string>())) {
+                Current.graph_mmr_category = j["graph_mmr_category"];
+            } else {
+                Current.graph_mmr_category =
+                    IsGraphMmrCategory(Current.mmr_category)
+                        ? Current.mmr_category
+                        : "2v2";
+                needsSave = true;
+            }
+            if (j.contains("graph_follow_current_playlist") &&
+                j["graph_follow_current_playlist"].is_boolean()) {
+                Current.graph_follow_current_playlist =
+                    j["graph_follow_current_playlist"];
+            } else {
+                Current.graph_follow_current_playlist =
+                    Current.auto_switch_mmr_category;
+                needsSave = true;
+            }
+            // Update discovery is mandatory. Migrate older configs that explicitly
+            // disabled it so the persisted compatibility field also reflects the
+            // current behavior.
+            if (!j.contains("check_for_updates") || !j["check_for_updates"].is_boolean() ||
+                !j["check_for_updates"].get<bool>()) {
+                needsSave = true;
+            }
+            if (j.contains("enable_auto_updates")) Current.enable_auto_updates = j["enable_auto_updates"];
+            if (j.contains("crash_reports_enabled")) Current.crash_reports_enabled = j["crash_reports_enabled"];
+            if (j.contains("debug_logging")) Current.debug_logging = j["debug_logging"];
+            if (j.contains("run_on_startup")) Current.run_on_startup = j["run_on_startup"];
+            if (j.contains("reset_session_on_close")) Current.reset_session_on_close = j["reset_session_on_close"];
+            if (j.contains("show_session_recap_on_close")) Current.show_session_recap_on_close = j["show_session_recap_on_close"];
+            if (j.contains("imperial_units")) Current.imperial_units = j["imperial_units"];
+            if (j.contains("client_uuid")) Current.client_uuid = j["client_uuid"];
+            if (j.contains("privacy_policy_accepted_version")) Current.privacy_policy_accepted_version = j["privacy_policy_accepted_version"];
+            if (j.contains("terms_accepted_version")) Current.terms_accepted_version = j["terms_accepted_version"];
+            if (j.contains("privacy_accepted_at")) Current.privacy_accepted_at = j["privacy_accepted_at"];
+            // Installs that accepted the privacy notice before onboarding existed
+            // already went through the old first-run prompts.
+            if (j.contains("onboarding_completed"))
+                Current.onboarding_completed = j["onboarding_completed"];
+            else
+                Current.onboarding_completed = !Current.privacy_policy_accepted_version.empty();
+            const auto nonEmptyJsonString = [&](const char* key) {
+                return j.contains(key) && j[key].is_string() && !j[key].get<std::string>().empty();
+            };
+            const bool existingInstall =
+                (j.contains("onboarding_completed") && j["onboarding_completed"].is_boolean() && j["onboarding_completed"].get<bool>()) ||
+                nonEmptyJsonString("privacy_policy_accepted_version") ||
+                nonEmptyJsonString("client_uuid") ||
+                nonEmptyJsonString("last_primary_id") ||
+                j.contains("overlay_layout") ||
+                j.contains("dashboard_layout");
+            if (j.contains("match_summary_seconds") && j["match_summary_seconds"].is_number_integer()) {
+                Current.match_summary_seconds = std::clamp(j["match_summary_seconds"].get<int>(), 5, 60);
+            } else {
+                Current.match_summary_seconds = existingInstall ? 30 : 20;
+            }
+            if (j.contains("position")) Current.position = j["position"];
+            if (j.contains("show_running_indicator")) Current.show_running_indicator = j["show_running_indicator"];
+            if (j.contains("use_roman_numerals")) Current.use_roman_numerals = j["use_roman_numerals"];
+            if (j.contains("use_rank_icons")) Current.use_rank_icons = j["use_rank_icons"];
+            if (j.contains("show_extra_playlists")) Current.show_extra_playlists = j["show_extra_playlists"];
+            if (!Current.show_extra_playlists &&
+                IsExtraMmrCategory(Current.graph_mmr_category)) {
+                Current.graph_mmr_category = "2v2";
+                needsSave = true;
+            }
+            if (j.contains("custom_api_enabled") && j["custom_api_enabled"].is_boolean()) {
+                Current.custom_api_enabled = j["custom_api_enabled"];
+            } else if (j.contains("pro_account_enabled") && j["pro_account_enabled"].is_boolean()) {
+                Current.custom_api_enabled = j["pro_account_enabled"];
+            } else {
+                Current.custom_api_enabled = true;
+            }
+            if (j.contains("custom_api_base_url") && j["custom_api_base_url"].is_string() && !j["custom_api_base_url"].get<std::string>().empty()) {
+                Current.custom_api_base_url = j["custom_api_base_url"].get<std::string>();
+            } else if (j.contains("pro_api_base_url") && j["pro_api_base_url"].is_string() && !j["pro_api_base_url"].get<std::string>().empty()) {
+                Current.custom_api_base_url = j["pro_api_base_url"].get<std::string>();
+            } else {
+                Current.custom_api_base_url = "https://api.omnistats.org";
+            }
+            bool needsLegacyMigration = false;
+            const auto loadSecretField = [&](const std::string& fieldName, std::string& target) {
+                if (j.contains(fieldName) && j[fieldName].is_string()) {
+                    const std::string raw = j[fieldName].get<std::string>();
+                    const auto dec = DecryptSecret(raw);
+                    if (dec.success) {
+                        target = dec.value;
+                        if (dec.isLegacyPlaintext) {
+                            needsLegacyMigration = true;
+                        } else {
+                            s_savedCiphertexts[fieldName] = raw;
+                            s_encryptedPlaintexts[fieldName] = dec.value;
+                        }
+                    } else {
+                        target.clear();
+                        s_savedCiphertexts[fieldName] = raw;
+                        Current.credentials_decryption_failed = true;
+                        std::cerr << "[Config] Failed to decrypt " << fieldName << ". Preserving ciphertext.\n";
+                    }
+                } else {
+                    target.clear();
+                    s_savedCiphertexts.erase(fieldName);
+                    s_encryptedPlaintexts.erase(fieldName);
+                }
+            };
+
+            if (j.contains("custom_api_key") && j["custom_api_key"].is_string()) {
+                loadSecretField("custom_api_key", Current.custom_api_key);
+            } else if (j.contains("pro_api_key") && j["pro_api_key"].is_string()) {
+                loadSecretField("pro_api_key", Current.custom_api_key);
+                if (!Current.custom_api_key.empty()) {
+                    needsLegacyMigration = true;
+                }
+            } else {
+                Current.custom_api_key.clear();
+                s_savedCiphertexts.erase("custom_api_key");
+                s_encryptedPlaintexts.erase("custom_api_key");
+            }
+            if (j.contains("account_signed_in_name") && j["account_signed_in_name"].is_string()) {
+                Current.account_signed_in_name = j["account_signed_in_name"].get<std::string>();
+            } else {
+                Current.account_signed_in_name.clear();
+            }
+            if (j.contains("account_device_public_id") && j["account_device_public_id"].is_string()) {
+                Current.account_device_public_id = j["account_device_public_id"].get<std::string>();
+            } else {
+                Current.account_device_public_id.clear();
+            }
+            loadSecretField("account_refresh_token", Current.account_refresh_token);
+            loadSecretField("account_device_key", Current.account_device_key);
+            if (j.contains("rocket_league_stats_api_config_path")) Current.rocket_league_stats_api_config_path = j["rocket_league_stats_api_config_path"];
+            if (j.contains("check_stats_api_config_on_startup")) Current.check_stats_api_config_on_startup = j["check_stats_api_config_on_startup"];
+            loadSecretField("ballchasing_token", Current.ballchasing_token);
+            if (j.contains("auto_upload_replays")) Current.auto_upload_replays = j["auto_upload_replays"];
+            if (j.contains("ballchasing_upload_notice_accepted")) Current.ballchasing_upload_notice_accepted = j["ballchasing_upload_notice_accepted"];
+            if (j.contains("ballchasing_visibility") && j["ballchasing_visibility"].is_string()) {
+                std::string visibility = j["ballchasing_visibility"].get<std::string>();
+                if (visibility == "private" || visibility == "unlisted" || visibility == "public") {
+                    Current.ballchasing_visibility = visibility;
+                }
+            }
+            if (j.contains("ballchasing_filter_ranked_only")) Current.ballchasing_filter_ranked_only = j["ballchasing_filter_ranked_only"];
+            if (j.contains("ballchasing_filter_wins_only")) Current.ballchasing_filter_wins_only = j["ballchasing_filter_wins_only"];
+            if (j.contains("auto_save_replays")) Current.auto_save_replays = j["auto_save_replays"];
+            if (j.contains("key_save_replay")) Current.key_save_replay = j["key_save_replay"];
+
+            // Load session visibility flags
+            if (j.contains("show_session_record")) Current.show_session_record = j["show_session_record"];
+            if (j.contains("show_session_goals")) Current.show_session_goals = j["show_session_goals"];
+            if (j.contains("show_session_saves")) Current.show_session_saves = j["show_session_saves"];
+            if (j.contains("show_session_demos")) Current.show_session_demos = j["show_session_demos"];
+            if (j.contains("show_session_assists")) Current.show_session_assists = j["show_session_assists"];
+            if (j.contains("show_session_goal_participation")) Current.show_session_goal_participation = j["show_session_goal_participation"];
+            if (j.contains("show_session_mmr_change")) Current.show_session_mmr_change = j["show_session_mmr_change"];
+            if (j.contains("show_session_boost")) Current.show_session_boost = j["show_session_boost"];
+            if (j.contains("show_lobby_ranks_overlay")) Current.show_lobby_ranks_overlay = j["show_lobby_ranks_overlay"];
+            if (j.contains("show_lobby_rank_1v1")) Current.show_lobby_rank_1v1 = j["show_lobby_rank_1v1"];
+            if (j.contains("show_lobby_rank_2v2")) Current.show_lobby_rank_2v2 = j["show_lobby_rank_2v2"];
+            if (j.contains("show_lobby_rank_3v3")) Current.show_lobby_rank_3v3 = j["show_lobby_rank_3v3"];
+            if (j.contains("show_lobby_rank_casual")) Current.show_lobby_rank_casual = j["show_lobby_rank_casual"];
+            if (j.contains("show_lobby_rank_tourny")) Current.show_lobby_rank_tourny = j["show_lobby_rank_tourny"];
+            if (j.contains("show_lobby_rank_hoops")) Current.show_lobby_rank_hoops = j["show_lobby_rank_hoops"];
+            if (j.contains("show_lobby_rank_rumble")) Current.show_lobby_rank_rumble = j["show_lobby_rank_rumble"];
+            if (j.contains("show_lobby_rank_dropshot")) Current.show_lobby_rank_dropshot = j["show_lobby_rank_dropshot"];
+            if (j.contains("show_lobby_rank_snowday")) Current.show_lobby_rank_snowday = j["show_lobby_rank_snowday"];
+            if (j.contains("show_lobby_rank_heatseeker")) Current.show_lobby_rank_heatseeker = j["show_lobby_rank_heatseeker"];
+
+            // Fallback: Prevent the user from disabling every column.
+            if (!Current.show_lobby_rank_1v1 && !Current.show_lobby_rank_2v2 &&
+                !Current.show_lobby_rank_3v3 && !Current.show_lobby_rank_casual && !Current.show_lobby_rank_tourny &&
+                !Current.show_lobby_rank_hoops && !Current.show_lobby_rank_rumble && !Current.show_lobby_rank_dropshot &&
+                !Current.show_lobby_rank_snowday && !Current.show_lobby_rank_heatseeker) {
+                Current.show_lobby_rank_2v2 = true;
+            }
+            if (j.contains("show_account_wins_overlay")) Current.show_account_wins_overlay = j["show_account_wins_overlay"];
+            if (j.contains("show_demo_tracker_overlay")) Current.show_demo_tracker_overlay = j["show_demo_tracker_overlay"];
+            if (j.contains("show_rank_progress")) Current.show_rank_progress = j["show_rank_progress"];
+            if (j.contains("show_previous_games_summary")) Current.show_previous_games_summary = j["show_previous_games_summary"];
+            if (j.contains("previous_games_limit")) Current.previous_games_limit = std::clamp(j["previous_games_limit"].get<int>(), 10, 50);
+            if (j.contains("show_streaks_stats")) Current.show_streaks_stats = j["show_streaks_stats"];
+            if (j.contains("show_longest_loss_streak")) Current.show_longest_loss_streak = j["show_longest_loss_streak"];
+            if (j.contains("show_gamemode_breakdown")) Current.show_gamemode_breakdown = j["show_gamemode_breakdown"];
+            if (j.contains("show_gamemode_record_1v1")) Current.show_gamemode_record_1v1 = j["show_gamemode_record_1v1"];
+            if (j.contains("show_gamemode_record_2v2")) Current.show_gamemode_record_2v2 = j["show_gamemode_record_2v2"];
+            if (j.contains("show_gamemode_record_3v3")) Current.show_gamemode_record_3v3 = j["show_gamemode_record_3v3"];
+            if (j.contains("gamemode_breakdown_scope")) Current.gamemode_breakdown_scope = j["gamemode_breakdown_scope"];
+            if (j.contains("crossbar_display_mode")) Current.crossbar_display_mode = j["crossbar_display_mode"];
+            if (j.contains("second_monitor_mode")) Current.second_monitor_mode = j["second_monitor_mode"];
+            if (j.contains("second_monitor_show_roster")) Current.second_monitor_show_roster = j["second_monitor_show_roster"];
+            if (j.contains("second_monitor_show_session")) Current.second_monitor_show_session = j["second_monitor_show_session"];
+            if (j.contains("second_monitor_show_settings")) Current.second_monitor_show_settings = j["second_monitor_show_settings"];
+            if (j.contains("second_monitor_has_bounds")) Current.second_monitor_has_bounds = j["second_monitor_has_bounds"];
+            if (j.contains("second_monitor_x")) Current.second_monitor_x = j["second_monitor_x"];
+            if (j.contains("second_monitor_y")) Current.second_monitor_y = j["second_monitor_y"];
+            if (j.contains("second_monitor_w")) Current.second_monitor_w = j["second_monitor_w"];
+            if (j.contains("second_monitor_h")) Current.second_monitor_h = j["second_monitor_h"];
+            if (j.contains("ui_scale")) Current.ui_scale = j["ui_scale"];
+            if (j.contains("font_ui") && j["font_ui"].is_string()) Current.font_ui = j["font_ui"];
+            if (j.contains("font_mono") && j["font_mono"].is_string()) Current.font_mono = j["font_mono"];
+            if (j.contains("font_display") && j["font_display"].is_string()) Current.font_display = j["font_display"];
+            if (j.contains("session_view_x")) Current.session_view_x = j["session_view_x"];
+            if (j.contains("session_view_y")) Current.session_view_y = j["session_view_y"];
+            if (j.contains("match_summary_x")) Current.match_summary_x = j["match_summary_x"];
+            if (j.contains("match_summary_y")) Current.match_summary_y = j["match_summary_y"];
+            if (j.contains("overlay_fps_cap")) Current.overlay_fps_cap = j["overlay_fps_cap"];
+            if (j.contains("vsync")) Current.vsync = j["vsync"];
+
+            // Theme colors
+            if (j.contains("theme")) {
+                auto& t = j["theme"];
+                if (t.contains("bg")) Current.themeBg = JsonToColor(t["bg"], Current.themeBg);
+                if (t.contains("settings_panel")) Current.themeSettingsPanel = JsonToColor(t["settings_panel"], Current.themeSettingsPanel);
+                if (t.contains("topbar")) Current.themeTopbar = JsonToColor(t["topbar"], Current.themeTopbar);
+                if (t.contains("graph_panel")) Current.themeGraphPanel = JsonToColor(t["graph_panel"], Current.themeGraphPanel);
+                if (t.contains("text")) Current.themeText = JsonToColor(t["text"], Current.themeText);
+                if (t.contains("accent")) Current.themeAccent = JsonToColor(t["accent"], Current.themeAccent);
+                if (t.contains("win")) Current.themeWin = JsonToColor(t["win"], Current.themeWin);
+                if (t.contains("loss")) Current.themeLoss = JsonToColor(t["loss"], Current.themeLoss);
+                if (t.contains("dim")) Current.themeDim = JsonToColor(t["dim"], Current.themeDim);
+                if (t.contains("muted")) Current.themeMuted = JsonToColor(t["muted"], Current.themeMuted);
+                if (t.contains("graph_line")) Current.themeGraphLine = JsonToColor(t["graph_line"], Current.themeGraphLine);
+                if (t.contains("graph_baseline")) Current.themeGraphBaseline = JsonToColor(t["graph_baseline"], Current.themeGraphBaseline);
+                if (t.contains("roster_card")) Current.themeRosterCard = JsonToColor(t["roster_card"], Current.themeRosterCard);
+                if (t.contains("roster_card_self")) Current.themeRosterCardSelf = JsonToColor(t["roster_card_self"], Current.themeRosterCardSelf);
+                if (t.contains("stat_box")) Current.themeStatBox = JsonToColor(t["stat_box"], Current.themeStatBox);
+                if (t.contains("match_row")) Current.themeMatchRow = JsonToColor(t["match_row"], Current.themeMatchRow);
+                if (t.contains("match_row_alt")) Current.themeMatchRowAlt = JsonToColor(t["match_row_alt"], Current.themeMatchRowAlt);
+            }
+
+            // Migration: if upgrading or first run, ensure theme background opacity is visible and safe.
+            if (Current.themeBg.a < 0.01f) {
+                Current.themeBg.a = 0.85f;
+                SaveInternal();
+            }
+
+            if (j.contains("known_primary_ids") && j["known_primary_ids"].is_array()) {
+                Current.known_primary_ids.clear();
+                for (const auto& item : j["known_primary_ids"]) {
+                    if (item.is_string()) Current.known_primary_ids.push_back(item.get<std::string>());
+                }
+            }
+
+            if (j.contains("dashboard_layout")) {
+                auto& jl = j["dashboard_layout"];
+                if (jl.contains("version")) Current.dashboard_layout.version = jl["version"];
+                if (jl.contains("left_column_weight")) Current.dashboard_layout.leftColumnWeight = jl["left_column_weight"];
+                if (jl.contains("widgets") && jl["widgets"].is_array()) {
+                    Current.dashboard_layout.widgets.clear();
+                    for (const auto& jw : jl["widgets"]) {
+                        DashboardLayout::WidgetPlacement w;
+                        if (jw.contains("id")) w.id = DashboardLayout::WidgetIdFromConfigString(jw["id"]);
+                        if (jw.contains("zone")) w.zone = DashboardLayout::ZoneFromConfigString(jw["zone"]);
+                        if (jw.contains("order")) w.order = jw["order"];
+                        if (jw.contains("height")) w.height = jw["height"];
+                        if (jw.contains("collapsed")) w.collapsed = jw["collapsed"];
+                        Current.dashboard_layout.widgets.push_back(w);
+                    }
+                }
+                DashboardLayout::Sanitize(Current.dashboard_layout);
+            }
+
+            if (j.contains("overlay_layout")) {
+                auto& jl = j["overlay_layout"];
+                if (jl.contains("version") && jl["version"].is_number_integer()) {
+                    Current.overlay_layout.version = jl["version"].get<int>();
+                }
+                if (jl.contains("toolbox_open") && jl["toolbox_open"].is_boolean()) {
+                    Current.overlay_layout.toolboxOpen = jl["toolbox_open"].get<bool>();
+                }
+                if (jl.contains("containers") && jl["containers"].is_array()) {
+                    Current.overlay_layout.containers.clear();
+                    for (const auto& jc : jl["containers"]) {
+                        if (!jc.is_object()) continue;
+                        OverlayLayout::ContainerConfig c;
+                        if (jc.contains("id") && jc["id"].is_string()) c.id = jc["id"].get<std::string>();
+                        if (jc.contains("x") && jc["x"].is_number()) c.x = jc["x"].get<float>();
+                        if (jc.contains("y") && jc["y"].is_number()) c.y = jc["y"].get<float>();
+                        if (jc.contains("w") && jc["w"].is_number()) c.w = jc["w"].get<float>();
+                        if (jc.contains("h") && jc["h"].is_number()) c.h = jc["h"].get<float>();
+                        if (jc.contains("widgets") && jc["widgets"].is_array()) {
+                            for (const auto& jw : jc["widgets"]) {
+                                if (jw.is_string()) {
+                                    c.widgets.push_back(DashboardLayout::WidgetIdFromConfigString(jw.get<std::string>()));
+                                }
+                            }
+                        }
+                        if (jc.contains("visibility") && jc["visibility"].is_object()) {
+                            const auto& jv = jc["visibility"];
+                            if (jv.contains("mode")) {
+                                if (jv["mode"].is_string()) {
+                                    c.visibility.mode = OverlayLayout::VisibilityModeFromConfigString(jv["mode"].get<std::string>());
+                                } else if (jv["mode"].is_number_integer()) {
+                                    c.visibility.mode = static_cast<OverlayLayout::VisibilityMode>(jv["mode"].get<int>());
+                                } else {
+                                    c.visibility.mode = OverlayLayout::Visibility::KeyHeld;
+                                }
+                            }
+                            if (jv.contains("event")) {
+                                if (jv["event"].is_string()) {
+                                    c.visibility.event = OverlayLayout::VisibilityEventFromConfigString(jv["event"].get<std::string>());
+                                } else if (jv["event"].is_number_integer()) {
+                                    c.visibility.event = static_cast<OverlayLayout::VisibilityEvent>(jv["event"].get<int>());
+                                } else {
+                                    c.visibility.event = OverlayLayout::Visibility::FirstCountdown;
+                                }
+                            }
+                            if (jv.contains("seconds") && jv["seconds"].is_number_integer()) {
+                                c.visibility.seconds = jv["seconds"].get<int>();
+                            }
+                            if (jv.contains("also_while_key_held") && jv["also_while_key_held"].is_boolean()) {
+                                c.visibility.alsoWhileKeyHeld = jv["also_while_key_held"].get<bool>();
+                            } else if (jv.contains("alsoWhileKeyHeld") && jv["alsoWhileKeyHeld"].is_boolean()) {
+                                c.visibility.alsoWhileKeyHeld = jv["alsoWhileKeyHeld"].get<bool>();
+                            }
+                            if (jv.contains("hide_during_replay") && jv["hide_during_replay"].is_boolean()) {
+                                c.visibility.hideDuringReplay = jv["hide_during_replay"].get<bool>();
+                            } else if (jv.contains("hideDuringReplay") && jv["hideDuringReplay"].is_boolean()) {
+                                c.visibility.hideDuringReplay = jv["hideDuringReplay"].get<bool>();
+                            }
+                        }
+                        Current.overlay_layout.containers.push_back(c);
+                    }
+                }
+                OverlayLayout::Sanitize(Current.overlay_layout);
+            } else {
+                Current.overlay_layout = OverlayLayout::DefaultOverlayLayout();
+                if (existingInstall) {
+                    for (auto& c : Current.overlay_layout.containers) {
+                        c.visibility = OverlayLayout::ContainerConfig::Visibility{};
+                    }
+                }
+            }
+
+            std::cout << "[Config] Loaded config.json successfully.\n";
+            if (needsLegacyMigration) {
+                bool migrationOk = true;
+                const auto checkMigration = [&](const std::string& fieldName, const std::string& plainVal) {
+                    if (!plainVal.empty() && s_savedCiphertexts.find(fieldName) == s_savedCiphertexts.end()) {
+                        const auto enc = EncryptSecret(plainVal);
+                        if (enc.success) {
+                            s_savedCiphertexts[fieldName] = enc.value;
+                            s_encryptedPlaintexts[fieldName] = plainVal;
+                        } else {
+                            migrationOk = false;
+                        }
+                    }
+                };
+                checkMigration("custom_api_key", Current.custom_api_key);
+                checkMigration("account_refresh_token", Current.account_refresh_token);
+                checkMigration("account_device_key", Current.account_device_key);
+                checkMigration("ballchasing_token", Current.ballchasing_token);
+
+                if (migrationOk) {
+                    SaveInternal();
+                } else {
+                    std::cerr << "[Config] Legacy credential migration encryption failed. Plaintext will not be rewritten.\n";
+                }
+            }
+
+            if (needsSave) {
+                s_pendingSave.store(true);
+            }
+            s_revision.fetch_add(1, std::memory_order_release);
+
+        } catch (const std::exception& e) {
+            std::cout << "[Config] Failed to parse config.json: " << e.what() << "\n";
+            std::error_code ec;
+            fs::rename(configFile, configFile + ".corrupt", ec);
+            Current = ConfigData{};
+            SaveInternal();
+            s_revision.fetch_add(1, std::memory_order_release);
+        }
+    }
+
+    static void SaveInternal() {
+        nlohmann::json j;
+
+        j["host"] = Current.host;
+        j["port"] = Current.port;
+        j["key_overlay"] = Current.key_overlay;
+        j["key_cycle"] = Current.key_cycle;
+        j["key_expand"] = Current.key_expand;
+        j["key_session"] = Current.key_session;
+        j["key_menu"] = Current.key_menu;
+        j["key_graph_pan_left"] = Current.key_graph_pan_left;
+        j["key_graph_pan_right"] = Current.key_graph_pan_right;
+        j["key_lifetime_graph"] = Current.key_lifetime_graph;
+        j["gamepad_overlay"] = Current.gamepad_overlay;
+        j["gamepad_overlay_raw"] = Current.gamepad_overlay_raw;
+        j["gamepad_overlay_raw_button"] = Current.gamepad_overlay_raw_button;
+        j["gamepad_cycle"] = Current.gamepad_cycle;
+        j["gamepad_cycle_raw"] = Current.gamepad_cycle_raw;
+        j["gamepad_cycle_raw_button"] = Current.gamepad_cycle_raw_button;
+        j["gamepad_expand"] = Current.gamepad_expand;
+        j["gamepad_expand_raw"] = Current.gamepad_expand_raw;
+        j["gamepad_expand_raw_button"] = Current.gamepad_expand_raw_button;
+        j["gamepad_session"] = Current.gamepad_session;
+        j["gamepad_session_raw"] = Current.gamepad_session_raw;
+        j["gamepad_session_raw_button"] = Current.gamepad_session_raw_button;
+        j["gamepad_menu"] = Current.gamepad_menu;
+        j["gamepad_menu_raw"] = Current.gamepad_menu_raw;
+        j["gamepad_menu_raw_button"] = Current.gamepad_menu_raw_button;
+        j["gamepad_graph_pan_left"] = Current.gamepad_graph_pan_left;
+        j["gamepad_graph_pan_left_raw"] = Current.gamepad_graph_pan_left_raw;
+        j["gamepad_graph_pan_left_raw_button"] = Current.gamepad_graph_pan_left_raw_button;
+        j["gamepad_graph_pan_right"] = Current.gamepad_graph_pan_right;
+        j["gamepad_graph_pan_right_raw"] = Current.gamepad_graph_pan_right_raw;
+        j["gamepad_graph_pan_right_raw_button"] = Current.gamepad_graph_pan_right_raw_button;
+        j["controller_default_back_migrated"] = true;
+        j["mmr_category"] = Current.mmr_category;
+        j["graph_mmr_category"] = Current.graph_mmr_category;
+        j["graph_follow_current_playlist"] = Current.graph_follow_current_playlist;
+        j["last_primary_id"] = Current.last_primary_id;
+        j["known_primary_ids"] = Current.known_primary_ids;
+        j["require_rl_focus"] = Current.require_rl_focus;
+        j["show_match_summary"] = Current.show_match_summary;
+        j["match_summary_seconds"] = Current.match_summary_seconds;
+        j["discord_rpc_enabled"] = Current.discord_rpc_enabled;
+        j["enable_mmr_tracking"] = Current.enable_mmr_tracking;
+        j["auto_switch_mmr_category"] = Current.auto_switch_mmr_category;
+        j["check_for_updates"] = true;
+        j["enable_auto_updates"] = Current.enable_auto_updates;
+        j["crash_reports_enabled"] = Current.crash_reports_enabled;
+        j["debug_logging"] = Current.debug_logging;
+        j["run_on_startup"] = Current.run_on_startup;
+        j["reset_session_on_close"] = Current.reset_session_on_close;
+        j["show_session_recap_on_close"] = Current.show_session_recap_on_close;
+        j["imperial_units"] = Current.imperial_units;
+        j["client_uuid"] = Current.client_uuid;
+        j["privacy_policy_accepted_version"] = Current.privacy_policy_accepted_version;
+        j["terms_accepted_version"] = Current.terms_accepted_version;
+        j["privacy_accepted_at"] = Current.privacy_accepted_at;
+        j["onboarding_completed"] = Current.onboarding_completed;
+        j["position"] = Current.position;
+        j["show_running_indicator"] = Current.show_running_indicator;
+        j["use_roman_numerals"] = Current.use_roman_numerals;
+        j["use_rank_icons"] = Current.use_rank_icons;
+        j["show_extra_playlists"] = Current.show_extra_playlists;
+        j["check_stats_api_config_on_startup"] = Current.check_stats_api_config_on_startup;
+        j["rocket_league_stats_api_config_path"] = Current.rocket_league_stats_api_config_path;
+        j["custom_api_enabled"] = Current.custom_api_enabled;
+        j["custom_api_base_url"] = Current.custom_api_base_url;
+        const auto saveSecretField = [&](const std::string& fieldName, const std::string& currentVal) {
+            if (currentVal.empty()) {
+                if (s_savedCiphertexts.count(fieldName) && !s_savedCiphertexts[fieldName].empty() &&
+                    s_encryptedPlaintexts.find(fieldName) == s_encryptedPlaintexts.end()) {
+                    j[fieldName] = s_savedCiphertexts[fieldName];
+                    return;
+                }
+                j[fieldName] = "";
+                s_savedCiphertexts.erase(fieldName);
+                s_encryptedPlaintexts.erase(fieldName);
+                return;
+            }
+            if (s_encryptedPlaintexts.count(fieldName) && s_encryptedPlaintexts[fieldName] == currentVal &&
+                s_savedCiphertexts.count(fieldName) && !s_savedCiphertexts[fieldName].empty()) {
+                j[fieldName] = s_savedCiphertexts[fieldName];
+                return;
+            }
+            const auto enc = EncryptSecret(currentVal);
+            if (enc.success) {
+                s_savedCiphertexts[fieldName] = enc.value;
+                s_encryptedPlaintexts[fieldName] = currentVal;
+                j[fieldName] = enc.value;
+            } else {
+                std::cerr << "[Config] Encryption failed for " << fieldName << ". Secret will not be written to disk in plaintext.\n";
+                if (s_savedCiphertexts.count(fieldName) && !s_savedCiphertexts[fieldName].empty()) {
+                    j[fieldName] = s_savedCiphertexts[fieldName];
+                } else {
+                    j[fieldName] = "";
+                }
+            }
+        };
+
+        saveSecretField("custom_api_key", Current.custom_api_key);
+        j["account_signed_in_name"] = Current.account_signed_in_name;
+        j["account_device_public_id"] = Current.account_device_public_id;
+        saveSecretField("account_refresh_token", Current.account_refresh_token);
+        saveSecretField("account_device_key", Current.account_device_key);
+        saveSecretField("ballchasing_token", Current.ballchasing_token);
+        j["auto_upload_replays"] = Current.auto_upload_replays;
+        j["ballchasing_upload_notice_accepted"] = Current.ballchasing_upload_notice_accepted;
+        j["ballchasing_visibility"] = Current.ballchasing_visibility;
+        j["ballchasing_filter_ranked_only"] = Current.ballchasing_filter_ranked_only;
+        j["ballchasing_filter_wins_only"] = Current.ballchasing_filter_wins_only;
+        j["auto_save_replays"] = Current.auto_save_replays;
+        j["key_save_replay"] = Current.key_save_replay;
+
+        // Save session visibility flags
+        j["show_session_record"] = Current.show_session_record;
+        j["show_session_goals"] = Current.show_session_goals;
+        j["show_session_saves"] = Current.show_session_saves;
+        j["show_session_demos"] = Current.show_session_demos;
+        j["show_session_assists"] = Current.show_session_assists;
+        j["show_session_goal_participation"] = Current.show_session_goal_participation;
+        j["show_session_mmr_change"] = Current.show_session_mmr_change;
+        j["show_session_boost"] = Current.show_session_boost;
+        j["show_lobby_ranks_overlay"] = Current.show_lobby_ranks_overlay;
+        j["show_lobby_rank_1v1"] = Current.show_lobby_rank_1v1;
+        j["show_lobby_rank_2v2"] = Current.show_lobby_rank_2v2;
+        j["show_lobby_rank_3v3"] = Current.show_lobby_rank_3v3;
+        j["show_lobby_rank_casual"] = Current.show_lobby_rank_casual;
+        j["show_lobby_rank_tourny"] = Current.show_lobby_rank_tourny;
+        j["show_lobby_rank_hoops"] = Current.show_lobby_rank_hoops;
+        j["show_lobby_rank_rumble"] = Current.show_lobby_rank_rumble;
+        j["show_lobby_rank_dropshot"] = Current.show_lobby_rank_dropshot;
+        j["show_lobby_rank_snowday"] = Current.show_lobby_rank_snowday;
+        j["show_lobby_rank_heatseeker"] = Current.show_lobby_rank_heatseeker;
+        j["show_account_wins_overlay"] = Current.show_account_wins_overlay;
+        j["show_demo_tracker_overlay"] = Current.show_demo_tracker_overlay;
+        j["show_rank_progress"] = Current.show_rank_progress;
+        j["show_previous_games_summary"] = Current.show_previous_games_summary;
+        j["previous_games_limit"] = Current.previous_games_limit;
+        j["show_streaks_stats"] = Current.show_streaks_stats;
+        j["show_longest_loss_streak"] = Current.show_longest_loss_streak;
+        j["show_gamemode_breakdown"] = Current.show_gamemode_breakdown;
+        j["show_gamemode_record_1v1"] = Current.show_gamemode_record_1v1;
+        j["show_gamemode_record_2v2"] = Current.show_gamemode_record_2v2;
+        j["show_gamemode_record_3v3"] = Current.show_gamemode_record_3v3;
+        j["gamemode_breakdown_scope"] = Current.gamemode_breakdown_scope;
+        j["crossbar_display_mode"] = Current.crossbar_display_mode;
+        j["second_monitor_mode"] = Current.second_monitor_mode;
+        j["second_monitor_show_roster"] = Current.second_monitor_show_roster;
+        j["second_monitor_show_session"] = Current.second_monitor_show_session;
+        j["second_monitor_show_settings"] = Current.second_monitor_show_settings;
+        j["second_monitor_has_bounds"] = Current.second_monitor_has_bounds;
+        j["second_monitor_x"] = Current.second_monitor_x;
+        j["second_monitor_y"] = Current.second_monitor_y;
+        j["second_monitor_w"] = Current.second_monitor_w;
+        j["second_monitor_h"] = Current.second_monitor_h;
+        j["ui_scale"] = Current.ui_scale;
+        j["font_ui"] = Current.font_ui;
+        j["font_mono"] = Current.font_mono;
+        j["font_display"] = Current.font_display;
+        j["session_view_x"] = Current.session_view_x;
+        j["session_view_y"] = Current.session_view_y;
+        j["match_summary_x"] = Current.match_summary_x;
+        j["match_summary_y"] = Current.match_summary_y;
+        j["overlay_fps_cap"] = Current.overlay_fps_cap;
+        j["vsync"] = Current.vsync;
+        nlohmann::json jl;
+        jl["version"] = Current.dashboard_layout.version;
+        jl["left_column_weight"] = Current.dashboard_layout.leftColumnWeight;
+        nlohmann::json jw_arr = nlohmann::json::array();
+        for (const auto& w : Current.dashboard_layout.widgets) {
+            nlohmann::json jw;
+            jw["id"] = DashboardLayout::ToConfigString(w.id);
+            jw["zone"] = DashboardLayout::ToConfigString(w.zone);
+            jw["order"] = w.order;
+            jw["height"] = w.height;
+            jw["collapsed"] = w.collapsed;
+            jw_arr.push_back(jw);
+        }
+        jl["widgets"] = jw_arr;
+        j["dashboard_layout"] = jl;
+
+        nlohmann::json jol;
+        jol["version"] = Current.overlay_layout.version;
+        jol["toolbox_open"] = Current.overlay_layout.toolboxOpen;
+        nlohmann::json jc_arr = nlohmann::json::array();
+        for (const auto& c : Current.overlay_layout.containers) {
+            nlohmann::json jc;
+            jc["id"] = c.id;
+            jc["x"] = c.x;
+            jc["y"] = c.y;
+            jc["w"] = c.w;
+            jc["h"] = c.h;
+            nlohmann::json jw_arr2 = nlohmann::json::array();
+            for (auto w : c.widgets) {
+                jw_arr2.push_back(DashboardLayout::ToConfigString(w));
+            }
+            jc["widgets"] = jw_arr2;
+            auto sanitizedVis = c.visibility;
+            OverlayLayout::Sanitize(sanitizedVis);
+            jc["visibility"] = {
+                {"mode", OverlayLayout::ToConfigString(sanitizedVis.mode)},
+                {"event", OverlayLayout::ToConfigString(sanitizedVis.event)},
+                {"seconds", sanitizedVis.seconds},
+                {"also_while_key_held", sanitizedVis.alsoWhileKeyHeld},
+                {"hide_during_replay", sanitizedVis.hideDuringReplay}};
+            jc_arr.push_back(jc);
+        }
+        jol["containers"] = jc_arr;
+        j["overlay_layout"] = jol;
+
+        // Theme colors
+        j["theme"]["bg"] = ColorToJson(Current.themeBg);
+        j["theme"]["settings_panel"] = ColorToJson(Current.themeSettingsPanel);
+        j["theme"]["topbar"] = ColorToJson(Current.themeTopbar);
+        j["theme"]["graph_panel"] = ColorToJson(Current.themeGraphPanel);
+        j["theme"]["text"] = ColorToJson(Current.themeText);
+        j["theme"]["accent"] = ColorToJson(Current.themeAccent);
+        j["theme"]["win"] = ColorToJson(Current.themeWin);
+        j["theme"]["loss"] = ColorToJson(Current.themeLoss);
+        j["theme"]["dim"] = ColorToJson(Current.themeDim);
+        j["theme"]["muted"] = ColorToJson(Current.themeMuted);
+        j["theme"]["graph_line"] = ColorToJson(Current.themeGraphLine);
+        j["theme"]["graph_baseline"] = ColorToJson(Current.themeGraphBaseline);
+        j["theme"]["roster_card"] = ColorToJson(Current.themeRosterCard);
+        j["theme"]["roster_card_self"] = ColorToJson(Current.themeRosterCardSelf);
+        j["theme"]["stat_box"] = ColorToJson(Current.themeStatBox);
+        j["theme"]["match_row"] = ColorToJson(Current.themeMatchRow);
+        j["theme"]["match_row_alt"] = ColorToJson(Current.themeMatchRowAlt);
+
+        std::string configFile = GetConfigPath();
+        std::string tempFile = configFile + ".tmp";
+        std::ofstream file(tempFile, std::ios::trunc);
+        if (file.is_open()) {
+            file << j.dump(4);
+            file.flush();
+            file.close();
+            if (!MoveFileExA(tempFile.c_str(), configFile.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
+                std::cout << "[Config] Failed to replace config.json. Error=" << GetLastError() << "\n";
+            }
+        } else {
+            std::cout << "[Config] Failed to open temp config for writing.\n";
+        }
+    }
+
+    void Save() {
+        std::unique_lock<std::shared_mutex> lock(Mutex);
+        SaveInternal();
+    }
+
+    void RequestSave() {
+        s_pendingSave.store(true);
+    }
+
+    void SetWindowsAutoStart(bool enable) {
+        HKEY hKey;
+        const char* keyPath = "Software\\Microsoft\\Windows\\CurrentVersion\\Run";
+        if (RegOpenKeyExA(HKEY_CURRENT_USER, keyPath, 0, KEY_SET_VALUE, &hKey) == ERROR_SUCCESS) {
+            if (enable) {
+                char exePath[MAX_PATH];
+                if (GetModuleFileNameA(NULL, exePath, MAX_PATH)) {
+                    std::string pathStr = "\"" + std::string(exePath) + "\"";
+                    RegSetValueExA(hKey, "OmniStats", 0, REG_SZ, (const BYTE*)pathStr.c_str(), (DWORD)(pathStr.length() + 1));
+                }
+            } else {
+                RegDeleteValueA(hKey, "OmniStats");
+            }
+            RegCloseKey(hKey);
+        }
+    }
+}

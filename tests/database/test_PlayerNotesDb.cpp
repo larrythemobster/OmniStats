@@ -6,7 +6,7 @@
 #include <string>
 #include <thread>
 
-#include "core/SessionState.hpp"
+#include "core/state/SessionState.hpp"
 #include "database/DatabaseManager.hpp"
 
 namespace {

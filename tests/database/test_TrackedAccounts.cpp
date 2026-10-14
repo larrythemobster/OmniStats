@@ -1,7 +1,7 @@
 #include <gtest/gtest.h>
 #include "database/DatabaseManager.hpp"
-#include "core/SessionState.hpp"
-#include "core/TrackedAccounts.hpp"
+#include "core/state/SessionState.hpp"
+#include "core/accounts/TrackedAccounts.hpp"
 #include <sqlite3.h>
 #include <memory>
 #include <filesystem>

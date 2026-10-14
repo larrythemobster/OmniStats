@@ -1,8 +1,8 @@
 #include <gtest/gtest.h>
-#include "core/TelemetryReducer.hpp"
-#include "core/SessionState.hpp"
-#include "core/Constants.hpp"
-#include "core/Storage.hpp"
+#include "core/reducer/TelemetryReducer.hpp"
+#include "core/state/SessionState.hpp"
+#include "core/config/Constants.hpp"
+#include "utils/Storage.hpp"
 #include <memory>
 #include <thread>
 #include <chrono>

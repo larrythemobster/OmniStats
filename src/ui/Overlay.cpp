@@ -9,9 +9,9 @@
 #include <string>
 #include <thread>
 
-#include "core/InputManager.hpp"
-#include "ui/WindowUtils.hpp"
-#include "ui/rml/RmlUiController.hpp"
+#include "platform/InputManager.hpp"
+#include "ui/window/WindowUtils.hpp"
+#include "ui/rml/controller/RmlUiController.hpp"
 #include <timeapi.h>
 
 #pragma comment(lib, "dwmapi.lib")

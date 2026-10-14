@@ -1,5 +1,5 @@
 #include <gtest/gtest.h>
-#include "core/Storage.hpp"
+#include "utils/Storage.hpp"
 #include <filesystem>
 
 TEST(StorageTest, DataDirectoryIsValid) {

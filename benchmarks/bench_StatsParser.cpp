@@ -1,7 +1,7 @@
 #include <benchmark/benchmark.h>
-#include "network/StatsClient.hpp"
-#include "core/SessionState.hpp"
-#include "network/MMRFetcher.hpp"
+#include "network/api/StatsClient.hpp"
+#include "core/state/SessionState.hpp"
+#include "network/mmr/MMRFetcher.hpp"
 #include "database/DatabaseManager.hpp"
 #include <memory>
 

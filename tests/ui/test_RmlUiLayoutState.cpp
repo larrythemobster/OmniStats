@@ -3,9 +3,9 @@
 #include <set>
 #include <vector>
 
-#include "core/DashboardLayoutConfig.hpp"
-#include "core/OverlayLayoutConfig.hpp"
-#include "ui/rml/RmlUiHelpers.hpp"
+#include "ui/config/DashboardLayoutConfig.hpp"
+#include "ui/config/OverlayLayoutConfig.hpp"
+#include "ui/rml/controller/RmlUiHelpers.hpp"
 
 TEST(RmlUiLayoutState, DefaultDashboardContainsEveryWidgetExactlyOnce) {
     auto layout = DashboardLayout::DefaultLayout();

@@ -1,6 +1,6 @@
 #include <gtest/gtest.h>
 
-#include "core/Insights.hpp"
+#include "core/game/Insights.hpp"
 
 namespace {
     constexpr int64_t kStart = 1'800'000'000;

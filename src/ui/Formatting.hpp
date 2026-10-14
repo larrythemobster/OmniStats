@@ -1,6 +1,6 @@
 #pragma once
 #include <string>
-#include "core/Config.hpp"
+#include "core/config/Config.hpp"
 
 namespace Format {
 

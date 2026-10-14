@@ -7,7 +7,7 @@
 #include <ctime>
 
 #include "ui/Formatting.hpp"
-#include "ui/rml/RmlUiController.hpp"
+#include "ui/rml/controller/RmlUiController.hpp"
 
 namespace {
     std::string FormatDateTime(int64_t unixSeconds) {

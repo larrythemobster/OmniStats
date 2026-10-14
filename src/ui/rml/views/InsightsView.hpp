@@ -11,8 +11,8 @@
 #include <unordered_set>
 #include <vector>
 
-#include "core/Insights.hpp"
-#include "core/SessionState.hpp"
+#include "core/game/Insights.hpp"
+#include "core/state/SessionState.hpp"
 
 namespace Rml {
     class Context;

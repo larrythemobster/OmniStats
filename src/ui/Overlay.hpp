@@ -5,11 +5,11 @@
 #include <memory>
 #include <windows.h>
 
-#include "core/Config.hpp"
-#include "core/SessionState.hpp"
-#include "ui/D3D11Device.hpp"
-#include "ui/OverlayWindow.hpp"
-#include "ui/TrayIcon.hpp"
+#include "core/config/Config.hpp"
+#include "core/state/SessionState.hpp"
+#include "ui/window/D3D11Device.hpp"
+#include "ui/window/OverlayWindow.hpp"
+#include "ui/window/TrayIcon.hpp"
 
 class DatabaseManager;
 class RmlUiController;

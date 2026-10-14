@@ -1,6 +1,6 @@
 #include "ui/rml/views/OnboardingView.hpp"
 
-#include "network/AccountClient.hpp"
+#include "network/api/AccountClient.hpp"
 #include <RmlUi/Core/Context.h>
 
 #include <algorithm>

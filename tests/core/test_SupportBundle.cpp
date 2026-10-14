@@ -1,6 +1,6 @@
 #include <gtest/gtest.h>
-#include "core/SupportBundle.hpp"
-#include "core/ZipWriter.hpp"
+#include "utils/SupportBundle.hpp"
+#include "utils/ZipWriter.hpp"
 
 #include <sqlite3.h>
 #include <filesystem>

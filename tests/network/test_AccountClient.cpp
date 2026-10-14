@@ -1,8 +1,8 @@
 #include <gtest/gtest.h>
 
-#include "core/Config.hpp"
-#include "core/Storage.hpp"
-#include "network/AccountClient.hpp"
+#include "core/config/Config.hpp"
+#include "utils/Storage.hpp"
+#include "network/api/AccountClient.hpp"
 
 #include <nlohmann/json.hpp>
 #include <sodium.h>

@@ -6,8 +6,8 @@
 #include <RmlUi/Core/DataModelHandle.h>
 #include <RmlUi/Core/Types.h>
 
-#include "core/Config.hpp"
-#include "core/StatsApiConfig.hpp"
+#include "core/config/Config.hpp"
+#include "core/config/StatsApiConfig.hpp"
 
 namespace Rml {
     class Context;

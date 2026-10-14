@@ -97,11 +97,26 @@ See [docs/BUILDING.md](docs/BUILDING.md) for additional build options and troubl
 ```text
 OmniStats/
 ├── src/
-│   ├── core/              # Configuration, session state, input, reducers, and side effects
+│   ├── core/
+│   │   ├── accounts/      # Tracked accounts, account refresh service, player notes
+│   │   ├── config/        # Persisted settings, Stats API config, constants, version
+│   │   ├── effects/       # Side-effect contracts and executor
+│   │   ├── game/          # Playlists, gamemodes, rank progress, insights
+│   │   ├── reducer/       # Telemetry reducer, match validation and stats aggregation
+│   │   └── state/         # Session state and snapshot types
 │   ├── database/          # SQLite persistence and database worker ownership
-│   ├── network/           # Stats API, Tracker, telemetry, Discord, uploads, and updates
-│   ├── ui/                # Win32, Direct3D 11, RmlUi, tray, and overlay rendering
-│   ├── updater/           # External updater executable
+│   ├── network/
+│   │   ├── api/           # OmniStats account/stats API, remote config, replay uploads
+│   │   ├── http/          # curl-impersonate, request signing, HTTP security
+│   │   ├── mmr/           # MMR fetch queue, transport, parsing, reconciliation
+│   │   └── telemetry/     # Stats API socket client and parser
+│   ├── platform/          # Input capture and key simulation
+│   ├── ui/
+│   │   ├── config/        # Dashboard and overlay layout models
+│   │   ├── window/        # Win32 windows, Direct3D 11 device, tray, fonts
+│   │   └── rml/           # RmlUi backend, controller, views, widgets, settings
+│   ├── updater/           # External updater executable and its shared helpers
+│   ├── utils/             # Storage, hashing, log rotation, zip, support bundles
 │   └── main.cpp           # Main application entry point
 ├── tests/
 │   ├── core/              # Configuration, input, state, and reducer tests

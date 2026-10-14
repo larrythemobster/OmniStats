@@ -4,7 +4,7 @@
 #include <fstream>
 #include <string>
 #include <vector>
-#include "core/AppVersion.hpp"
+#include "core/config/AppVersion.hpp"
 
 // Helper to extract the version string from vcpkg.json
 std::string ReadVersionFromVcpkgJson(const std::filesystem::path& vcpkgPath) {
@@ -62,7 +62,7 @@ TEST(VersionConsistencyTest, VerifyDynamicVersionAlignment) {
 
     // 2. Check AppVersion.hpp uses OMNISTATS_VERSION macro
     {
-        std::filesystem::path versionPath = sourceDir / "src" / "core" / "AppVersion.hpp";
+        std::filesystem::path versionPath = sourceDir / "src" / "core" / "config" / "AppVersion.hpp";
         std::ifstream file(versionPath);
         ASSERT_TRUE(file.is_open()) << "Failed to open " << versionPath.string();
         std::string line;
@@ -168,8 +168,8 @@ TEST(PublicBuildSeparationTest, MainAppSourcesDoNotDependOnUpdaterImplementation
     const std::vector<std::filesystem::path> mainAppFiles = {
         sourceDir / "src" / "main.cpp",
         sourceDir / "src" / "ui" / "Overlay.cpp",
-        sourceDir / "src" / "ui" / "rml" / "RmlUiController.cpp",
-        sourceDir / "src" / "network" / "TelemetryManager.cpp",
+        sourceDir / "src" / "ui" / "rml" / "controller" / "RmlUiController.cpp",
+        sourceDir / "src" / "network" / "telemetry" / "TelemetryManager.cpp",
     };
 
     for (const auto& path : mainAppFiles) {
@@ -183,7 +183,7 @@ TEST(PublicBuildSeparationTest, MainAppSourcesDoNotDependOnUpdaterImplementation
 
 TEST(PublicBuildSeparationTest, InputManagerKeepsLegacyHookCompileGated) {
     std::filesystem::path sourceDir(OMNISTATS_SOURCE_DIR);
-    std::ifstream file(sourceDir / "src" / "core" / "InputManager.cpp");
+    std::ifstream file(sourceDir / "src" / "platform" / "InputManager.cpp");
     ASSERT_TRUE(file.is_open());
     std::string content((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
     EXPECT_NE(content.find("RegisterHotKey"), std::string::npos);
@@ -193,13 +193,13 @@ TEST(PublicBuildSeparationTest, InputManagerKeepsLegacyHookCompileGated) {
 TEST(RmlUiMigrationTest, UsesNativeRmlUi6RenderInterface) {
     const std::filesystem::path sourceDir(OMNISTATS_SOURCE_DIR);
 
-    std::ifstream rendererHeader(sourceDir / "src" / "ui" / "rml" / "RmlRenderInterfaceD3D11.hpp");
+    std::ifstream rendererHeader(sourceDir / "src" / "ui" / "rml" / "backend" / "RmlRenderInterfaceD3D11.hpp");
     ASSERT_TRUE(rendererHeader.is_open());
     const std::string rendererContent((std::istreambuf_iterator<char>(rendererHeader)), std::istreambuf_iterator<char>());
     EXPECT_NE(rendererContent.find("public Rml::RenderInterface"), std::string::npos);
     EXPECT_EQ(rendererContent.find("RenderInterfaceCompatibility"), std::string::npos);
 
-    std::ifstream rendererSource(sourceDir / "src" / "ui" / "rml" / "RmlRenderInterfaceD3D11.cpp");
+    std::ifstream rendererSource(sourceDir / "src" / "ui" / "rml" / "backend" / "RmlRenderInterfaceD3D11.cpp");
     ASSERT_TRUE(rendererSource.is_open());
     const std::string rendererSourceContent((std::istreambuf_iterator<char>(rendererSource)), std::istreambuf_iterator<char>());
     EXPECT_NE(rendererSourceContent.find("PSSetConstantBuffers(0, 1, &cb)"), std::string::npos)
@@ -207,7 +207,7 @@ TEST(RmlUiMigrationTest, UsesNativeRmlUi6RenderInterface) {
     EXPECT_NE(rendererSourceContent.find("SrcBlend = D3D11_BLEND_ONE"), std::string::npos)
         << "Native RmlUi 6 geometry/textures use premultiplied alpha.";
 
-    std::ifstream controller(sourceDir / "src" / "ui" / "rml" / "RmlUiController.cpp");
+    std::ifstream controller(sourceDir / "src" / "ui" / "rml" / "controller" / "RmlUiController.cpp");
     ASSERT_TRUE(controller.is_open());
     const std::string controllerContent((std::istreambuf_iterator<char>(controller)), std::istreambuf_iterator<char>());
     EXPECT_NE(controllerContent.find("Rml::SetRenderInterface(&m_renderInterface)"), std::string::npos);

@@ -1,6 +1,6 @@
 #include "DiscordManager.hpp"
-#include "core/Config.hpp"
-#include "core/PrivacyLog.hpp"
+#include "core/config/Config.hpp"
+#include "utils/PrivacyLog.hpp"
 #include <discord_rpc.h>
 #include <iostream>
 #include <cstring>

@@ -1,12 +1,12 @@
 #include <gtest/gtest.h>
 #include <windows.h>
 #include <RmlUi/Core/Input.h>
-#include "ui/rml/RmlInputWin32.hpp"
-#include "ui/rml/RmlSystemInterfaceWin32.hpp"
+#include "ui/rml/backend/RmlInputWin32.hpp"
+#include "ui/rml/backend/RmlSystemInterfaceWin32.hpp"
 #include <d3d11.h>
 #include <wrl/client.h>
 
-#include "ui/rml/RmlRenderInterfaceD3D11.hpp"
+#include "ui/rml/backend/RmlRenderInterfaceD3D11.hpp"
 
 TEST(RmlInputWin32Test, ConvertKey_MapsStandardAndExtendedKeys) {
     EXPECT_EQ(RmlInputWin32::ConvertKey('A'), Rml::Input::KI_A);

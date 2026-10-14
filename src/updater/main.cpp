@@ -3,8 +3,8 @@
 #include <string>
 #include <vector>
 #include <windows.h>
-#include "network/UpdaterCommon.hpp"
-#include "network/ShortcutUtils.hpp"
+#include "updater/UpdaterCommon.hpp"
+#include "updater/ShortcutUtils.hpp"
 #include "updater/StatsApiRepair.hpp"
 #include <shellapi.h>
 #include <softpub.h>
@@ -17,7 +17,7 @@
 #ifndef OMNISTATS_VERSION
 #define OMNISTATS_VERSION "2.0.0"
 #endif
-#include "network/SigningConfig.hpp"
+#include "network/http/SigningConfig.hpp"
 
 // Global override for test server URL
 static std::string g_serverOverride = "";

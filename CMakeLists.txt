@@ -110,11 +110,11 @@ list(REMOVE_DUPLICATES ALL_SOURCE_FILES)
 set(MAIN_ENTRY_SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/src/main.cpp")
 set(UPDATER_ENTRY_SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/src/updater/main.cpp")
 set(UPDATER_ONLY_SOURCES
-    "${CMAKE_CURRENT_SOURCE_DIR}/src/network/UpdaterCommon.cpp"
-    "${CMAKE_CURRENT_SOURCE_DIR}/src/network/UpdaterPaths.cpp"
-    "${CMAKE_CURRENT_SOURCE_DIR}/src/network/UpdaterDownload.cpp"
-    "${CMAKE_CURRENT_SOURCE_DIR}/src/network/UpdaterProcess.cpp"
-    "${CMAKE_CURRENT_SOURCE_DIR}/src/network/ShortcutUtils.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/updater/UpdaterCommon.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/updater/UpdaterPaths.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/updater/UpdaterDownload.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/updater/UpdaterProcess.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/updater/ShortcutUtils.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/updater/StatsApiRepair.cpp"
 )
 set(UPDATER_RUNTIME_SOURCES

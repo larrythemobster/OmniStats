@@ -1,6 +1,6 @@
 #include <gtest/gtest.h>
-#include "network/ReplayUploader.hpp"
-#include "core/SessionState.hpp"
+#include "network/api/ReplayUploader.hpp"
+#include "core/state/SessionState.hpp"
 #include <memory>
 
 TEST(ReplayUploaderTest, Lifecycle) {

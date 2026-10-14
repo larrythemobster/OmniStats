@@ -1,5 +1,5 @@
 #include <gtest/gtest.h>
-#include "core/PlaylistMetadata.hpp"
+#include "core/game/PlaylistMetadata.hpp"
 
 TEST(PlaylistMetadataTest, CollapsesEveryCasualPlaylistIntoSingleModeAndMmrBucket) {
     EXPECT_TRUE(PlaylistMetadata::IsCasual(1));

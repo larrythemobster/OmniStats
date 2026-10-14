@@ -1,5 +1,5 @@
 #include <gtest/gtest.h>
-#include "ui/WindowUtils.hpp"
+#include "ui/window/WindowUtils.hpp"
 
 TEST(WindowUtils, ComputeCenteredRect_CentersCorrectly) {
     RECT monitor{0, 0, 1920, 1080};

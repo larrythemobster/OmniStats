@@ -1,13 +1,13 @@
 #include <gtest/gtest.h>
 #include "database/DatabaseManager.hpp"
-#include "core/SessionState.hpp"
+#include "core/state/SessionState.hpp"
 #include <memory>
 #include <filesystem>
 #include <chrono>
 #include <thread>
 #include <fstream>
 #include <nlohmann/json.hpp>
-#include "core/Storage.hpp"
+#include "utils/Storage.hpp"
 
 class DatabaseManagerTest : public ::testing::Test {
   protected:

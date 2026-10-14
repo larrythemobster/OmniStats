@@ -10,14 +10,14 @@
 #include <string>
 #include <vector>
 
-#include "core/AccountManager.hpp"
-#include "core/Config.hpp"
-#include "core/SessionState.hpp"
-#include "core/Storage.hpp"
-#include "core/TrackedAccounts.hpp"
+#include "core/accounts/AccountManager.hpp"
+#include "core/config/Config.hpp"
+#include "core/state/SessionState.hpp"
+#include "utils/Storage.hpp"
+#include "core/accounts/TrackedAccounts.hpp"
 #include "database/DatabaseManager.hpp"
-#include "network/MMRFetcher.hpp"
-#include "ui/rml/RmlUiController.hpp"
+#include "network/mmr/MMRFetcher.hpp"
+#include "ui/rml/controller/RmlUiController.hpp"
 #include "ui/rml/views/AccountsView.hpp"
 #include "ui/Formatting.hpp"
 

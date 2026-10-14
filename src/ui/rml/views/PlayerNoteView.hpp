@@ -7,7 +7,7 @@
 #include <optional>
 #include <string>
 
-#include "core/PlayerNotes.hpp"
+#include "core/accounts/PlayerNotes.hpp"
 
 namespace Rml {
     class Context;

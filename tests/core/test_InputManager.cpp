@@ -1,7 +1,7 @@
 #include <gtest/gtest.h>
-#include "core/InputManager.hpp"
-#include "core/Config.hpp"
-#include "core/SessionState.hpp"
+#include "platform/InputManager.hpp"
+#include "core/config/Config.hpp"
+#include "core/state/SessionState.hpp"
 #include <memory>
 
 TEST(InputManagerTest, Lifecycle) {

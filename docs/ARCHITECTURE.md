@@ -18,14 +18,14 @@ flowchart LR
 
 | Subsystem | Location | Responsibility |
 |---|---|---|
-| **Telemetry** | `src/network/TelemetryParser.*` | Asynchronous TCP client (Asio) connected to `127.0.0.1:49123`. Deserializes JSON event feeds. |
-| **State reduction** | `src/core/TelemetryReducer*` | Pure state machine. Processes raw match events, handles overtime and disconnects, and emits side effects. |
+| **Telemetry** | `src/network/telemetry/TelemetryParser.*` | Asynchronous TCP client (Asio) connected to `127.0.0.1:49123`. Deserializes JSON event feeds. |
+| **State reduction** | `src/core/reducer/TelemetryReducer*` | Pure state machine. Processes raw match events, handles overtime and disconnects, and emits side effects. |
 | **Storage** | `src/database/DatabaseManager.*` | SQLite 3 in WAL mode. Manages schema migrations with pre-migration backups, asynchronous batch writes, and encounter queries. |
-| **Rank lookups** | `src/network/MMRFetcher*` | Bounded worker queue with rate limiting. Requests player ratings from the OmniStats API (using Ed25519-signed requests) or Tracker Network. |
-| **Window & D3D** | `src/ui/Overlay*`, `D3D11Device.*` | Win32 host window, swap chain management, DPI scaling, and borderless click-through overlay behavior. |
-| **UI controller** | `src/ui/rml/RmlUiController*` | Snapshots state, invalidates widgets on version changes, and translates input events. |
-| **Rendering** | `src/ui/rml/RmlRenderInterfaceD3D11.*` | Translates RmlUi 6 geometry, compiled textures, scissor rects, and transforms to D3D11 draws. |
-| **Data model** | `src/ui/rml/RmlLiveModel.*` | RmlUi data bindings. Telemetry ticks update bound DOM text nodes directly without rebuilding elements. |
+| **Rank lookups** | `src/network/mmr/MMRFetcher*` | Bounded worker queue with rate limiting. Requests player ratings from the OmniStats API (using Ed25519-signed requests) or Tracker Network. |
+| **Window & D3D** | `src/ui/Overlay*`, `src/ui/window/` | Win32 host window, swap chain management, DPI scaling, and borderless click-through overlay behavior. |
+| **UI controller** | `src/ui/rml/controller/RmlUiController*` | Snapshots state, invalidates widgets on version changes, and translates input events. |
+| **Rendering** | `src/ui/rml/backend/RmlRenderInterfaceD3D11.*` | Translates RmlUi 6 geometry, compiled textures, scissor rects, and transforms to D3D11 draws. |
+| **Data model** | `src/ui/rml/controller/RmlLiveModel.*` | RmlUi data bindings. Telemetry ticks update bound DOM text nodes directly without rebuilding elements. |
 | **Auto-updater** | `src/updater/` | Standalone updater process. Handles SHA-256 validation, extraction, and binary replacement. |
 
 ## Data pipeline and session lifecycle

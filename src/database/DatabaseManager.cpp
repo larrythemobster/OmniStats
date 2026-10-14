@@ -1,9 +1,9 @@
 #include "DatabaseManager.hpp"
-#include "core/Config.hpp"
-#include "core/GamemodeUtils.hpp"
-#include "core/PlaylistMetadata.hpp"
-#include "core/Storage.hpp"
-#include "network/MMRFetcher.hpp"
+#include "core/config/Config.hpp"
+#include "core/game/GamemodeUtils.hpp"
+#include "core/game/PlaylistMetadata.hpp"
+#include "utils/Storage.hpp"
+#include "network/mmr/MMRFetcher.hpp"
 #include <cctype>
 #include <iostream>
 #include <chrono>

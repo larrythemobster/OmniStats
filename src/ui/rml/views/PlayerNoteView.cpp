@@ -5,8 +5,8 @@
 #include <chrono>
 #include <ctime>
 
-#include "core/TrackedAccounts.hpp"
-#include "ui/rml/RmlUiHelpers.hpp"
+#include "core/accounts/TrackedAccounts.hpp"
+#include "ui/rml/controller/RmlUiHelpers.hpp"
 
 namespace {
     constexpr size_t kNearLimitCodePoints = PlayerNotes::kMaxNoteCodePoints - 200;

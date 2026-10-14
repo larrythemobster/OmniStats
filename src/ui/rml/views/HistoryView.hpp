@@ -9,7 +9,7 @@
 #include <unordered_set>
 #include <vector>
 
-#include "core/SessionState.hpp"
+#include "core/state/SessionState.hpp"
 
 namespace Rml {
     class Context;

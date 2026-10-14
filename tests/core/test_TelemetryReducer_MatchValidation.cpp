@@ -1,11 +1,11 @@
 #include <gtest/gtest.h>
-#include "core/TelemetryReducer.hpp"
-#include "core/SessionState.hpp"
-#include "core/Config.hpp"
-#include "core/Storage.hpp"
-#include "core/Constants.hpp"
-#include "core/GamemodeUtils.hpp"
-#include "network/MMRFetcher.hpp"
+#include "core/reducer/TelemetryReducer.hpp"
+#include "core/state/SessionState.hpp"
+#include "core/config/Config.hpp"
+#include "utils/Storage.hpp"
+#include "core/config/Constants.hpp"
+#include "core/game/GamemodeUtils.hpp"
+#include "network/mmr/MMRFetcher.hpp"
 #include <memory>
 
 namespace {

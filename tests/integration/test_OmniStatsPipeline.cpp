@@ -1,10 +1,10 @@
 #include <gtest/gtest.h>
-#include "core/SessionState.hpp"
-#include "network/StatsClient.hpp"
-#include "network/MMRFetcher.hpp"
+#include "core/state/SessionState.hpp"
+#include "network/api/StatsClient.hpp"
+#include "network/mmr/MMRFetcher.hpp"
 #include "database/DatabaseManager.hpp"
-#include "network/CurlImpersonate.hpp"
-#include "core/Config.hpp"
+#include "network/http/CurlImpersonate.hpp"
+#include "core/config/Config.hpp"
 #include <memory>
 #include <chrono>
 #include <thread>
