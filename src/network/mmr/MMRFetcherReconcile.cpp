@@ -1071,20 +1071,27 @@ bool MMRFetcher::PublishProfileResult(const MMRRequest& req, const NormalizedPro
             }
         }
 
-        auto& player = m_state->game.roster[req.primaryId];
-        player.primaryId = req.primaryId;
-        if (player.name.empty()) player.name = req.name;
-        player.playlists = profile.playlistMMRs;
-        player.playlistTiers = profile.playlistTiers;
-        player.playlistMatches = profile.playlistMatches;
-        if (profile.totalWins >= 0) {
-            player.totalWins = profile.totalWins;
+        // Other players' results may arrive after they left or after a session reset; only the local player is re-added.
+        const bool isLocalPlayer = req.primaryId == m_state->game.myPrimaryId;
+        auto rosterIt = m_state->game.roster.find(req.primaryId);
+        if (rosterIt == m_state->game.roster.end() && isLocalPlayer)
+            rosterIt = m_state->game.roster.try_emplace(req.primaryId).first;
+        if (rosterIt != m_state->game.roster.end() && (isLocalPlayer || fetchedThisSession)) {
+            auto& player = rosterIt->second;
+            player.primaryId = req.primaryId;
+            if (player.name.empty()) player.name = req.name;
+            player.playlists = profile.playlistMMRs;
+            player.playlistTiers = profile.playlistTiers;
+            player.playlistMatches = profile.playlistMatches;
+            if (profile.totalWins >= 0) {
+                player.totalWins = profile.totalWins;
+            }
+            player.mmr = profile.bestMmr;
+            player.rankTier = profile.bestTier;
+            player.fetched = true;
+            player.fetchFailed = false;
+            player.rankVerificationSource = profile.rankVerificationSource;
         }
-        player.mmr = profile.bestMmr;
-        player.rankTier = profile.bestTier;
-        player.fetched = true;
-        player.fetchFailed = false;
-        player.rankVerificationSource = profile.rankVerificationSource;
 
         if (req.primaryId == m_state->game.myPrimaryId && fetchedThisSession) {
             m_state->history.SelectMmrOwner(req.primaryId);

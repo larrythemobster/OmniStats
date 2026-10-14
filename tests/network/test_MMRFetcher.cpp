@@ -1312,6 +1312,7 @@ TEST_F(MMRFetcherTest, CustomApiMultipleSkillsParsesAllAndSetsBest) {
         }]
     })";
 
+    sessionState->game.roster["Epic|test_epic_id"] = PlayerData{.primaryId = "Epic|test_epic_id", .name = "TestPlayer"};
     fetcher->FetchRosterProfileForTests("Epic|test_epic_id", "TestPlayer");
 
     std::shared_lock<std::shared_mutex> lock(sessionState->game.mutex);
@@ -1349,6 +1350,7 @@ TEST_F(MMRFetcherTest, CustomApiSingleSkillParsesCorrectly) {
         }]
     })";
 
+    sessionState->game.roster["Steam|76561198000000000|0"] = PlayerData{.primaryId = "Steam|76561198000000000|0", .name = "SteamPlayer"};
     MMRRequest req;
     req.primaryId = "Steam|76561198000000000|0";
     req.name = "SteamPlayer";
@@ -1566,6 +1568,7 @@ TEST_F(MMRFetcherTest, CustomApiXboxPlayerResponseHandledCorrectly) {
         }]
     })";
 
+    sessionState->game.roster["XboxOne|2535421607154237|0"] = PlayerData{.primaryId = "XboxOne|2535421607154237|0", .name = "RollrTraks2x"};
     MMRRequest req;
     req.primaryId = "XboxOne|2535421607154237|0";
     req.name = "RollrTraks2x";
@@ -1611,6 +1614,7 @@ TEST_F(MMRFetcherTest, CustomApiPlatformMappingsSupported) {
             }]
         })";
 
+        sessionState->game.roster[primaryId] = PlayerData{.primaryId = primaryId, .name = "PlatformTestPlayer"};
         MMRRequest req;
         req.primaryId = primaryId;
         req.name = "PlatformTestPlayer";
@@ -1748,6 +1752,7 @@ TEST_F(MMRFetcherTest, SignedInUsesBearerHeadersAndIsPrimaryForAllPlayers) {
     })";
 
     sessionState->game.myPrimaryId = "Epic|local_id";
+    sessionState->game.roster["Epic|opp_id"] = PlayerData{.primaryId = "Epic|opp_id", .name = "Opponent"};
     fetcher->FetchRosterProfileForTests("Epic|opp_id", "Opponent");
 
     EXPECT_EQ(g_mock_perform_count.load(), 1);

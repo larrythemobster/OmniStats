@@ -556,3 +556,24 @@ TEST_F(SessionMmrLifecycleTest, InactivityCloseAfterTwoHoursSavesSessionWithoutR
     EXPECT_EQ(sessions[0].totals.wins, 3);
     EXPECT_EQ(sessions[0].totals.losses, 1);
 }
+
+TEST_F(SessionMmrLifecycleTest, LateProfileForDepartedPlayerDoesNotRecreateRosterEntry) {
+    const std::string departed = "Epic|departed";
+    const std::string present = "Epic|present";
+    {
+        std::unique_lock lock(state->game.mutex);
+        state->game.roster[present] = PlayerData{.primaryId = present, .name = "Present", .team = 1};
+    }
+    const uint64_t oldGeneration = state->game.sessionGeneration.load();
+    PublishRoster({{"2v2", {1300, 80}}}, departed);
+    StartNewSession();
+    PublishRoster({{"2v2", {1350, 90}}}, present, oldGeneration);
+    PublishRoster({{"2v2", {1250, 60}}});
+
+    std::shared_lock lock(state->game.mutex);
+    EXPECT_EQ(state->game.roster.count(departed), 0u);
+    ASSERT_EQ(state->game.roster.count(present), 1u);
+    EXPECT_FALSE(state->game.roster.at(present).fetched);
+    ASSERT_EQ(state->game.roster.count(kMe), 1u);
+    EXPECT_EQ(state->game.roster.at(kMe).playlists.at("2v2"), 1250);
+}
