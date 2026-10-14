@@ -29,6 +29,29 @@
 #include <commctrl.h>
 #include <windows.h>
 using TaskDialogIndirect_t = HRESULT(WINAPI*)(const TASKDIALOGCONFIG*, int*, int*, BOOL*);
+
+namespace {
+    struct ScopedModuleDeleter {
+        using pointer = HMODULE;
+        void operator()(HMODULE mod) const noexcept {
+            if (mod != nullptr) {
+                FreeLibrary(mod);
+            }
+        }
+    };
+    using ScopedModule = std::unique_ptr<HMODULE, ScopedModuleDeleter>;
+
+    struct ScopedHandleDeleter {
+        using pointer = HANDLE;
+        void operator()(HANDLE h) const noexcept {
+            if (h != nullptr && h != INVALID_HANDLE_VALUE) {
+                CloseHandle(h);
+            }
+        }
+    };
+    using ScopedWinHandle = std::unique_ptr<HANDLE, ScopedHandleDeleter>;
+} // namespace
+
 #pragma comment(linker, "/manifestdependency:\"type='win32' name='Microsoft.Windows.Common-Controls' version='6.0.0.0' processorArchitecture='*' publicKeyToken='6595b64144ccf1df' language='*'\"")
 
 namespace {
@@ -91,9 +114,9 @@ static bool ShowRequiredPrivacyDialog() {
     config.pButtons = buttons;
     config.nDefaultButton = IDNO;
     config.pfCallback = PrivacyTaskDialogCallback;
-    HMODULE comctl32 = LoadLibraryW(L"comctl32.dll");
+    ScopedModule comctl32(LoadLibraryW(L"comctl32.dll"));
     if (comctl32) {
-        auto taskDialogIndirect = reinterpret_cast<TaskDialogIndirect_t>(GetProcAddress(comctl32, "TaskDialogIndirect"));
+        auto taskDialogIndirect = reinterpret_cast<TaskDialogIndirect_t>(GetProcAddress(comctl32.get(), "TaskDialogIndirect"));
         if (taskDialogIndirect) {
             int selectedButton = IDNO;
             HRESULT hr = taskDialogIndirect(&config, &selectedButton, nullptr, nullptr);
@@ -136,9 +159,9 @@ static bool EnsureRequiredPrivacyAcceptance() {
 }
 LONG WINAPI
 GlobalUnhandledExceptionFilter(struct _EXCEPTION_POINTERS* exceptionInfo) {
-    HANDLE hFile = CreateFileW(g_crashDumpPath, GENERIC_WRITE, 0, NULL,
-                               CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
-    if (hFile != INVALID_HANDLE_VALUE) {
+    ScopedWinHandle hFile(CreateFileW(g_crashDumpPath, GENERIC_WRITE, 0, NULL,
+                                      CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL));
+    if (hFile) {
         MINIDUMP_EXCEPTION_INFORMATION mdei;
         mdei.ThreadId = GetCurrentThreadId();
         mdei.ExceptionPointers = exceptionInfo;
@@ -147,9 +170,8 @@ GlobalUnhandledExceptionFilter(struct _EXCEPTION_POINTERS* exceptionInfo) {
 #ifndef NDEBUG
         dumpType = static_cast<MINIDUMP_TYPE>(MiniDumpNormal | MiniDumpWithThreadInfo | MiniDumpWithUnloadedModules);
 #endif
-        MiniDumpWriteDump(GetCurrentProcess(), GetCurrentProcessId(), hFile,
+        MiniDumpWriteDump(GetCurrentProcess(), GetCurrentProcessId(), hFile.get(),
                           dumpType, &mdei, NULL, NULL);
-        CloseHandle(hFile);
     }
     return EXCEPTION_EXECUTE_HANDLER;
 }
