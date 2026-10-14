@@ -1,13 +1,11 @@
 #include "core/effects/SideEffectExecutor.hpp"
-#include "utils/Storage.hpp"
-#include "platform/KeyPressSimulator.hpp"
 #include "database/DatabaseManager.hpp"
 #include "network/DiscordManager.hpp"
 #include "network/mmr/MMRFetcher.hpp"
 #include "core/accounts/AccountManager.hpp"
 #include <iostream>
 #include <utility>
-#include <windows.h>
+#include <exception>
 
 SideEffectExecutor::SideEffectExecutor() {
     m_worker = std::jthread([this]() {
@@ -22,7 +20,10 @@ SideEffectExecutor::SideEffectExecutor() {
             }
             try {
                 job();
+            } catch (const std::exception& error) {
+                std::cerr << "[SideEffectExecutor] Job failed: " << error.what() << '\n';
             } catch (...) {
+                std::cerr << "[SideEffectExecutor] Job failed with an unknown exception.\n";
             }
         }
     });
