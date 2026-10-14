@@ -7,6 +7,8 @@
 #include <memory>
 #include <thread>
 #include <ctime>
+#include <cstdlib>
+#include <exception>
 #include <io.h>
 #include "core/config/Config.hpp"
 #include "core/accounts/AccountManager.hpp"
@@ -86,6 +88,7 @@ namespace {
 } // namespace
 
 static wchar_t g_crashDumpPath[MAX_PATH] = {0};
+static HANDLE g_fatalLogHandle = INVALID_HANDLE_VALUE;
 static HRESULT CALLBACK PrivacyTaskDialogCallback(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam, LONG_PTR lpRefData) {
     (void)hwnd;
     (void)wParam;
@@ -176,6 +179,25 @@ GlobalUnhandledExceptionFilter(struct _EXCEPTION_POINTERS* exceptionInfo) {
     }
     return EXCEPTION_EXECUTE_HANDLER;
 }
+
+[[noreturn]] static void RecordFatalTermination(const char* reason) {
+    static volatile LONG handling = 0;
+    if (InterlockedExchange(&handling, 1) == 0) {
+        DWORD written = 0;
+        WriteFile(g_fatalLogHandle, "[Fatal] ", 8, &written, nullptr);
+        WriteFile(g_fatalLogHandle, reason, static_cast<DWORD>(std::strlen(reason)), &written, nullptr);
+        WriteFile(g_fatalLogHandle, "\n", 1, &written, nullptr);
+        CONTEXT context{};
+        RtlCaptureContext(&context);
+        EXCEPTION_RECORD record{};
+        record.ExceptionCode = 0x40000015;
+        record.ExceptionFlags = EXCEPTION_NONCONTINUABLE;
+        EXCEPTION_POINTERS pointers{&record, &context};
+        GlobalUnhandledExceptionFilter(&pointers);
+    }
+    TerminateProcess(GetCurrentProcess(), EXIT_FAILURE);
+    std::_Exit(EXIT_FAILURE);
+}
 #ifdef NDEBUG
 #pragma comment(linker, "/SUBSYSTEM:windows /ENTRY:mainCRTStartup")
 #endif
@@ -214,12 +236,18 @@ int main(int argc, char* argv[]) {
 #pragma warning(suppress : 4996)
         (void)std::freopen("NUL", "w", stdout);
     }
+    if (outStream) g_fatalLogHandle = reinterpret_cast<HANDLE>(_get_osfhandle(_fileno(stdout)));
     FILE* errStream = nullptr;
     freopen_s(&errStream, "NUL", "w", stderr);
     if (errStream) {
         if (outStream) _dup2(_fileno(stdout), _fileno(stderr));
         setvbuf(errStream, nullptr, _IONBF, 0);
     }
+    std::set_terminate([] { RecordFatalTermination("Unhandled C++ termination"); });
+    _set_purecall_handler([] { RecordFatalTermination("Pure virtual function call"); });
+    _set_invalid_parameter_handler([](const wchar_t*, const wchar_t*, const wchar_t*, unsigned int, uintptr_t) {
+        RecordFatalTermination("Invalid CRT parameter");
+    });
     std::cout << "OmniStats Starting...\n";
     Config::Load();
     AccountClient::Instance().SyncFromConfig();
