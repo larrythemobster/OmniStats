@@ -1281,6 +1281,7 @@ void DatabaseManager::GetMatchOutcomes(const std::string& primaryId, std::vector
                Matches.win, Matches.gamemode, Matches.player_count, Matches.playlist_id
         FROM Matches
         JOIN MatchPlayers ON MatchPlayers.match_id = Matches.id AND MatchPlayers.primary_id = ?
+        WHERE COALESCE(Matches.result_pending, 0) = 0
         ORDER BY Matches.timestamp ASC, Matches.id ASC;
     )";
 
@@ -1314,6 +1315,7 @@ void DatabaseManager::GetMatchMmrContext(const std::string& primaryId, std::vect
         FROM Matches m
         JOIN MatchPlayers me ON me.match_id = m.id AND me.primary_id = ?1
         JOIN MatchPlayers p  ON p.match_id = m.id
+        WHERE COALESCE(m.result_pending, 0) = 0
         GROUP BY m.id
         ORDER BY m.timestamp ASC, m.id ASC;
     )";
@@ -2604,7 +2606,8 @@ void DatabaseManager::GetGamemodeStats(const std::string& primaryId, const std::
             COUNT(*)
         FROM MatchPlayers
         JOIN Matches ON MatchPlayers.match_id = Matches.id
-        WHERE MatchPlayers.primary_id = ? AND Matches.gamemode = ?;
+        WHERE MatchPlayers.primary_id = ? AND Matches.gamemode = ?
+          AND COALESCE(Matches.result_pending, 0) = 0;
     )";
 
     sqlite3_stmt* stmt;
@@ -2636,71 +2639,38 @@ void DatabaseManager::GetStreakStats(const std::string& primaryId, int& outCurWi
     const char* sql = R"(
         SELECT Matches.win FROM Matches
         JOIN MatchPlayers ON MatchPlayers.match_id = Matches.id
-        WHERE MatchPlayers.primary_id = ?
-        ORDER BY Matches.timestamp DESC, Matches.id DESC
-        LIMIT 500;
+        WHERE MatchPlayers.primary_id = ? AND COALESCE(Matches.result_pending, 0) = 0
+        ORDER BY Matches.timestamp DESC, Matches.id DESC;
     )";
-
-    sqlite3_stmt* stmt;
-    if (sqlite3_prepare_v2(m_db, sql, -1, &stmt, nullptr) != SQLITE_OK) {
-        return;
-    }
-
+    sqlite3_stmt* stmt = nullptr;
+    if (sqlite3_prepare_v2(m_db, sql, -1, &stmt, nullptr) != SQLITE_OK) return;
     sqlite3_bind_text(stmt, 1, primaryId.c_str(), -1, SQLITE_TRANSIENT);
 
-    std::vector<int> results;
-    while (sqlite3_step(stmt) == SQLITE_ROW) {
-        results.push_back(sqlite3_column_int(stmt, 0));
+    int previous = -1;
+    int runLength = 0;
+    bool initialRun = true;
+    int rc;
+    while ((rc = sqlite3_step(stmt)) == SQLITE_ROW) {
+        const int win = sqlite3_column_int(stmt, 0);
+        if (win != previous) {
+            if (previous != -1) initialRun = false;
+            previous = win;
+            runLength = 0;
+        }
+        ++runLength;
+        if (win == 1) {
+            if (initialRun) outCurWin = runLength;
+            outLongestWin = std::max(outLongestWin, runLength);
+        } else {
+            if (initialRun) outCurLoss = runLength;
+            outLongestLoss = std::max(outLongestLoss, runLength);
+        }
+    }
+    if (rc != SQLITE_DONE) {
+        std::cerr << "[Database] Failed to read streak history: " << sqlite3_errmsg(m_db) << '\n';
+        outCurWin = outCurLoss = outLongestWin = outLongestLoss = 0;
     }
     sqlite3_finalize(stmt);
-
-    if (results.empty()) return;
-
-    // 1. Calculate Current Win Streak (from latest match backward)
-    for (int win : results) {
-        if (win == 1) {
-            outCurWin++;
-        } else {
-            break;
-        }
-    }
-
-    // 2. Calculate Current Loss Streak (from latest match backward)
-    for (int win : results) {
-        if (win == 0) {
-            outCurLoss++;
-        } else {
-            break;
-        }
-    }
-
-    // 3. Calculate Longest Win Streak
-    int currentWins = 0;
-    for (auto it = results.rbegin(); it != results.rend(); ++it) {
-        int win = *it;
-        if (win == 1) {
-            currentWins++;
-            if (currentWins > outLongestWin) {
-                outLongestWin = currentWins;
-            }
-        } else {
-            currentWins = 0;
-        }
-    }
-
-    // 4. Calculate Longest Loss Streak
-    int currentLosses = 0;
-    for (auto it = results.rbegin(); it != results.rend(); ++it) {
-        int win = *it;
-        if (win == 0) {
-            currentLosses++;
-            if (currentLosses > outLongestLoss) {
-                outLongestLoss = currentLosses;
-            }
-        } else {
-            currentLosses = 0;
-        }
-    }
 }
 
 bool DatabaseManager::SetSetting(const std::string& key, const std::string& value) {

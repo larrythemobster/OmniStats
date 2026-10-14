@@ -49,6 +49,8 @@ Persisted under `%APPDATA%\omnistats\omnistats.db` using versioned migrations (`
 - `PlayerNotes`: User-authored scouting notes keyed by normalized platform account identity.
 - `ReplayUploads`: Replay file paths, upload queue state, and Ballchasing URLs.
 
+Provisional `result_pending` matches are excluded from W/L records, streaks and Insights outcomes/MMR context until confirmation. Merge preserves the flag. Longest streaks scan all confirmed history with constant application memory. The internal recent-match cache still retains provisional rows for confirmation and MMR reconciliation.
+
 Database startup checks existing foreign-key integrity before enabling enforcement on the connection. Declared cascading deletes remove dependent stats and tracked ranks. An integrity violation stops startup and names the affected table in the application log; existing rows are not deleted or rewritten.
 
 Schema v7 indexes `Matches.match_guid` for duplicate checks, post-match MMR updates, replay lookups and session linking. The index is not unique; duplicate prevention stays in `SaveMatch` so upgrades never fail on older duplicate rows. Date-range filters still convert stored timestamps, because older rows use more than one text format.

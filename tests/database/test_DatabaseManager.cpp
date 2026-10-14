@@ -22,6 +22,45 @@ class DatabaseManagerTest : public ::testing::Test {
     std::shared_ptr<DatabaseManager> dbManager;
 };
 
+TEST_F(DatabaseManagerTest, PendingResultsDoNotAffectFullHistoryRecordsOrInsights) {
+    const char* seed = R"(
+        WITH RECURSIVE ids(id) AS (
+            SELECT 1 UNION ALL SELECT id + 1 FROM ids WHERE id < 602
+        )
+        INSERT INTO Matches
+            (id, timestamp, arena, win, match_guid, playlist_id, gamemode, player_count, result_pending)
+        SELECT id, datetime('2026-01-01', '+' || id || ' minutes'), 'DFH Stadium',
+               CASE WHEN id <= 550 OR id = 602 THEN 1 ELSE 0 END,
+               'pending-record-' || id, 11, '2v2', 4, CASE WHEN id = 602 THEN 1 ELSE 0 END
+        FROM ids;
+        INSERT INTO MatchPlayers (match_id, primary_id, name, team, mmr)
+        SELECT id, 'Steam|records', 'Player', 0, 1200 FROM Matches;
+    )";
+    ASSERT_EQ(sqlite3_exec(dbManager->GetRawDb(), seed, nullptr, nullptr, nullptr), SQLITE_OK);
+    int wins, losses, played;
+    dbManager->GetGamemodeStats("Steam|records", "2v2", wins, losses, played);
+    EXPECT_EQ(wins, 550);
+    EXPECT_EQ(losses, 51);
+    EXPECT_EQ(played, 601);
+    int currentWins, currentLosses, longestWins, longestLosses;
+    dbManager->GetStreakStats(
+        "Steam|records", currentWins, currentLosses, longestWins, longestLosses);
+    EXPECT_EQ(currentWins, 0);
+    EXPECT_EQ(currentLosses, 51);
+    EXPECT_EQ(longestWins, 550);
+    EXPECT_EQ(longestLosses, 51);
+    std::vector<MatchOutcome> outcomes;
+    dbManager->GetMatchOutcomes("Steam|records", outcomes);
+    ASSERT_EQ(outcomes.size(), 601u);
+    EXPECT_TRUE(outcomes.front().win);
+    EXPECT_FALSE(outcomes.back().win);
+    std::vector<MatchMmrContext> context;
+    dbManager->GetMatchMmrContext("Steam|records", context);
+    ASSERT_EQ(context.size(), 601u);
+    EXPECT_TRUE(context.front().win);
+    EXPECT_FALSE(context.back().win);
+}
+
 TEST_F(DatabaseManagerTest, MergeKeepsProvisionalResultHiddenUntilConfirmation) {
     const auto directory = std::filesystem::temp_directory_path() /
                            ("omnistats_pending_merge_" + std::to_string(
@@ -522,7 +561,7 @@ TEST_F(DatabaseManagerTest, EarlyLossPersistsOnceBeforeFollowingWin) {
     EXPECT_TRUE(matches[2].win);
 }
 
-TEST_F(DatabaseManagerTest, PendingDestroyedMatchCountsInStreakAndConfirmationReplacesResult) {
+TEST_F(DatabaseManagerTest, PendingDestroyedMatchIsExcludedFromStreakUntilConfirmation) {
     const std::string pid = "Steam|pending-streak-player";
     const int64_t baseTimeMs = 1'800'000'000'000;
     auto makeMatch = [&](const std::string& guid, bool win, int64_t endedAtUnixMs) {
@@ -551,7 +590,7 @@ TEST_F(DatabaseManagerTest, PendingDestroyedMatchCountsInStreakAndConfirmationRe
     MatchSaveSnapshot provisional = makeMatch("pending-destroyed", false, baseTimeMs + 3000);
     provisional.resultPending = true;
     dbManager->SaveMatch(provisional);
-    EXPECT_EQ(streak(), -2);
+    EXPECT_EQ(streak(), -1);
 
     dbManager->SaveMatch(provisional);
     std::vector<SessionMatchSummary> matches;
