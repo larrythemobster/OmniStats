@@ -302,6 +302,10 @@ static constexpr const char* kMigrationV6Sql = R"(
         PRIMARY KEY (platform, account_id, splitscreen)
     );
 )";
+// Non-unique: existing databases may already hold duplicate GUIDs, and the app-level duplicate check stays authoritative.
+static constexpr const char* kMigrationV7Sql = R"(
+    CREATE INDEX IF NOT EXISTS idx_matches_match_guid ON Matches(match_guid);
+)";
 
 // Append new migrations in ascending version order; each runs in its own BEGIN IMMEDIATE transaction.
 static const std::vector<Migration> kMigrations = {
@@ -311,6 +315,7 @@ static const std::vector<Migration> kMigrations = {
     {4, kMigrationV4Sql},
     {5, kMigrationV5Sql},
     {6, kMigrationV6Sql},
+    {7, kMigrationV7Sql},
 };
 
 static std::string CsvEscape(const std::string& value) {

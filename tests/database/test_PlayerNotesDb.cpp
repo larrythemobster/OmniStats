@@ -212,7 +212,7 @@ TEST(PlayerNotesPersistenceTest, MigratesAVersion5DatabaseWithoutTouchingHistory
     {
         DatabaseManager db(state);
         ASSERT_TRUE(db.Initialize(file.path.string()));
-        EXPECT_EQ(db.GetSchemaVersion(), 6);
+        EXPECT_EQ(db.GetSchemaVersion(), 7);
         EXPECT_TRUE(std::filesystem::exists(file.path.string() + ".bak-v5"));
         EXPECT_EQ(QueryInt(db.GetRawDb(), "SELECT COUNT(*) FROM Matches WHERE match_guid = 'v5-guid';"), 1);
         EXPECT_EQ(QueryInt(db.GetRawDb(), "SELECT COUNT(*) FROM MatchPlayers;"), 2);
