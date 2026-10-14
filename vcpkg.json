@@ -11,8 +11,16 @@
     "sdl2",
     "sqlite3",
     "discord-rpc",
-    "zlib",
-    "gtest",
-    "benchmark"
-  ]
+    "zlib"
+  ],
+  "features": {
+    "tests": {
+      "description": "GoogleTest unit and integration tests",
+      "dependencies": ["gtest"]
+    },
+    "benchmarks": {
+      "description": "Google Benchmark executable",
+      "dependencies": ["benchmark"]
+    }
+  }
 }

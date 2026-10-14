@@ -16,6 +16,14 @@ set(VCPKG_OVERLAY_PORTS "${_OMNISTATS_VCPKG_OVERLAYS}" CACHE STRING "Vcpkg overl
 unset(_OMNISTATS_VCPKG_OVERLAY)
 unset(_OMNISTATS_VCPKG_OVERLAYS)
 
+# Test-only ports are manifest features, so release-only configures do not install them.
+if(NOT DEFINED BUILD_TESTING OR BUILD_TESTING)
+    list(APPEND VCPKG_MANIFEST_FEATURES "tests")
+endif()
+if(OMNISTATS_BUILD_BENCHMARKS)
+    list(APPEND VCPKG_MANIFEST_FEATURES "benchmarks")
+endif()
+
 # Read version from vcpkg.json (Single Source of Truth)
 file(READ "${CMAKE_CURRENT_SOURCE_DIR}/vcpkg.json" VCPKG_JSON_CONTENT)
 string(JSON OMNISTATS_VERSION GET "${VCPKG_JSON_CONTENT}" "version")
