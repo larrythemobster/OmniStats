@@ -283,7 +283,7 @@ void RmlUiController::UpdateThemeProperties() {
     if (combined) {
         // The view documents link the same packaged RCSS, so one combined
         // sheet serves all of them.
-        for (Rml::ElementDocument* document : {m_document, m_insightsDoc, m_onboardingDoc, m_historyDoc, m_accountsDoc})
+        for (Rml::ElementDocument* document : {m_document, m_insightsDoc, m_onboardingDoc, m_historyDoc, m_accountsDoc, m_playerNoteDoc})
             if (document) document->SetStyleSheetContainer(combined);
         m_renderDirty = true;
     }

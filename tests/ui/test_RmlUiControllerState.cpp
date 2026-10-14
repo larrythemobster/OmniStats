@@ -1504,6 +1504,18 @@ TEST_F(RmlUiControllerStateTest, FontRolesApplyIndependentlyAndFallBack) {
     EXPECT_EQ(family("fp-mono"), "jetbrains mono");
     EXPECT_EQ(family("fp-header"), "omnistats-system arial");
     EXPECT_EQ(family("fp-title"), "jetbrains mono");
+    {
+        std::lock_guard lock(state->notes.mutex);
+        state->notes.loaded = true;
+    }
+    OpenNote(controller, "Steam|font-note", "Font Note");
+    controller.Render();
+    RmlContext(controller)->Update();
+    ASSERT_NE(NoteDocument(controller), nullptr);
+    Rml::Element* noteName = NoteDocument(controller)->QuerySelector(".player-note-name");
+    ASSERT_NE(noteName, nullptr);
+    EXPECT_EQ(Rml::StringUtilities::ToLower(NoteDocument(controller)->GetComputedValues().font_family()), "omnistats-system arial");
+    EXPECT_EQ(Rml::StringUtilities::ToLower(noteName->GetComputedValues().font_family()), "jetbrains mono");
 
     apply("No Such Font OmniStats", "", "");
     EXPECT_EQ(family("fp-body"), "inter");
