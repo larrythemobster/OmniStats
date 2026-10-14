@@ -15,8 +15,8 @@ using namespace TelemetryReducerDetail;
 
 TelemetryReducer::TelemetryReducer(std::shared_ptr<SessionState> state)
     : m_state(state) {
+    m_cachedConfigRevision = Config::Revision();
     m_cachedConf = Config::Read();
-    m_lastConfigReadTime = std::chrono::steady_clock::now();
 }
 
 void TelemetryReducer::SetClockForTests(std::function<std::chrono::steady_clock::time_point()> clockFn) {
@@ -36,6 +36,8 @@ void TelemetryReducer::OnTelemetryDisconnected() {
 }
 
 void TelemetryReducer::OnConfigChanged() {
+    std::unique_lock<std::shared_mutex> lock(m_state->game.mutex);
+    m_cachedConfigRevision = Config::Revision();
     m_cachedConf = Config::Read();
 }
 
@@ -94,7 +96,11 @@ SideEffects TelemetryReducer::Reduce(const std::string& eventName, const nlohman
     std::unique_lock<std::shared_mutex> lock(m_state->game.mutex);
     m_state->game.version++;
 
-    m_cachedConf = Config::Read();
+    const uint64_t revision = Config::Revision();
+    if (revision != m_cachedConfigRevision) {
+        m_cachedConfigRevision = revision;
+        m_cachedConf = Config::Read();
+    }
 
     if (eventName == Constants::EVT_REPLAY_CREATED) {
         // ReplayCreated is documented for Match History replay playback,

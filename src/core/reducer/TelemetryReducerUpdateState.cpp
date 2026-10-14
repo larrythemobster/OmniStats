@@ -177,7 +177,7 @@ void TelemetryReducer::HandleUpdateState(const nlohmann::json& data, SideEffects
         (void)AcceptsUiMatchEventLocked(data, SteadyNowMs());
     }
     if (data.contains("Game") && data["Game"].is_object()) {
-        auto game = data["Game"];
+        const auto& game = data["Game"];
         std::optional<int> incomingPlaylistId;
         if (game.contains("PlaylistId") &&
             game["PlaylistId"].is_number_integer()) {

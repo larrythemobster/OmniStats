@@ -120,7 +120,7 @@ class TelemetryReducer {
 
     std::shared_ptr<SessionState> m_state;
     ConfigData m_cachedConf;
-    std::chrono::steady_clock::time_point m_lastConfigReadTime;
+    uint64_t m_cachedConfigRevision = 0;
 
     std::string m_lastSavedMatchGuid;
     std::unordered_map<std::string, int> m_lastPlayerBoost;
