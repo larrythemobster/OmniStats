@@ -14,7 +14,7 @@ static void BM_ParseUpdateState(benchmark::State& state) {
 
     // Simulated Rocket League state update JSON line
     std::string line = R"({
-        "Event": "game:update_state",
+        "Event": "UpdateState",
         "Data": {
             "Game": {
                 "Arena": "stadium_p",
@@ -65,7 +65,7 @@ static void BM_ParseStatFeed(benchmark::State& state) {
     }
 
     std::string line = R"({
-        "Event": "game:statfeed",
+        "Event": "StatfeedEvent",
         "Data": {
             "EventName": "Save",
             "Player": {
