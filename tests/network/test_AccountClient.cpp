@@ -7,7 +7,10 @@
 #include <nlohmann/json.hpp>
 #include <sodium.h>
 
+#include <algorithm>
 #include <array>
+#include <chrono>
+#include <condition_variable>
 #include <atomic>
 #include <fstream>
 #include <mutex>
@@ -416,4 +419,66 @@ TEST_F(AccountClientTest, LogoutSendsSignedLogoutProofAndClearsRefreshToken) {
     EXPECT_TRUE(Config::Read().account_refresh_token.empty());
     EXPECT_TRUE(Config::Read().account_signed_in_name.empty());
     EXPECT_FALSE(Config::Read().account_device_key.empty());
+}
+
+TEST_F(AccountClientTest, RefreshCompletingAfterLogoutStaysSignedOutAndRevokesRotatedToken) {
+    AccountClient client;
+    AccountClient::DeviceKeyPair keyPair;
+    ASSERT_TRUE(client.EnsureDeviceKey(&keyPair));
+    Config::Update([&](ConfigData& c) {
+        c.account_refresh_token = "race-refresh-v1";
+        c.account_signed_in_name = "RaceUser";
+    });
+    Config::Save();
+    client.SyncFromConfig();
+    client.SetClockForTests([]() { return 1700000000; });
+
+    std::mutex m;
+    std::condition_variable cv;
+    bool refreshEntered = false;
+    bool releaseRefresh = false;
+    std::vector<std::string> logoutTokens;
+    client.SetTransportForTests([&](const std::string& url, const std::string& body) {
+        AccountClient::HttpResponse resp;
+        resp.statusCode = 200;
+        const auto req = nlohmann::json::parse(body);
+        std::unique_lock lock(m);
+        if (url.find("/v1/auth/device/logout") != std::string::npos) {
+            logoutTokens.push_back(req.at("refresh_token").get<std::string>());
+            cv.notify_all();
+            resp.body = R"({"message":"Device signed out."})";
+            return resp;
+        }
+        refreshEntered = true;
+        cv.notify_all();
+        cv.wait(lock, [&] { return releaseRefresh; });
+        resp.body = nlohmann::json{{"access_token", "race-access"},
+                                   {"expires_in", 900},
+                                   {"refresh_token", "race-refresh-v2"},
+                                   {"account", {{"display_name", "RaceUser"}}}}
+                        .dump();
+        return resp;
+    });
+
+    std::thread refresher([&] { (void)client.Refresh(); });
+    {
+        std::unique_lock lock(m);
+        ASSERT_TRUE(cv.wait_for(lock, std::chrono::seconds(5), [&] { return refreshEntered; }));
+    }
+    client.LogoutAsync();
+    {
+        std::lock_guard lock(m);
+        releaseRefresh = true;
+    }
+    cv.notify_all();
+    refresher.join();
+
+    EXPECT_FALSE(client.IsSignedIn());
+    EXPECT_TRUE(Config::Read().account_refresh_token.empty());
+    {
+        std::unique_lock lock(m);
+        const auto sentRotated = [&] { return std::find(logoutTokens.begin(), logoutTokens.end(), "race-refresh-v2") != logoutTokens.end(); };
+        EXPECT_TRUE(cv.wait_for(lock, std::chrono::seconds(3), sentRotated));
+    }
+    client.Shutdown();
 }

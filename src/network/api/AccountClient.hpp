@@ -172,6 +172,7 @@ class AccountClient {
     };
 
     bool SendLogoutRequest(const std::string& refreshToken);
+    void QueueLogoutForRotatedToken(const std::string& previousToken, std::string rotatedToken);
     void EnsureWorkerRunningLocked();
     void WorkerLoop();
     HttpResponse PerformHttpPost(const std::string& url, const std::string& jsonBody);
@@ -183,6 +184,8 @@ class AccountClient {
     std::condition_variable m_refreshCv;
     bool m_refreshInFlight = false;
     bool m_lastRefreshSucceeded = false;
+    // Incremented by logout; refresh results started under an older generation are discarded.
+    uint64_t m_authGeneration = 0;
 
     AccountAuthState m_state = AccountAuthState::SignedOut;
     std::string m_displayName;

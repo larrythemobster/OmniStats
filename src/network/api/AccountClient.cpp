@@ -748,6 +748,7 @@ AccountClient::PollResult AccountClient::PollToken() {
 }
 
 bool AccountClient::Refresh() {
+    uint64_t generation = 0;
     {
         std::unique_lock<std::mutex> lock(m_mutex);
         if (m_refreshInFlight) {
@@ -755,6 +756,7 @@ bool AccountClient::Refresh() {
             return m_lastRefreshSucceeded;
         }
         m_refreshInFlight = true;
+        generation = m_authGeneration;
     }
 
     auto finish = [&](bool ok) {
@@ -807,23 +809,30 @@ bool AccountClient::Refresh() {
             return finish(false);
         }
 
-        Config::Update([&](ConfigData& c) {
-            c.account_refresh_token = newRefreshToken;
-            c.account_signed_in_name = displayName;
-            c.account_device_public_id = keyPair.publicId;
-        });
-        Config::Save();
-
         const int64_t issuedAt = NowUnix();
+        bool loggedOutMeanwhile = false;
         {
             std::lock_guard<std::mutex> lock(m_mutex);
-            m_accessToken = accessToken;
-            m_accessTokenExpiresAt = issuedAt + expiresIn;
-            m_displayName = displayName;
-            m_errorMessage.clear();
-            m_state = AccountAuthState::SignedIn;
-            ++m_statusVersion;
+            loggedOutMeanwhile = generation != m_authGeneration;
+            if (!loggedOutMeanwhile) {
+                Config::Update([&](ConfigData& c) {
+                    c.account_refresh_token = newRefreshToken;
+                    c.account_signed_in_name = displayName;
+                    c.account_device_public_id = keyPair.publicId;
+                });
+                m_accessToken = accessToken;
+                m_accessTokenExpiresAt = issuedAt + expiresIn;
+                m_displayName = displayName;
+                m_errorMessage.clear();
+                m_state = AccountAuthState::SignedIn;
+                ++m_statusVersion;
+            }
         }
+        if (loggedOutMeanwhile) {
+            QueueLogoutForRotatedToken(conf.account_refresh_token, newRefreshToken);
+            return finish(false);
+        }
+        Config::Save();
         return finish(true);
     } catch (...) {
         return finish(false);
@@ -869,6 +878,10 @@ std::string AccountClient::DevicePublicId() {
 bool AccountClient::Logout() {
     m_cancelPolling.store(true, std::memory_order_relaxed);
     m_workerCv.notify_all();
+    {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        ++m_authGeneration;
+    }
 
     const ConfigData conf = Config::Read();
     const std::string refreshToken = conf.account_refresh_token;
@@ -945,6 +958,10 @@ void AccountClient::CancelAuthorization() {
 
 void AccountClient::LogoutAsync() {
     m_cancelPolling.store(true, std::memory_order_relaxed);
+    {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        ++m_authGeneration;
+    }
     const std::string refreshToken = Config::Read().account_refresh_token;
     Config::Update([](ConfigData& c) {
         c.account_refresh_token.clear();
@@ -969,6 +986,21 @@ void AccountClient::LogoutAsync() {
         EnsureWorkerRunningLocked();
         m_workerQueue.push_back(WorkerJob{WorkerCommand::Logout, false, refreshToken});
     }
+    m_workerCv.notify_all();
+}
+
+void AccountClient::QueueLogoutForRotatedToken(const std::string& previousToken, std::string rotatedToken) {
+    std::lock_guard<std::mutex> lock(m_workerMutex);
+    // Sending only the pre-rotation token would look like refresh-token reuse to the server.
+    for (auto& job : m_workerQueue) {
+        if (job.command == WorkerCommand::Logout && job.refreshToken == previousToken) {
+            job.refreshToken = std::move(rotatedToken);
+            m_workerCv.notify_all();
+            return;
+        }
+    }
+    EnsureWorkerRunningLocked();
+    m_workerQueue.push_back(WorkerJob{WorkerCommand::Logout, false, std::move(rotatedToken)});
     m_workerCv.notify_all();
 }
 
