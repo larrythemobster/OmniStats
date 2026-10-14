@@ -11,7 +11,7 @@
 
     <Icon Id="LogoIcon" SourceFile="$(var.ResourceDir)\Logo.ico" />
     <Property Id="ARPPRODUCTICON" Value="LogoIcon" />
-    <Property Id="ARPHELPLINK" Value="https://omnistats.org/support" />
+    <Property Id="ARPHELPLINK" Value="https://omnistats.org/setup" />
     <Property Id="ARPURLINFOABOUT" Value="https://omnistats.org" />
     <Property Id="OMNISTATS_AUTOSTART" Value="0" />
 
