@@ -6,6 +6,7 @@
 #include <nlohmann/json.hpp>
 #include <mutex>
 #include <shared_mutex>
+#include <limits>
 
 class ConfigTest : public ::testing::Test {
   protected:
@@ -527,4 +528,26 @@ TEST_F(ConfigTest, NewInstallDefaultsLobbyRanksToFirstCountdown8sAndMatchSummary
         }
     }
     EXPECT_TRUE(foundLobby);
+}
+
+TEST_F(ConfigTest, InvalidFieldsDoNotDiscardCredentialsOrOtherSettings) {
+    const auto path = Storage::GetDataDirectory() + "config.json";
+    {
+        std::ofstream file(path);
+        file << nlohmann::json{
+            {"port", "wrong-type"}, {"host", "127.0.0.42"}, {"key_overlay", std::numeric_limits<uint64_t>::max()}, {"enable_auto_updates", "false"}, {"client_uuid", "retained-installation"}, {"custom_api_key", "synthetic-legacy-key"}, {"theme", {{"text", {0.1, "bad-component", 0.3, 1.0}}}}, {"dashboard_layout", {{"widgets", {{{"id", 42}, {"height", "bad-height"}}}}}}}
+                    .dump();
+    }
+    Config::Load();
+    const auto loaded = Config::Read();
+    EXPECT_EQ(loaded.port, ConfigData{}.port);
+    EXPECT_EQ(loaded.host, "127.0.0.42");
+    EXPECT_EQ(loaded.key_overlay, ConfigData{}.key_overlay);
+    EXPECT_FALSE(loaded.enable_auto_updates);
+    EXPECT_EQ(loaded.client_uuid, "retained-installation");
+    EXPECT_EQ(loaded.custom_api_key, "synthetic-legacy-key");
+    EXPECT_TRUE(std::filesystem::exists(path));
+    Config::Save();
+    Config::Load();
+    EXPECT_EQ(Config::Read().custom_api_key, "synthetic-legacy-key");
 }

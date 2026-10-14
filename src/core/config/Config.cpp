@@ -7,6 +7,10 @@
 #include <algorithm>
 #include <thread>
 #include <atomic>
+#include <cmath>
+#include <limits>
+#include <stdexcept>
+#include <type_traits>
 #include <nlohmann/json.hpp>
 #include "utils/Storage.hpp"
 
@@ -162,6 +166,30 @@ static DecryptResult DecryptSecret(const std::string& raw) {
     return {true, raw, true, 0};
 }
 
+template <typename T>
+static void ReadField(const nlohmann::json& object, const char* key, T& target) {
+    if (!object.is_object()) return;
+    const auto value = object.find(key);
+    if (value == object.end()) return;
+    if constexpr (std::is_same_v<T, std::string>) {
+        if (value->is_string()) value->get_to(target);
+    } else if constexpr (std::is_same_v<T, bool>) {
+        if (value->is_boolean()) value->get_to(target);
+    } else {
+        if constexpr (std::is_integral_v<T>) {
+            if (!value->is_number_integer()) return;
+        } else {
+            if (!value->is_number()) return;
+        }
+        const long double number = value->get<long double>();
+        if (std::isfinite(number) &&
+            number >= (std::numeric_limits<T>::lowest)() &&
+            number <= (std::numeric_limits<T>::max)()) {
+            target = static_cast<T>(number);
+        }
+    }
+}
+
 // Helper: serialize ColorRGBA to JSON array [r, g, b, a]
 static nlohmann::json ColorToJson(const ColorRGBA& c) {
     return nlohmann::json::array({c.r, c.g, c.b, c.a});
@@ -170,6 +198,11 @@ static nlohmann::json ColorToJson(const ColorRGBA& c) {
 // Helper: deserialize JSON array [r, g, b, a] to ColorRGBA
 static ColorRGBA JsonToColor(const nlohmann::json& j, const ColorRGBA& fallback) {
     if (!j.is_array() || j.size() < 4) return fallback;
+    for (size_t i = 0; i < 4; ++i) {
+        if (!j[i].is_number()) return fallback;
+        const double component = j[i].get<double>();
+        if (!std::isfinite(component) || component < 0.0 || component > 1.0) return fallback;
+    }
     return {j[0].get<float>(), j[1].get<float>(), j[2].get<float>(), j[3].get<float>()};
 }
 
@@ -283,26 +316,31 @@ namespace Config {
                 std::ifstream file(configFile);
                 file >> j;
             }
+            if (!j.is_object()) throw std::invalid_argument("Configuration must be a JSON object");
+            Current = ConfigData{};
+            s_savedCiphertexts.clear();
+            s_encryptedPlaintexts.clear();
             bool needsSave = false;
 
             // Safely load values, falling back to defaults if keys are missing
-            if (j.contains("host")) Current.host = j["host"];
-            if (j.contains("port")) Current.port = j["port"];
-            if (j.contains("key_overlay")) Current.key_overlay = j["key_overlay"];
-            if (j.contains("key_cycle")) Current.key_cycle = j["key_cycle"];
-            if (j.contains("key_expand")) Current.key_expand = j["key_expand"];
-            if (j.contains("key_session")) Current.key_session = j["key_session"];
-            if (j.contains("key_menu")) Current.key_menu = j["key_menu"];
-            if (j.contains("key_graph_pan_left")) Current.key_graph_pan_left = j["key_graph_pan_left"];
-            if (j.contains("key_graph_pan_right")) Current.key_graph_pan_right = j["key_graph_pan_right"];
-            if (j.contains("key_lifetime_graph")) Current.key_lifetime_graph = j["key_lifetime_graph"];
+            ReadField(j, "host", Current.host);
+            ReadField(j, "port", Current.port);
+            ReadField(j, "key_overlay", Current.key_overlay);
+            ReadField(j, "key_cycle", Current.key_cycle);
+            ReadField(j, "key_expand", Current.key_expand);
+            ReadField(j, "key_session", Current.key_session);
+            ReadField(j, "key_menu", Current.key_menu);
+            ReadField(j, "key_graph_pan_left", Current.key_graph_pan_left);
+            ReadField(j, "key_graph_pan_right", Current.key_graph_pan_right);
+            ReadField(j, "key_lifetime_graph", Current.key_lifetime_graph);
             // Load gamepad overlay with migration for the old bad default
             if (j.contains("gamepad_overlay")) {
-                Current.gamepad_overlay = j["gamepad_overlay"];
+                ReadField(j, "gamepad_overlay", Current.gamepad_overlay);
 
                 // Old bug: default value was 6 (START), but intended as 4 (BACK).
                 // Migrate old configs one time so users get the intended Select/View/Back button.
-                const bool migrated = j.value("controller_default_back_migrated", false);
+                bool migrated = false;
+                ReadField(j, "controller_default_back_migrated", migrated);
                 if (!migrated && Current.gamepad_overlay == 6) {
                     std::cout << "[Config] Migrating controller overlay bind from Start(6) to Back(4).\n";
                     Current.gamepad_overlay = 4; // SDL_CONTROLLER_BUTTON_BACK
@@ -312,26 +350,26 @@ namespace Config {
                 Current.gamepad_overlay = 4; // SDL_CONTROLLER_BUTTON_BACK
                 needsSave = true;
             }
-            if (j.contains("gamepad_overlay_raw")) Current.gamepad_overlay_raw = j["gamepad_overlay_raw"];
-            if (j.contains("gamepad_overlay_raw_button")) Current.gamepad_overlay_raw_button = j["gamepad_overlay_raw_button"];
-            if (j.contains("gamepad_cycle")) Current.gamepad_cycle = j["gamepad_cycle"];
-            if (j.contains("gamepad_cycle_raw")) Current.gamepad_cycle_raw = j["gamepad_cycle_raw"];
-            if (j.contains("gamepad_cycle_raw_button")) Current.gamepad_cycle_raw_button = j["gamepad_cycle_raw_button"];
-            if (j.contains("gamepad_expand")) Current.gamepad_expand = j["gamepad_expand"];
-            if (j.contains("gamepad_expand_raw")) Current.gamepad_expand_raw = j["gamepad_expand_raw"];
-            if (j.contains("gamepad_expand_raw_button")) Current.gamepad_expand_raw_button = j["gamepad_expand_raw_button"];
-            if (j.contains("gamepad_session")) Current.gamepad_session = j["gamepad_session"];
-            if (j.contains("gamepad_session_raw")) Current.gamepad_session_raw = j["gamepad_session_raw"];
-            if (j.contains("gamepad_session_raw_button")) Current.gamepad_session_raw_button = j["gamepad_session_raw_button"];
-            if (j.contains("gamepad_menu")) Current.gamepad_menu = j["gamepad_menu"];
-            if (j.contains("gamepad_menu_raw")) Current.gamepad_menu_raw = j["gamepad_menu_raw"];
-            if (j.contains("gamepad_menu_raw_button")) Current.gamepad_menu_raw_button = j["gamepad_menu_raw_button"];
-            if (j.contains("gamepad_graph_pan_left")) Current.gamepad_graph_pan_left = j["gamepad_graph_pan_left"];
-            if (j.contains("gamepad_graph_pan_left_raw")) Current.gamepad_graph_pan_left_raw = j["gamepad_graph_pan_left_raw"];
-            if (j.contains("gamepad_graph_pan_left_raw_button")) Current.gamepad_graph_pan_left_raw_button = j["gamepad_graph_pan_left_raw_button"];
-            if (j.contains("gamepad_graph_pan_right")) Current.gamepad_graph_pan_right = j["gamepad_graph_pan_right"];
-            if (j.contains("gamepad_graph_pan_right_raw")) Current.gamepad_graph_pan_right_raw = j["gamepad_graph_pan_right_raw"];
-            if (j.contains("gamepad_graph_pan_right_raw_button")) Current.gamepad_graph_pan_right_raw_button = j["gamepad_graph_pan_right_raw_button"];
+            ReadField(j, "gamepad_overlay_raw", Current.gamepad_overlay_raw);
+            ReadField(j, "gamepad_overlay_raw_button", Current.gamepad_overlay_raw_button);
+            ReadField(j, "gamepad_cycle", Current.gamepad_cycle);
+            ReadField(j, "gamepad_cycle_raw", Current.gamepad_cycle_raw);
+            ReadField(j, "gamepad_cycle_raw_button", Current.gamepad_cycle_raw_button);
+            ReadField(j, "gamepad_expand", Current.gamepad_expand);
+            ReadField(j, "gamepad_expand_raw", Current.gamepad_expand_raw);
+            ReadField(j, "gamepad_expand_raw_button", Current.gamepad_expand_raw_button);
+            ReadField(j, "gamepad_session", Current.gamepad_session);
+            ReadField(j, "gamepad_session_raw", Current.gamepad_session_raw);
+            ReadField(j, "gamepad_session_raw_button", Current.gamepad_session_raw_button);
+            ReadField(j, "gamepad_menu", Current.gamepad_menu);
+            ReadField(j, "gamepad_menu_raw", Current.gamepad_menu_raw);
+            ReadField(j, "gamepad_menu_raw_button", Current.gamepad_menu_raw_button);
+            ReadField(j, "gamepad_graph_pan_left", Current.gamepad_graph_pan_left);
+            ReadField(j, "gamepad_graph_pan_left_raw", Current.gamepad_graph_pan_left_raw);
+            ReadField(j, "gamepad_graph_pan_left_raw_button", Current.gamepad_graph_pan_left_raw_button);
+            ReadField(j, "gamepad_graph_pan_right", Current.gamepad_graph_pan_right);
+            ReadField(j, "gamepad_graph_pan_right_raw", Current.gamepad_graph_pan_right_raw);
+            ReadField(j, "gamepad_graph_pan_right_raw_button", Current.gamepad_graph_pan_right_raw_button);
             if (j.contains("mmr_category") && j["mmr_category"].is_string()) {
                 Current.mmr_category = j["mmr_category"];
             }
@@ -339,12 +377,12 @@ namespace Config {
                 Current.mmr_category = "best";
                 needsSave = true;
             }
-            if (j.contains("last_primary_id")) Current.last_primary_id = j["last_primary_id"];
-            if (j.contains("require_rl_focus")) Current.require_rl_focus = j["require_rl_focus"];
-            if (j.contains("show_match_summary")) Current.show_match_summary = j["show_match_summary"];
-            if (j.contains("discord_rpc_enabled")) Current.discord_rpc_enabled = j["discord_rpc_enabled"];
-            if (j.contains("enable_mmr_tracking")) Current.enable_mmr_tracking = j["enable_mmr_tracking"];
-            if (j.contains("auto_switch_mmr_category")) Current.auto_switch_mmr_category = j["auto_switch_mmr_category"];
+            ReadField(j, "last_primary_id", Current.last_primary_id);
+            ReadField(j, "require_rl_focus", Current.require_rl_focus);
+            ReadField(j, "show_match_summary", Current.show_match_summary);
+            ReadField(j, "discord_rpc_enabled", Current.discord_rpc_enabled);
+            ReadField(j, "enable_mmr_tracking", Current.enable_mmr_tracking);
+            ReadField(j, "auto_switch_mmr_category", Current.auto_switch_mmr_category);
             if (j.contains("graph_mmr_category") &&
                 j["graph_mmr_category"].is_string() &&
                 IsGraphMmrCategory(j["graph_mmr_category"].get<std::string>())) {
@@ -372,20 +410,20 @@ namespace Config {
                 !j["check_for_updates"].get<bool>()) {
                 needsSave = true;
             }
-            if (j.contains("enable_auto_updates")) Current.enable_auto_updates = j["enable_auto_updates"];
-            if (j.contains("crash_reports_enabled")) Current.crash_reports_enabled = j["crash_reports_enabled"];
-            if (j.contains("debug_logging")) Current.debug_logging = j["debug_logging"];
-            if (j.contains("run_on_startup")) Current.run_on_startup = j["run_on_startup"];
-            if (j.contains("reset_session_on_close")) Current.reset_session_on_close = j["reset_session_on_close"];
-            if (j.contains("show_session_recap_on_close")) Current.show_session_recap_on_close = j["show_session_recap_on_close"];
-            if (j.contains("imperial_units")) Current.imperial_units = j["imperial_units"];
-            if (j.contains("client_uuid")) Current.client_uuid = j["client_uuid"];
-            if (j.contains("privacy_policy_accepted_version")) Current.privacy_policy_accepted_version = j["privacy_policy_accepted_version"];
-            if (j.contains("terms_accepted_version")) Current.terms_accepted_version = j["terms_accepted_version"];
-            if (j.contains("privacy_accepted_at")) Current.privacy_accepted_at = j["privacy_accepted_at"];
+            ReadField(j, "enable_auto_updates", Current.enable_auto_updates);
+            ReadField(j, "crash_reports_enabled", Current.crash_reports_enabled);
+            ReadField(j, "debug_logging", Current.debug_logging);
+            ReadField(j, "run_on_startup", Current.run_on_startup);
+            ReadField(j, "reset_session_on_close", Current.reset_session_on_close);
+            ReadField(j, "show_session_recap_on_close", Current.show_session_recap_on_close);
+            ReadField(j, "imperial_units", Current.imperial_units);
+            ReadField(j, "client_uuid", Current.client_uuid);
+            ReadField(j, "privacy_policy_accepted_version", Current.privacy_policy_accepted_version);
+            ReadField(j, "terms_accepted_version", Current.terms_accepted_version);
+            ReadField(j, "privacy_accepted_at", Current.privacy_accepted_at);
             // Installs that accepted the privacy notice before onboarding existed
             // already went through the old first-run prompts.
-            if (j.contains("onboarding_completed"))
+            if (j.contains("onboarding_completed") && j["onboarding_completed"].is_boolean())
                 Current.onboarding_completed = j["onboarding_completed"];
             else
                 Current.onboarding_completed = !Current.privacy_policy_accepted_version.empty();
@@ -399,16 +437,14 @@ namespace Config {
                 nonEmptyJsonString("last_primary_id") ||
                 j.contains("overlay_layout") ||
                 j.contains("dashboard_layout");
-            if (j.contains("match_summary_seconds") && j["match_summary_seconds"].is_number_integer()) {
-                Current.match_summary_seconds = std::clamp(j["match_summary_seconds"].get<int>(), 5, 60);
-            } else {
-                Current.match_summary_seconds = existingInstall ? 30 : 20;
-            }
-            if (j.contains("position")) Current.position = j["position"];
-            if (j.contains("show_running_indicator")) Current.show_running_indicator = j["show_running_indicator"];
-            if (j.contains("use_roman_numerals")) Current.use_roman_numerals = j["use_roman_numerals"];
-            if (j.contains("use_rank_icons")) Current.use_rank_icons = j["use_rank_icons"];
-            if (j.contains("show_extra_playlists")) Current.show_extra_playlists = j["show_extra_playlists"];
+            Current.match_summary_seconds = existingInstall ? 30 : 20;
+            ReadField(j, "match_summary_seconds", Current.match_summary_seconds);
+            Current.match_summary_seconds = std::clamp(Current.match_summary_seconds, 5, 60);
+            ReadField(j, "position", Current.position);
+            ReadField(j, "show_running_indicator", Current.show_running_indicator);
+            ReadField(j, "use_roman_numerals", Current.use_roman_numerals);
+            ReadField(j, "use_rank_icons", Current.use_rank_icons);
+            ReadField(j, "show_extra_playlists", Current.show_extra_playlists);
             if (!Current.show_extra_playlists &&
                 IsExtraMmrCategory(Current.graph_mmr_category)) {
                 Current.graph_mmr_category = "2v2";
@@ -478,42 +514,42 @@ namespace Config {
             }
             loadSecretField("account_refresh_token", Current.account_refresh_token);
             loadSecretField("account_device_key", Current.account_device_key);
-            if (j.contains("rocket_league_stats_api_config_path")) Current.rocket_league_stats_api_config_path = j["rocket_league_stats_api_config_path"];
-            if (j.contains("check_stats_api_config_on_startup")) Current.check_stats_api_config_on_startup = j["check_stats_api_config_on_startup"];
+            ReadField(j, "rocket_league_stats_api_config_path", Current.rocket_league_stats_api_config_path);
+            ReadField(j, "check_stats_api_config_on_startup", Current.check_stats_api_config_on_startup);
             loadSecretField("ballchasing_token", Current.ballchasing_token);
-            if (j.contains("auto_upload_replays")) Current.auto_upload_replays = j["auto_upload_replays"];
-            if (j.contains("ballchasing_upload_notice_accepted")) Current.ballchasing_upload_notice_accepted = j["ballchasing_upload_notice_accepted"];
+            ReadField(j, "auto_upload_replays", Current.auto_upload_replays);
+            ReadField(j, "ballchasing_upload_notice_accepted", Current.ballchasing_upload_notice_accepted);
             if (j.contains("ballchasing_visibility") && j["ballchasing_visibility"].is_string()) {
                 std::string visibility = j["ballchasing_visibility"].get<std::string>();
                 if (visibility == "private" || visibility == "unlisted" || visibility == "public") {
                     Current.ballchasing_visibility = visibility;
                 }
             }
-            if (j.contains("ballchasing_filter_ranked_only")) Current.ballchasing_filter_ranked_only = j["ballchasing_filter_ranked_only"];
-            if (j.contains("ballchasing_filter_wins_only")) Current.ballchasing_filter_wins_only = j["ballchasing_filter_wins_only"];
-            if (j.contains("auto_save_replays")) Current.auto_save_replays = j["auto_save_replays"];
-            if (j.contains("key_save_replay")) Current.key_save_replay = j["key_save_replay"];
+            ReadField(j, "ballchasing_filter_ranked_only", Current.ballchasing_filter_ranked_only);
+            ReadField(j, "ballchasing_filter_wins_only", Current.ballchasing_filter_wins_only);
+            ReadField(j, "auto_save_replays", Current.auto_save_replays);
+            ReadField(j, "key_save_replay", Current.key_save_replay);
 
             // Load session visibility flags
-            if (j.contains("show_session_record")) Current.show_session_record = j["show_session_record"];
-            if (j.contains("show_session_goals")) Current.show_session_goals = j["show_session_goals"];
-            if (j.contains("show_session_saves")) Current.show_session_saves = j["show_session_saves"];
-            if (j.contains("show_session_demos")) Current.show_session_demos = j["show_session_demos"];
-            if (j.contains("show_session_assists")) Current.show_session_assists = j["show_session_assists"];
-            if (j.contains("show_session_goal_participation")) Current.show_session_goal_participation = j["show_session_goal_participation"];
-            if (j.contains("show_session_mmr_change")) Current.show_session_mmr_change = j["show_session_mmr_change"];
-            if (j.contains("show_session_boost")) Current.show_session_boost = j["show_session_boost"];
-            if (j.contains("show_lobby_ranks_overlay")) Current.show_lobby_ranks_overlay = j["show_lobby_ranks_overlay"];
-            if (j.contains("show_lobby_rank_1v1")) Current.show_lobby_rank_1v1 = j["show_lobby_rank_1v1"];
-            if (j.contains("show_lobby_rank_2v2")) Current.show_lobby_rank_2v2 = j["show_lobby_rank_2v2"];
-            if (j.contains("show_lobby_rank_3v3")) Current.show_lobby_rank_3v3 = j["show_lobby_rank_3v3"];
-            if (j.contains("show_lobby_rank_casual")) Current.show_lobby_rank_casual = j["show_lobby_rank_casual"];
-            if (j.contains("show_lobby_rank_tourny")) Current.show_lobby_rank_tourny = j["show_lobby_rank_tourny"];
-            if (j.contains("show_lobby_rank_hoops")) Current.show_lobby_rank_hoops = j["show_lobby_rank_hoops"];
-            if (j.contains("show_lobby_rank_rumble")) Current.show_lobby_rank_rumble = j["show_lobby_rank_rumble"];
-            if (j.contains("show_lobby_rank_dropshot")) Current.show_lobby_rank_dropshot = j["show_lobby_rank_dropshot"];
-            if (j.contains("show_lobby_rank_snowday")) Current.show_lobby_rank_snowday = j["show_lobby_rank_snowday"];
-            if (j.contains("show_lobby_rank_heatseeker")) Current.show_lobby_rank_heatseeker = j["show_lobby_rank_heatseeker"];
+            ReadField(j, "show_session_record", Current.show_session_record);
+            ReadField(j, "show_session_goals", Current.show_session_goals);
+            ReadField(j, "show_session_saves", Current.show_session_saves);
+            ReadField(j, "show_session_demos", Current.show_session_demos);
+            ReadField(j, "show_session_assists", Current.show_session_assists);
+            ReadField(j, "show_session_goal_participation", Current.show_session_goal_participation);
+            ReadField(j, "show_session_mmr_change", Current.show_session_mmr_change);
+            ReadField(j, "show_session_boost", Current.show_session_boost);
+            ReadField(j, "show_lobby_ranks_overlay", Current.show_lobby_ranks_overlay);
+            ReadField(j, "show_lobby_rank_1v1", Current.show_lobby_rank_1v1);
+            ReadField(j, "show_lobby_rank_2v2", Current.show_lobby_rank_2v2);
+            ReadField(j, "show_lobby_rank_3v3", Current.show_lobby_rank_3v3);
+            ReadField(j, "show_lobby_rank_casual", Current.show_lobby_rank_casual);
+            ReadField(j, "show_lobby_rank_tourny", Current.show_lobby_rank_tourny);
+            ReadField(j, "show_lobby_rank_hoops", Current.show_lobby_rank_hoops);
+            ReadField(j, "show_lobby_rank_rumble", Current.show_lobby_rank_rumble);
+            ReadField(j, "show_lobby_rank_dropshot", Current.show_lobby_rank_dropshot);
+            ReadField(j, "show_lobby_rank_snowday", Current.show_lobby_rank_snowday);
+            ReadField(j, "show_lobby_rank_heatseeker", Current.show_lobby_rank_heatseeker);
 
             // Fallback: Prevent the user from disabling every column.
             if (!Current.show_lobby_rank_1v1 && !Current.show_lobby_rank_2v2 &&
@@ -522,38 +558,39 @@ namespace Config {
                 !Current.show_lobby_rank_snowday && !Current.show_lobby_rank_heatseeker) {
                 Current.show_lobby_rank_2v2 = true;
             }
-            if (j.contains("show_account_wins_overlay")) Current.show_account_wins_overlay = j["show_account_wins_overlay"];
-            if (j.contains("show_demo_tracker_overlay")) Current.show_demo_tracker_overlay = j["show_demo_tracker_overlay"];
-            if (j.contains("show_rank_progress")) Current.show_rank_progress = j["show_rank_progress"];
-            if (j.contains("show_previous_games_summary")) Current.show_previous_games_summary = j["show_previous_games_summary"];
-            if (j.contains("previous_games_limit")) Current.previous_games_limit = std::clamp(j["previous_games_limit"].get<int>(), 10, 50);
-            if (j.contains("show_streaks_stats")) Current.show_streaks_stats = j["show_streaks_stats"];
-            if (j.contains("show_longest_loss_streak")) Current.show_longest_loss_streak = j["show_longest_loss_streak"];
-            if (j.contains("show_gamemode_breakdown")) Current.show_gamemode_breakdown = j["show_gamemode_breakdown"];
-            if (j.contains("show_gamemode_record_1v1")) Current.show_gamemode_record_1v1 = j["show_gamemode_record_1v1"];
-            if (j.contains("show_gamemode_record_2v2")) Current.show_gamemode_record_2v2 = j["show_gamemode_record_2v2"];
-            if (j.contains("show_gamemode_record_3v3")) Current.show_gamemode_record_3v3 = j["show_gamemode_record_3v3"];
-            if (j.contains("gamemode_breakdown_scope")) Current.gamemode_breakdown_scope = j["gamemode_breakdown_scope"];
-            if (j.contains("crossbar_display_mode")) Current.crossbar_display_mode = j["crossbar_display_mode"];
-            if (j.contains("second_monitor_mode")) Current.second_monitor_mode = j["second_monitor_mode"];
-            if (j.contains("second_monitor_show_roster")) Current.second_monitor_show_roster = j["second_monitor_show_roster"];
-            if (j.contains("second_monitor_show_session")) Current.second_monitor_show_session = j["second_monitor_show_session"];
-            if (j.contains("second_monitor_show_settings")) Current.second_monitor_show_settings = j["second_monitor_show_settings"];
-            if (j.contains("second_monitor_has_bounds")) Current.second_monitor_has_bounds = j["second_monitor_has_bounds"];
-            if (j.contains("second_monitor_x")) Current.second_monitor_x = j["second_monitor_x"];
-            if (j.contains("second_monitor_y")) Current.second_monitor_y = j["second_monitor_y"];
-            if (j.contains("second_monitor_w")) Current.second_monitor_w = j["second_monitor_w"];
-            if (j.contains("second_monitor_h")) Current.second_monitor_h = j["second_monitor_h"];
-            if (j.contains("ui_scale")) Current.ui_scale = j["ui_scale"];
+            ReadField(j, "show_account_wins_overlay", Current.show_account_wins_overlay);
+            ReadField(j, "show_demo_tracker_overlay", Current.show_demo_tracker_overlay);
+            ReadField(j, "show_rank_progress", Current.show_rank_progress);
+            ReadField(j, "show_previous_games_summary", Current.show_previous_games_summary);
+            ReadField(j, "previous_games_limit", Current.previous_games_limit);
+            Current.previous_games_limit = std::clamp(Current.previous_games_limit, 10, 50);
+            ReadField(j, "show_streaks_stats", Current.show_streaks_stats);
+            ReadField(j, "show_longest_loss_streak", Current.show_longest_loss_streak);
+            ReadField(j, "show_gamemode_breakdown", Current.show_gamemode_breakdown);
+            ReadField(j, "show_gamemode_record_1v1", Current.show_gamemode_record_1v1);
+            ReadField(j, "show_gamemode_record_2v2", Current.show_gamemode_record_2v2);
+            ReadField(j, "show_gamemode_record_3v3", Current.show_gamemode_record_3v3);
+            ReadField(j, "gamemode_breakdown_scope", Current.gamemode_breakdown_scope);
+            ReadField(j, "crossbar_display_mode", Current.crossbar_display_mode);
+            ReadField(j, "second_monitor_mode", Current.second_monitor_mode);
+            ReadField(j, "second_monitor_show_roster", Current.second_monitor_show_roster);
+            ReadField(j, "second_monitor_show_session", Current.second_monitor_show_session);
+            ReadField(j, "second_monitor_show_settings", Current.second_monitor_show_settings);
+            ReadField(j, "second_monitor_has_bounds", Current.second_monitor_has_bounds);
+            ReadField(j, "second_monitor_x", Current.second_monitor_x);
+            ReadField(j, "second_monitor_y", Current.second_monitor_y);
+            ReadField(j, "second_monitor_w", Current.second_monitor_w);
+            ReadField(j, "second_monitor_h", Current.second_monitor_h);
+            ReadField(j, "ui_scale", Current.ui_scale);
             if (j.contains("font_ui") && j["font_ui"].is_string()) Current.font_ui = j["font_ui"];
             if (j.contains("font_mono") && j["font_mono"].is_string()) Current.font_mono = j["font_mono"];
             if (j.contains("font_display") && j["font_display"].is_string()) Current.font_display = j["font_display"];
-            if (j.contains("session_view_x")) Current.session_view_x = j["session_view_x"];
-            if (j.contains("session_view_y")) Current.session_view_y = j["session_view_y"];
-            if (j.contains("match_summary_x")) Current.match_summary_x = j["match_summary_x"];
-            if (j.contains("match_summary_y")) Current.match_summary_y = j["match_summary_y"];
-            if (j.contains("overlay_fps_cap")) Current.overlay_fps_cap = j["overlay_fps_cap"];
-            if (j.contains("vsync")) Current.vsync = j["vsync"];
+            ReadField(j, "session_view_x", Current.session_view_x);
+            ReadField(j, "session_view_y", Current.session_view_y);
+            ReadField(j, "match_summary_x", Current.match_summary_x);
+            ReadField(j, "match_summary_y", Current.match_summary_y);
+            ReadField(j, "overlay_fps_cap", Current.overlay_fps_cap);
+            ReadField(j, "vsync", Current.vsync);
 
             // Theme colors
             if (j.contains("theme")) {
@@ -592,17 +629,18 @@ namespace Config {
 
             if (j.contains("dashboard_layout")) {
                 auto& jl = j["dashboard_layout"];
-                if (jl.contains("version")) Current.dashboard_layout.version = jl["version"];
-                if (jl.contains("left_column_weight")) Current.dashboard_layout.leftColumnWeight = jl["left_column_weight"];
+                ReadField(jl, "version", Current.dashboard_layout.version);
+                ReadField(jl, "left_column_weight", Current.dashboard_layout.leftColumnWeight);
                 if (jl.contains("widgets") && jl["widgets"].is_array()) {
                     Current.dashboard_layout.widgets.clear();
                     for (const auto& jw : jl["widgets"]) {
+                        if (!jw.is_object()) continue;
                         DashboardLayout::WidgetPlacement w;
-                        if (jw.contains("id")) w.id = DashboardLayout::WidgetIdFromConfigString(jw["id"]);
-                        if (jw.contains("zone")) w.zone = DashboardLayout::ZoneFromConfigString(jw["zone"]);
-                        if (jw.contains("order")) w.order = jw["order"];
-                        if (jw.contains("height")) w.height = jw["height"];
-                        if (jw.contains("collapsed")) w.collapsed = jw["collapsed"];
+                        if (jw.contains("id") && jw["id"].is_string()) w.id = DashboardLayout::WidgetIdFromConfigString(jw["id"].get<std::string>());
+                        if (jw.contains("zone") && jw["zone"].is_string()) w.zone = DashboardLayout::ZoneFromConfigString(jw["zone"].get<std::string>());
+                        ReadField(jw, "order", w.order);
+                        ReadField(jw, "height", w.height);
+                        ReadField(jw, "collapsed", w.collapsed);
                         Current.dashboard_layout.widgets.push_back(w);
                     }
                 }
