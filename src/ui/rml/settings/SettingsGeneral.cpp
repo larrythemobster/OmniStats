@@ -59,8 +59,10 @@ std::string RmlUiController::RenderSettingsGeneral() {
     }
     out << SectionEnd();
 
+    const std::string summaryHelp = "Displays the result and match statistics for " +
+                                    std::to_string(std::clamp(m_config.match_summary_seconds, 5, 60)) + " seconds.";
     out << SectionStart("Match Behavior")
-        << ToggleControl("show_match_summary", "Show post-match summary", "Displays the result and match statistics for 30 seconds.", m_config.show_match_summary)
+        << ToggleControl("show_match_summary", "Show post-match summary", summaryHelp, m_config.show_match_summary)
         << ToggleControl("show_running_indicator", "Show running indicator", "Small status badge while the transparent overlay is active.", m_config.show_running_indicator)
         << ToggleControl("reset_session_on_close", "Reset session when OmniStats closes", "", m_config.reset_session_on_close)
         << ToggleControl("show_session_recap_on_close", "Show a session recap afterwards", "Opens the recap card when a session with at least one game is reset.", m_config.show_session_recap_on_close, !m_config.reset_session_on_close)
