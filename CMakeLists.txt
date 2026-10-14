@@ -216,6 +216,7 @@ if(MSVC)
 
     # Target-specific linker options for MSVC
     target_link_options(${PROJECT_NAME} PRIVATE
+        "/MANIFESTINPUT:${CMAKE_CURRENT_SOURCE_DIR}/resources/app.manifest"
         $<$<CONFIG:Release>:/OPT:REF>     # Remove Unreferenced Functions/Data (Dead code elimination)
         $<$<CONFIG:Release>:/OPT:ICF>     # Merge Identical COMDATs (Identical template folding)
         $<$<CONFIG:Release>:/DEBUG>       # Generate PDB file
@@ -255,6 +256,7 @@ if(OMNISTATS_BUILD_UPDATER)
             $<$<CONFIG:Release>:/Zi>
         )
         target_link_options(OmniStatsUpdater PRIVATE
+            "/MANIFESTINPUT:${CMAKE_CURRENT_SOURCE_DIR}/resources/app.manifest"
             $<$<CONFIG:Release>:/OPT:REF>
             $<$<CONFIG:Release>:/OPT:ICF>
             $<$<CONFIG:Release>:/DEBUG>
@@ -322,6 +324,7 @@ if(BUILD_TESTING)
             $<$<CONFIG:Release>:/Zi>
         )
         target_link_options(OmniStatsTests PRIVATE
+            "/MANIFESTINPUT:${CMAKE_CURRENT_SOURCE_DIR}/resources/app.manifest"
             $<$<CONFIG:Release>:/OPT:REF>
             $<$<CONFIG:Release>:/OPT:ICF>
             $<$<CONFIG:Release>:/DEBUG>
