@@ -36,6 +36,7 @@
 #include "ui/rml/backend/RmlSystemInterfaceWin32.hpp"
 
 class DatabaseManager;
+struct DbMergeResult;
 class AccountManagerService;
 namespace Rml {
     class Context;
@@ -279,6 +280,7 @@ class RmlUiController final : public Rml::EventListener {
     void ClearBind(BindCaptureTarget target);
     void MoveDashboardWidget(DashboardLayout::WidgetId widget, DashboardLayout::Zone zone, int order = -1);
     void DeleteLocalHistory();
+    void FinishDatabaseMerge(const DbMergeResult& result);
     void CheckStatsApi(bool repair, bool showToast = true);
     // Runs `work` off the render thread; the returned callback runs on the render thread during Update().
     bool StartBackgroundTask(std::string startedToast, std::function<std::function<void()>(std::stop_token)> work);

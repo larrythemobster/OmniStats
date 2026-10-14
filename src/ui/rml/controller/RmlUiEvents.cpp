@@ -350,42 +350,10 @@ void RmlUiController::HandleClick(Rml::Element* target) {
         } else {
             const std::string selectedPath = PromptForDatabaseFile(m_hwnd);
             if (!selectedPath.empty()) {
-                const auto result = m_dbManager->MergeDatabase(selectedPath);
-                if (result.success) {
-                    if (result.matchesImported > 0) {
-                        ShowToast("Merged " + std::to_string(result.matchesImported) + " matches (" +
-                                  std::to_string(result.matchesSkipped) + " duplicates skipped).");
-                    } else {
-                        ShowToast("Merge complete: 0 new matches (" +
-                                  std::to_string(result.matchesSkipped) + " duplicates skipped).");
-                    }
-                    if (m_state) {
-                        {
-                            std::unique_lock lock(m_state->history.mutex);
-                            m_state->history.lifetimeMmrX.clear();
-                            m_state->history.lifetimeMmrY.clear();
-                            m_state->history.recentSavedMatches.clear();
-                            m_state->history.pendingRecentMatches.clear();
-                            m_state->history.recentSavedMatchesLoaded = false;
-                            m_state->history.version++;
-                        }
-                        {
-                            std::lock_guard lock(m_state->ui.dbStatsMutex);
-                            m_state->ui.cachedDbStats = {};
-                            m_state->ui.dbStatsDirty.store(true);
-                            m_state->ui.dbStatsVersion.fetch_add(1, std::memory_order_relaxed);
-                        }
-                    }
-                    m_lastDbFetchPrimaryId.clear();
-                    m_lastLifetimeHistoryPrimaryId.clear();
-                    m_lastRecentMatchHistoryPrimaryId.clear();
-                    m_detailedStatsSummaryRequested = false;
-                    RefreshAsyncData();
-                    RebuildSettings();
-                    RebuildVisibleUi(true);
-                } else {
-                    ShowToast("Merge failed: " + (result.error.empty() ? "unknown error." : result.error), true);
-                }
+                StartBackgroundTask("Merging database...", [this, db = m_dbManager, selectedPath](std::stop_token) -> std::function<void()> {
+                    auto result = db->MergeDatabase(selectedPath);
+                    return [this, result = std::move(result)] { FinishDatabaseMerge(result); };
+                });
             }
         }
     } else if (action == "delete-history") {

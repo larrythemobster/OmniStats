@@ -1320,6 +1320,43 @@ bool RmlUiController::EventChecked(Rml::Event& event, Rml::Element* target) cons
     return event.GetParameter<bool>("checked", target && target->HasAttribute("checked"));
 }
 
+void RmlUiController::FinishDatabaseMerge(const DbMergeResult& result) {
+    if (!result.success) {
+        ShowToast("Merge failed: " + (result.error.empty() ? std::string("unknown error.") : result.error), true);
+        return;
+    }
+    if (result.matchesImported > 0) {
+        ShowToast("Merged " + std::to_string(result.matchesImported) + " matches (" +
+                  std::to_string(result.matchesSkipped) + " duplicates skipped).");
+    } else {
+        ShowToast("Merge complete: 0 new matches (" + std::to_string(result.matchesSkipped) + " duplicates skipped).");
+    }
+    if (m_state) {
+        {
+            std::unique_lock lock(m_state->history.mutex);
+            m_state->history.lifetimeMmrX.clear();
+            m_state->history.lifetimeMmrY.clear();
+            m_state->history.recentSavedMatches.clear();
+            m_state->history.pendingRecentMatches.clear();
+            m_state->history.recentSavedMatchesLoaded = false;
+            m_state->history.version++;
+        }
+        {
+            std::lock_guard lock(m_state->ui.dbStatsMutex);
+            m_state->ui.cachedDbStats = {};
+            m_state->ui.dbStatsDirty.store(true);
+            m_state->ui.dbStatsVersion.fetch_add(1, std::memory_order_relaxed);
+        }
+    }
+    m_lastDbFetchPrimaryId.clear();
+    m_lastLifetimeHistoryPrimaryId.clear();
+    m_lastRecentMatchHistoryPrimaryId.clear();
+    m_detailedStatsSummaryRequested = false;
+    RefreshAsyncData();
+    RebuildSettings();
+    RebuildVisibleUi(true);
+}
+
 void RmlUiController::DeleteLocalHistory() {
     std::string error;
     if (!m_dbManager || !m_dbManager->DeleteLocalMatchHistory(error)) {
