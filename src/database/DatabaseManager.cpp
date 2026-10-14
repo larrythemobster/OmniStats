@@ -2216,8 +2216,9 @@ DbMergeResult DatabaseManager::MergeDatabase(const std::string& sourceDbPath) {
     }
     while (result.matchesImported > 0) {
         bool moreRemaining = false;
-        BackfillSessionsChunkLocked(500, moreRemaining);
-        if (!moreRemaining) break;
+        int linked = 0;
+        BackfillSessionsChunkLocked(500, moreRemaining, linked);
+        if (!moreRemaining || linked == 0) break;
     }
     result.success = true;
     return result;
@@ -3561,8 +3562,9 @@ bool DatabaseManager::RecomputeBackfillSessionLocked(sqlite3_int64 sessionId, co
     return ok;
 }
 
-int DatabaseManager::BackfillSessionsChunkLocked(int chunkSize, bool& outMoreRemaining) {
+int DatabaseManager::BackfillSessionsChunkLocked(int chunkSize, bool& outMoreRemaining, int& outLinked) {
     outMoreRemaining = false;
+    outLinked = 0;
     if (!m_db || !HasSessionsTableLocked()) return 0;
     if (chunkSize <= 0) chunkSize = 500;
 
@@ -3697,6 +3699,21 @@ int DatabaseManager::BackfillSessionsChunkLocked(int chunkSize, bool& outMoreRem
 
     sqlite3_stmt* setMatchSessionStmt = nullptr;
     sqlite3_prepare_v2(m_db, "UPDATE Matches SET session_id = ?1 WHERE id = ?2;", -1, &setMatchSessionStmt, nullptr);
+    bool linkFailed = setMatchSessionStmt == nullptr;
+    std::string linkError = linkFailed ? sqlite3_errmsg(m_db) : "";
+    int linked = 0;
+    const auto linkMatch = [&](sqlite3_int64 sessionId, sqlite3_int64 matchId) {
+        sqlite3_bind_int64(setMatchSessionStmt, 1, sessionId);
+        sqlite3_bind_int64(setMatchSessionStmt, 2, matchId);
+        if (sqlite3_step(setMatchSessionStmt) == SQLITE_DONE) {
+            ++linked;
+        } else if (!linkFailed) {
+            linkFailed = true;
+            linkError = sqlite3_errmsg(m_db);
+        }
+        sqlite3_reset(setMatchSessionStmt);
+        sqlite3_clear_bindings(setMatchSessionStmt);
+    };
 
     for (auto& um : chunk) {
         if (um.account.empty()) continue;
@@ -3711,11 +3728,7 @@ int DatabaseManager::BackfillSessionsChunkLocked(int chunkSize, bool& outMoreRem
             sqlite3_clear_bindings(liveOverlapStmt);
         }
         if (overlappingLiveId > 0 && setMatchSessionStmt) {
-            sqlite3_bind_int64(setMatchSessionStmt, 1, overlappingLiveId);
-            sqlite3_bind_int64(setMatchSessionStmt, 2, um.id);
-            (void)sqlite3_step(setMatchSessionStmt);
-            sqlite3_reset(setMatchSessionStmt);
-            sqlite3_clear_bindings(setMatchSessionStmt);
+            linkMatch(overlappingLiveId, um.id);
             continue;
         }
         byAccount[um.account].push_back(std::move(um));
@@ -3777,14 +3790,13 @@ int DatabaseManager::BackfillSessionsChunkLocked(int chunkSize, bool& outMoreRem
                 sqlite3_clear_bindings(insertSessStmt);
             }
 
-            if (targetSessionId <= 0 || !setMatchSessionStmt) continue;
-            for (size_t idx = slice.beginIndex; idx < slice.endIndex; ++idx) {
-                sqlite3_bind_int64(setMatchSessionStmt, 1, targetSessionId);
-                sqlite3_bind_int64(setMatchSessionStmt, 2, matches[idx].id);
-                (void)sqlite3_step(setMatchSessionStmt);
-                sqlite3_reset(setMatchSessionStmt);
-                sqlite3_clear_bindings(setMatchSessionStmt);
+            if (targetSessionId <= 0 || !setMatchSessionStmt) {
+                if (!linkFailed) linkError = "could not create a backfill session";
+                linkFailed = true;
+                continue;
             }
+            for (size_t idx = slice.beginIndex; idx < slice.endIndex; ++idx)
+                linkMatch(targetSessionId, matches[idx].id);
             (void)RecomputeBackfillSessionLocked(targetSessionId, account);
         }
     }
@@ -3793,10 +3805,18 @@ int DatabaseManager::BackfillSessionsChunkLocked(int chunkSize, bool& outMoreRem
     if (prevBackfillStmt) sqlite3_finalize(prevBackfillStmt);
     if (setMatchSessionStmt) sqlite3_finalize(setMatchSessionStmt);
 
-    if (sqlite3_exec(m_db, "COMMIT;", nullptr, nullptr, nullptr) != SQLITE_OK) {
+    // Keep a chunk all-or-nothing so a failing link never leaves empty backfill sessions behind.
+    if (linkFailed) {
+        std::cerr << "[Database] Session backfill could not link matches: " << linkError << '\n';
         sqlite3_exec(m_db, "ROLLBACK;", nullptr, nullptr, nullptr);
         return 0;
     }
+    if (sqlite3_exec(m_db, "COMMIT;", nullptr, nullptr, nullptr) != SQLITE_OK) {
+        std::cerr << "[Database] Session backfill commit failed: " << sqlite3_errmsg(m_db) << '\n';
+        sqlite3_exec(m_db, "ROLLBACK;", nullptr, nullptr, nullptr);
+        return 0;
+    }
+    outLinked = linked;
     return sessionsCreated;
 }
 
@@ -3804,13 +3824,12 @@ int DatabaseManager::BackfillSessions(int chunkSize) {
     int totalCreated = 0;
     while (true) {
         bool moreRemaining = false;
-        {
-            std::lock_guard<std::mutex> lock(m_dbMutex);
-            totalCreated += BackfillSessionsChunkLocked(chunkSize, moreRemaining);
-            if (!moreRemaining) {
-                m_backfillPending.store(false, std::memory_order_release);
-                break;
-            }
+        int linked = 0;
+        std::lock_guard<std::mutex> lock(m_dbMutex);
+        totalCreated += BackfillSessionsChunkLocked(chunkSize, moreRemaining, linked);
+        if (!moreRemaining || linked == 0) {
+            m_backfillPending.store(false, std::memory_order_release);
+            break;
         }
     }
     return totalCreated;

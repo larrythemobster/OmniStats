@@ -217,7 +217,7 @@ class DatabaseManager {
                                   int64_t& outEarliestMatchTs,
                                   int64_t& outLatestMatchTs);
     bool RecomputeBackfillSessionLocked(sqlite3_int64 sessionId, const std::string& account);
-    int BackfillSessionsChunkLocked(int chunkSize, bool& outMoreRemaining);
+    int BackfillSessionsChunkLocked(int chunkSize, bool& outMoreRemaining, int& outLinked);
     bool m_hasSessionsTable = false;
     std::atomic<bool> m_backfillPending{false};
     struct LiveSessionRecord {

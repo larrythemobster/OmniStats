@@ -1561,6 +1561,41 @@ TEST_F(DatabaseManagerTest, MigrationV2ToV3CreatesSessionsTableAndMatchSessionIn
     std::filesystem::remove(backupPath);
 }
 
+TEST_F(DatabaseManagerTest, BackfillStopsWhenLinkingFailsAndLeavesNoOrphanSessions) {
+    const std::string pid = "Steam|backfill-blocked";
+    for (int i = 0; i < 3; ++i) {
+        MatchSaveSnapshot snap;
+        snap.arenaName = "DFH Stadium";
+        snap.matchGuid = "bf-blocked-" + std::to_string(i);
+        snap.playlistId = 11;
+        snap.myTeam = 0;
+        snap.winnerTeam = 0;
+        snap.validResult = true;
+        snap.score[0] = 2;
+        snap.score[1] = 1;
+        snap.myPrimaryId = pid;
+        snap.endedAtUnixMs = (1'750'000'000LL + i * 600) * 1000;
+        snap.roster[pid] = PlayerData{.primaryId = pid, .name = "Hero", .team = 0};
+        snap.roster["Steam|opp"] = PlayerData{.primaryId = "Steam|opp", .name = "Opp", .team = 1};
+        dbManager->SaveMatch(snap);
+    }
+    sqlite3* db = dbManager->GetRawDb();
+    ASSERT_EQ(sqlite3_exec(db, "UPDATE Matches SET session_id = NULL; DELETE FROM Sessions;", nullptr, nullptr, nullptr), SQLITE_OK);
+    ASSERT_EQ(sqlite3_exec(db,
+                           "CREATE TEMP TRIGGER block_session_link BEFORE UPDATE OF session_id ON Matches "
+                           "BEGIN SELECT RAISE(ABORT, 'blocked'); END;",
+                           nullptr, nullptr, nullptr),
+              SQLITE_OK);
+
+    EXPECT_EQ(dbManager->BackfillSessions(2), 0);
+    EXPECT_EQ(QueryIntScalar(db, "SELECT COUNT(*) FROM Sessions;"), 0);
+    EXPECT_EQ(QueryIntScalar(db, "SELECT COUNT(*) FROM Matches WHERE session_id IS NULL;"), 3);
+
+    ASSERT_EQ(sqlite3_exec(db, "DROP TRIGGER block_session_link;", nullptr, nullptr, nullptr), SQLITE_OK);
+    EXPECT_EQ(dbManager->BackfillSessions(2), 1);
+    EXPECT_EQ(QueryIntScalar(db, "SELECT COUNT(*) FROM Matches WHERE session_id IS NULL;"), 0);
+}
+
 TEST_F(DatabaseManagerTest, BackfillMatchesComputeTrendsSittingCountAndIsIdempotent) {
     const std::string pid = "Steam|backfill-user";
     const int64_t t0 = 1'750'000'000;

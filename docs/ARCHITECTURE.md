@@ -53,6 +53,8 @@ Database startup checks existing foreign-key integrity before enabling enforceme
 
 Schema v7 indexes `Matches.match_guid` for duplicate checks, post-match MMR updates, replay lookups and session linking. The index is not unique; duplicate prevention stays in `SaveMatch` so upgrades never fail on older duplicate rows. Date-range filters still convert stored timestamps, because older rows use more than one text format.
 
+Session backfill commits each chunk only when every selected match was linked. A chunk that links nothing ends the run and logs the SQLite error, so a locked or read-only database cannot stall the database worker.
+
 ## Configuration and startup failures
 
 Config fields load independently. Wrong types, out-of-range numbers and non-finite values leave that field at its default without discarding valid settings or credentials. A malformed JSON document still follows the corrupt-file recovery path.
