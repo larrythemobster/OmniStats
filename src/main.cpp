@@ -296,7 +296,7 @@ int main(int argc, char* argv[]) {
         }
         int msgRes = MessageBoxW(NULL, text.c_str(), title.c_str(), MB_YESNO | MB_ICONWARNING | MB_SYSTEMMODAL);
         if (msgRes == IDYES) {
-            const bool repaired = ExternalUpdaterLauncher::RepairStatsApiConfig(apiPath, startupConf.port);
+            const bool repaired = ExternalUpdaterLauncher::RepairStatsApiConfig(apiPath, startupConf.port, std::stop_token{});
             if (repaired) {
                 checkRes = StatsApiConfig::VerifyConfig(apiPath, startupConf.port);
                 MessageBoxW(NULL, L"Rocket League Stats API configuration successfully updated!", title.c_str(), MB_OK | MB_ICONINFORMATION | MB_SYSTEMMODAL);

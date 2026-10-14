@@ -1,7 +1,12 @@
 #include "network/ExternalUpdaterLauncher.hpp"
+#include <windows.h>
+#include <chrono>
 #include <filesystem>
 #include <fstream>
 #include <gtest/gtest.h>
+#include <stop_token>
+#include <string>
+#include <thread>
 #include "core/config/AppVersion.hpp"
 #include "updater/UpdaterCommon.hpp"
 #include "utils/FileHash.hpp"
@@ -66,7 +71,7 @@ TEST(ExternalUpdaterLauncherTest, RepairStatsApiLaunchesUpdaterProcess) {
         file << "[StatsAPI]\r\nPacketSendRate=0\r\nPort=12345\r\n";
     }
 
-    bool ok = ExternalUpdaterLauncher::RepairStatsApiConfig(iniPath.string(), 49123);
+    bool ok = ExternalUpdaterLauncher::RepairStatsApiConfig(iniPath.string(), 49123, std::stop_token{});
     EXPECT_TRUE(ok);
 
     {
@@ -78,6 +83,43 @@ TEST(ExternalUpdaterLauncherTest, RepairStatsApiLaunchesUpdaterProcess) {
 
     std::error_code ec;
     std::filesystem::remove_all(tempDir, ec);
+}
+
+namespace {
+    PROCESS_INFORMATION StartChild(std::wstring commandLine) {
+        STARTUPINFOW si{sizeof(si)};
+        PROCESS_INFORMATION pi{};
+        if (!CreateProcessW(nullptr, commandLine.data(), nullptr, nullptr, FALSE, CREATE_NO_WINDOW, nullptr, nullptr, &si, &pi))
+            return {};
+        CloseHandle(pi.hThread);
+        return pi;
+    }
+}
+
+TEST(ExternalUpdaterLauncherTest, RepairWaitStopsOnRequestAndTimeoutWithoutBlocking) {
+    PROCESS_INFORMATION hung = StartChild(L"cmd.exe /c ping -n 30 127.0.0.1 >nul");
+    ASSERT_NE(hung.hProcess, nullptr);
+    std::stop_source stopSource;
+    unsigned long exitCode = 0;
+    const auto start = std::chrono::steady_clock::now();
+    std::jthread stopper([&] {
+        std::this_thread::sleep_for(std::chrono::milliseconds(300));
+        stopSource.request_stop();
+    });
+    EXPECT_FALSE(ExternalUpdaterLauncher::WaitForRepairProcess(hung.hProcess, stopSource.get_token(), 60'000, exitCode));
+    EXPECT_LT(std::chrono::steady_clock::now() - start, std::chrono::seconds(3));
+
+    const auto timeoutStart = std::chrono::steady_clock::now();
+    EXPECT_FALSE(ExternalUpdaterLauncher::WaitForRepairProcess(hung.hProcess, std::stop_token{}, 500, exitCode));
+    EXPECT_LT(std::chrono::steady_clock::now() - timeoutStart, std::chrono::seconds(3));
+    TerminateProcess(hung.hProcess, 1);
+    CloseHandle(hung.hProcess);
+
+    PROCESS_INFORMATION done = StartChild(L"cmd.exe /c exit 7");
+    ASSERT_NE(done.hProcess, nullptr);
+    EXPECT_TRUE(ExternalUpdaterLauncher::WaitForRepairProcess(done.hProcess, std::stop_token{}, 10'000, exitCode));
+    EXPECT_EQ(exitCode, 7u);
+    CloseHandle(done.hProcess);
 }
 
 TEST(UpdaterCommonTest, VerifyAuthenticodeSignatureRejectsNonExistentFile) {

@@ -279,6 +279,12 @@ class RmlUiControllerStateTest : public ::testing::Test {
     bool InsightsShowEndedSession(const RmlUiController& controller) const {
         return controller.m_insightsShowsEndedSession;
     }
+    void RunStatsApiCheck(RmlUiController& controller, bool repair) {
+        controller.CheckStatsApi(repair, false);
+    }
+    bool StatsApiRepairRunning(const RmlUiController& controller) const {
+        return controller.m_backgroundTaskRunning.load();
+    }
 
     ConfigData original;
 };
@@ -3080,4 +3086,39 @@ TEST_F(RmlUiControllerStateTest, PannedGraphUsesVisibleRatingsAndDisablesBoundar
     EXPECT_TRUE(older->HasAttribute("disabled"));
     Click(controller, older);
     EXPECT_EQ(state->ui.graphOffset.load(), 15);
+}
+
+TEST_F(RmlUiControllerStateTest, StatsApiRepairRunsOffRenderThreadAndPublishesResult) {
+    const std::filesystem::path dir = std::filesystem::temp_directory_path() / "OmniStatsRepairUiTest";
+    std::filesystem::create_directories(dir);
+    const std::filesystem::path ini = dir / "DefaultStatsAPI.ini";
+    {
+        std::ofstream file(ini, std::ios::binary);
+        file << "[StatsAPI]\r\nPacketSendRate=0\r\nPort=12345\r\n";
+    }
+    Config::Update([&](ConfigData& c) {
+        c.rocket_league_stats_api_config_path = ini.string();
+        c.port = 49123;
+    },
+                   true);
+    auto state = std::make_shared<SessionState>();
+    RmlUiController controller(state, nullptr);
+    controller.Update(Config::Read(), true);
+
+    RunStatsApiCheck(controller, true);
+    {
+        std::lock_guard lock(state->ui.statsApiMutex);
+        EXPECT_EQ(state->ui.statsApiResult.message.rfind("Repairing the Stats API config", 0), 0u);
+    }
+    for (int i = 0; i < 200 && StatsApiRepairRunning(controller); ++i)
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    ASSERT_FALSE(StatsApiRepairRunning(controller));
+    controller.Update(Config::Read(), false);
+    {
+        std::lock_guard lock(state->ui.statsApiMutex);
+        EXPECT_EQ(state->ui.statsApiResult.status, StatsApiConfig::Status::Valid);
+    }
+    EXPECT_TRUE(state->ui.statsApiChecked.load());
+    std::error_code ec;
+    std::filesystem::remove_all(dir, ec);
 }

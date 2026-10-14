@@ -4,18 +4,21 @@
 #include <RmlUi/Core/Types.h>
 #include <windows.h>
 #include <d3d11.h>
+#include <atomic>
 #include <cstdint>
 #include <chrono>
 #include <functional>
 #include <map>
 #include <limits>
 #include <memory>
+#include <mutex>
 #include <optional>
 #include <string>
 #include <string_view>
 #include <unordered_map>
 #include <vector>
 #include <span>
+#include <thread>
 
 #include "core/config/Config.hpp"
 #include "core/state/SessionState.hpp"
@@ -277,6 +280,9 @@ class RmlUiController final : public Rml::EventListener {
     void MoveDashboardWidget(DashboardLayout::WidgetId widget, DashboardLayout::Zone zone, int order = -1);
     void DeleteLocalHistory();
     void CheckStatsApi(bool repair, bool showToast = true);
+    // Runs `work` off the render thread; the returned callback runs on the render thread during Update().
+    bool StartBackgroundTask(std::string startedToast, std::function<std::function<void()>(std::stop_token)> work);
+    void PublishBackgroundTaskCompletion();
     void ShowToast(std::string message, bool error = false);
 
     static bool ValidateStatsApiPath(std::string input, std::string& normalized, std::string& error);
@@ -476,4 +482,10 @@ class RmlUiController final : public Rml::EventListener {
     float m_settingsX = 0.0f;
     float m_settingsY = 0.0f;
     int64_t m_nextUpdateCheckPollMs = 0;
+
+    std::mutex m_backgroundTaskMutex;
+    std::function<void()> m_backgroundTaskCompletion;
+    std::atomic<bool> m_backgroundTaskRunning{false};
+    // Declared last so it stops and joins before the members it writes are destroyed.
+    std::jthread m_backgroundTask;
 };

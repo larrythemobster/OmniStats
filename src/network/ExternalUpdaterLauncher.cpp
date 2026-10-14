@@ -230,7 +230,9 @@ namespace {
         return minimumInterval == 0 || lastSuccess == 0 || now - lastSuccess >= minimumInterval;
     }
 
-    bool RunStatsApiRepair(const std::string& filePath, int expectedPort) {
+    constexpr DWORD kStatsApiRepairTimeoutMs = 10 * 60 * 1000;
+
+    bool RunStatsApiRepair(const std::string& filePath, int expectedPort, std::stop_token stop) {
         if (filePath.empty()) {
             return false;
         }
@@ -242,16 +244,10 @@ namespace {
             return false;
         }
 
-        const DWORD waitResult = WaitForSingleObject(processHandle, INFINITE);
-        if (waitResult != WAIT_OBJECT_0) {
-            CloseHandle(processHandle);
-            return false;
-        }
-
-        DWORD exitCode = static_cast<DWORD>(-1);
-        const bool readExitCode = GetExitCodeProcess(processHandle, &exitCode) != FALSE;
+        unsigned long exitCode = static_cast<unsigned long>(-1);
+        const bool exited = ExternalUpdaterLauncher::WaitForRepairProcess(processHandle, stop, kStatsApiRepairTimeoutMs, exitCode);
         CloseHandle(processHandle);
-        return readExitCode && exitCode == 0;
+        return exited && exitCode == 0;
     }
 
     void JoinBackgroundThreads() {
@@ -380,8 +376,22 @@ namespace ExternalUpdaterLauncher {
         state->ui.appExitRequested.store(true);
     }
 
-    bool RepairStatsApiConfig(const std::string& filePath, int expectedPort) {
-        return RunStatsApiRepair(filePath, expectedPort);
+    bool RepairStatsApiConfig(const std::string& filePath, int expectedPort, std::stop_token stop) {
+        return RunStatsApiRepair(filePath, expectedPort, std::move(stop));
+    }
+
+    bool WaitForRepairProcess(void* processHandle, std::stop_token stop, unsigned long timeoutMs, unsigned long& exitCode) {
+        constexpr DWORD kPollMs = 250;
+        const ULONGLONG deadline = GetTickCount64() + timeoutMs;
+        while (true) {
+            const DWORD waitResult = WaitForSingleObject(processHandle, kPollMs);
+            if (waitResult == WAIT_OBJECT_0) break;
+            if (waitResult != WAIT_TIMEOUT || stop.stop_requested() || GetTickCount64() >= deadline) return false;
+        }
+        DWORD code = 0;
+        if (!GetExitCodeProcess(processHandle, &code)) return false;
+        exitCode = code;
+        return true;
     }
 
     void ShutdownBackgroundTasks() {

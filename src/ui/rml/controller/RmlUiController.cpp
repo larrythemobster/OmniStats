@@ -422,6 +422,7 @@ void RmlUiController::Update(const ConfigData& config, bool configChanged, uint6
         UpdateInputCapture();
     }
     if (scaleChanged) SetDpiScale(m_dpiScale);
+    PublishBackgroundTaskCompletion();
     if (themeChanged) {
         UpdateThemeProperties();
         RefreshThemeEditorControls();
@@ -1370,12 +1371,32 @@ void RmlUiController::CheckStatsApi(bool repair, bool showToast) {
         path = StatsApiConfig::DetectConfigPath();
         if (path.empty()) path = oldResult.path;
     }
-    bool repaired = true;
-    if (repair && !path.empty()) repaired = ExternalUpdaterLauncher::RepairStatsApiConfig(path, m_config.port);
-    auto result = StatsApiConfig::VerifyConfig(path, m_config.port);
-    if (repair && (!repaired || result.status != StatsApiConfig::Status::Valid)) {
-        result.message = "Automatic repair did not complete. If an elevation prompt appeared, approve it, or manually set PacketSendRate=30 and Port=" + std::to_string(m_config.port) + ".";
+    if (repair && !path.empty()) {
+        // The elevated updater can wait on a UAC prompt indefinitely, so it never runs on the render thread.
+        const bool started = StartBackgroundTask({}, [this, path, port = m_config.port, showToast](std::stop_token stop) -> std::function<void()> {
+            const bool repaired = ExternalUpdaterLauncher::RepairStatsApiConfig(path, port, stop);
+            auto result = StatsApiConfig::VerifyConfig(path, port);
+            if (!repaired || result.status != StatsApiConfig::Status::Valid) {
+                result.message = "Automatic repair did not complete. If an elevation prompt appeared, approve it, or manually set PacketSendRate=30 and Port=" + std::to_string(port) + ".";
+            }
+            return [this, result = std::move(result), showToast] {
+                {
+                    std::lock_guard lock(m_state->ui.statsApiMutex);
+                    m_state->ui.statsApiResult = result;
+                }
+                m_state->ui.statsApiChecked.store(true);
+                if (showToast) ShowToast(StatsApiConfig::GetStatusMessage(result.status), result.status != StatsApiConfig::Status::Valid);
+                if (m_state->ui.showMenu.load()) RebuildSettings();
+                if (m_onboardingVisible) RefreshOnboarding();
+            };
+        });
+        if (started) {
+            std::lock_guard lock(m_state->ui.statsApiMutex);
+            m_state->ui.statsApiResult.message = "Repairing the Stats API config. Approve the Windows prompt if it appears.";
+        }
+        return;
     }
+    auto result = StatsApiConfig::VerifyConfig(path, m_config.port);
     {
         std::lock_guard lock(m_state->ui.statsApiMutex);
         m_state->ui.statsApiResult = result;
@@ -1384,4 +1405,35 @@ void RmlUiController::CheckStatsApi(bool repair, bool showToast) {
     if (showToast) {
         ShowToast(StatsApiConfig::GetStatusMessage(result.status), result.status != StatsApiConfig::Status::Valid);
     }
+}
+
+bool RmlUiController::StartBackgroundTask(std::string startedToast, std::function<std::function<void()>(std::stop_token)> work) {
+    if (m_backgroundTaskRunning.load()) {
+        ShowToast("Another data task is still running. Try again when it finishes.");
+        return false;
+    }
+    if (m_backgroundTask.joinable()) m_backgroundTask.join();
+    m_backgroundTaskRunning.store(true);
+    m_backgroundTask = std::jthread([this, work = std::move(work)](std::stop_token stop) {
+        std::function<void()> completion = work(stop);
+        {
+            std::lock_guard lock(m_backgroundTaskMutex);
+            m_backgroundTaskCompletion = std::move(completion);
+        }
+        m_backgroundTaskRunning.store(false);
+    });
+    if (!startedToast.empty()) ShowToast(std::move(startedToast));
+    m_renderDirty = true;
+    return true;
+}
+
+void RmlUiController::PublishBackgroundTaskCompletion() {
+    std::function<void()> completion;
+    {
+        std::lock_guard lock(m_backgroundTaskMutex);
+        completion.swap(m_backgroundTaskCompletion);
+    }
+    if (!completion) return;
+    completion();
+    m_renderDirty = true;
 }
