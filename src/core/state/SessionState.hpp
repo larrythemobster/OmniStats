@@ -562,7 +562,7 @@ struct HistoryState {
 
     // Lifetime MMR history for graphing
     std::vector<float> lifetimeMmrY;
-    std::vector<float> lifetimeMmrX;
+    std::vector<int64_t> lifetimeMmrX;
     std::atomic<bool> showLifetimeGraph{false};
 
     // Recent saved match history for the previous-games dashboard card.

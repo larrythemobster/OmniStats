@@ -72,7 +72,8 @@ static void BM_QueryMmrHistory(benchmark::State& state) {
     }
     sqlite3_exec(db, "COMMIT TRANSACTION;", nullptr, nullptr, nullptr);
 
-    std::vector<float> outX, outY;
+    std::vector<int64_t> outX;
+    std::vector<float> outY;
     for (auto _ : state) {
         dbManager->GetLifetimeMmrHistory("user123", "2v2", outX, outY);
     }

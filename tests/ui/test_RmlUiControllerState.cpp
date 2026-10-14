@@ -679,7 +679,7 @@ TEST_F(RmlUiControllerStateTest, GraphCategoryChangeRefreshesLifetimeHistoryOnce
     state->ui.graphMmrCategory.store(MmrCategory::TwoVTwo);
     {
         std::unique_lock lock(state->history.mutex);
-        state->history.lifetimeMmrX = {1.0f};
+        state->history.lifetimeMmrX = {1};
         state->history.lifetimeMmrY = {1200.0f};
         state->history.version.fetch_add(1);
     }
@@ -917,7 +917,7 @@ TEST_F(RmlUiControllerStateTest, LifetimeGraphKeepsLatestTwentyFiveDottedMatches
         std::unique_lock lock(state->history.mutex);
         for (int mmr = 1200; mmr < 1250; ++mmr) {
             state->history.lifetimeMmrY.push_back(static_cast<float>(mmr));
-            state->history.lifetimeMmrX.push_back(static_cast<float>(mmr));
+            state->history.lifetimeMmrX.push_back(mmr);
         }
         state->history.version.fetch_add(1);
     }

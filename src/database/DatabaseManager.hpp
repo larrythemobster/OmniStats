@@ -98,7 +98,7 @@ class DatabaseManager {
     int BackfillSessions(int chunkSize = 500);
     std::vector<SessionRecap> ListSessions(const std::string& account, int offset = 0, int limit = 50);
     SessionRecap GetSession(int64_t id);
-    void GetLifetimeMmrHistory(const std::string& primaryId, const std::string& playlist, std::vector<float>& outX, std::vector<float>& outY);
+    void GetLifetimeMmrHistory(const std::string& primaryId, const std::string& playlist, std::vector<int64_t>& outX, std::vector<float>& outY);
     void AsyncGetLifetimeMmrHistory(const std::string& primaryId, const std::string& playlist);
     void GetRecentMatchHistory(const std::string& primaryId, std::vector<SessionMatchSummary>& outMatches, int limit = kPreviousGamesDefaultLimit);
     void AsyncGetRecentMatchHistory(const std::string& primaryId, int limit = kPreviousGamesDefaultLimit);

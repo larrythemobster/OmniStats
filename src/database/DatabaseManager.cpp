@@ -1093,7 +1093,7 @@ void DatabaseManager::AsyncUpdateMatchPlayerMmr(std::string matchGuid, std::stri
                        DbJobPriority::Critical);
 }
 
-void DatabaseManager::GetLifetimeMmrHistory(const std::string& primaryId, const std::string& playlist, std::vector<float>& outX, std::vector<float>& outY) {
+void DatabaseManager::GetLifetimeMmrHistory(const std::string& primaryId, const std::string& playlist, std::vector<int64_t>& outX, std::vector<float>& outY) {
     std::lock_guard<std::mutex> lock(m_dbMutex);
     if (!m_db) return;
 
@@ -1137,7 +1137,7 @@ void DatabaseManager::GetLifetimeMmrHistory(const std::string& primaryId, const 
     }
 
     while (sqlite3_step(stmt) == SQLITE_ROW) {
-        float epoch = (float)sqlite3_column_double(stmt, 0);
+        const int64_t epoch = sqlite3_column_int64(stmt, 0);
         float mmr = (float)sqlite3_column_int(stmt, 1);
         outX.push_back(epoch);
         outY.push_back(mmr);
@@ -2776,7 +2776,8 @@ void DatabaseManager::AsyncGetLifetimeMmrHistory(const std::string& primaryId, c
     }
     s_test_async_get_lifetime_calls.fetch_add(1);
     (void)EnqueueDbJob([this, pid, pl]() {
-        std::vector<float> tempX, tempY;
+        std::vector<int64_t> tempX;
+        std::vector<float> tempY;
         GetLifetimeMmrHistory(pid, pl, tempX, tempY);
         if (m_state) {
             std::unique_lock<std::shared_mutex> lock(m_state->history.mutex);

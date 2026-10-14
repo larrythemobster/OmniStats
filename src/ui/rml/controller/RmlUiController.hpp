@@ -69,7 +69,7 @@ struct RmlRenderSnapshot {
     std::map<std::string, int> playlistInitialMmr;
     std::map<std::string, std::vector<float>> playlistHistoryY;
     std::map<std::string, std::vector<bool>> playlistHistoryEstimated;
-    std::vector<float> lifetimeMmrX;
+    std::vector<int64_t> lifetimeMmrX;
     std::vector<float> lifetimeMmrY;
     std::vector<SessionMatchSummary> recentSavedMatches;
     bool recentSavedMatchesLoaded = false;
@@ -220,7 +220,7 @@ class RmlUiController final : public Rml::EventListener {
     struct GraphSeriesData {
         std::string playlist;
         std::span<const float> ratings;
-        std::span<const float> times;
+        std::span<const int64_t> times;
         const std::vector<bool>* estimated = nullptr;
         float baseline = -1.0f;
     };

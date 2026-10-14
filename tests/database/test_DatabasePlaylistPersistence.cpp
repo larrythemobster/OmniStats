@@ -160,11 +160,29 @@ TEST_F(DatabasePlaylistPersistenceTest, HeatseekerLifetimeHistoryFiltersInsteadO
     AddPlayer(heatseeker, "Steam|heat-other", 1, 1000);
     db->SaveMatch(heatseeker);
 
-    std::vector<float> x;
+    std::vector<int64_t> x;
     std::vector<float> y;
     db->GetLifetimeMmrHistory(primaryId, "heatseeker", x, y);
     ASSERT_EQ(y.size(), 1u);
     EXPECT_FLOAT_EQ(y[0], 1200.0f);
+}
+
+TEST_F(DatabasePlaylistPersistenceTest, LifetimeHistoryKeepsExactMatchTimes) {
+    const std::string primaryId = "Steam|lifetime-times";
+    for (int i = 0; i < 2; ++i) {
+        auto snap = MakeSnapshot("lifetime-time-guid-" + std::to_string(i), primaryId, 11, 4);
+        snap.endedAtUnixMs = 1'800'000'000'000LL + i * 30'000LL;
+        AddPlayer(snap, primaryId, 0, 1000 + i, {{"2v2", 1000 + i}});
+        AddPlayer(snap, "Steam|lifetime-other", 1, 1000);
+        db->SaveMatch(snap);
+    }
+
+    std::vector<int64_t> x;
+    std::vector<float> y;
+    db->GetLifetimeMmrHistory(primaryId, "2v2", x, y);
+    ASSERT_EQ(x.size(), 2u);
+    EXPECT_EQ(x[0], 1'800'000'000LL);
+    EXPECT_EQ(x[1], 1'800'000'030LL);
 }
 
 TEST(DatabasePlaylistMigrationTest, AddsPlaylistIdWithoutBreakingLegacyRows) {
@@ -271,7 +289,7 @@ TEST_F(DatabasePlaylistPersistenceTest, EstimatedPostMatchMmrIsLabeledAndExclude
     EXPECT_EQ(recent[0].mmr, 1209);
     EXPECT_TRUE(recent[0].mmrEstimated);
 
-    std::vector<float> x;
+    std::vector<int64_t> x;
     std::vector<float> y;
     db->GetLifetimeMmrHistory(primaryId, "2v2", x, y);
     EXPECT_TRUE(y.empty());
