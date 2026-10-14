@@ -40,7 +40,7 @@ Required startup diagnostics are sent only after the user accepts the in-app pri
 
 The following features are optional:
 
-- Tracker Network rank lookup;
+- OmniStats and Tracker Network rank lookup;
 - Discord Rich Presence;
 - Ballchasing replay uploads;
 - update checks; and

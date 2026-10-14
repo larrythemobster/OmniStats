@@ -30,7 +30,7 @@
 | **Game link** | Loopback TCP (Asio) | Connects to Rocket League's built-in Stats API on `127.0.0.1:49123`. Zero DLL injection, zero game memory reads. |
 | **Renderer** | Direct3D 11 + RmlUi | Hardware-accelerated HTML/CSS-style DOM. Live telemetry updates text nodes directly via data bindings without rebuilding widgets. |
 | **Storage** | SQLite 3 (WAL mode) | Local persistence for matches, player stats, notes, and tracked accounts. Uses versioned schema migrations. |
-| **Rank lookup** | Device auth + PsyNet / Tracker | Signed client requests via Ed25519 device keypair (libsodium), protected with Windows DPAPI. Optional Tracker Network support. |
+| **Rank lookup** | OmniStats API + Tracker Network | Device sign-in proves possession of an Ed25519 device key (libsodium); rank requests then carry the access token, or an API key. Secrets are protected with Windows DPAPI. Optional Tracker Network support. |
 | **Packaging** | WiX Toolset v4 (MSI) | Authenticode-signed installer. The updater validates SHA-256 checksums over HTTPS before staging updates. |
 | **Test suite** | GoogleTest | Unit and integration tests, including offscreen headless UI tests rendered through DirectX 11 WARP. |
 
