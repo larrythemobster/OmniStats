@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <thread>
 #include <atomic>
+#include <cstring>
 #include <cmath>
 #include <limits>
 #include <stdexcept>
@@ -62,7 +63,7 @@ struct CryptResult {
 struct DecryptResult {
     bool success = false;
     std::string value;
-    bool isLegacyPlaintext = false;
+    bool needsReencryption = false;
     DWORD errorCode = 0;
 };
 
@@ -113,12 +114,6 @@ static CryptResult EncryptSecret(const std::string& plainText) {
 
     DATA_BLOB outputBlob;
     if (CryptProtectData(&inputBlob, L"OmniStats Token", nullptr, nullptr, nullptr,
-                         CRYPTPROTECT_UI_FORBIDDEN | CRYPTPROTECT_LOCAL_MACHINE, &outputBlob)) {
-        std::string encryptedBytes((char*)outputBlob.pbData, outputBlob.cbData);
-        LocalFree(outputBlob.pbData);
-        return {true, StringToHex(encryptedBytes), 0};
-    }
-    if (CryptProtectData(&inputBlob, L"OmniStats Token", nullptr, nullptr, nullptr,
                          CRYPTPROTECT_UI_FORBIDDEN, &outputBlob)) {
         std::string encryptedBytes((char*)outputBlob.pbData, outputBlob.cbData);
         LocalFree(outputBlob.pbData);
@@ -154,7 +149,10 @@ static DecryptResult DecryptSecret(const std::string& raw) {
             if (CryptUnprotectData(&inputBlob, nullptr, nullptr, nullptr, nullptr, CRYPTPROTECT_UI_FORBIDDEN, &outputBlob)) {
                 std::string decryptedBytes((char*)outputBlob.pbData, outputBlob.cbData);
                 LocalFree(outputBlob.pbData);
-                return {true, decryptedBytes, false, 0};
+                DWORD flags = 0;
+                // DPAPI stores protection flags after the master-key version and GUID.
+                if (cipherBytes.size() >= 44) std::memcpy(&flags, cipherBytes.data() + 40, sizeof(flags));
+                return {true, decryptedBytes, (flags & CRYPTPROTECT_LOCAL_MACHINE) != 0, 0};
             }
             const DWORD err = GetLastError();
             if (HasDpapiSignature(cipherBytes)) {
@@ -471,8 +469,14 @@ namespace Config {
                     const auto dec = DecryptSecret(raw);
                     if (dec.success) {
                         target = dec.value;
-                        if (dec.isLegacyPlaintext) {
+                        if (dec.needsReencryption) {
                             needsLegacyMigration = true;
+                            s_encryptedPlaintexts.erase(fieldName);
+                            if (HasDpapiSignature(HexToString(raw))) {
+                                s_savedCiphertexts[fieldName] = raw;
+                            } else {
+                                s_savedCiphertexts.erase(fieldName);
+                            }
                         } else {
                             s_savedCiphertexts[fieldName] = raw;
                             s_encryptedPlaintexts[fieldName] = dec.value;
@@ -723,7 +727,9 @@ namespace Config {
             if (needsLegacyMigration) {
                 bool migrationOk = true;
                 const auto checkMigration = [&](const std::string& fieldName, const std::string& plainVal) {
-                    if (!plainVal.empty() && s_savedCiphertexts.find(fieldName) == s_savedCiphertexts.end()) {
+                    if (!plainVal.empty() &&
+                        (s_encryptedPlaintexts.find(fieldName) == s_encryptedPlaintexts.end() ||
+                         s_encryptedPlaintexts[fieldName] != plainVal)) {
                         const auto enc = EncryptSecret(plainVal);
                         if (enc.success) {
                             s_savedCiphertexts[fieldName] = enc.value;

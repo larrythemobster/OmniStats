@@ -5,6 +5,10 @@
 #include <filesystem>
 #include <fstream>
 #include <nlohmann/json.hpp>
+#include <wincrypt.h>
+#include <iomanip>
+#include <sstream>
+#include <cstring>
 
 class ConfigSecurityTest : public ::testing::Test {
   protected:
@@ -169,4 +173,35 @@ TEST_F(ConfigSecurityTest, CorruptedCiphertextPreservesDiskValueWithoutCorruptin
     const auto afterJson = nlohmann::json::parse(raw);
     EXPECT_EQ(afterJson.value("custom_api_key", ""), corruptedCipherHex);
     EXPECT_EQ(afterJson.value("port", 0), 33333);
+}
+
+TEST_F(ConfigSecurityTest, MachineScopedCredentialsMigrateWithoutLosingTheSecret) {
+    const std::string secret = "synthetic_machine_scope_migration";
+    DATA_BLOB input{static_cast<DWORD>(secret.size()),
+                    reinterpret_cast<BYTE*>(const_cast<char*>(secret.data()))};
+    DATA_BLOB output{};
+    ASSERT_TRUE(CryptProtectData(&input, L"OmniStats Token", nullptr, nullptr, nullptr,
+                                 CRYPTPROTECT_UI_FORBIDDEN | CRYPTPROTECT_LOCAL_MACHINE, &output));
+    std::ostringstream hex;
+    hex << std::hex << std::setfill('0');
+    for (DWORD i = 0; i < output.cbData; ++i)
+        hex << std::setw(2) << static_cast<unsigned>(output.pbData[i]);
+    LocalFree(output.pbData);
+    WriteRawConfigFile(nlohmann::json{{"custom_api_key", hex.str()}}.dump());
+
+    Config::Load();
+    EXPECT_EQ(Config::Read().custom_api_key, secret);
+    const auto stored = nlohmann::json::parse(ReadRawConfigFile()).at("custom_api_key").get<std::string>();
+    ASSERT_GE(stored.size(), 88u);
+    std::string bytes;
+    for (size_t i = 0; i < stored.size(); i += 2)
+        bytes.push_back(static_cast<char>(std::stoul(stored.substr(i, 2), nullptr, 16)));
+    DWORD flags = 0;
+    std::memcpy(&flags, bytes.data() + 40, sizeof(flags));
+    EXPECT_EQ(flags & CRYPTPROTECT_LOCAL_MACHINE, 0u);
+    DATA_BLOB encrypted{static_cast<DWORD>(bytes.size()), reinterpret_cast<BYTE*>(bytes.data())};
+    ASSERT_TRUE(CryptUnprotectData(&encrypted, nullptr, nullptr, nullptr, nullptr,
+                                   CRYPTPROTECT_UI_FORBIDDEN, &output));
+    EXPECT_EQ(std::string(reinterpret_cast<char*>(output.pbData), output.cbData), secret);
+    LocalFree(output.pbData);
 }
