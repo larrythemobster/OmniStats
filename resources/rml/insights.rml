@@ -22,9 +22,9 @@
 
             <div class="view-body" data-if="tab == 'recap'">
                 <div class="row gap-sm recap-stepper" data-if="recap_can_step">
-                    <button class="ghost compact" data-action="recap-prev-session" data-attr-disabled="!recap_can_prev">&#x2039;</button>
+                    <button class="ghost compact" data-action="recap-prev-session" data-attrif-disabled="!recap_can_prev">&#x2039;</button>
                     <div class="label mono">{{recap_step_label}}</div>
-                    <button class="ghost compact" data-action="recap-next-session" data-attr-disabled="!recap_can_next">&#x203A;</button>
+                    <button class="ghost compact" data-action="recap-next-session" data-attrif-disabled="!recap_can_next">&#x203A;</button>
                     <div class="label grow">{{recap_title}}</div>
                 </div>
                 <div id="recap-card" class="recap-card">

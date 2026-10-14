@@ -2295,6 +2295,25 @@ TEST_F(RmlUiControllerStateTest, SessionsTabRendersRowsOpensArchivedRecapAndComp
     Click(controller, nextBtns.front());
     controller.Render();
     EXPECT_NE(card->GetInnerRML().find("-12"), std::string::npos);
+    Rml::Element* stepLabel = doc->QuerySelector(".recap-stepper .label.mono");
+    ASSERT_NE(stepLabel, nullptr);
+    EXPECT_EQ(stepLabel->GetInnerRML(), "3 / 8");
+
+    Rml::ElementList prevBtns;
+    doc->QuerySelectorAll(prevBtns, "[data-action='recap-prev-session']");
+    ASSERT_EQ(prevBtns.size(), 1u);
+    EXPECT_FALSE(prevBtns.front()->HasAttribute("disabled"));
+    Click(controller, prevBtns.front());
+    controller.Render();
+    EXPECT_EQ(stepLabel->GetInnerRML(), "2 / 8");
+
+    for (int i = 0; i < 10; ++i) {
+        Click(controller, nextBtns.front());
+        controller.Render();
+    }
+    EXPECT_EQ(stepLabel->GetInnerRML(), "8 / 8");
+    EXPECT_TRUE(nextBtns.front()->HasAttribute("disabled"));
+    EXPECT_FALSE(prevBtns.front()->HasAttribute("disabled"));
 }
 
 TEST_F(RmlUiControllerStateTest, HistoryViewOpensClosesIgnoresStaleResponsesAndOpensDetail) {
