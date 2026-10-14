@@ -31,9 +31,9 @@ bool D3D11Device::Create(HWND hwnd) {
     HRESULT hr = D3D11CreateDeviceAndSwapChain(
         nullptr, D3D_DRIVER_TYPE_HARDWARE, nullptr, createDeviceFlags,
         featureLevelArray, 2, D3D11_SDK_VERSION, &sd,
-        &m_swapChain, &m_device, &featureLevel, &m_context);
+        m_swapChain.ReleaseAndGetAddressOf(), m_device.ReleaseAndGetAddressOf(), &featureLevel, m_context.ReleaseAndGetAddressOf());
     if (FAILED(hr)) {
-        std::cout << "[D3D11] Failed to create device and swap chain.\n";
+        std::cout << "[D3D11] Failed to create device and swap chain: 0x" << std::hex << hr << std::dec << "\n";
         return false;
     }
 
@@ -47,37 +47,27 @@ bool D3D11Device::Create(HWND hwnd) {
 
 void D3D11Device::Shutdown() {
     CleanupRenderTarget();
-    if (m_swapChain) {
-        m_swapChain->Release();
-        m_swapChain = nullptr;
-    }
-    if (m_context) {
-        m_context->Release();
-        m_context = nullptr;
-    }
-    if (m_device) {
-        m_device->Release();
-        m_device = nullptr;
-    }
+    m_swapChain.Reset();
+    m_context.Reset();
+    m_device.Reset();
     m_width = 0;
     m_height = 0;
 }
 
 bool D3D11Device::CreateRenderTarget() {
     if (!m_swapChain || !m_device) return false;
-    ID3D11Texture2D* pBackBuffer = nullptr;
-    HRESULT hr = m_swapChain->GetBuffer(0, IID_PPV_ARGS(&pBackBuffer));
+    Microsoft::WRL::ComPtr<ID3D11Texture2D> backBuffer;
+    HRESULT hr = m_swapChain->GetBuffer(0, IID_PPV_ARGS(backBuffer.GetAddressOf()));
     if (FAILED(hr)) {
         std::cout << "[D3D11] Failed to get swapchain back buffer: 0x" << std::hex << hr << std::dec << "\n";
         return false;
     }
     D3D11_TEXTURE2D_DESC desc;
-    pBackBuffer->GetDesc(&desc);
+    backBuffer->GetDesc(&desc);
     m_width = static_cast<int>(desc.Width);
     m_height = static_cast<int>(desc.Height);
 
-    hr = m_device->CreateRenderTargetView(pBackBuffer, nullptr, &m_renderTargetView);
-    pBackBuffer->Release();
+    hr = m_device->CreateRenderTargetView(backBuffer.Get(), nullptr, m_renderTargetView.ReleaseAndGetAddressOf());
     if (FAILED(hr)) {
         std::cout << "[D3D11] Failed to create render target view: 0x" << std::hex << hr << std::dec << "\n";
         return false;
@@ -90,10 +80,7 @@ void D3D11Device::CleanupRenderTarget() {
         m_context->OMSetRenderTargets(0, nullptr, nullptr);
     }
 
-    if (m_renderTargetView) {
-        m_renderTargetView->Release();
-        m_renderTargetView = nullptr;
-    }
+    m_renderTargetView.Reset();
 
     if (m_context) {
         m_context->ClearState();

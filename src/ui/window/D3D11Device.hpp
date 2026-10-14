@@ -1,6 +1,7 @@
 #pragma once
 #include <d3d11.h>
 #include <windows.h>
+#include <wrl/client.h>
 
 class D3D11Device {
   public:
@@ -12,27 +13,27 @@ class D3D11Device {
     D3D11Device(const D3D11Device&) = delete;
     D3D11Device& operator=(const D3D11Device&) = delete;
 
-    bool Create(HWND hwnd);
+    [[nodiscard]] bool Create(HWND hwnd);
     void Shutdown();
 
-    bool CreateRenderTarget();
+    [[nodiscard]] bool CreateRenderTarget();
     void CleanupRenderTarget();
     HRESULT ResizeBuffers(int width, int height);
 
     ID3D11Device* Device() const {
-        return m_device;
+        return m_device.Get();
     }
     ID3D11DeviceContext* Context() const {
-        return m_context;
+        return m_context.Get();
     }
     IDXGISwapChain* SwapChain() const {
-        return m_swapChain;
+        return m_swapChain.Get();
     }
     ID3D11RenderTargetView* RenderTargetView() const {
-        return m_renderTargetView;
+        return m_renderTargetView.Get();
     }
     ID3D11RenderTargetView* const* RenderTargetViewAddress() const {
-        return &m_renderTargetView;
+        return m_renderTargetView.GetAddressOf();
     }
     int Width() const {
         return m_width;
@@ -42,10 +43,10 @@ class D3D11Device {
     }
 
   private:
-    ID3D11Device* m_device = nullptr;
-    ID3D11DeviceContext* m_context = nullptr;
-    IDXGISwapChain* m_swapChain = nullptr;
-    ID3D11RenderTargetView* m_renderTargetView = nullptr;
+    Microsoft::WRL::ComPtr<ID3D11Device> m_device;
+    Microsoft::WRL::ComPtr<ID3D11DeviceContext> m_context;
+    Microsoft::WRL::ComPtr<IDXGISwapChain> m_swapChain;
+    Microsoft::WRL::ComPtr<ID3D11RenderTargetView> m_renderTargetView;
     int m_width = 0;
     int m_height = 0;
 };

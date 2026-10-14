@@ -1,6 +1,7 @@
 #include "ui/rml/controller/RmlUiHelpers.hpp"
 #include <shobjidl.h>
 #include <commdlg.h>
+#include <wrl/client.h>
 
 #include <RmlUi/Core.h>
 #include <RmlUi/Core/Context.h>
@@ -49,8 +50,8 @@ namespace RmlUiDetail {
         HRESULT hr = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
         const bool mustUninit = (hr == S_OK || hr == S_FALSE);
 
-        IFileOpenDialog* fileOpen = nullptr;
-        hr = CoCreateInstance(CLSID_FileOpenDialog, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&fileOpen));
+        Microsoft::WRL::ComPtr<IFileOpenDialog> fileOpen;
+        hr = CoCreateInstance(CLSID_FileOpenDialog, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(fileOpen.GetAddressOf()));
         if (SUCCEEDED(hr) && fileOpen) {
             COMDLG_FILTERSPEC filters[] = {
                 {L"SQLite Database (*.db)", L"*.db"},
@@ -66,8 +67,8 @@ namespace RmlUiDetail {
 
             hr = fileOpen->Show(parentHwnd);
             if (SUCCEEDED(hr)) {
-                IShellItem* item = nullptr;
-                if (SUCCEEDED(fileOpen->GetResult(&item)) && item) {
+                Microsoft::WRL::ComPtr<IShellItem> item;
+                if (SUCCEEDED(fileOpen->GetResult(item.GetAddressOf())) && item) {
                     PWSTR filePath = nullptr;
                     if (SUCCEEDED(item->GetDisplayName(SIGDN_FILESYSPATH, &filePath)) && filePath) {
                         int len = WideCharToMultiByte(CP_UTF8, 0, filePath, -1, nullptr, 0, nullptr, nullptr);
@@ -77,10 +78,9 @@ namespace RmlUiDetail {
                         }
                         CoTaskMemFree(filePath);
                     }
-                    item->Release();
                 }
             }
-            fileOpen->Release();
+            fileOpen.Reset();
         } else {
             wchar_t szFile[MAX_PATH] = {0};
             OPENFILENAMEW ofn{};

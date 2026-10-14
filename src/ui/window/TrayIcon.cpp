@@ -3,6 +3,8 @@
 #include <shellapi.h>
 #include <gdiplus.h>
 #include <objbase.h>
+#include <wrl/client.h>
+#include <memory>
 #include <iostream>
 #include "utils/Storage.hpp"
 #include <fstream>
@@ -134,45 +136,44 @@ HICON TrayIcon::LoadIconFromPNG(bool& owned) {
     }
 
     HGLOBAL hGlobal = GlobalAlloc(GMEM_MOVEABLE, dataSize);
-    void* pGlobal = GlobalLock(hGlobal);
+    void* pGlobal = hGlobal ? GlobalLock(hGlobal) : nullptr;
+    if (!pGlobal) {
+        if (hGlobal) GlobalFree(hGlobal);
+        Gdiplus::GdiplusShutdown(m_gdiplusToken);
+        m_gdiplusToken = 0;
+        return LoadIcon(NULL, IDI_APPLICATION);
+    }
     memcpy(pGlobal, pData, dataSize);
     GlobalUnlock(hGlobal);
 
-    IStream* pStream = nullptr;
-    CreateStreamOnHGlobal(hGlobal, TRUE, &pStream);
-    if (!pStream) {
+    Microsoft::WRL::ComPtr<IStream> stream;
+    if (FAILED(CreateStreamOnHGlobal(hGlobal, TRUE, stream.GetAddressOf())) || !stream) {
         GlobalFree(hGlobal);
         Gdiplus::GdiplusShutdown(m_gdiplusToken);
         m_gdiplusToken = 0;
         return LoadIcon(NULL, IDI_APPLICATION);
     }
 
-    Gdiplus::Bitmap* bmp = Gdiplus::Bitmap::FromStream(pStream);
-    if (!bmp || bmp->GetLastStatus() != Gdiplus::Ok) {
-        delete bmp;
-        pStream->Release();
-        std::cout << "[Tray] Failed to decode embedded Logo.png\n";
-        Gdiplus::GdiplusShutdown(m_gdiplusToken);
-        m_gdiplusToken = 0;
-        return LoadIcon(NULL, IDI_APPLICATION);
-    }
-
-    Gdiplus::Bitmap* resized = new Gdiplus::Bitmap(32, 32, PixelFormat32bppARGB);
-    {
-        Gdiplus::Graphics g(resized);
-        g.SetInterpolationMode(Gdiplus::InterpolationModeHighQualityBicubic);
-        g.DrawImage(bmp, 0, 0, 32, 32);
-    }
-
     HICON hIcon = nullptr;
-    resized->GetHICON(&hIcon);
-    delete resized;
-    delete bmp;
-    pStream->Release();
+    {
+        std::unique_ptr<Gdiplus::Bitmap> bmp(Gdiplus::Bitmap::FromStream(stream.Get()));
+        if (!bmp || bmp->GetLastStatus() != Gdiplus::Ok) {
+            std::cout << "[Tray] Failed to decode embedded Logo.png\n";
+        } else {
+            Gdiplus::Bitmap resized(32, 32, PixelFormat32bppARGB);
+            {
+                Gdiplus::Graphics g(&resized);
+                g.SetInterpolationMode(Gdiplus::InterpolationModeHighQualityBicubic);
+                g.DrawImage(bmp.get(), 0, 0, 32, 32);
+            }
+            resized.GetHICON(&hIcon);
+        }
+    }
+    stream.Reset();
     Gdiplus::GdiplusShutdown(m_gdiplusToken);
     m_gdiplusToken = 0;
     owned = hIcon != nullptr;
-    return hIcon;
+    return hIcon ? hIcon : LoadIcon(NULL, IDI_APPLICATION);
 }
 
 void TrayIcon::AddIcon(HWND hwnd) {
