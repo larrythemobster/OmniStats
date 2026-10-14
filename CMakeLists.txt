@@ -343,7 +343,7 @@ if(BUILD_TESTING)
             OMNISTATS_VERSION="${OMNISTATS_VERSION}"
         )
         target_link_libraries(OmniStatsBenchmarks PRIVATE
-            benchmark::benchmark
+            benchmark::benchmark_main
             nlohmann_json::nlohmann_json
             RmlUi::RmlUi
             CURL::libcurl
