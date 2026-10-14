@@ -448,15 +448,17 @@ void TelemetryReducer::HandleUpdateState(const nlohmann::json& data, SideEffects
                 if (p.contains("Boost") && p["Boost"].is_number_integer()) {
                     int currentBoost = p["Boost"].get<int>();
                     if (!gameReplayActive && m_roundActive) {
-                        if (m_lastPlayerBoost.count(pid)) {
-                            int lastBoost = m_lastPlayerBoost[pid];
-                            if (currentBoost > lastBoost) {
-                                int diff = currentBoost - lastBoost;
-                                if (currentBoost != 33) {
-                                    m_state->game.currentMatch.boostPickedUp += diff;
-                                    if (pid == m_state->game.myPrimaryId) {
-                                        m_state->game.currentMatch.boostPickedUpSelf += diff;
-                                    }
+                        const auto previous = m_lastPlayerBoost.find(pid);
+                        if (previous != m_lastPlayerBoost.end()) {
+                            const int lastBoost = previous->second;
+                            const bool respawning = m_boostRespawnPending.count(pid) != 0;
+                            if (respawning && currentBoost > 0 && currentBoost != lastBoost) {
+                                m_boostRespawnPending.erase(pid);
+                            } else if (!respawning && currentBoost > lastBoost) {
+                                const int diff = currentBoost - lastBoost;
+                                m_state->game.currentMatch.boostPickedUp += diff;
+                                if (pid == m_state->game.myPrimaryId) {
+                                    m_state->game.currentMatch.boostPickedUpSelf += diff;
                                 }
                             }
                         }
@@ -770,6 +772,7 @@ void TelemetryReducer::HandleUpdateState(const nlohmann::json& data, SideEffects
                 std::cout << "[StatsClient] Removing player who left: " << PrivacyLog::Sensitive(it->second.name, "player name") << " (" << PrivacyLog::Sensitive(pid, "player ID") << ")\n";
                 m_state->game.matchRoster[pid] = it->second;
                 m_lastPlayerBoost.erase(pid);
+                m_boostRespawnPending.erase(pid);
                 m_lastPlayerSeen.erase(pid);
                 it = m_state->game.roster.erase(it);
             } else {

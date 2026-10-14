@@ -124,6 +124,7 @@ class TelemetryReducer {
 
     std::string m_lastSavedMatchGuid;
     std::unordered_map<std::string, int> m_lastPlayerBoost;
+    std::unordered_set<std::string> m_boostRespawnPending;
     std::unordered_map<std::string, CapturedMatch> m_pendingDestroyedMatches;
     std::unordered_set<std::string> m_finalizedMatchGuids;
     uint64_t m_nextMatchGeneration = 0;

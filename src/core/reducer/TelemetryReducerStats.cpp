@@ -52,6 +52,7 @@ void TelemetryReducer::HandleStatFeed(const nlohmann::json& data) {
         if (isMainSelf) m_state->game.currentMatch.demosSelf++;
         if (isSecSelf) m_state->game.currentMatch.demoedSelf++;
         if (!mainId.empty() && m_state->game.roster.count(mainId)) m_state->game.roster[mainId].demos++;
+        if (!secId.empty()) m_boostRespawnPending.insert(secId);
     } else if (feedEvent == "OwnGoal") {
         m_state->game.currentMatch.ownGoals++;
         if (isMainSelf) m_state->game.currentMatch.ownGoalsSelf++;

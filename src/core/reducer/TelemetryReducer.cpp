@@ -197,6 +197,7 @@ SideEffects TelemetryReducer::Reduce(const std::string& eventName, const nlohman
                 MmrCategory::Best;
             m_followedGraphPlaylistCategory = MmrCategory::Best;
             m_lastPlayerBoost.clear();
+            m_boostRespawnPending.clear();
             m_lastPlayerSeen.clear();
             ResetMatchTimingState();
         } else if (attachesGuid) {
@@ -274,6 +275,8 @@ SideEffects TelemetryReducer::Reduce(const std::string& eventName, const nlohman
             m_state->ui.lastCountdownMs.store(nowMs, std::memory_order_relaxed);
             m_state->ui.inGoalReplay.store(false, std::memory_order_relaxed);
             m_countdownSeenThisRound = true;
+            m_roundActive = false;
+            m_lastPlayerBoost.clear();
         }
         return effects;
     }
@@ -292,6 +295,10 @@ SideEffects TelemetryReducer::Reduce(const std::string& eventName, const nlohman
             }
             m_state->ui.inGoalReplay.store(false, std::memory_order_relaxed);
             m_countdownSeenThisRound = false;
+        }
+        if (!m_roundActive) {
+            m_lastPlayerBoost.clear();
+            m_boostRespawnPending.clear();
         }
         m_roundActive = true;
         m_state->game.roundEverStarted = true;

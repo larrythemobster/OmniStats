@@ -794,3 +794,31 @@ TEST(TelemetryReducerStats, SessionResetClearsLastGoalSpeed) {
     EXPECT_FLOAT_EQ(state->game.lastGoalSpeed, 0.0f);
     EXPECT_FLOAT_EQ(state->game.lastGoalSpeedSelf, 0.0f);
 }
+TEST(TelemetryReducerStats, BoostCountsSmallPadsButNotKickoffOrDemolitionRefills) {
+    auto state = StateWithLocalPlayer();
+    TelemetryReducer reducer(state);
+    const auto sample = [&](int boost) {
+        reducer.Reduce(std::string(Constants::EVT_UPDATE_STATE), nlohmann::json{
+                                                                     {"Players", {{{"PrimaryId", "Steam|1"}, {"Name", "P1"}, {"TeamNum", 0}, {"Boost", boost}}}}});
+    };
+    reducer.Reduce(std::string(Constants::EVT_MATCH_CREATED), {{"MatchGuid", "boost-refills"}});
+    reducer.Reduce(std::string(Constants::EVT_ROUND_STARTED), {{"MatchGuid", "boost-refills"}});
+    sample(21);
+    sample(33);
+    EXPECT_EQ(state->game.currentMatch.boostPickedUpSelf, 12);
+    reducer.Reduce(std::string(Constants::EVT_STATFEED), {{"EventName", "Demolish"},
+                                                          {"MainTarget", {{"PrimaryId", "Steam|2"}, {"Name", "P2"}}},
+                                                          {"SecondaryTarget", {{"PrimaryId", "Steam|1"}, {"Name", "P1"}}}});
+    sample(0);
+    sample(33);
+    sample(45);
+    EXPECT_EQ(state->game.currentMatch.boostPickedUpSelf, 24);
+    sample(0);
+    reducer.Reduce(std::string(Constants::EVT_COUNTDOWN_BEGIN), {{"MatchGuid", "boost-refills"}});
+    sample(33);
+    reducer.Reduce(std::string(Constants::EVT_ROUND_STARTED), {{"MatchGuid", "boost-refills"}});
+    sample(33);
+    sample(45);
+    EXPECT_EQ(state->game.currentMatch.boostPickedUpSelf, 36);
+    EXPECT_EQ(state->game.currentMatch.boostPickedUp, 36);
+}
