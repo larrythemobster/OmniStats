@@ -2488,8 +2488,8 @@ TEST_F(RmlUiControllerStateTest, HistoryViewOpensClosesIgnoresStaleResponsesAndO
     ASSERT_NE(detailsBtn, nullptr);
     Click(controller, detailsBtn);
 
-    db->AsyncSetSetting("ui_hist_barrier_3", "done");
-    for (int i = 0; i < 200 && db->GetSetting("ui_hist_barrier_3", "") != "done"; ++i) {
+    db->AsyncSetSetting("ui_hist_barrier_4", "done");
+    for (int i = 0; i < 200 && db->GetSetting("ui_hist_barrier_4", "") != "done"; ++i) {
         std::this_thread::sleep_for(std::chrono::milliseconds(5));
     }
     controller.Update(Config::Read(), false);
