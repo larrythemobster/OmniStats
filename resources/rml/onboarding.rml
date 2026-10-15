@@ -158,7 +158,7 @@
                 <div class="wizard-lead">These are optional and off by default. Each one sends data somewhere else, so turn on only what you want.</div>
                 <div class="setting-row">
                     <div class="setting-info">
-                        <div class="setting-name">Live ranks from Tracker Network</div>
+                        <div class="setting-name">Tracker Network rank lookup</div>
                         <div class="setting-help">Sends lobby player names and platform IDs to Tracker Network to look up public ranks.</div>
                     </div>
                     <div class="toggle-switch"><input type="checkbox" class="checkbox" data-setting="enable_mmr_tracking" data-checked="mmr_tracking" /><span class="toggle-thumb"></span></div>
