@@ -39,11 +39,21 @@ class AccountManagerService {
         int64_t retryAtUnix = 0;
     };
 
+    struct HistorySnapshot {
+        std::string playlistKey;
+        std::string window;
+        std::vector<std::string> accountIds;
+        std::vector<TrackedAccounts::RankHistorySeries> series;
+        bool loading = false;
+        bool loaded = false;
+    };
+
     struct Snapshot {
         uint64_t version = 0;
         bool loaded = false;
         RankProvider provider = RankProvider::Unavailable;
         std::vector<AccountView> accounts;
+        HistorySnapshot history;
     };
 
     struct AddResult {
@@ -98,6 +108,10 @@ class AccountManagerService {
     RefreshRequest Refresh(const std::string& primaryId);
     size_t RefreshAll();
     size_t RefreshStale();
+    // Worker-owned, nonblocking historical graph query. Repeated requests for
+    // the same selection use cache until a successful rank save invalidates it.
+    void RequestHistory(std::vector<std::string> accountIds,
+                        std::string playlistKey, std::string window);
     // Runs RefreshStale on the worker after Start's initial load.
     void QueueStartupRefresh();
 
@@ -142,6 +156,10 @@ class AccountManagerService {
     bool m_loaded = false;
     bool m_started = false;
     std::vector<AccountView> m_accounts;
+    HistorySnapshot m_history;
+    bool m_historyDirty = true;
+    uint64_t m_historyGeneration = 0;
+    int64_t m_historyRequestedAtUnix = 0;
     std::vector<std::pair<std::string, std::string>> m_pendingObservations;
     std::unordered_set<std::string> m_pending;
     std::unordered_set<std::string> m_seenThisRun;

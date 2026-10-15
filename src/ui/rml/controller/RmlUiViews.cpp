@@ -207,6 +207,8 @@ void RmlUiController::RefreshAccounts(bool force) {
     auto snapshot = m_accountsService->GetSnapshot();
     auto candidates = m_accountsService->ImportCandidates();
     m_accounts.UpdateSnapshot(snapshot, canonicalActive, candidates.size());
+    m_accountsService->RequestHistory(m_accounts.HistoryAccountIds(),
+                                      m_accounts.HistoryPlaylist(), m_accounts.HistoryWindow());
     m_renderDirty = true;
 }
 
@@ -644,6 +646,19 @@ bool RmlUiController::HandleViewAction(const std::string& action, Rml::Element* 
             m_accounts.SetSort(sort);
             m_renderDirty = true;
         }
+        return true;
+    } else if (action == "accounts-history-toggle") {
+        const std::string id = Attribute(target, "data-id");
+        if (m_accounts.ToggleHistoryAccount(id)) RefreshAccounts(true);
+        return true;
+    } else if (action == "accounts-history-playlist") {
+        const std::string playlist = Attribute(target, "data-playlist");
+        m_accounts.SetHistoryPlaylist(playlist);
+        RefreshAccounts(true);
+        return true;
+    } else if (action == "accounts-history-range") {
+        m_accounts.SetHistoryWindow(Attribute(target, "data-window"));
+        RefreshAccounts(true);
         return true;
     } else if (action == "accounts-open-detail") {
         const std::string id = Attribute(target, "data-id");

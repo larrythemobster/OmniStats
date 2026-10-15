@@ -56,6 +56,32 @@ struct AccountDetailRankRow {
     Rml::String source;
 };
 
+struct AccountHistoryChoice {
+    Rml::String primary_id;
+    Rml::String label;
+    Rml::String color;
+    bool selected = false;
+};
+struct AccountHistorySegment {
+    Rml::String points;
+};
+struct AccountHistoryPlot {
+    Rml::String label;
+    Rml::String color;
+    Rml::String mmr;
+    Rml::String high;
+    Rml::String change;
+    Rml::String last_seen;
+    Rml::String sample_count;
+    Rml::String dot_x;
+    Rml::String dot_y;
+    bool has_points = false;
+    bool rising = false;
+    bool falling = false;
+    bool stale = false;
+    std::vector<AccountHistorySegment> segments;
+};
+
 struct AccountImportCandidateRow {
     Rml::String platform;
     Rml::String name;
@@ -73,6 +99,21 @@ class AccountsView {
                         size_t importCandidatesCount,
                         int64_t nowUnix = 0);
     void SetUnavailable(bool unavailable);
+    bool ToggleHistoryAccount(const std::string& primaryId);
+    void SetHistoryPlaylist(const std::string& playlist);
+    void SetHistoryWindow(const std::string& window);
+    const std::string& HistoryPlaylist() const {
+        return m_historyPlaylist;
+    }
+    const std::string& HistoryWindow() const {
+        return m_historyWindow;
+    }
+    const std::vector<std::string>& HistoryAccountIds() const {
+        return m_historyAccountIds;
+    }
+    const std::vector<AccountHistoryPlot>& HistoryPlots() const {
+        return m_historyPlots;
+    }
 
     void SetColumnSet(const std::string& columnSet);
     const std::string& ColumnSet() const {
@@ -152,6 +193,8 @@ class AccountsView {
     void RebuildRows();
     void RebuildDetail();
     void UpdateAddHelp();
+    void BuildHistory();
+    void RebuildHistory();
 
     Rml::DataModelHandle m_handle;
     bool m_bound = false;
@@ -178,6 +221,20 @@ class AccountsView {
     int m_rowCount = 0;
     Rml::String m_emptyMessage = "No accounts tracked yet. Add an account to follow ranks and compare MMR across playlists.";
     Rml::String m_subtitle = "Tracked Rocket League accounts";
+
+    std::string m_historyPlaylist = "2v2";
+    std::string m_historyWindow = "week";
+    std::vector<std::string> m_historyAccountIds;
+    std::vector<AccountsPlaylistColumn> m_historyPlaylists;
+    std::vector<AccountHistoryChoice> m_historyChoices;
+    std::vector<AccountHistoryPlot> m_historyPlots;
+    Rml::String m_historyTopLabel;
+    Rml::String m_historyMidLabel;
+    Rml::String m_historyBottomLabel;
+    Rml::String m_historyStartLabel;
+    Rml::String m_historyEndLabel;
+    Rml::String m_historyStatus = "Choose accounts to compare observed MMR.";
+    bool m_historyHasData = false;
 
     bool m_detailOpen = false;
     std::string m_detailPrimaryId;

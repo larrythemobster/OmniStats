@@ -646,3 +646,53 @@ TEST_F(AccountsViewTest, ReloadUiResourcesPreservesState) {
 
     service->Stop();
 }
+
+TEST(AccountsViewHistory, BuildsDistinctAccountSeriesAndSeparatesUnobservedGaps) {
+    const std::string a = "Steam|76561198000000001";
+    const std::string b = "Steam|76561198000000002";
+    AccountManagerService::Snapshot snapshot;
+    snapshot.loaded = true;
+    for (const auto& [id, name] : std::vector<std::pair<std::string, std::string>>{{a, "Main"}, {b, "Alt"}}) {
+        AccountManagerService::AccountView account;
+        account.record = TrackedAccounts::MakeRecord(*TrackedAccounts::FromPrimaryId(id), name, name,
+                                                     TrackedAccounts::DiscoverySource::Manual);
+        account.record.lastSuccessfulRefreshAtUnix = 1713000000;
+        snapshot.accounts.push_back(std::move(account));
+    }
+    AccountsView view;
+    view.SetHistoryWindow("all");
+    view.UpdateSnapshot(snapshot, "", 0, 1713000000);
+    ASSERT_EQ(view.HistoryAccountIds().size(), 2u);
+
+    snapshot.history.loaded = true;
+    snapshot.history.playlistKey = "2v2";
+    snapshot.history.window = "all";
+    snapshot.history.accountIds = view.HistoryAccountIds();
+    TrackedAccounts::RankHistorySeries main;
+    main.primaryId = a;
+    main.highestObservedMmr = 1270;
+    main.totalObservations = 3;
+    for (const auto& [mmr, when] : std::vector<std::pair<int, int64_t>>{{1200, 1710000000}, {1230, 1710000100}, {1270, 1712000000}}) {
+        main.observations.push_back({a, "2v2", mmr, "Diamond", 10, "Tracker", when});
+    }
+    TrackedAccounts::RankHistorySeries alt;
+    alt.primaryId = b;
+    alt.highestObservedMmr = 1400;
+    alt.totalObservations = 1;
+    alt.observations.push_back({b, "2v2", 1400, "Champion", 11, "OmniStats API", 1711000000});
+    snapshot.history.series = {main, alt};
+    view.UpdateSnapshot(snapshot, "", 0, 1713000000);
+    ASSERT_EQ(view.HistoryPlots().size(), 2u);
+    EXPECT_EQ(view.HistoryPlots()[0].label, "Main");
+    EXPECT_EQ(view.HistoryPlots()[0].change, "+70");
+    EXPECT_EQ(view.HistoryPlots()[0].high, "1270");
+    ASSERT_EQ(view.HistoryPlots()[0].segments.size(), 1u); // 23-day gap is not connected
+    EXPECT_EQ(view.HistoryPlots()[1].label, "Alt");
+    EXPECT_TRUE(view.HistoryPlots()[1].has_points);
+    EXPECT_TRUE(view.HistoryPlots()[1].segments.empty()); // one actual sample is a dot, not a fake line
+    EXPECT_TRUE(view.ToggleHistoryAccount(b));
+    ASSERT_EQ(view.HistoryAccountIds().size(), 1u);
+    EXPECT_EQ(view.HistoryAccountIds().front(), a);
+    view.SetHistoryPlaylist("3v3");
+    EXPECT_EQ(view.HistoryPlaylist(), "3v3");
+}

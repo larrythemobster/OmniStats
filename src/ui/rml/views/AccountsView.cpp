@@ -5,6 +5,10 @@
 #include <algorithm>
 #include <chrono>
 #include <ctime>
+#include <climits>
+#include <iomanip>
+#include <set>
+#include <sstream>
 
 #include "ui/Formatting.hpp"
 #include "ui/rml/controller/RmlUiController.hpp"
@@ -154,6 +158,35 @@ bool AccountsView::Create(Rml::Context* context) {
     }
     constructor.RegisterArray<std::vector<AccountDetailRankRow>>();
 
+    if (auto choice = constructor.RegisterStruct<AccountHistoryChoice>()) {
+        choice.RegisterMember("primary_id", &AccountHistoryChoice::primary_id);
+        choice.RegisterMember("label", &AccountHistoryChoice::label);
+        choice.RegisterMember("color", &AccountHistoryChoice::color);
+        choice.RegisterMember("selected", &AccountHistoryChoice::selected);
+    }
+    constructor.RegisterArray<std::vector<AccountHistoryChoice>>();
+    if (auto seg = constructor.RegisterStruct<AccountHistorySegment>()) {
+        seg.RegisterMember("points", &AccountHistorySegment::points);
+    }
+    constructor.RegisterArray<std::vector<AccountHistorySegment>>();
+    if (auto plot = constructor.RegisterStruct<AccountHistoryPlot>()) {
+        plot.RegisterMember("label", &AccountHistoryPlot::label);
+        plot.RegisterMember("color", &AccountHistoryPlot::color);
+        plot.RegisterMember("mmr", &AccountHistoryPlot::mmr);
+        plot.RegisterMember("high", &AccountHistoryPlot::high);
+        plot.RegisterMember("change", &AccountHistoryPlot::change);
+        plot.RegisterMember("last_seen", &AccountHistoryPlot::last_seen);
+        plot.RegisterMember("sample_count", &AccountHistoryPlot::sample_count);
+        plot.RegisterMember("dot_x", &AccountHistoryPlot::dot_x);
+        plot.RegisterMember("dot_y", &AccountHistoryPlot::dot_y);
+        plot.RegisterMember("has_points", &AccountHistoryPlot::has_points);
+        plot.RegisterMember("rising", &AccountHistoryPlot::rising);
+        plot.RegisterMember("falling", &AccountHistoryPlot::falling);
+        plot.RegisterMember("stale", &AccountHistoryPlot::stale);
+        plot.RegisterMember("segments", &AccountHistoryPlot::segments);
+    }
+    constructor.RegisterArray<std::vector<AccountHistoryPlot>>();
+
     if (auto cand = constructor.RegisterStruct<AccountImportCandidateRow>()) {
         cand.RegisterMember("platform", &AccountImportCandidateRow::platform);
         cand.RegisterMember("name", &AccountImportCandidateRow::name);
@@ -177,6 +210,19 @@ bool AccountsView::Create(Rml::Context* context) {
     constructor.Bind("row_count", &m_rowCount);
     constructor.Bind("empty_message", &m_emptyMessage);
     constructor.Bind("subtitle", &m_subtitle);
+
+    constructor.Bind("history_playlists", &m_historyPlaylists);
+    constructor.Bind("history_playlist", &m_historyPlaylist);
+    constructor.Bind("history_window", &m_historyWindow);
+    constructor.Bind("history_choices", &m_historyChoices);
+    constructor.Bind("history_plots", &m_historyPlots);
+    constructor.Bind("history_y_top", &m_historyTopLabel);
+    constructor.Bind("history_y_mid", &m_historyMidLabel);
+    constructor.Bind("history_y_bottom", &m_historyBottomLabel);
+    constructor.Bind("history_start", &m_historyStartLabel);
+    constructor.Bind("history_end", &m_historyEndLabel);
+    constructor.Bind("history_status", &m_historyStatus);
+    constructor.Bind("history_has_data", &m_historyHasData);
 
     constructor.Bind("detail_open", &m_detailOpen);
     constructor.Bind("detail_primary_id", &m_detailPrimaryId);
@@ -236,6 +282,20 @@ void AccountsView::Reset() {
     m_emptyMessage = "No accounts tracked yet. Add an account to follow ranks and compare MMR across playlists.";
     m_subtitle = "Tracked Rocket League accounts";
 
+    m_historyPlaylist = "2v2";
+    m_historyWindow = "week";
+    m_historyAccountIds.clear();
+    m_historyPlaylists.clear();
+    m_historyChoices.clear();
+    m_historyPlots.clear();
+    m_historyTopLabel.clear();
+    m_historyMidLabel.clear();
+    m_historyBottomLabel.clear();
+    m_historyStartLabel.clear();
+    m_historyEndLabel.clear();
+    m_historyStatus = "Choose accounts to compare observed MMR.";
+    m_historyHasData = false;
+
     m_detailOpen = false;
     m_detailPrimaryId.clear();
     m_detailNickname.clear();
@@ -286,6 +346,189 @@ void AccountsView::SetUnavailable(bool unavailable) {
     Dirty("row_count");
 }
 
+bool AccountsView::ToggleHistoryAccount(const std::string& primaryId) {
+    const auto it = std::find(m_historyAccountIds.begin(), m_historyAccountIds.end(), primaryId);
+    if (it != m_historyAccountIds.end()) {
+        m_historyAccountIds.erase(it);
+    } else {
+        if (m_historyAccountIds.size() >= 5) return false;
+        const bool known = std::any_of(m_lastSnapshot.accounts.begin(), m_lastSnapshot.accounts.end(),
+                                       [&](const auto& a) { return a.record.primaryId == primaryId; });
+        if (!known) return false;
+        m_historyAccountIds.push_back(primaryId);
+    }
+    RebuildHistory();
+    return true;
+}
+
+void AccountsView::SetHistoryPlaylist(const std::string& playlist) {
+    if (TrackedAccounts::IsSupportedPlaylistKey(playlist) && m_historyPlaylist != playlist) {
+        m_historyPlaylist = playlist;
+        RebuildHistory();
+    }
+}
+
+void AccountsView::SetHistoryWindow(const std::string& window) {
+    if ((window == "day" || window == "week" || window == "month" || window == "all") && m_historyWindow != window) {
+        m_historyWindow = window;
+        RebuildHistory();
+    }
+}
+
+void AccountsView::RebuildHistory() {
+    BuildHistory();
+    for (const char* field : {"history_playlist", "history_window", "history_choices", "history_plots", "history_y_top",
+                              "history_y_mid", "history_y_bottom", "history_start", "history_end", "history_status",
+                              "history_has_data"})
+        Dirty(field);
+}
+
+void AccountsView::BuildHistory() {
+    // Series colors follow selection order so a chip, its line, and its legend row always match.
+    static constexpr const char* kColors[] = {"#5480d8", "#e3a33b", "#3fb8af", "#b07be0", "#d8dde4"};
+    const auto colorFor = [&](const std::string& primaryId) -> std::string {
+        const auto it = std::find(m_historyAccountIds.begin(), m_historyAccountIds.end(), primaryId);
+        if (it == m_historyAccountIds.end()) return {};
+        return kColors[static_cast<size_t>(it - m_historyAccountIds.begin()) % std::size(kColors)];
+    };
+
+    // Preserve user selections across refreshes, but remove deleted accounts.
+    std::set<std::string> known;
+    for (const auto& a : m_lastSnapshot.accounts)
+        known.insert(a.record.primaryId);
+    std::erase_if(m_historyAccountIds, [&](const std::string& id) { return !known.contains(id); });
+    if (m_historyAccountIds.empty() && !m_lastSnapshot.accounts.empty() && m_historyChoices.empty()) {
+        for (const auto& a : m_lastSnapshot.accounts) {
+            m_historyAccountIds.push_back(a.record.primaryId);
+            if (m_historyAccountIds.size() >= 2) break;
+        }
+    }
+    m_historyChoices.clear();
+    for (const auto& a : m_lastSnapshot.accounts) {
+        AccountHistoryChoice c;
+        c.primary_id = a.record.primaryId;
+        c.label = TrackedAccounts::DisplayLabel(a.record);
+        c.color = colorFor(a.record.primaryId);
+        c.selected = !c.color.empty();
+        m_historyChoices.push_back(std::move(c));
+    }
+
+    m_historyPlots.clear();
+    m_historyHasData = false;
+    m_historyTopLabel.clear();
+    m_historyMidLabel.clear();
+    m_historyBottomLabel.clear();
+    m_historyStartLabel.clear();
+    m_historyEndLabel.clear();
+    if (m_historyAccountIds.empty()) {
+        m_historyStatus = "Select an account to plot its MMR.";
+        return;
+    }
+    const auto& h = m_lastSnapshot.history;
+    if (h.playlistKey != m_historyPlaylist || h.window != m_historyWindow ||
+        h.accountIds != m_historyAccountIds || !h.loaded) {
+        m_historyStatus = "Loading rank history...";
+        return;
+    }
+    int minMmr = INT_MAX, maxMmr = 0;
+    int64_t minTime = INT64_MAX, maxTime = 0;
+    for (const auto& series : h.series) {
+        for (const auto& obs : series.observations) {
+            minMmr = (std::min)(minMmr, obs.mmr);
+            maxMmr = (std::max)(maxMmr, obs.mmr);
+            minTime = (std::min)(minTime, obs.observedAtUnix);
+            maxTime = (std::max)(maxTime, obs.observedAtUnix);
+        }
+    }
+    if (minMmr == INT_MAX) {
+        m_historyStatus = "No rank readings in this period. Refresh an account to start tracking it.";
+        return;
+    }
+    m_historyHasData = true;
+
+    // Gridlines sit at fixed heights in accounts.rml (10%, 45%, 80%); round the scale to tens so their labels are clean.
+    const int pad = (std::max)(10, (maxMmr - minMmr) / 8);
+    const int lo = (std::max)(0, (minMmr - pad) / 10 * 10);
+    int hi = (maxMmr + pad + 9) / 10 * 10;
+    if ((hi - lo) / 10 % 2 != 0) hi += 10;
+    m_historyTopLabel = std::to_string(hi);
+    m_historyMidLabel = std::to_string((hi + lo) / 2);
+    m_historyBottomLabel = std::to_string(lo);
+
+    const bool singleTimestamp = maxTime == minTime;
+    const char* timeFormat = maxTime - minTime < 30 * 86400 ? "%d %b, %H:%M" : "%d %b %Y";
+    const auto axisTime = [&](int64_t unixSeconds) {
+        const std::time_t time = static_cast<std::time_t>(unixSeconds);
+        std::tm local{};
+        char buffer[32]{};
+        if (localtime_s(&local, &time) == 0) std::strftime(buffer, sizeof(buffer), timeFormat, &local);
+        return std::string(buffer);
+    };
+    m_historyStartLabel = axisTime(minTime);
+    if (!singleTimestamp) m_historyEndLabel = axisTime(maxTime);
+
+    const auto pctX = [&](int64_t t) {
+        return singleTimestamp ? 0.455 : 0.03 + 0.85 * (double(t - minTime) / double(maxTime - minTime));
+    };
+    const auto pctY = [&](int mmr) { return 0.10 + 0.70 * (double(hi - mmr) / double(hi - lo)); };
+    const auto fmt = [](double v) {
+        std::ostringstream out;
+        out << std::fixed << std::setprecision(5) << v;
+        return out.str();
+    };
+    const int64_t gapSeconds = m_historyWindow == "day"     ? 4 * 3600
+                               : m_historyWindow == "week"  ? 2 * 86400
+                               : m_historyWindow == "month" ? 7 * 86400
+                                                            : 14 * 86400;
+    for (const auto& s : h.series) {
+        AccountHistoryPlot plot;
+        plot.color = colorFor(s.primaryId);
+        for (const auto& account : m_lastSnapshot.accounts) {
+            if (account.record.primaryId != s.primaryId) continue;
+            plot.label = TrackedAccounts::DisplayLabel(account.record);
+            plot.stale = account.record.lastSuccessfulRefreshAtUnix <= 0 ||
+                         m_lastNowUnix - account.record.lastSuccessfulRefreshAtUnix > AccountManagerService::kStaleAfterSeconds;
+            break;
+        }
+        plot.high = s.highestObservedMmr ? std::to_string(*s.highestObservedMmr) : "--";
+        plot.sample_count = std::to_string(s.totalObservations);
+        plot.mmr = "--";
+        plot.change = "--";
+        plot.last_seen = "None in range";
+        if (!s.observations.empty()) {
+            plot.has_points = true;
+            const auto& first = s.observations.front();
+            const auto& last = s.observations.back();
+            plot.mmr = std::to_string(last.mmr);
+            if (s.observations.size() >= 2) {
+                const int delta = last.mmr - first.mmr;
+                plot.change = (delta > 0 ? "+" : "") + std::to_string(delta);
+                plot.rising = delta > 0;
+                plot.falling = delta < 0;
+            }
+            plot.last_seen = FormatRelativeTime(last.observedAtUnix, m_lastNowUnix);
+            plot.dot_x = fmt(pctX(last.observedAtUnix) * 100.0) + "%";
+            plot.dot_y = fmt(pctY(last.mmr) * 100.0) + "%";
+            std::ostringstream points;
+            size_t segmentCount = 0;
+            int64_t previous = 0;
+            for (const auto& o : s.observations) {
+                if (previous != 0 && o.observedAtUnix - previous > gapSeconds) {
+                    if (segmentCount >= 2) plot.segments.push_back({points.str()});
+                    points.str("");
+                    points.clear();
+                    segmentCount = 0;
+                }
+                if (segmentCount++) points << ';';
+                points << fmt(pctX(o.observedAtUnix)) << ',' << fmt(pctY(o.mmr));
+                previous = o.observedAtUnix;
+            }
+            if (segmentCount >= 2) plot.segments.push_back({points.str()});
+        }
+        m_historyPlots.push_back(std::move(plot));
+    }
+}
+
 void AccountsView::UpdateSnapshot(const AccountManagerService::Snapshot& snapshot,
                                   const std::string& activePrimaryId,
                                   size_t importCandidatesCount,
@@ -302,6 +545,7 @@ void AccountsView::UpdateSnapshot(const AccountManagerService::Snapshot& snapsho
     m_importButtonLabel = m_hasImportCandidates ? "Import (" + std::to_string(m_importCandidatesCount) + ")" : "Import Known";
 
     RebuildRows();
+    RebuildHistory();
 
     if (m_detailOpen) {
         RebuildDetail();
@@ -352,6 +596,11 @@ void AccountsView::SetSort(const std::string& col) {
 
 void AccountsView::RebuildPlaylistColumns() {
     m_playlistColumns.clear();
+    m_historyPlaylists.clear();
+    for (const auto& col : TrackedAccounts::SupportedPlaylists()) {
+        m_historyPlaylists.push_back({col.key, col.label, col.shortLabel});
+    }
+    Dirty("history_playlists");
     const bool competitive = (m_columnSet == "competitive");
     for (const auto& col : TrackedAccounts::SupportedPlaylists()) {
         if (competitive == col.standard) {

@@ -154,6 +154,9 @@ class DatabaseManager {
                                  const std::vector<TrackedAccounts::PlaylistRank>& ranks,
                                  int64_t fetchedAtUnix);
     std::map<std::string, TrackedAccounts::PlaylistRank> GetTrackedAccountRanks(const std::string& primaryId);
+    // Indexed, time-scoped, downsampled observation reads; call off the render thread.
+    std::vector<TrackedAccounts::RankHistorySeries> GetTrackedAccountRankHistory(
+        const std::vector<std::string>& primaryIds, const std::string& playlistKey, int64_t sinceUnix = 0);
     bool DeleteTrackedAccount(const std::string& primaryId);
     int ImportTrackedAccounts(const std::vector<TrackedAccounts::AccountRecord>& records);
 

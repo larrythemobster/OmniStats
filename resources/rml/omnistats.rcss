@@ -1731,3 +1731,21 @@ body.view-document { pointer-events: none; }
 .history-event-clock { width: 45dp; flex-shrink: 0; color: #9da6b3; }
 .history-event-type { width: 88dp; flex-shrink: 0; font-weight: 700; }
 .history-event-player { min-width: 90dp; }
+
+/* Tracked-account MMR history: the dashboard graph classes draw the chart; these only lay out the panel. */
+.accounts-history-panel { display: block; padding: 14dp; border: 1dp #eef1f51a; border-radius: 6dp; margin-top: 14dp; }
+.accounts-history-heading { align-items: flex-start; margin-bottom: 10dp; }
+.accounts-history-chips { flex-wrap: wrap; margin-bottom: 8dp; }
+.accounts-history-chips.accounts { margin-bottom: 10dp; }
+.accounts-history-choice { max-width: 200dp; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.accounts-history-swatch { display: inline-block; width: 8dp; height: 8dp; border-radius: 4dp; margin-right: 6dp; flex-shrink: 0; }
+.accounts-history-plot { position: absolute; left: 0; top: 0; width: 100%; height: 100%; pointer-events: none; }
+.accounts-history-empty { height: 100%; align-items: center; text-align: center; }
+.accounts-history-legend { display: block; margin-top: 10dp; border: 1dp #eef1f51a; border-radius: 6dp; overflow: hidden; }
+.accounts-history-entry { min-height: 30dp; padding: 4dp 12dp; border-top: 1dp #eef1f50f; font-size: 12dp; }
+.accounts-history-entry:first-child { border-top: 0; }
+.accounts-history-entry.header { min-height: 24dp; background-color: #eef1f508; color: #9da6b3; font-size: 10dp; font-weight: 600; text-transform: uppercase; }
+.accounts-history-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.accounts-history-num { width: 64dp; flex-shrink: 0; text-align: right; }
+.accounts-history-last { width: 120dp; flex-shrink: 0; text-align: right; }
+.accounts-history-stale { color: #e3a33b; }

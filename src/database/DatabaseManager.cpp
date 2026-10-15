@@ -330,6 +330,28 @@ static constexpr const char* kMigrationV8Sql = R"(
     CREATE INDEX IF NOT EXISTS idx_matchevents_match_time ON MatchEvents(match_id, observed_at_ms, id);
 )";
 
+// Existing valid rank snapshots become the first *actual* observations on upgrade.
+// No interpolated or backfilled synthetic MMR points are created.
+static constexpr const char* kMigrationV9Sql = R"(
+    CREATE TABLE IF NOT EXISTS TrackedAccountRankObservations (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        primary_id TEXT NOT NULL REFERENCES TrackedAccounts(primary_id) ON DELETE CASCADE,
+        playlist_key TEXT NOT NULL,
+        mmr INTEGER NOT NULL CHECK(mmr > 0),
+        rank_tier TEXT,
+        matches_played INTEGER,
+        source TEXT,
+        observed_at INTEGER NOT NULL CHECK(observed_at > 0),
+        UNIQUE(primary_id, playlist_key, observed_at, mmr)
+    );
+    CREATE INDEX IF NOT EXISTS idx_account_rank_obs_series
+        ON TrackedAccountRankObservations(primary_id, playlist_key, observed_at, id);
+    INSERT OR IGNORE INTO TrackedAccountRankObservations
+        (primary_id, playlist_key, mmr, rank_tier, matches_played, source, observed_at)
+    SELECT primary_id, playlist_key, mmr, rank_tier, matches_played, source, fetched_at
+    FROM TrackedAccountRanks WHERE mmr > 0 AND fetched_at > 0;
+)";
+
 // Append new migrations in ascending version order; each runs in its own BEGIN IMMEDIATE transaction.
 static const std::vector<Migration> kMigrations = {
     {1, kMigrationV1Sql, ApplyMigrationV1},
@@ -340,6 +362,7 @@ static const std::vector<Migration> kMigrations = {
     {6, kMigrationV6Sql},
     {7, kMigrationV7Sql},
     {8, kMigrationV8Sql},
+    {9, kMigrationV9Sql},
 };
 
 static std::string CsvEscape(const std::string& value) {
@@ -1835,6 +1858,37 @@ bool DatabaseManager::ExportLocalData(std::string& exportPath, std::string& erro
         std::ofstream taJsonFile(exportPath + "tracked_accounts.json", std::ios::trunc);
         if (taJsonFile.is_open()) {
             taJsonFile << accountsJson.dump(2);
+        }
+    }
+    if (SqliteTableExists(m_db, "TrackedAccountRankObservations")) {
+        std::ofstream historyCsv(exportPath + "tracked_account_rank_observations.csv", std::ios::trunc);
+        if (!historyCsv.is_open()) {
+            error = "Failed to open account rank history export.";
+            return false;
+        }
+        historyCsv << "primary_id,playlist_key,mmr,rank_tier,matches_played,source,observed_at\n";
+        const char* sql = "SELECT primary_id,playlist_key,mmr,rank_tier,matches_played,source,observed_at "
+                          "FROM TrackedAccountRankObservations ORDER BY primary_id,playlist_key,observed_at,id;";
+        sqlite3_stmt* historyStmt = nullptr;
+        if (sqlite3_prepare_v2(m_db, sql, -1, &historyStmt, nullptr) != SQLITE_OK) {
+            error = "Failed to query account rank observations for export.";
+            return false;
+        }
+        bool queryOk = true;
+        int rc = SQLITE_ROW;
+        while ((rc = sqlite3_step(historyStmt)) == SQLITE_ROW) {
+            for (int col = 0; col < 7; ++col) {
+                if (col) historyCsv << ',';
+                if (sqlite3_column_type(historyStmt, col) != SQLITE_NULL)
+                    historyCsv << CsvEscape(SqlColumnText(historyStmt, col));
+            }
+            historyCsv << '\n';
+        }
+        if (rc != SQLITE_DONE || !historyCsv.good()) queryOk = false;
+        sqlite3_finalize(historyStmt);
+        if (!queryOk) {
+            error = "Failed to export all account rank observations.";
+            return false;
         }
     }
     if (SqliteTableExists(m_db, "PlayerNotes")) {
@@ -4999,6 +5053,46 @@ TrackedAccountInsertResult DatabaseManager::RegisterTrackedAccount(const Tracked
                 }
             }
             sqlite3_finalize(rankStmt);
+            // Preserve imported verified snapshots in historical tracking without
+            // pretending earlier periods contain observations.
+            const char* obsSql =
+                "INSERT OR IGNORE INTO TrackedAccountRankObservations "
+                "(primary_id, playlist_key, mmr, rank_tier, matches_played, source, observed_at) "
+                "VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7);";
+            sqlite3_stmt* obsStmt = nullptr;
+            if (sqlite3_prepare_v2(m_db, obsSql, -1, &obsStmt, nullptr) != SQLITE_OK) {
+                sqlite3_exec(m_db, "ROLLBACK;", nullptr, nullptr, nullptr);
+                return TrackedAccountInsertResult::Failed;
+            }
+            for (const auto& [key, rank] : record.ranks) {
+                if (!rank.mmr || *rank.mmr <= 0 || rank.fetchedAtUnix <= 0) continue;
+                const std::string& pKey = rank.playlistKey.empty() ? key : rank.playlistKey;
+                if (!TrackedAccounts::IsSupportedPlaylistKey(pKey)) continue;
+                sqlite3_reset(obsStmt);
+                sqlite3_clear_bindings(obsStmt);
+                sqlite3_bind_text(obsStmt, 1, record.primaryId.c_str(), -1, SQLITE_TRANSIENT);
+                sqlite3_bind_text(obsStmt, 2, pKey.c_str(), -1, SQLITE_TRANSIENT);
+                sqlite3_bind_int(obsStmt, 3, *rank.mmr);
+                if (!rank.rankTier.empty())
+                    sqlite3_bind_text(obsStmt, 4, rank.rankTier.c_str(), -1, SQLITE_TRANSIENT);
+                else
+                    sqlite3_bind_null(obsStmt, 4);
+                if (rank.matchesPlayed)
+                    sqlite3_bind_int(obsStmt, 5, *rank.matchesPlayed);
+                else
+                    sqlite3_bind_null(obsStmt, 5);
+                if (!rank.source.empty())
+                    sqlite3_bind_text(obsStmt, 6, rank.source.c_str(), -1, SQLITE_TRANSIENT);
+                else
+                    sqlite3_bind_null(obsStmt, 6);
+                sqlite3_bind_int64(obsStmt, 7, rank.fetchedAtUnix);
+                if (sqlite3_step(obsStmt) != SQLITE_DONE) {
+                    sqlite3_finalize(obsStmt);
+                    sqlite3_exec(m_db, "ROLLBACK;", nullptr, nullptr, nullptr);
+                    return TrackedAccountInsertResult::Failed;
+                }
+            }
+            sqlite3_finalize(obsStmt);
         } else {
             sqlite3_exec(m_db, "ROLLBACK;", nullptr, nullptr, nullptr);
             return TrackedAccountInsertResult::Failed;
@@ -5351,7 +5445,10 @@ bool DatabaseManager::SaveTrackedAccountRanks(const std::string& primaryId,
     }
 
     const char* updAccountSql =
-        "UPDATE TrackedAccounts SET last_refresh_attempt_at = ?1, last_successful_refresh_at = ?1 WHERE primary_id = ?2;";
+        "UPDATE TrackedAccounts SET "
+        "last_refresh_attempt_at = MAX(COALESCE(last_refresh_attempt_at,0), ?1), "
+        "last_successful_refresh_at = MAX(COALESCE(last_successful_refresh_at,0), ?1) "
+        "WHERE primary_id = ?2;";
     sqlite3_stmt* updStmt = nullptr;
     if (sqlite3_prepare_v2(m_db, updAccountSql, -1, &updStmt, nullptr) == SQLITE_OK) {
         sqlite3_bind_int64(updStmt, 1, effectiveFetched);
@@ -5369,7 +5466,8 @@ bool DatabaseManager::SaveTrackedAccountRanks(const std::string& primaryId,
             "VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7) "
             "ON CONFLICT(primary_id, playlist_key) DO UPDATE SET "
             "mmr = excluded.mmr, rank_tier = excluded.rank_tier, matches_played = excluded.matches_played, "
-            "source = excluded.source, fetched_at = excluded.fetched_at;";
+            "source = excluded.source, fetched_at = excluded.fetched_at "
+            "WHERE excluded.fetched_at >= TrackedAccountRanks.fetched_at;";
         sqlite3_stmt* rankStmt = nullptr;
         if (sqlite3_prepare_v2(m_db, upsertRankSql, -1, &rankStmt, nullptr) != SQLITE_OK) {
             sqlite3_exec(m_db, "ROLLBACK;", nullptr, nullptr, nullptr);
@@ -5411,6 +5509,53 @@ bool DatabaseManager::SaveTrackedAccountRanks(const std::string& primaryId,
             }
         }
         sqlite3_finalize(rankStmt);
+
+        // Record only valid, successfully fetched MMR values. Repeated identical
+        // readings within six hours do not create high-frequency duplicates, but
+        // every MMR or rank change remains a distinct observation.
+        const char* observeSql =
+            "INSERT OR IGNORE INTO TrackedAccountRankObservations "
+            "(primary_id, playlist_key, mmr, rank_tier, matches_played, source, observed_at) "
+            "SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7 "
+            "WHERE NOT EXISTS (SELECT 1 FROM TrackedAccountRankObservations "
+            "WHERE primary_id=?1 AND playlist_key=?2 AND mmr=?3 "
+            "AND COALESCE(rank_tier,'')=COALESCE(?4,'') "
+            "AND COALESCE(source,'')=COALESCE(?6,'') "
+            "AND observed_at BETWEEN ?7 - 21600 AND ?7);";
+        sqlite3_stmt* observeStmt = nullptr;
+        if (sqlite3_prepare_v2(m_db, observeSql, -1, &observeStmt, nullptr) != SQLITE_OK) {
+            sqlite3_exec(m_db, "ROLLBACK;", nullptr, nullptr, nullptr);
+            return false;
+        }
+        for (const auto& rank : ranks) {
+            if (!rank.mmr || *rank.mmr <= 0 || !TrackedAccounts::IsSupportedPlaylistKey(rank.playlistKey)) continue;
+            const int64_t observedAt = rank.fetchedAtUnix > 0 ? rank.fetchedAtUnix : effectiveFetched;
+            if (observedAt <= 0) continue;
+            sqlite3_reset(observeStmt);
+            sqlite3_clear_bindings(observeStmt);
+            sqlite3_bind_text(observeStmt, 1, primaryId.c_str(), -1, SQLITE_TRANSIENT);
+            sqlite3_bind_text(observeStmt, 2, rank.playlistKey.c_str(), -1, SQLITE_TRANSIENT);
+            sqlite3_bind_int(observeStmt, 3, *rank.mmr);
+            if (rank.rankTier.empty())
+                sqlite3_bind_null(observeStmt, 4);
+            else
+                sqlite3_bind_text(observeStmt, 4, rank.rankTier.c_str(), -1, SQLITE_TRANSIENT);
+            if (rank.matchesPlayed)
+                sqlite3_bind_int(observeStmt, 5, *rank.matchesPlayed);
+            else
+                sqlite3_bind_null(observeStmt, 5);
+            if (rank.source.empty())
+                sqlite3_bind_null(observeStmt, 6);
+            else
+                sqlite3_bind_text(observeStmt, 6, rank.source.c_str(), -1, SQLITE_TRANSIENT);
+            sqlite3_bind_int64(observeStmt, 7, observedAt);
+            if (sqlite3_step(observeStmt) != SQLITE_DONE) {
+                sqlite3_finalize(observeStmt);
+                sqlite3_exec(m_db, "ROLLBACK;", nullptr, nullptr, nullptr);
+                return false;
+            }
+        }
+        sqlite3_finalize(observeStmt);
     }
 
     if (sqlite3_exec(m_db, "COMMIT;", nullptr, nullptr, nullptr) != SQLITE_OK) {
@@ -5459,6 +5604,75 @@ std::map<std::string, TrackedAccounts::PlaylistRank> DatabaseManager::GetTracked
         sqlite3_finalize(stmt);
     }
     return ranks;
+}
+
+std::vector<TrackedAccounts::RankHistorySeries> DatabaseManager::GetTrackedAccountRankHistory(
+    const std::vector<std::string>& primaryIds, const std::string& playlistKey, int64_t sinceUnix) {
+    std::vector<TrackedAccounts::RankHistorySeries> result;
+    if (!TrackedAccounts::IsSupportedPlaylistKey(playlistKey)) return result;
+    std::lock_guard<std::mutex> lock(m_dbMutex);
+    if (!m_db || !SqliteTableExists(m_db, "TrackedAccountRankObservations")) return result;
+    constexpr size_t kMaxAccounts = 5;
+    const char* statsSql =
+        "SELECT MAX(mmr), COUNT(*) FROM TrackedAccountRankObservations "
+        "WHERE primary_id=?1 AND playlist_key=?2;";
+    // SQLite evaluates the indexed series and returns at most 242 real sample
+    // points per account, evenly spaced by ordinal, with actual timestamps.
+    const char* samplesSql =
+        "WITH ordered AS ("
+        " SELECT mmr,rank_tier,matches_played,source,observed_at,id,"
+        " ROW_NUMBER() OVER (ORDER BY observed_at,id) AS rn,"
+        " COUNT(*) OVER () AS n"
+        " FROM TrackedAccountRankObservations"
+        " WHERE primary_id=?1 AND playlist_key=?2 AND observed_at>=?3"
+        ") SELECT mmr,rank_tier,matches_played,source,observed_at"
+        " FROM ordered WHERE rn=1 OR rn=n OR (rn-1) % MAX(1,(n+238)/239)=0"
+        " ORDER BY observed_at,id LIMIT 242;";
+    sqlite3_stmt* stats = nullptr;
+    sqlite3_stmt* samples = nullptr;
+    if (sqlite3_prepare_v2(m_db, statsSql, -1, &stats, nullptr) != SQLITE_OK ||
+        sqlite3_prepare_v2(m_db, samplesSql, -1, &samples, nullptr) != SQLITE_OK) {
+        sqlite3_finalize(stats);
+        sqlite3_finalize(samples);
+        return result;
+    }
+    std::set<std::string> unique;
+    for (const auto& id : primaryIds) {
+        if (result.size() >= kMaxAccounts) break;
+        const auto canonical = TrackedAccounts::CanonicalPrimaryId(id);
+        if (canonical.empty() || !unique.insert(canonical).second) continue;
+        TrackedAccounts::RankHistorySeries series;
+        series.primaryId = canonical;
+        sqlite3_reset(stats);
+        sqlite3_clear_bindings(stats);
+        sqlite3_bind_text(stats, 1, canonical.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_text(stats, 2, playlistKey.c_str(), -1, SQLITE_TRANSIENT);
+        if (sqlite3_step(stats) == SQLITE_ROW) {
+            if (sqlite3_column_type(stats, 0) != SQLITE_NULL)
+                series.highestObservedMmr = sqlite3_column_int(stats, 0);
+            series.totalObservations = sqlite3_column_int64(stats, 1);
+        }
+        sqlite3_reset(samples);
+        sqlite3_clear_bindings(samples);
+        sqlite3_bind_text(samples, 1, canonical.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_text(samples, 2, playlistKey.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_int64(samples, 3, (std::max)(int64_t{0}, sinceUnix));
+        while (sqlite3_step(samples) == SQLITE_ROW) {
+            TrackedAccounts::RankObservation item;
+            item.primaryId = canonical;
+            item.playlistKey = playlistKey;
+            item.mmr = sqlite3_column_int(samples, 0);
+            item.rankTier = SqlColumnText(samples, 1);
+            if (sqlite3_column_type(samples, 2) != SQLITE_NULL) item.matchesPlayed = sqlite3_column_int(samples, 2);
+            item.source = SqlColumnText(samples, 3);
+            item.observedAtUnix = sqlite3_column_int64(samples, 4);
+            series.observations.push_back(std::move(item));
+        }
+        result.push_back(std::move(series));
+    }
+    sqlite3_finalize(samples);
+    sqlite3_finalize(stats);
+    return result;
 }
 
 bool DatabaseManager::DeleteTrackedAccount(const std::string& primaryId) {

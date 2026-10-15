@@ -78,6 +78,24 @@ namespace TrackedAccounts {
         bool operator==(const PlaylistRank&) const = default;
     };
 
+    // A provider-confirmed observation, not a generated intermediate MMR value.
+    struct RankObservation {
+        std::string primaryId;
+        std::string playlistKey;
+        int mmr = 0;
+        std::string rankTier;
+        std::optional<int> matchesPlayed;
+        std::string source;
+        int64_t observedAtUnix = 0;
+    };
+
+    struct RankHistorySeries {
+        std::string primaryId;
+        std::vector<RankObservation> observations;
+        std::optional<int> highestObservedMmr;
+        int64_t totalObservations = 0;
+    };
+
     struct AccountRecord {
         std::string primaryId;
         Platform platform = Platform::Epic;

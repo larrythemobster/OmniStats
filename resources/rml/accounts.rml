@@ -83,6 +83,72 @@
                         </div>
                     </div>
                 </div>
+
+                <div class="accounts-history-panel" data-if="loaded && rows.size > 0">
+                    <div class="row accounts-history-heading">
+                        <div class="grow">
+                            <div class="stat-section-title">MMR HISTORY</div>
+                            <div class="label">Successful rank refreshes only. Compare up to five accounts.</div>
+                        </div>
+                        <div class="row gap-xs">
+                            <button class="tab-button pill" data-action="accounts-history-range" data-window="day" data-class-active="history_window == 'day'">Day</button>
+                            <button class="tab-button pill" data-action="accounts-history-range" data-window="week" data-class-active="history_window == 'week'">Week</button>
+                            <button class="tab-button pill" data-action="accounts-history-range" data-window="month" data-class-active="history_window == 'month'">Month</button>
+                            <button class="tab-button pill" data-action="accounts-history-range" data-window="all" data-class-active="history_window == 'all'">All</button>
+                        </div>
+                    </div>
+                    <div class="row gap-xs accounts-history-chips">
+                        <button class="tab-button pill" data-for="col : history_playlists" data-action="accounts-history-playlist"
+                            data-attr-data-playlist="col.key" data-class-active="history_playlist == col.key">{{col.short_label}}</button>
+                    </div>
+                    <div class="row gap-xs accounts-history-chips accounts">
+                        <button class="tab-button pill accounts-history-choice" data-for="acc : history_choices"
+                            data-action="accounts-history-toggle" data-attr-data-id="acc.primary_id"
+                            data-class-active="acc.selected"><span class="accounts-history-swatch" data-if="acc.selected"
+                            data-style-background-color="acc.color"></span>{{acc.label}}</button>
+                    </div>
+                    <div class="graph-wrap">
+                        <div class="graph-empty accounts-history-empty" data-if="!history_has_data">
+                            <div class="muted">{{history_status}}</div>
+                        </div>
+                        <div class="accounts-history-plot" data-if="history_has_data">
+                            <div class="graph-gridline" style="left:3%;width:85%;top:10%"></div>
+                            <div class="graph-gridline" style="left:3%;width:85%;top:45%"></div>
+                            <div class="graph-gridline" style="left:3%;width:85%;top:80%"></div>
+                            <div class="graph-label" style="right:1.5%;top:7%">{{history_y_top}}</div>
+                            <div class="graph-label" style="right:1.5%;top:42%">{{history_y_mid}}</div>
+                            <div class="graph-label" style="right:1.5%;top:77%">{{history_y_bottom}}</div>
+                            <div class="graph-label" style="left:3%;top:86%">{{history_start}}</div>
+                            <div class="graph-label graph-last" style="right:12%;top:86%" data-if="history_end != ''">{{history_end}}</div>
+                            <div class="accounts-history-plot" data-for="p : history_plots">
+                                <mmrgraphlines class="graph-polyline" data-for="seg : p.segments"
+                                    data-attr-points="seg.points" data-style-color="p.color"></mmrgraphlines>
+                                <div class="graph-point current" data-if="p.has_points" data-style-left="p.dot_x"
+                                    data-style-top="p.dot_y" data-style-background-color="p.color"></div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="accounts-history-legend" data-if="history_has_data">
+                        <div class="row accounts-history-entry header">
+                            <span class="accounts-history-swatch"></span>
+                            <span class="grow">Account</span>
+                            <span class="accounts-history-num">MMR</span>
+                            <span class="accounts-history-num">Change</span>
+                            <span class="accounts-history-num">Peak</span>
+                            <span class="accounts-history-num">Readings</span>
+                            <span class="accounts-history-last">Last reading</span>
+                        </div>
+                        <div class="row accounts-history-entry" data-for="p : history_plots">
+                            <span class="accounts-history-swatch" data-style-background-color="p.color"></span>
+                            <span class="value grow accounts-history-name">{{p.label}}</span>
+                            <span class="mono value accounts-history-num">{{p.mmr}}</span>
+                            <span class="mono accounts-history-num" data-class-win="p.rising" data-class-loss="p.falling">{{p.change}}</span>
+                            <span class="mono accounts-history-num">{{p.high}}</span>
+                            <span class="mono accounts-history-num">{{p.sample_count}}</span>
+                            <span class="label accounts-history-last">{{p.last_seen}}<span class="accounts-history-stale" data-if="p.stale"> &#xB7; stale</span></span>
+                        </div>
+                    </div>
+                </div>
             </div>
 
             <div id="accounts-detail-modal" class="history-detail-backdrop" data-if="detail_open">

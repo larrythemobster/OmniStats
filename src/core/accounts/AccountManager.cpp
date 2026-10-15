@@ -154,7 +154,59 @@ AccountManagerService::Snapshot AccountManagerService::GetSnapshot() const {
     snapshot.version = m_version.load(std::memory_order_acquire);
     snapshot.loaded = m_loaded;
     snapshot.accounts = m_accounts;
+    snapshot.history = m_history;
     return snapshot;
+}
+
+void AccountManagerService::RequestHistory(std::vector<std::string> accountIds,
+                                           std::string playlistKey, std::string window) {
+    if (!TrackedAccounts::IsSupportedPlaylistKey(playlistKey)) return;
+    if (window != "day" && window != "week" && window != "month" && window != "all") return;
+    std::vector<std::string> canonicalIds;
+    {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        if (!m_loaded) return;
+        for (const auto& rawId : accountIds) {
+            const std::string id = TrackedAccounts::CanonicalPrimaryId(rawId);
+            if (id.empty() || !FindLocked(id)) continue;
+            if (std::find(canonicalIds.begin(), canonicalIds.end(), id) == canonicalIds.end())
+                canonicalIds.push_back(id);
+            if (canonicalIds.size() >= 5) break;
+        }
+        const int64_t now = NowUnix();
+        // Relative windows age even without a successful new fetch. Refresh
+        // the local graph cache at most once every five minutes while open.
+        const bool expired = window != "all" && now - m_historyRequestedAtUnix >= 300;
+        if (!m_historyDirty && !expired && m_history.playlistKey == playlistKey &&
+            m_history.window == window && m_history.accountIds == canonicalIds) return;
+        m_history.playlistKey = playlistKey;
+        m_history.window = window;
+        m_history.accountIds = canonicalIds;
+        m_history.series.clear();
+        m_history.loading = true;
+        m_history.loaded = false;
+        m_historyDirty = false;
+        const uint64_t request = ++m_historyGeneration;
+        m_historyRequestedAtUnix = now;
+        const int64_t since = window == "day"     ? now - 86400
+                              : window == "week"  ? now - 604800
+                              : window == "month" ? now - 2592000
+                                                  : 0;
+        m_worker.Enqueue([this, request, ids = std::move(canonicalIds), playlistKey, since]() {
+            auto results = m_db ? m_db->GetTrackedAccountRankHistory(ids, playlistKey, since)
+                                : std::vector<TrackedAccounts::RankHistorySeries>{};
+            {
+                std::lock_guard<std::mutex> lock(m_mutex);
+                if (request != m_historyGeneration) return;
+                m_history.series = std::move(results);
+                m_history.loading = false;
+                m_history.loaded = true;
+            }
+            Publish();
+        },
+                         true);
+    }
+    Publish();
 }
 
 AccountManagerService::AccountView* AccountManagerService::FindLocked(const std::string& primaryId) {
@@ -524,8 +576,14 @@ void AccountManagerService::ApplyFetchEvent(const TrackedAccountFetchEvent& even
             account->refreshDetail.clear();
             account->retryAtUnix = 0;
             m_pending.erase(event.primaryId);
-            PostDb([id = event.primaryId, ranks = std::move(ranks), now](DatabaseManager& db) {
-                (void)db.SaveTrackedAccountRanks(id, ranks, now);
+            PostDb([this, id = event.primaryId, ranks = std::move(ranks), now](DatabaseManager& db) {
+                if (db.SaveTrackedAccountRanks(id, ranks, now)) {
+                    {
+                        std::lock_guard<std::mutex> lock(m_mutex);
+                        m_historyDirty = true;
+                    }
+                    Publish();
+                }
             });
             break;
         }
