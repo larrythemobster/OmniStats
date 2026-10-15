@@ -201,7 +201,7 @@ namespace MMRFetcherDetail {
         if (playlist == "dropshot") return 29;
         if (playlist == "snowday") return 30;
         if (playlist == "t") return 34;
-        if (playlist == "heatseeker") return 43;
+        if (playlist == "heatseeker") return 63;
         return 0;
     }
 

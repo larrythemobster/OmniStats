@@ -28,7 +28,7 @@ TEST(PlaylistMetadataTest, KeepsCasualAndRankedExtraModesDistinct) {
     EXPECT_EQ(PlaylistMetadata::MmrKey(27), "hoops");
     EXPECT_EQ(PlaylistMetadata::Category(27), MmrCategory::Hoops);
 
-    // 38 is the 3v3 Heatseeker LTM. Ranked Heatseeker uses the 2v2 playlist.
+    // 38 is the 3v3 Heatseeker LTM; 63 is the current ranked 2v2 Heatseeker skill playlist.
     EXPECT_TRUE(PlaylistMetadata::IsCasual(38));
     EXPECT_EQ(PlaylistMetadata::CanonicalMode(38), "casual");
     EXPECT_EQ(PlaylistMetadata::MmrKey(38), "casual");
@@ -37,6 +37,11 @@ TEST(PlaylistMetadataTest, KeepsCasualAndRankedExtraModesDistinct) {
     EXPECT_TRUE(PlaylistMetadata::IsRanked(43));
     EXPECT_EQ(PlaylistMetadata::MmrKey(43), "heatseeker");
     EXPECT_EQ(PlaylistMetadata::Category(43), MmrCategory::Heatseeker);
+
+    EXPECT_TRUE(PlaylistMetadata::IsRanked(63));
+    EXPECT_EQ(PlaylistMetadata::CanonicalMode(63), "heatseeker");
+    EXPECT_EQ(PlaylistMetadata::Category(63), MmrCategory::Heatseeker);
+    EXPECT_EQ(PlaylistMetadata::TrackerKey(63), "heatseeker");
 }
 
 TEST(PlaylistMetadataTest, TrackerExposureIsExplicitAndUnknownIdsStayUnknown) {

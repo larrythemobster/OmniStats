@@ -8,7 +8,7 @@ namespace PlaylistMetadata {
         // the current Game.PlaylistId. trackerKey is populated only for IDs Tracker's
         // profile segments expose directly; gameplay IDs can still share an MMR key
         // without being Tracker segment IDs themselves.
-        constexpr std::array<Info, 70> kPlaylists{{
+        constexpr std::array<Info, 71> kPlaylists{{
             {-2, "intermission", "intermission", "", "Intermission", PlaylistClass::NonRecordable, MmrCategory::Best, "", "intermission_playlist"},
             {0, "casual", "casual", "casual", "Casual", PlaylistClass::Casual, MmrCategory::Casual, "casual", nullptr},
             {1, "casual", "casual", "casual", "Duel", PlaylistClass::Casual, MmrCategory::Casual, "", nullptr},
@@ -58,6 +58,7 @@ namespace PlaylistMetadata {
             {55, "casual", "casual", "casual", "Confidential Thirdwheel Test", PlaylistClass::Casual, MmrCategory::Casual, "", nullptr},
             {61, "casual", "casual", "casual", "Quads", PlaylistClass::Casual, MmrCategory::Casual, "", nullptr},
             {62, "casual", "casual", "casual", "Magnus Futball", PlaylistClass::Casual, MmrCategory::Casual, "", nullptr},
+            {63, "heatseeker", "heatseeker", "heatseeker", "Heatseeker", PlaylistClass::Ranked, MmrCategory::Heatseeker, "heatseeker", nullptr},
             {64, "casual", "casual", "casual", "God Ball Spooky", PlaylistClass::Casual, MmrCategory::Casual, "", nullptr},
             {65, "casual", "casual", "casual", "God Ball Haunted", PlaylistClass::Casual, MmrCategory::Casual, "", nullptr},
             {66, "casual", "casual", "casual", "God Ball Ricochet", PlaylistClass::Casual, MmrCategory::Casual, "", nullptr},

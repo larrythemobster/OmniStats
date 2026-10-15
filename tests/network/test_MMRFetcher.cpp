@@ -359,6 +359,7 @@ TEST(MMRFetcherPlaylistMappingTest, MapsExtraModesToSeparatePlaylists) {
     EXPECT_EQ(MMRFetcher::PlaylistNameForTrackerId(30), "snowday");
     EXPECT_EQ(MMRFetcher::PlaylistNameForTrackerId(34), "t");
     EXPECT_EQ(MMRFetcher::PlaylistNameForTrackerId(43), "heatseeker");
+    EXPECT_EQ(MMRFetcher::PlaylistNameForTrackerId(63), "heatseeker");
     EXPECT_EQ(MMRFetcher::PlaylistNameForTrackerId(0), "casual");
     // Gameplay playlist IDs are not automatically Tracker segment IDs.
     EXPECT_EQ(MMRFetcher::PlaylistNameForTrackerId(2), "");
