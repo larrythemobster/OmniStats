@@ -16,6 +16,8 @@ class OverlayWindow {
 
     void UpdateStyle(bool secondMonitorMode, bool showMenu);
     void UpdatePosition(bool resetSecondMonitorPlacement = true);
+    // Compact, centered, rounded app window used while first-run setup is open.
+    void ApplySetupFrame(int width, int height);
     RECT GetSecondaryMonitorRect() const;
     void SetDpiScale(float dpiScale) {
         m_dpiScale = dpiScale;

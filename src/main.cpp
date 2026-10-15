@@ -6,7 +6,6 @@
 #include <iostream>
 #include <memory>
 #include <thread>
-#include <ctime>
 #include <cstdlib>
 #include <exception>
 #include <io.h>
@@ -29,21 +28,9 @@
 #include "core/config/StatsApiConfig.hpp"
 #include <curl/curl.h>
 #include <dbghelp.h>
-#include <commctrl.h>
 #include <windows.h>
-using TaskDialogIndirect_t = HRESULT(WINAPI*)(const TASKDIALOGCONFIG*, int*, int*, BOOL*);
 
 namespace {
-    struct ScopedModuleDeleter {
-        using pointer = HMODULE;
-        void operator()(HMODULE mod) const noexcept {
-            if (mod != nullptr) {
-                FreeLibrary(mod);
-            }
-        }
-    };
-    using ScopedModule = std::unique_ptr<HMODULE, ScopedModuleDeleter>;
-
     struct ScopedHandleDeleter {
         using pointer = HANDLE;
         void operator()(HANDLE h) const noexcept {
@@ -89,78 +76,6 @@ namespace {
 
 static wchar_t g_crashDumpPath[MAX_PATH] = {0};
 static HANDLE g_fatalLogHandle = INVALID_HANDLE_VALUE;
-static HRESULT CALLBACK PrivacyTaskDialogCallback(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam, LONG_PTR lpRefData) {
-    (void)hwnd;
-    (void)wParam;
-    (void)lpRefData;
-    if (msg == TDN_HYPERLINK_CLICKED && lParam) {
-        ShellExecuteW(NULL, L"open", reinterpret_cast<LPCWSTR>(lParam), NULL, NULL, SW_SHOWNORMAL);
-    }
-    return S_OK;
-}
-static bool ShowRequiredPrivacyDialog() {
-    const TASKDIALOG_BUTTON buttons[] = {
-        {IDYES, L"Accept"},
-        {IDNO, L"Exit"}};
-    TASKDIALOGCONFIG config = {};
-    config.cbSize = sizeof(config);
-    config.dwFlags = TDF_ENABLE_HYPERLINKS | TDF_ALLOW_DIALOG_CANCELLATION;
-    config.pszWindowTitle = L"OmniStats Privacy Notice";
-    config.pszMainIcon = TD_INFORMATION_ICON;
-    config.pszMainInstruction = L"Accept the Privacy Policy and Terms of Use to continue.";
-    config.pszContent =
-        L"Required startup diagnostics: app version, a pseudonymous installation ID, and feature-toggle status. Match data and player names are not included.\n\n"
-        L"Update checks are always enabled. Tracker rank lookup, Discord, Ballchasing, crash reports, and automatic update installation stay off unless enabled.\n\n"
-        L"<a href=\"https://omnistats.org/privacy\">Privacy Policy</a>\n"
-        L"<a href=\"https://omnistats.org/terms\">Terms of Use</a>\n\n"
-        L"Accept to continue, or Exit to close OmniStats.";
-    config.cButtons = ARRAYSIZE(buttons);
-    config.pButtons = buttons;
-    config.nDefaultButton = IDNO;
-    config.pfCallback = PrivacyTaskDialogCallback;
-    ScopedModule comctl32(LoadLibraryW(L"comctl32.dll"));
-    if (comctl32) {
-        auto taskDialogIndirect = reinterpret_cast<TaskDialogIndirect_t>(GetProcAddress(comctl32.get(), "TaskDialogIndirect"));
-        if (taskDialogIndirect) {
-            int selectedButton = IDNO;
-            HRESULT hr = taskDialogIndirect(&config, &selectedButton, nullptr, nullptr);
-            if (SUCCEEDED(hr)) {
-                return selectedButton == IDYES;
-            }
-        }
-    }
-    std::string message =
-        "Accept the Privacy Policy and Terms of Use to continue.\n\n"
-        "Required startup diagnostics: app version, a pseudonymous installation ID, and feature-toggle status. Match data and player names are not included.\n\n"
-        "Update checks are always enabled. Tracker rank lookup, Discord, Ballchasing, crash reports, and automatic update installation stay off unless enabled.\n\n"
-        "Privacy Policy: https://omnistats.org/privacy\n"
-        "Terms of Use: https://omnistats.org/terms\n\n"
-        "Choose Yes to accept, or No to exit.";
-    int accepted = MessageBoxA(NULL, message.c_str(), "OmniStats Privacy Notice", MB_YESNO | MB_ICONINFORMATION | MB_DEFBUTTON2 | MB_SETFOREGROUND);
-    return accepted == IDYES;
-}
-static bool EnsureRequiredPrivacyAcceptance() {
-    ConfigData conf = Config::Read();
-    const bool acceptedCurrent = conf.privacy_policy_accepted_version == Config::CurrentPrivacyPolicyVersion &&
-                                 conf.terms_accepted_version == Config::CurrentTermsVersion;
-    if (acceptedCurrent) {
-        return true;
-    }
-    if (!ShowRequiredPrivacyDialog()) {
-        return false;
-    }
-    // Optional integrations (Tracker, Discord, crash reports) are offered by the
-    // in-app first-run wizard, which runs until onboarding_completed is set.
-    std::string acceptedAt = std::to_string(std::time(nullptr));
-    Config::Update([&](ConfigData& c) {
-        c.privacy_policy_accepted_version = Config::CurrentPrivacyPolicyVersion;
-        c.terms_accepted_version = Config::CurrentTermsVersion;
-        c.privacy_accepted_at = acceptedAt;
-    },
-                   false);
-    Config::Save();
-    return true;
-}
 LONG WINAPI
 GlobalUnhandledExceptionFilter(struct _EXCEPTION_POINTERS* exceptionInfo) {
     ScopedWinHandle hFile(CreateFileW(g_crashDumpPath, GENERIC_WRITE, 0, NULL,
@@ -250,14 +165,11 @@ int main(int argc, char* argv[]) {
     });
     std::cout << "OmniStats Starting...\n";
     Config::Load();
-    AccountClient::Instance().SyncFromConfig();
-    if (!EnsureRequiredPrivacyAcceptance()) {
-        std::cout << "[Privacy] Required privacy notice was declined. Exiting.\n";
-        curl_global_cleanup();
-        return 0;
-    }
+    // Network services wait for the Privacy Policy and Terms, which the first-run window collects.
+    const bool consentedAtStartup = Config::HasCurrentConsent(Config::Read());
+    if (consentedAtStartup) AccountClient::Instance().SyncFromConfig();
     ConfigData startupUpdateConf = Config::Read();
-    if (startupUpdateConf.enable_auto_updates && ExternalUpdaterLauncher::RunStartupUpdateCheck()) {
+    if (consentedAtStartup && startupUpdateConf.enable_auto_updates && ExternalUpdaterLauncher::RunStartupUpdateCheck()) {
         std::cout << "[Main] External updater launched for startup update.\n";
         curl_global_cleanup();
         return 0;
@@ -326,13 +238,16 @@ int main(int argc, char* argv[]) {
         curl_global_cleanup();
         return 1;
     }
-    ConfigData updateConf = Config::Read();
-    if (!updateConf.enable_auto_updates) {
-        ExternalUpdaterLauncher::StartBackgroundUpdateCheck(
-            g_state, ExternalUpdaterLauncher::BackgroundUpdateCheckReason::Initial);
-    }
-    TelemetryManager::Initialize(dbManager);
-    RemoteConfig::Instance().Start();
+    const auto startConsentedServices = [&g_state, &dbManager](bool syncAccount) {
+        if (syncAccount) AccountClient::Instance().SyncFromConfig();
+        if (!Config::Read().enable_auto_updates) {
+            ExternalUpdaterLauncher::StartBackgroundUpdateCheck(
+                g_state, ExternalUpdaterLauncher::BackgroundUpdateCheckReason::Initial);
+        }
+        TelemetryManager::Initialize(dbManager);
+        RemoteConfig::Instance().Start();
+    };
+    if (consentedAtStartup) startConsentedServices(false);
     // Start Backend Threads
     std::shared_ptr<MMRFetcher> mmrFetcher =
         std::make_shared<MMRFetcher>(g_state, dbManager);
@@ -365,6 +280,7 @@ int main(int argc, char* argv[]) {
         curl_global_cleanup();
         return 1;
     }
+    if (!consentedAtStartup) overlay.SetConsentHandler([&startConsentedServices] { startConsentedServices(true); });
     overlay.RunLoop();
     std::cout << "[Main] Shutting down components...\n";
     inputManager.Stop();

@@ -1,7 +1,7 @@
 #pragma once
 
 // Data model behind resources/rml/onboarding.rml, the first-run wizard:
-// Stats API connection, overlay or dashboard, optional services, and account.
+// Stats API connection, layout, live ranks account, optional services, and Rocket League account.
 
 #include <RmlUi/Core/DataModelHandle.h>
 #include <RmlUi/Core/Types.h>
@@ -15,8 +15,9 @@ namespace Rml {
 
 class OnboardingView {
   public:
-    static constexpr int kStepCount = 4;
-    static constexpr int kAccountStep = 3;
+    static constexpr int kStepCount = 5;
+    static constexpr int kRanksStep = 2;
+    static constexpr int kAccountStep = 4;
 
     // Must run before onboarding.rml is loaded.
     bool Create(Rml::Context* context);
@@ -28,6 +29,12 @@ class OnboardingView {
     void SetStep(int step);
     void Refresh(const ConfigData& config, const StatsApiConfig::CheckResult& statsApi, bool statsApiChecked,
                  bool accountDetected);
+
+    void ToggleFallback();
+    void SetShowFallback(bool show);
+    bool ShowFallback() const {
+        return m_accountShowFallback;
+    }
 
   private:
     template <typename T>
@@ -45,6 +52,7 @@ class OnboardingView {
     bool m_statsCanFix = false;
     bool m_showRestartHint = false;
     bool m_secondMonitor = false;
+    bool m_consentRequired = false;
     bool m_mmrTracking = false;
     bool m_discord = false;
     bool m_crashReports = false;
@@ -53,6 +61,9 @@ class OnboardingView {
     bool m_accountAwaiting = false;
     bool m_accountMigrating = false;
     bool m_accountHasError = false;
+    bool m_accountShowFallback = false;
+    bool m_customApiEnabled = false;
+    Rml::String m_accountDisplayName;
     Rml::String m_accountStatus;
     Rml::String m_accountUserCode;
 };

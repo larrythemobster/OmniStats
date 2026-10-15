@@ -13,9 +13,11 @@ namespace {
         case 1:
             return "Choose a layout";
         case 2:
+            return "Connect live ranks";
+        case 3:
             return "Optional services";
         default:
-            return "Your account";
+            return "Rocket League account";
         }
     }
 }
@@ -43,8 +45,12 @@ bool OnboardingView::Create(Rml::Context* context) {
     constructor.Bind("account_awaiting", &m_accountAwaiting);
     constructor.Bind("account_migrating", &m_accountMigrating);
     constructor.Bind("account_has_error", &m_accountHasError);
+    constructor.Bind("account_show_fallback", &m_accountShowFallback);
+    constructor.Bind("custom_api_enabled", &m_customApiEnabled);
+    constructor.Bind("account_display_name", &m_accountDisplayName);
     constructor.Bind("account_status", &m_accountStatus);
     constructor.Bind("account_user_code", &m_accountUserCode);
+    constructor.Bind("consent_required", &m_consentRequired);
 
     m_handle = constructor.GetModelHandle();
     m_bound = true;
@@ -55,6 +61,7 @@ bool OnboardingView::Create(Rml::Context* context) {
 void OnboardingView::Reset() {
     m_handle = {};
     m_bound = false;
+    m_accountShowFallback = false;
 }
 
 template <typename T>
@@ -65,8 +72,20 @@ void OnboardingView::Set(T& field, T value, const char* name) {
 }
 
 void OnboardingView::SetStep(int step) {
-    Set(m_step, std::clamp(step, 0, kStepCount - 1), "step");
+    const int newStep = std::clamp(step, 0, kStepCount - 1);
+    if (newStep != m_step) {
+        Set(m_accountShowFallback, false, "account_show_fallback");
+    }
+    Set(m_step, newStep, "step");
     Set(m_stepTitle, Rml::String(StepTitle(m_step)), "step_title");
+}
+
+void OnboardingView::ToggleFallback() {
+    Set(m_accountShowFallback, !m_accountShowFallback, "account_show_fallback");
+}
+
+void OnboardingView::SetShowFallback(bool show) {
+    Set(m_accountShowFallback, show, "account_show_fallback");
 }
 
 void OnboardingView::Refresh(const ConfigData& config, const StatsApiConfig::CheckResult& statsApi, bool statsApiChecked,
@@ -81,6 +100,7 @@ void OnboardingView::Refresh(const ConfigData& config, const StatsApiConfig::Che
     Set(m_statsCanFix, !ok && !statsApi.path.empty(), "stats_can_fix");
     Set(m_showRestartHint, !ok && statsApi.rlRunning, "show_restart_hint");
 
+    Set(m_consentRequired, !Config::HasCurrentConsent(config), "consent_required");
     Set(m_secondMonitor, config.second_monitor_mode, "second_monitor");
     Set(m_mmrTracking, config.enable_mmr_tracking, "mmr_tracking");
     Set(m_discord, config.discord_rpc_enabled, "discord");
@@ -90,15 +110,26 @@ void OnboardingView::Refresh(const ConfigData& config, const StatsApiConfig::Che
                                     : "Only accounts OmniStats has already seen are listed. Auto-detect works for new installs."),
         "identity_hint");
 
+    Set(m_customApiEnabled, config.custom_api_enabled, "custom_api_enabled");
+
     const AccountStatusSnapshot account = AccountClient::Instance().GetStatus();
     Set(m_accountSignedIn, account.state == AccountAuthState::SignedIn, "account_signed_in");
     Set(m_accountAwaiting, account.state == AccountAuthState::AwaitingApproval, "account_awaiting");
     Set(m_accountMigrating, account.state == AccountAuthState::Migrating, "account_migrating");
     Set(m_accountHasError, account.state == AccountAuthState::Error && !account.errorMessage.empty(), "account_has_error");
     Set(m_accountUserCode, Rml::String(account.userCode), "account_user_code");
+    Set(m_accountDisplayName,
+        Rml::String(account.displayName.empty() ? "OmniStats User" : account.displayName),
+        "account_display_name");
+
+    if (account.state != AccountAuthState::AwaitingApproval) {
+        Set(m_accountShowFallback, false, "account_show_fallback");
+    }
+
     if (account.state == AccountAuthState::SignedIn) {
         Set(m_accountStatus,
-            Rml::String("Signed in as " + account.displayName + " · Ranks: " + (config.custom_api_enabled ? "OmniStats" : "Off")),
+            Rml::String("Connected as " + (account.displayName.empty() ? "OmniStats User" : account.displayName) +
+                        " · Ranks: " + (config.custom_api_enabled ? "OmniStats" : "Off")),
             "account_status");
     } else if (account.state == AccountAuthState::Migrating) {
         Set(m_accountStatus, Rml::String("Upgrading account connection..."), "account_status");

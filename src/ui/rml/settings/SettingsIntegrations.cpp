@@ -55,7 +55,7 @@ std::string RmlUiController::RenderSettingsIntegrations() {
     out << SectionStart("Account");
     if (accountStatus.state == AccountAuthState::SignedIn) {
         out << "<div class='setting-row'><div class='setting-info'>"
-            << "<div class='setting-name win'>Signed in as " << Escape(accountStatus.displayName)
+            << "<div class='setting-name win'>Connected as " << Escape(accountStatus.displayName)
             << " · Ranks: " << (m_config.custom_api_enabled ? "OmniStats" : "Off") << "</div>"
             << "<div class='setting-help'>OmniStats rank API is your primary rank source for all lobby players.</div>"
             << "</div><div class='row gap-xs'>"
@@ -65,24 +65,27 @@ std::string RmlUiController::RenderSettingsIntegrations() {
     } else if (accountStatus.state == AccountAuthState::Migrating) {
         out << "<div class='setting-row'><div class='setting-info'>"
             << "<div class='setting-name'>Upgrading account connection...</div>"
-            << "<div class='setting-help'>Connecting this device using your saved credentials. Live ranks will be available shortly.</div>"
+            << "<div class='setting-help'>Linking this PC using your saved account credentials.</div>"
             << "</div><div class='row gap-xs'>"
             << "<button class='ghost' disabled='disabled'>Connecting...</button>"
             << "</div></div>";
     } else if (accountStatus.state == AccountAuthState::AwaitingApproval) {
         out << "<div class='setting-row'><div class='setting-info'>"
-            << "<div class='setting-name'>Waiting for browser approval...</div>"
-            << "<div class='setting-help'>Confirm this code in your browser to finish signing in.</div>"
+            << "<div class='setting-name'>Finish connecting in your browser...</div>"
+            << "<div class='setting-help'>Sign in or create an account, then approve this PC. This screen will update automatically.</div>"
             << "</div><div class='row gap-xs'>"
-            << "<button class='primary' data-action='account-open-verify'>Open browser</button>"
+            << "<button class='primary' data-action='account-open-verify'>Open browser again</button>"
             << "<button class='ghost' data-action='account-cancel'>Cancel</button>"
             << "</div></div>"
-            << "<div class='account-code-card'><div class='label'>Verification code</div>"
+            << "<div class='account-code-card'><div class='row center gap-xs'><div class='label grow'>Verification code</div>"
+            << "<button class='ghost compact' data-action='account-copy-code'>Copy code</button></div>"
+            << "<button class='ghost compact' data-action='account-copy-link'>Copy sign-in link</button>"
             << "<div class='account-user-code mono'>" << Escape(accountStatus.userCode) << "</div></div>";
     } else {
         out << "<div class='setting-row'><div class='setting-info'>"
-            << "<div class='setting-name'>Link this device</div>"
-            << "<div class='setting-help'>Link your OmniStats account to use live ranks. A browser page opens for approval.</div>";
+            << "<div class='setting-name'>Connect live ranks</div>"
+            << "<div class='setting-help'>Sign in to OmniStats to see player ranks and MMR. Your match history stays on this PC.</div>"
+            << "<div class='setting-help'>Use an OmniStats account, not your Epic Games or Rocket League login.</div>";
         if (accountStatus.state == AccountAuthState::Error && !accountStatus.errorMessage.empty()) {
             out << "<div class='setting-help loss'>" << Escape(accountStatus.errorMessage) << "</div>";
         }

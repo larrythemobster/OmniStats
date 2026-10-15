@@ -1482,50 +1482,109 @@ body.view-document { pointer-events: none; }
 .trend-rate { min-width: 44dp; flex-shrink: 0; text-align: right; }
 .trend-games { width: 72dp; flex-shrink: 0; text-align: right; }
 
-.wizard-window { width: 640dp; height: 520dp; }
-.wizard-progress { flex-shrink: 0; gap: 6dp; padding: 12dp 16dp 0 16dp; }
-.wizard-step { flex-grow: 1; height: 4dp; border-radius: 2dp; background-color: #2a2a2a; }
-.wizard-step.done { background-color: #eef1f5; }
-.wizard-lead { display: block; margin-bottom: 14dp; font-size: 13dp; line-height: 1.45; color: #c3cad6; }
-.wizard-footer { flex-shrink: 0; gap: 8dp; padding: 10dp 16dp; border-top: 1dp #2d2d2d; background-color: #141414; }
-.status-card { display: block; padding: 12dp 14dp; border: 1dp #303030; border-radius: 8dp; background-color: #151515; }
-.status-card.ok { border-color: #43d92666; }
-.status-card.bad { border-color: #ff303066; }
-.status-dot { width: 10dp; height: 10dp; margin-right: 8dp; border-radius: 5dp; background-color: #9da6b3; }
+/* Setup runs in its own window sized by the host, so the wizard fills the document. */
+.wizard-backdrop {
+    background-color: #0c0d10;
+}
+.wizard-window {
+    width: 100%;
+    height: 100%;
+    max-width: 100%;
+    max-height: 100%;
+    background-color: #0c0d10;
+    border-width: 0dp;
+    border-radius: 0dp;
+    animation: 0.35s cubic-out wizard-entrance;
+}
+
+@keyframes wizard-entrance {
+    from {
+        opacity: 0.0;
+        transform: translateY(10dp);
+    }
+    to {
+        opacity: 1.0;
+        transform: translateY(0dp);
+    }
+}
+
+.wizard-main {
+    display: flex;
+    flex-direction: column;
+    flex-grow: 1;
+    min-height: 0;
+}
+.wizard-title {
+    display: block;
+    font-family: "Russo One";
+    font-size: 22dp;
+    color: #ffffff;
+    margin-bottom: 6dp;
+}
+.consent-card { margin-bottom: 10dp; }
+.consent-card .setting-help { margin-top: 4dp; }
+.consent-note {
+    font-size: 11dp;
+    color: #7f8897;
+    text-align: right;
+    margin-right: 10dp;
+}
+
+.wizard-header {
+    min-height: 64dp;
+    padding: 14dp 20dp;
+    background-color: #101216;
+    border-bottom: 1dp #1c1f26;
+}
+
+.wizard-progress { flex-shrink: 0; gap: 8dp; padding: 14dp 20dp 0 20dp; }
+.wizard-step { flex-grow: 1; height: 3dp; border-radius: 2dp; background-color: #20232b; }
+.wizard-step.done {
+    background-color: #ef1734;
+}
+.wizard-lead { display: block; margin-bottom: 16dp; font-size: 13.5dp; line-height: 1.5; color: #a4adba; }
+.wizard-footer { flex-shrink: 0; gap: 10dp; padding: 14dp 20dp; border-top: 1dp #1c1f26; background-color: #090a0c; }
+
+.status-card { display: block; padding: 14dp 16dp; border: 1dp #252830; border-radius: 10dp; background-color: #121317; }
+.status-card.ok { border-color: #43d92666; background-color: #121814; }
+.status-card.bad { border-color: #ff303066; background-color: #1a1214; }
+.status-dot { width: 10dp; height: 10dp; margin-right: 10dp; border-radius: 5dp; background-color: #9da6b3; }
 .status-card.ok .status-dot { background-color: #43d926; }
 .status-card.bad .status-dot { background-color: #ff3030; }
-.status-path { display: block; margin-top: 6dp; font-size: 11dp; }
+.status-path { display: block; margin-top: 8dp; font-size: 11dp; color: #7f8897; }
+
 .choice-card {
     display: block;
-    min-height: 120dp;
-    padding: 14dp;
-    border: 1dp #303030;
-    border-radius: 8dp;
-    background-color: #151515;
+    min-height: 125dp;
+    padding: 16dp;
+    border: 1dp #272a33;
+    border-radius: 10dp;
+    background-color: #131418;
     cursor: pointer;
+    transition: border-color 0.16s cubic-out, background-color 0.16s cubic-out;
 }
-.choice-card:hover { border-color: #505050; }
-.choice-card.selected { border: 2dp #eef1f5; background-color: #1c1c1c; }
-.choice-title { display: block; margin-bottom: 6dp; font-size: 14dp; font-weight: 700; }
+.choice-card:hover { border-color: #484e5c; background-color: #181920; }
+.choice-card.selected { border: 2dp #ef1734; background-color: #1d1417; }
+.choice-title { display: block; margin-bottom: 6dp; font-size: 14.5dp; font-weight: 700; color: #ffffff; }
 
-.account-onboarding-card { margin-bottom: 10dp; }
+.account-onboarding-card { margin-bottom: 12dp; }
 .account-code-card {
     display: block;
-    margin-top: 8dp;
+    margin-top: 10dp;
     margin-bottom: 6dp;
-    padding: 10dp 14dp;
-    border: 1dp #3b3b3b;
-    border-radius: 8dp;
-    background-color: #131313;
+    padding: 12dp 16dp;
+    border: 1dp #2d313b;
+    border-radius: 10dp;
+    background-color: #101115;
     text-align: center;
 }
 .account-user-code {
     display: block;
-    margin-top: 4dp;
-    font-size: 22dp;
+    margin-top: 6dp;
+    font-size: 24dp;
     font-weight: 700;
-    letter-spacing: 2dp;
-    color: #eef1f5;
+    letter-spacing: 3dp;
+    color: #ffffff;
 }
 .history-window { width: 880dp; height: 680dp; position: relative; }
 .history-toolbar {

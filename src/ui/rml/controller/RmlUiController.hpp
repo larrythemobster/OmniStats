@@ -113,6 +113,9 @@ class RmlUiController final : public Rml::EventListener {
     // Insights and onboarding are modal documents that must be seen even when
     // the overlay would otherwise hide (Rocket League not focused or closed).
     bool WantsAttention() const;
+    bool IsOnboardingVisible() const noexcept {
+        return m_onboardingVisible;
+    }
     void OpenInsights();
     void OpenHistory();
     void OpenAccounts();

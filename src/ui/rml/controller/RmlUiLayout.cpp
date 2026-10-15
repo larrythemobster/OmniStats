@@ -335,9 +335,7 @@ std::string RmlUiController::RenderOverlayToolbox(bool editMode) {
 }
 
 void RmlUiController::RebuildOverlay() {
-    // The inactive surface is cleared exactly once when window mode changes.
-    // Do not keep touching an unused root during unrelated Settings/layout work.
-    if (m_config.second_monitor_mode) return;
+    if (m_onboardingVisible || m_config.second_monitor_mode) return;
     std::ostringstream out;
     if (m_config.show_running_indicator) out << "<div class='running-indicator'><span class='win'>●</span> OmniStats</div>";
 
@@ -420,9 +418,7 @@ std::string RmlUiController::RenderReleaseBanners() const {
 }
 
 void RmlUiController::RebuildDashboard() {
-    // The inactive surface is cleared exactly once when window mode changes.
-    // Do not keep touching an unused root during unrelated Settings/layout work.
-    if (!m_config.second_monitor_mode) return;
+    if (m_onboardingVisible || !m_config.second_monitor_mode) return;
     const bool editMode = m_state && m_state->ui.dashboardLayoutEditMode.load();
     DashboardLayout::LayoutConfig layout = m_config.dashboard_layout;
     DashboardLayout::Sanitize(layout);

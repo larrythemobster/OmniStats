@@ -69,6 +69,8 @@ class RmlUiControllerStateTest : public ::testing::Test {
             c.second_monitor_mode = false;
             c.ballchasing_token.clear();
             c.onboarding_completed = true;
+            c.privacy_policy_accepted_version = Config::CurrentPrivacyPolicyVersion;
+            c.terms_accepted_version = Config::CurrentTermsVersion;
             c.account_link_prompt_shown = true;
         },
                        true);
@@ -239,6 +241,9 @@ class RmlUiControllerStateTest : public ::testing::Test {
     }
     Rml::ElementDocument* OnboardingDocument(RmlUiController& controller) {
         return controller.m_onboardingDoc;
+    }
+    OnboardingView& OnboardingModel(RmlUiController& controller) {
+        return controller.m_onboarding;
     }
     Rml::ElementDocument* InsightsDocument(RmlUiController& controller) {
         return controller.m_insightsDoc;
@@ -1843,6 +1848,60 @@ TEST_F(RmlUiControllerStateTest, FirstRunWizardShowsUntilFinished) {
     EXPECT_FALSE(controller.WantsAttention());
 }
 
+TEST_F(RmlUiControllerStateTest, FirstRunRequiresConsentBeforeSetupCanFinish) {
+    WarpDevice warp;
+    if (!warp.Create(1280, 800)) GTEST_SKIP() << "WARP not available.";
+    Config::Update([](ConfigData& c) {
+        c.onboarding_completed = false;
+        c.privacy_policy_accepted_version.clear();
+        c.terms_accepted_version.clear();
+    },
+                   true);
+
+    auto state = std::make_shared<SessionState>();
+    RmlUiController controller(state, nullptr);
+    ASSERT_TRUE(controller.Initialize(nullptr, warp.device.Get(), warp.context.Get(), 1280, 800, 1.0f));
+    controller.Update(Config::Read(), false);
+    controller.Render();
+    ASSERT_TRUE(controller.IsOnboardingVisible());
+
+    Rml::ElementList finishButtons;
+    OnboardingDocument(controller)->QuerySelectorAll(finishButtons, "[data-action='onboarding-finish']");
+    ASSERT_FALSE(finishButtons.empty());
+    Click(controller, finishButtons.front());
+    EXPECT_FALSE(Config::Read().onboarding_completed);
+    EXPECT_TRUE(controller.IsOnboardingVisible());
+
+    Rml::ElementList acceptButtons;
+    OnboardingDocument(controller)->QuerySelectorAll(acceptButtons, "[data-action='onboarding-accept-terms']");
+    ASSERT_FALSE(acceptButtons.empty());
+    Click(controller, acceptButtons.front());
+    EXPECT_TRUE(Config::HasCurrentConsent(Config::Read()));
+    EXPECT_FALSE(Config::Read().onboarding_completed);
+    EXPECT_TRUE(controller.IsOnboardingVisible());
+    EXPECT_EQ(OnboardingModel(controller).Step(), 0);
+}
+
+TEST_F(RmlUiControllerStateTest, ReturningUserReacceptsUpdatedTermsWithoutRerunningSetup) {
+    WarpDevice warp;
+    if (!warp.Create(1280, 800)) GTEST_SKIP() << "WARP not available.";
+    Config::Update([](ConfigData& c) { c.terms_accepted_version = "2000-01-01"; }, true);
+
+    auto state = std::make_shared<SessionState>();
+    RmlUiController controller(state, nullptr);
+    ASSERT_TRUE(controller.Initialize(nullptr, warp.device.Get(), warp.context.Get(), 1280, 800, 1.0f));
+    controller.Update(Config::Read(), false);
+    controller.Render();
+    ASSERT_TRUE(controller.IsOnboardingVisible());
+
+    Rml::ElementList acceptButtons;
+    OnboardingDocument(controller)->QuerySelectorAll(acceptButtons, "[data-action='onboarding-accept-terms']");
+    ASSERT_FALSE(acceptButtons.empty());
+    Click(controller, acceptButtons.front());
+    EXPECT_TRUE(Config::HasCurrentConsent(Config::Read()));
+    EXPECT_FALSE(controller.IsOnboardingVisible());
+}
+
 // Closing Rocket League hides the overlay, and the host stops calling Update()
 // while hidden. The pending recap must keep the window drawn, or the recap
 // is never opened.
@@ -3307,4 +3366,193 @@ TEST_F(RmlUiControllerStateTest, AccountLinkPromptWaitsForMigrationAndOffersReco
     ASSERT_NE(root, nullptr);
     EXPECT_NE(root->QuerySelector("[data-action='account-retry-migration']"), nullptr);
     EXPECT_NE(root->QuerySelector("[data-action='account-sign-in']"), nullptr);
+}
+TEST_F(RmlUiControllerStateTest, OnboardingWizard_StepsTransitionAndSkip) {
+    WarpDevice warp;
+    if (!warp.Create(1280, 800)) GTEST_SKIP() << "WARP not available.";
+
+    bool browserOpened = false;
+    auto& account = AccountClient::Instance();
+    account.ResetForTests();
+    account.SetOpenUrlForTests([&](const std::string&) { browserOpened = true; });
+
+    Config::Update([](ConfigData& c) {
+        c.onboarding_completed = false;
+        c.account_refresh_token.clear();
+        c.account_signed_in_name.clear();
+        c.custom_api_key.clear();
+    },
+                   true);
+
+    auto state = std::make_shared<SessionState>();
+    RmlUiController controller(state, nullptr);
+    ASSERT_TRUE(controller.Initialize(nullptr, warp.device.Get(), warp.context.Get(), 1280, 800, 1.0f));
+    controller.Update(Config::Read(), false);
+    controller.Render();
+
+    auto& onboarding = OnboardingModel(controller);
+    EXPECT_EQ(onboarding.Step(), 0);
+
+    Rml::ElementList nextButtons;
+    OnboardingDocument(controller)->QuerySelectorAll(nextButtons, "[data-action='onboarding-next']");
+    ASSERT_FALSE(nextButtons.empty());
+    Click(controller, nextButtons.front());
+    EXPECT_EQ(onboarding.Step(), 1);
+
+    nextButtons.clear();
+    OnboardingDocument(controller)->QuerySelectorAll(nextButtons, "[data-action='onboarding-next']");
+    ASSERT_FALSE(nextButtons.empty());
+    Click(controller, nextButtons.front());
+    EXPECT_EQ(onboarding.Step(), 2);
+
+    EXPECT_EQ(account.GetStatus().state, AccountAuthState::SignedOut);
+    EXPECT_FALSE(browserOpened);
+    nextButtons.clear();
+    OnboardingDocument(controller)->QuerySelectorAll(nextButtons, "[data-action='onboarding-next']");
+    ASSERT_FALSE(nextButtons.empty());
+    Click(controller, nextButtons.front());
+
+    EXPECT_EQ(onboarding.Step(), 3);
+    EXPECT_EQ(account.GetStatus().state, AccountAuthState::SignedOut);
+    EXPECT_FALSE(browserOpened);
+
+    nextButtons.clear();
+    OnboardingDocument(controller)->QuerySelectorAll(nextButtons, "[data-action='onboarding-next']");
+    ASSERT_FALSE(nextButtons.empty());
+    Click(controller, nextButtons.front());
+    EXPECT_EQ(onboarding.Step(), 4);
+
+    Rml::ElementList backButtons;
+    OnboardingDocument(controller)->QuerySelectorAll(backButtons, "[data-action='onboarding-back']");
+    ASSERT_FALSE(backButtons.empty());
+    Click(controller, backButtons.front());
+    EXPECT_EQ(onboarding.Step(), 3);
+
+    nextButtons.clear();
+    OnboardingDocument(controller)->QuerySelectorAll(nextButtons, "[data-action='onboarding-next']");
+    ASSERT_FALSE(nextButtons.empty());
+    Click(controller, nextButtons.front());
+    EXPECT_EQ(onboarding.Step(), 4);
+
+    Rml::ElementList finishButtons;
+    OnboardingDocument(controller)->QuerySelectorAll(finishButtons, "[data-action='onboarding-finish']");
+    ASSERT_FALSE(finishButtons.empty());
+    Click(controller, finishButtons.front());
+    EXPECT_TRUE(Config::Read().onboarding_completed);
+    EXPECT_FALSE(controller.WantsAttention());
+    account.ResetForTests();
+}
+
+TEST_F(RmlUiControllerStateTest, OnboardingWizard_ConnectLiveRanks_FlowAndFallback) {
+    WarpDevice warp;
+    if (!warp.Create(1280, 800)) GTEST_SKIP() << "WARP not available.";
+
+    auto& account = AccountClient::Instance();
+    account.ResetForTests();
+    account.SetOpenUrlForTests([](const std::string&) {});
+    account.SetTransportForTests([](const std::string& url, const std::string&) {
+        AccountClient::HttpResponse resp;
+        if (url.find("/v1/auth/device/start") != std::string::npos) {
+            resp.statusCode = 200;
+            resp.body = R"({
+                "device_code": "dev-code-test",
+                "user_code": "FALLBACK-123",
+                "verification_uri": "/device?user_code=FALLBACK-123",
+                "expires_in": 900,
+                "poll_interval": 5
+            })";
+            return resp;
+        }
+        resp.statusCode = 428;
+        resp.body = R"({"error":{"code":"authorization_pending","message":"Pending"}})";
+        return resp;
+    });
+
+    Config::Update([](ConfigData& c) {
+        c.onboarding_completed = false;
+        c.account_refresh_token.clear();
+        c.account_signed_in_name.clear();
+        c.custom_api_key.clear();
+    },
+                   true);
+
+    auto state = std::make_shared<SessionState>();
+    RmlUiController controller(state, nullptr);
+    ASSERT_TRUE(controller.Initialize(nullptr, warp.device.Get(), warp.context.Get(), 1280, 800, 1.0f));
+
+    auto& onboarding = OnboardingModel(controller);
+    onboarding.SetStep(2);
+    controller.Update(Config::Read(), false);
+    controller.Render();
+
+    EXPECT_EQ(onboarding.Step(), 2);
+    EXPECT_FALSE(onboarding.ShowFallback());
+
+    Rml::ElementList signInButtons;
+    OnboardingDocument(controller)->QuerySelectorAll(signInButtons, "[data-action='account-sign-in']");
+    ASSERT_FALSE(signInButtons.empty());
+    Click(controller, signInButtons.front());
+
+    for (int i = 0; i < 200 && account.GetStatus().state != AccountAuthState::AwaitingApproval; ++i) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    EXPECT_EQ(account.GetStatus().state, AccountAuthState::AwaitingApproval);
+
+    controller.Update(Config::Read(), false);
+    controller.Render();
+
+    EXPECT_FALSE(onboarding.ShowFallback());
+
+    Rml::ElementList fallbackButtons;
+    OnboardingDocument(controller)->QuerySelectorAll(fallbackButtons, "[data-action='account-toggle-fallback']");
+    ASSERT_FALSE(fallbackButtons.empty());
+    Click(controller, fallbackButtons.front());
+
+    EXPECT_TRUE(onboarding.ShowFallback());
+
+    Rml::ElementList cancelButtons;
+    OnboardingDocument(controller)->QuerySelectorAll(cancelButtons, "[data-action='account-cancel']");
+    ASSERT_FALSE(cancelButtons.empty());
+    Click(controller, cancelButtons.front());
+
+    EXPECT_EQ(account.GetStatus().state, AccountAuthState::SignedOut);
+    EXPECT_FALSE(onboarding.ShowFallback());
+    account.ResetForTests();
+}
+
+TEST_F(RmlUiControllerStateTest, OnboardingWizard_ConnectLiveRanks_SuccessAndExplicitContinue) {
+    WarpDevice warp;
+    if (!warp.Create(1280, 800)) GTEST_SKIP() << "WARP not available.";
+
+    auto& account = AccountClient::Instance();
+    account.ResetForTests();
+
+    Config::Update([](ConfigData& c) {
+        c.onboarding_completed = false;
+        c.account_refresh_token = "mock_token";
+        c.account_signed_in_name = "SpeedyPilot";
+        c.custom_api_enabled = true;
+    },
+                   true);
+    account.SyncFromConfig();
+    EXPECT_TRUE(account.IsSignedIn());
+
+    auto state = std::make_shared<SessionState>();
+    RmlUiController controller(state, nullptr);
+    ASSERT_TRUE(controller.Initialize(nullptr, warp.device.Get(), warp.context.Get(), 1280, 800, 1.0f));
+
+    auto& onboarding = OnboardingModel(controller);
+    onboarding.SetStep(2);
+    controller.Update(Config::Read(), false);
+    controller.Render();
+
+    EXPECT_EQ(onboarding.Step(), 2);
+
+    Rml::ElementList continueButtons;
+    OnboardingDocument(controller)->QuerySelectorAll(continueButtons, "[data-action='onboarding-next']");
+    ASSERT_FALSE(continueButtons.empty());
+    Click(controller, continueButtons.front());
+
+    EXPECT_EQ(onboarding.Step(), 3);
+    account.ResetForTests();
 }

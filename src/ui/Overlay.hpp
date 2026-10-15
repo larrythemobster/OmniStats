@@ -2,6 +2,7 @@
 
 #include <atomic>
 #include <d3d11.h>
+#include <functional>
 #include <memory>
 #include <windows.h>
 
@@ -29,9 +30,18 @@ class Overlay {
     void Shutdown();
     void UpdateWindowStyle();
     void ResizeSwapChain(int width, int height);
+    // Runs once on the UI thread after the user accepts the current Privacy Policy and Terms.
+    void SetConsentHandler(std::function<void()> handler) {
+        m_consentHandler = std::move(handler);
+    }
 
   private:
     void UpdateWindowPosition(bool resetSecondMonitorPlacement = true);
+    void SyncSetupWindow();
+    int SetupWindowPixels(float dp) const;
+    bool UsesDesktopWindow() const noexcept {
+        return m_frameConfig.second_monitor_mode || m_setupWindow;
+    }
     void SaveSecondMonitorWindowBounds();
     void HandleDpiChanged(UINT dpi, const RECT* suggestedRect);
     bool RecreateD3DDevice();
@@ -50,6 +60,8 @@ class Overlay {
     HWND m_hwnd = nullptr;
     float m_dpiScale = 1.0f;
     bool m_lastSecondMonitorMode = false;
+    bool m_setupWindow = false;
+    std::function<void()> m_consentHandler;
 
     std::atomic<bool> m_resizePending{false};
     std::atomic<int> m_pendingWidth{0};

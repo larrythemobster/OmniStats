@@ -130,12 +130,12 @@ bool RmlUiController::Initialize(HWND hwnd, ID3D11Device* device, ID3D11DeviceCo
     } else {
         SetRootRml("overlay-root", "");
     }
-    RebuildVisibleUi(true);
-    if (!m_config.onboarding_completed) {
+    if (!m_config.onboarding_completed || !Config::HasCurrentConsent(m_config)) {
         ShowOnboarding();
     } else {
         CheckAccountLinkPrompt();
     }
+    RebuildVisibleUi(true);
     return true;
 }
 
@@ -434,7 +434,7 @@ void RmlUiController::Update(const ConfigData& config, bool configChanged, uint6
     }
 
     const int64_t nowMs = SteadyNowMs();
-    if (m_state && nowMs >= m_nextUpdateCheckPollMs) {
+    if (m_state && nowMs >= m_nextUpdateCheckPollMs && Config::HasCurrentConsent(m_config)) {
         ExternalUpdaterLauncher::StartBackgroundUpdateCheck(
             m_state, ExternalUpdaterLauncher::BackgroundUpdateCheckReason::Periodic);
         // The launcher applies the one-hour success interval and a shorter retry
@@ -784,7 +784,10 @@ void RmlUiController::RebuildVisibleUi(bool force, bool configChanged) {
 
     bool rebuiltMainStructure = false;
     if (structuralDirty) {
-        if (m_config.second_monitor_mode) {
+        if (m_onboardingVisible) {
+            SetRootRml("dashboard-root", "");
+            SetRootRml("overlay-root", "");
+        } else if (m_config.second_monitor_mode) {
             if (modeChanged || force) SetRootRml("overlay-root", "");
             RebuildDashboard();
         } else {

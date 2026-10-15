@@ -63,6 +63,8 @@ class AccountsViewTest : public ::testing::Test {
             c.custom_api_enabled = false;
             c.custom_api_key.clear();
             c.onboarding_completed = true;
+            c.privacy_policy_accepted_version = Config::CurrentPrivacyPolicyVersion;
+            c.terms_accepted_version = Config::CurrentTermsVersion;
             c.account_link_prompt_shown = true;
             c.last_primary_id.clear();
         },

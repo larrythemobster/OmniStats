@@ -622,6 +622,7 @@ AccountClient::PollResult AccountClient::PollTokenOnce() {
                 c.account_signed_in_name = displayName;
                 c.account_device_public_id = keyPair.publicId;
                 c.custom_api_key.clear();
+                c.custom_api_enabled = true;
             });
             Config::Save();
 

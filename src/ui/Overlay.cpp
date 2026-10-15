@@ -100,6 +100,19 @@ LRESULT WINAPI WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         break;
 
     case WM_NCHITTEST:
+        if (overlay && overlay->m_setupWindow) {
+            const LRESULT hit = DefWindowProcW(hWnd, msg, wParam, lParam);
+            if (hit != HTCLIENT) return hit;
+            POINT pt{static_cast<int>(static_cast<short>(LOWORD(lParam))),
+                     static_cast<int>(static_cast<short>(HIWORD(lParam)))};
+            ScreenToClient(hWnd, &pt);
+            RECT rect{};
+            GetClientRect(hWnd, &rect);
+            // Header doubles as the title bar; the Skip button on its right stays clickable.
+            if (pt.y <= overlay->SetupWindowPixels(64.0f) &&
+                pt.x < rect.right - overlay->SetupWindowPixels(150.0f)) return HTCAPTION;
+            return HTCLIENT;
+        }
         if (overlay && overlay->m_frameConfig.second_monitor_mode) {
             const LRESULT hit = DefWindowProcW(hWnd, msg, wParam, lParam);
             if (hit == HTCLIENT) {
@@ -154,7 +167,7 @@ LRESULT WINAPI WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         return 0;
 
     case WM_GETMINMAXINFO:
-        if ((overlay && overlay->m_frameConfig.second_monitor_mode) ||
+        if ((overlay && overlay->m_frameConfig.second_monitor_mode && !overlay->m_setupWindow) ||
             (!overlay && Config::Read().second_monitor_mode)) {
             auto* mmi = reinterpret_cast<MINMAXINFO*>(lParam);
             float dpiScale = overlay ? overlay->m_dpiScale : 1.0f;
@@ -228,6 +241,7 @@ bool Overlay::Initialize() {
         std::cout << "[RmlUi] Failed to initialize UI.\n";
         return false;
     }
+    SyncSetupWindow();
 
     timeBeginPeriod(1);
     ShowWindow(m_hwnd, SW_SHOWDEFAULT);
@@ -237,8 +251,25 @@ bool Overlay::Initialize() {
 
 void Overlay::UpdateWindowStyle() {
     if (!m_window) return;
+    if (m_setupWindow) {
+        m_window->ApplySetupFrame(SetupWindowPixels(680.0f), SetupWindowPixels(540.0f));
+        return;
+    }
     const bool interactiveOverlay = m_rmlUi && m_rmlUi->WantsInteraction();
     m_window->UpdateStyle(m_frameConfig.second_monitor_mode, m_state->ui.showMenu.load() || interactiveOverlay);
+}
+
+int Overlay::SetupWindowPixels(float dp) const {
+    return static_cast<int>(dp * m_dpiScale * RmlUiDetail::SanitizedUiScale(m_frameConfig.ui_scale) + 0.5f);
+}
+
+void Overlay::SyncSetupWindow() {
+    const bool setup = m_rmlUi && m_rmlUi->IsOnboardingVisible();
+    if (setup == m_setupWindow) return;
+    m_setupWindow = setup;
+    UpdateWindowStyle();
+    UpdateWindowPosition();
+    if (m_rmlUi) m_rmlUi->RequestRender();
 }
 
 void Overlay::RunLoop() {
@@ -294,6 +325,11 @@ void Overlay::RunLoop() {
             m_frameConfig = Config::Read();
             lastConfigRevision = configRevision;
             configDirty = true;
+        }
+        if (m_consentHandler && Config::HasCurrentConsent(m_frameConfig)) {
+            const auto handler = std::move(m_consentHandler);
+            m_consentHandler = nullptr;
+            handler();
         }
         const bool configChanged = configDirty;
         if (m_frameConfig.second_monitor_mode != m_lastSecondMonitorMode) {
@@ -415,7 +451,7 @@ void Overlay::RunLoop() {
             ShowWindow(m_hwnd, SW_SHOWNOACTIVATE);
             m_rmlUi->RequestRender();
             SetWindowPos(m_hwnd,
-                         m_frameConfig.second_monitor_mode ? HWND_NOTOPMOST : HWND_TOPMOST,
+                         UsesDesktopWindow() ? HWND_NOTOPMOST : HWND_TOPMOST,
                          0, 0, 0, 0,
                          SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_SHOWWINDOW | SWP_FRAMECHANGED);
             if (m_frameConfig.second_monitor_mode && isRLActive) {
@@ -446,6 +482,7 @@ void Overlay::RunLoop() {
             lastUiDataUpdate = uiNow;
             lastInputSignature = currentInputSignature;
         }
+        SyncSetupWindow();
         const bool needsInteract = m_rmlUi->WantsInteraction();
         isClickThrough = (GetWindowLong(m_hwnd, GWL_EXSTYLE) & WS_EX_TRANSPARENT) != 0;
         if (needsInteract && isClickThrough) {
@@ -453,12 +490,12 @@ void Overlay::RunLoop() {
             exStyle &= ~WS_EX_TRANSPARENT;
             SetWindowLong(m_hwnd, GWL_EXSTYLE, exStyle);
             SetWindowPos(m_hwnd,
-                         m_frameConfig.second_monitor_mode ? HWND_NOTOPMOST : HWND_TOPMOST,
+                         UsesDesktopWindow() ? HWND_NOTOPMOST : HWND_TOPMOST,
                          0, 0, 0, 0,
                          SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_FRAMECHANGED);
-            if (!m_frameConfig.second_monitor_mode) SetForegroundWindow(m_hwnd);
+            if (!UsesDesktopWindow()) SetForegroundWindow(m_hwnd);
             isClickThrough = false;
-        } else if (!needsInteract && !isClickThrough && !m_frameConfig.second_monitor_mode) {
+        } else if (!needsInteract && !isClickThrough && !UsesDesktopWindow()) {
             LONG exStyle = GetWindowLong(m_hwnd, GWL_EXSTYLE);
             exStyle |= WS_EX_TRANSPARENT;
             SetWindowLong(m_hwnd, GWL_EXSTYLE, exStyle);
@@ -469,7 +506,7 @@ void Overlay::RunLoop() {
 
         const bool renderFrame = m_rmlUi->ShouldRender();
         if (renderFrame) {
-            const float clearColor[4] = {0.0f, 0.0f, 0.0f, m_frameConfig.second_monitor_mode ? 1.0f : 0.0f};
+            const float clearColor[4] = {0.0f, 0.0f, 0.0f, UsesDesktopWindow() ? 1.0f : 0.0f};
             m_d3d11->Context()->OMSetRenderTargets(1, m_d3d11->RenderTargetViewAddress(), nullptr);
             m_d3d11->Context()->ClearRenderTargetView(m_d3d11->RenderTargetView(), clearColor);
             m_rmlUi->Render();
@@ -523,11 +560,16 @@ void Overlay::Shutdown() {
 }
 
 void Overlay::UpdateWindowPosition(bool resetSecondMonitorPlacement) {
-    if (m_window && m_hwnd) m_window->UpdatePosition(resetSecondMonitorPlacement);
+    if (!m_window || !m_hwnd) return;
+    if (m_setupWindow) {
+        UpdateWindowStyle();
+        return;
+    }
+    m_window->UpdatePosition(resetSecondMonitorPlacement);
 }
 
 void Overlay::SaveSecondMonitorWindowBounds() {
-    if (!m_hwnd || IsIconic(m_hwnd)) return;
+    if (!m_hwnd || IsIconic(m_hwnd) || m_setupWindow) return;
     if (GetForegroundWindow() != m_hwnd && (GetAsyncKeyState(VK_LBUTTON) & 0x8000) == 0) return;
 
     const ConfigData& config = m_frameConfig;
@@ -561,7 +603,7 @@ void Overlay::HandleDpiChanged(UINT dpi, const RECT* suggestedRect) {
     const ConfigData& config = m_frameConfig;
     const bool keepSecondMonitorBounds = config.second_monitor_mode && m_hwnd &&
                                          MonitorFromWindow(m_hwnd, MONITOR_DEFAULTTONULL) != nullptr;
-    if (suggestedRect && m_hwnd) {
+    if (suggestedRect && m_hwnd && !m_setupWindow) {
         int width = suggestedRect->right - suggestedRect->left;
         int height = suggestedRect->bottom - suggestedRect->top;
         if (config.second_monitor_mode) {

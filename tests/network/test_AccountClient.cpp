@@ -152,6 +152,7 @@ TEST_F(AccountClientTest, EnsureDeviceKeyGeneratesAndReusesKeyPair) {
 
 TEST_F(AccountClientTest, PollStateMachineHandlesPendingSlowDownAndApproval) {
     AccountClient client;
+    Config::Update([](ConfigData& c) { c.custom_api_enabled = false; });
     int64_t nowUnix = 1700000000;
     std::vector<int> sleepIntervals;
     int tokenCalls = 0;
@@ -241,6 +242,7 @@ TEST_F(AccountClientTest, PollStateMachineHandlesPendingSlowDownAndApproval) {
     EXPECT_EQ(client.GetStatus().displayName, "AerialAce");
     EXPECT_EQ(Config::Read().account_refresh_token, "ref-token-initial");
     EXPECT_EQ(Config::Read().account_signed_in_name, "AerialAce");
+    EXPECT_TRUE(Config::Read().custom_api_enabled);
 }
 
 TEST_F(AccountClientTest, PollStateMachineHandlesDeniedAndExpired) {

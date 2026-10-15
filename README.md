@@ -54,7 +54,7 @@ cmake --build --preset windows-release
 ctest --preset windows-release
 ```
 
-First-run setup checks Rocket League's Stats API configuration, prompts for display mode, and walks through optional integrations. See [docs/BUILDING.md](docs/BUILDING.md) for full prerequisites and toolchain requirements.
+First-run setup checks Rocket League's Stats API configuration, prompts for display mode, and offers a dedicated **Connect live ranks** step. **Continue in browser** opens OmniStats sign-in and PC approval; **Set up later** continues without an account. The browser fallback can copy the sign-in link or verification code. After connecting, choose **Continue** to reach optional integrations and your detected Rocket League account. See [docs/BUILDING.md](docs/BUILDING.md) for full prerequisites and toolchain requirements.
 
 ## Screenshots
 

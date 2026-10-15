@@ -252,6 +252,11 @@ namespace Config {
     inline constexpr const char* CurrentPrivacyPolicyVersion = "2026-07-12";
     inline constexpr const char* CurrentTermsVersion = "2026-07-12";
 
+    inline bool HasCurrentConsent(const ConfigData& config) {
+        return config.privacy_policy_accepted_version == CurrentPrivacyPolicyVersion &&
+               config.terms_accepted_version == CurrentTermsVersion;
+    }
+
     // Safely reads a point-in-time snapshot of the configuration under a shared lock
     ConfigData Read();
 

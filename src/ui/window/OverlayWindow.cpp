@@ -117,6 +117,8 @@ void OverlayWindow::UpdateStyle(bool secondMonitorMode, bool showMenu) {
         int cornerPreference = 1; // DWMWCP_DONOTROUND
         DwmSetWindowAttribute(m_hwnd, 33, &cornerPreference, sizeof(cornerPreference));
     }
+    COLORREF defaultBorder = 0xFFFFFFFF; // DWMWA_COLOR_DEFAULT
+    DwmSetWindowAttribute(m_hwnd, 34, &defaultBorder, sizeof(defaultBorder));
     SetWindowLongW(m_hwnd, GWL_STYLE, style);
     SetWindowLongW(m_hwnd, GWL_EXSTYLE, exStyle);
 
@@ -137,6 +139,41 @@ void OverlayWindow::UpdateStyle(bool secondMonitorMode, bool showMenu) {
     if (!secondMonitorMode) {
         RedrawWindow(m_hwnd, nullptr, nullptr, RDW_FRAME | RDW_INVALIDATE | RDW_UPDATENOW);
     }
+}
+
+void OverlayWindow::ApplySetupFrame(int width, int height) {
+    if (!m_hwnd) return;
+
+    LONG style = GetWindowLongW(m_hwnd, GWL_STYLE);
+    LONG exStyle = GetWindowLongW(m_hwnd, GWL_EXSTYLE);
+    style &= ~WS_OVERLAPPEDWINDOW;
+    style |= WS_POPUP;
+    exStyle &= ~(WS_EX_TOPMOST | WS_EX_TRANSPARENT | WS_EX_TOOLWINDOW | WS_EX_LAYERED);
+    exStyle |= WS_EX_APPWINDOW;
+    SetWindowLongW(m_hwnd, GWL_STYLE, style);
+    SetWindowLongW(m_hwnd, GWL_EXSTYLE, exStyle);
+
+    BOOL useDarkMode = TRUE;
+    DwmSetWindowAttribute(m_hwnd, 20, &useDarkMode, sizeof(useDarkMode));
+    int cornerPreference = 2; // DWMWCP_ROUND
+    DwmSetWindowAttribute(m_hwnd, 33, &cornerPreference, sizeof(cornerPreference));
+    COLORREF border = RGB(0x2a, 0x2d, 0x36);
+    DwmSetWindowAttribute(m_hwnd, 34, &border, sizeof(border));
+    MARGINS margins = {0, 0, 0, 0};
+    DwmExtendFrameIntoClientArea(m_hwnd, &margins);
+    m_frameExtended = false;
+
+    MONITORINFO mi{};
+    mi.cbSize = sizeof(mi);
+    RECT work{0, 0, GetSystemMetrics(SM_CXSCREEN), GetSystemMetrics(SM_CYSCREEN)};
+    if (GetMonitorInfoW(MonitorFromWindow(m_hwnd, MONITOR_DEFAULTTOPRIMARY), &mi)) work = mi.rcWork;
+    const int workW = work.right - work.left;
+    const int workH = work.bottom - work.top;
+    if (width > workW) width = workW;
+    if (height > workH) height = workH;
+    const int x = work.left + (workW - width) / 2;
+    const int y = work.top + (workH - height) / 2;
+    SetWindowPos(m_hwnd, HWND_NOTOPMOST, x, y, width, height, SWP_NOACTIVATE | SWP_FRAMECHANGED);
 }
 
 void OverlayWindow::UpdatePosition(bool resetSecondMonitorPlacement) {

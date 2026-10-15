@@ -4,20 +4,49 @@
     <link type="text/rcss" href="res://omnistats.rcss" />
 </head>
 <body id="app" class="view-document" data-model="onboarding">
-    <div class="view-backdrop">
+    <div class="view-backdrop wizard-backdrop">
         <div class="view-window wizard-window">
-            <div class="view-header row">
+            <div class="view-header wizard-header row">
+                <img class="brand-logo" src="res://images/Logo.png" />
                 <div class="grow">
-                    <div class="brand-title">Welcome to OmniStats</div>
-                    <div class="label">Step {{step + 1}} of 4 · {{step_title}}</div>
+                    <div class="brand-title">OmniStats <span class="dim">Setup</span></div>
+                    <div class="label" data-if="consent_required">Welcome</div>
+                    <div class="label" data-if="!consent_required">Step {{step + 1}} of 5 · {{step_title}}</div>
                 </div>
-                <button class="ghost compact" data-action="onboarding-finish">Skip setup</button>
+                <button class="ghost compact" data-if="!consent_required" data-action="onboarding-finish">Skip setup</button>
             </div>
+
+            <div class="wizard-main" data-if="consent_required">
+                <div class="view-body">
+                    <div class="wizard-title">Welcome to OmniStats</div>
+                    <div class="wizard-lead">Before you start, here is what OmniStats sends and what stays on this PC.</div>
+                    <div class="status-card consent-card">
+                        <div class="setting-name">Sent each time OmniStats starts</div>
+                        <div class="setting-help">App version, a random install ID, and which features are turned on. Match data and player names are not included.</div>
+                    </div>
+                    <div class="status-card consent-card">
+                        <div class="setting-name">Off until you turn it on</div>
+                        <div class="setting-help">Tracker Network ranks, Discord, Ballchasing, crash reports, and automatic updates. Update checks always run.</div>
+                    </div>
+                    <div class="row gap-sm view-actions">
+                        <button class="ghost compact" data-action="open-legal-link" data-url="https://omnistats.org/privacy">Privacy Policy</button>
+                        <button class="ghost compact" data-action="open-legal-link" data-url="https://omnistats.org/terms">Terms of Use</button>
+                    </div>
+                </div>
+                <div class="wizard-footer row">
+                    <button class="ghost" data-action="onboarding-exit">Exit</button>
+                    <div class="grow consent-note">By continuing you accept the Privacy Policy and Terms of Use.</div>
+                    <button class="primary" data-action="onboarding-accept-terms">Accept and continue</button>
+                </div>
+            </div>
+
+            <div class="wizard-main" data-if="!consent_required">
             <div class="wizard-progress row">
                 <div class="wizard-step" data-class-done="step >= 0"></div>
                 <div class="wizard-step" data-class-done="step >= 1"></div>
                 <div class="wizard-step" data-class-done="step >= 2"></div>
                 <div class="wizard-step" data-class-done="step >= 3"></div>
+                <div class="wizard-step" data-class-done="step >= 4"></div>
             </div>
 
             <div class="view-body" data-if="step == 0">
@@ -52,32 +81,81 @@
             </div>
 
             <div class="view-body" data-if="step == 2">
-                <div class="wizard-lead">These are optional and off by default. Each one sends data somewhere else, so turn on only what you want.</div>
-                <div class="status-card account-onboarding-card" data-class-ok="account_signed_in">
+                <div class="wizard-lead" data-if="!account_awaiting && !account_signed_in && !account_migrating">Sign in to OmniStats to see player ranks and MMR. Your match history stays on this PC.</div>
+                <div class="wizard-lead" data-if="account_migrating">Connecting to OmniStats...</div>
+                <div class="wizard-lead" data-if="account_awaiting">Finish connecting in your browser</div>
+                <div class="wizard-lead" data-if="account_signed_in">Connected to OmniStats</div>
+
+                <div class="status-card account-onboarding-card" data-if="!account_signed_in && !account_awaiting && !account_migrating">
                     <div class="row">
                         <div class="grow">
                             <div class="row gap-xs">
-                                <div class="setting-name">Sign in with OmniStats</div>
+                                <div class="setting-name">Connect live ranks</div>
                                 <span class="badge win">Recommended</span>
                             </div>
-                            <div class="setting-help">The private, more reliable option for live ranks with one-click browser approval and no third-party scraping.</div>
-                            <div class="setting-help win" data-if="account_signed_in">{{account_status}}</div>
-                            <div class="setting-help" data-if="account_migrating">{{account_status}}</div>
+                            <div class="setting-help">Use an OmniStats account, not your Epic Games or Rocket League login.</div>
                             <div class="setting-help loss" data-if="account_has_error">{{account_status}}</div>
                         </div>
-                        <div class="row gap-xs">
-                            <button class="primary" data-if="!account_signed_in && !account_awaiting && !account_migrating" data-action="account-sign-in">Sign in with OmniStats</button>
-                            <button class="ghost" data-if="account_migrating" disabled="disabled">Connecting...</button>
-                            <button class="primary" data-if="account_awaiting" data-action="account-open-verify">Open browser</button>
-                            <button class="ghost" data-if="account_awaiting" data-action="account-cancel">Cancel</button>
-                            <button class="ghost" data-if="account_signed_in" data-action="account-sign-out">Sign out</button>
-                        </div>
                     </div>
-                    <div class="account-code-card" data-if="account_awaiting">
-                        <div class="label">Verification code</div>
-                        <div class="account-user-code mono">{{account_user_code}}</div>
+                    <div class="row gap-sm view-actions">
+                        <button class="primary" data-action="account-sign-in">Continue in browser</button>
+                        <button class="ghost" data-action="onboarding-next">Set up later</button>
                     </div>
                 </div>
+
+                <div class="status-card account-onboarding-card" data-if="account_migrating">
+                    <div class="row">
+                        <div class="grow">
+                            <div class="setting-name">Upgrading account connection...</div>
+                            <div class="setting-help">Linking this PC using your saved account credentials.</div>
+                        </div>
+                    </div>
+                    <div class="row gap-sm view-actions">
+                        <button class="ghost" disabled="disabled">Connecting...</button>
+                    </div>
+                </div>
+
+                <div class="status-card account-onboarding-card" data-if="account_awaiting">
+                    <div class="row">
+                        <div class="grow">
+                            <div class="setting-help">Sign in or create an account, then approve this PC. This screen will update automatically.</div>
+                        </div>
+                    </div>
+                    <div class="row gap-sm view-actions">
+                        <button class="primary" data-action="account-open-verify">Open browser again</button>
+                        <button class="ghost" data-action="account-cancel">Cancel</button>
+                    </div>
+                    <div class="account-fallback-wrap" style="margin-top: 10dp;">
+                        <button class="ghost compact" data-action="account-toggle-fallback">Browser didn't open?</button>
+                        <div class="account-code-card" data-if="account_show_fallback">
+                            <div class="setting-help">Paste the sign-in link into your browser. It already includes this code.</div>
+                            <div class="label">Verification code</div>
+                            <div class="account-user-code mono">{{account_user_code}}</div>
+                            <div class="row gap-xs center" style="margin-top: 8dp;">
+                                <button class="ghost compact" data-action="account-copy-code">Copy code</button>
+                                <button class="primary compact" data-action="account-copy-link">Copy sign-in link</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="status-card account-onboarding-card" data-if="account_signed_in" data-class-ok="true">
+                    <div class="row">
+                        <div class="grow">
+                            <div class="setting-name win">Connected as {{account_display_name}}</div>
+                            <div class="setting-help win" data-if="custom_api_enabled">OmniStats live ranks are active.</div>
+                            <div class="setting-help" data-if="!custom_api_enabled">OmniStats rank API is disabled in Settings.</div>
+                        </div>
+                        <button class="ghost compact" data-action="account-sign-out">Sign out</button>
+                    </div>
+                    <div class="row gap-sm view-actions">
+                        <button class="primary" data-action="onboarding-next">Continue</button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="view-body" data-if="step == 3">
+                <div class="wizard-lead">These are optional and off by default. Each one sends data somewhere else, so turn on only what you want.</div>
                 <div class="setting-row">
                     <div class="setting-info">
                         <div class="setting-name">Live ranks from Tracker Network</div>
@@ -101,8 +179,8 @@
                 </div>
             </div>
 
-            <div class="view-body" data-if="step == 3">
-                <div class="wizard-lead">OmniStats tracks history per Rocket League account. Leave this on auto-detect and it picks you up in your first match.</div>
+            <div class="view-body" data-if="step == 4">
+                <div class="wizard-lead">OmniStats tracks match history for your Rocket League account. Leave this on auto-detect and it picks you up in your first match.</div>
                 <div id="onboarding-identity"></div>
                 <div class="setting-help">{{identity_hint}}</div>
             </div>
@@ -110,8 +188,10 @@
             <div class="wizard-footer row">
                 <button class="ghost" data-if="step > 0" data-action="onboarding-back">Back</button>
                 <div class="grow"></div>
-                <button class="primary" data-if="step != 3" data-action="onboarding-next">Next</button>
-                <button class="primary" data-if="step == 3" data-action="onboarding-finish">Finish</button>
+                <button class="primary" data-if="step != 2 && step != 4" data-action="onboarding-next">Next</button>
+                <button class="primary" data-if="step == 2 && account_signed_in" data-action="onboarding-next">Continue</button>
+                <button class="primary" data-if="step == 4" data-action="onboarding-finish">Finish</button>
+            </div>
             </div>
         </div>
     </div>

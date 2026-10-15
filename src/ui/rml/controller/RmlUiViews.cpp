@@ -7,6 +7,7 @@
 #include <shellapi.h>
 
 #include <cmath>
+#include <ctime>
 #include <mutex>
 #include <shared_mutex>
 #include <unordered_set>
@@ -501,6 +502,7 @@ void RmlUiController::ShowOnboarding() {
 }
 
 void RmlUiController::FinishOnboarding() {
+    if (!Config::HasCurrentConsent(Config::Read())) return;
     Config::Update([](ConfigData& c) {
         c.onboarding_completed = true;
         c.account_link_prompt_shown = true;
@@ -508,7 +510,7 @@ void RmlUiController::FinishOnboarding() {
     m_config = Config::Read();
     if (m_onboardingDoc) m_onboardingDoc->Hide();
     m_onboardingVisible = false;
-    m_renderDirty = true;
+    RebuildVisibleUi(true);
 }
 
 void RmlUiController::RefreshOnboarding() {
@@ -890,6 +892,32 @@ bool RmlUiController::HandleViewAction(const std::string& action, Rml::Element* 
         RefreshOnboarding();
     } else if (action == "onboarding-finish") {
         FinishOnboarding();
+    } else if (action == "onboarding-accept-terms") {
+        const std::string acceptedAt = std::to_string(std::time(nullptr));
+        Config::Update([&acceptedAt](ConfigData& c) {
+            c.privacy_policy_accepted_version = Config::CurrentPrivacyPolicyVersion;
+            c.terms_accepted_version = Config::CurrentTermsVersion;
+            c.privacy_accepted_at = acceptedAt;
+        });
+        Config::Save();
+        m_config = Config::Read();
+        if (m_config.onboarding_completed) {
+            // Returning users only had to re-accept updated terms.
+            if (m_onboardingDoc) m_onboardingDoc->Hide();
+            m_onboardingVisible = false;
+            RebuildVisibleUi(true);
+            CheckAccountLinkPrompt();
+        } else {
+            m_onboarding.SetStep(0);
+            RefreshOnboarding();
+        }
+    } else if (action == "onboarding-exit") {
+        if (m_state) m_state->ui.appExitRequested.store(true);
+    } else if (action == "open-legal-link") {
+        const std::string url = Attribute(target, "data-url");
+        if (url == "https://omnistats.org/privacy" || url == "https://omnistats.org/terms") {
+            ShellExecuteA(nullptr, "open", url.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+        }
     } else if (action == "onboarding-layout") {
         const bool dashboard = Attribute(target, "data-mode") == "dashboard";
         Config::Update([dashboard](ConfigData& c) { c.second_monitor_mode = dashboard; });
@@ -908,6 +936,7 @@ bool RmlUiController::HandleViewAction(const std::string& action, Rml::Element* 
         if (m_onboardingVisible) RefreshOnboarding();
     } else if (action == "account-cancel") {
         AccountClient::Instance().CancelAuthorization();
+        m_onboarding.SetShowFallback(false);
         if (m_state && m_state->ui.showMenu.load()) RebuildSettings();
         if (m_onboardingVisible) RefreshOnboarding();
     } else if (action == "account-sign-out") {
@@ -917,6 +946,21 @@ bool RmlUiController::HandleViewAction(const std::string& action, Rml::Element* 
         if (m_onboardingVisible) RefreshOnboarding();
     } else if (action == "account-open-verify") {
         AccountClient::Instance().OpenVerificationBrowser();
+    } else if (action == "account-copy-link") {
+        const auto status = AccountClient::Instance().GetStatus();
+        if (!status.verificationUri.empty()) {
+            m_systemInterface.SetClipboardText(status.verificationUri);
+            ShowToast("Copied sign-in link to clipboard.");
+        }
+    } else if (action == "account-copy-code") {
+        const auto status = AccountClient::Instance().GetStatus();
+        if (!status.userCode.empty()) {
+            m_systemInterface.SetClipboardText(status.userCode);
+            ShowToast("Copied verification code to clipboard.");
+        }
+    } else if (action == "account-toggle-fallback") {
+        m_onboarding.ToggleFallback();
+        RefreshOnboarding();
     } else if (action == "account-manage-devices") {
         AccountClient::Instance().OpenManageDevicesBrowser();
     } else {
