@@ -74,8 +74,8 @@ std::string RmlUiController::RenderSettingsIntegrations() {
             << "<div class='account-user-code mono'>" << Escape(accountStatus.userCode) << "</div></div>";
     } else {
         out << "<div class='setting-row'><div class='setting-info'>"
-            << "<div class='setting-name'>Not signed in</div>"
-            << "<div class='setting-help'>Sign in with OmniStats for one-click browser approval and verified rank lookups.</div>";
+            << "<div class='setting-name'>Link this device</div>"
+            << "<div class='setting-help'>Link your OmniStats account to use live ranks. A browser page opens for approval.</div>";
         if (accountStatus.state == AccountAuthState::Error && !accountStatus.errorMessage.empty()) {
             out << "<div class='setting-help loss'>" << Escape(accountStatus.errorMessage) << "</div>";
         }
@@ -86,21 +86,8 @@ std::string RmlUiController::RenderSettingsIntegrations() {
     }
     out << ToggleControl("custom_api_enabled",
                          "Enable OmniStats rank API",
-                         "Primary rank source for all players when signed in; used as a fallback when an API key is configured.",
-                         m_config.custom_api_enabled)
-        << "<div class='setting-row'><div class='setting-info'><div class='setting-name'>Advanced: use API key instead</div>"
-        << "<div class='setting-help'>Paste an API key from your OmniStats account instead of signing in. Keys you already set up keep working.</div></div>"
-        << "<button class='ghost' data-action='toggle-advanced-api-key'>" << (m_showAdvancedApiKey ? "Hide" : "Show") << "</button></div>";
-    if (m_showAdvancedApiKey) {
-        out << "<div class='setting-row'><div class='setting-info'><div class='setting-name'>API Key</div></div>"
-            << "<input type='password' class='text' data-setting='custom_api_key' value='" << Escape(m_config.custom_api_key) << "'/></div>";
-        if (m_config.custom_api_key.empty())
-            out << "<div class='setting-help'>No key set. Sign in on the website and copy your API key from account settings.</div>";
-        else if (m_state && m_state->ui.customApiKeyRejected.load())
-            out << "<div class='setting-help loss'>This API key was rejected. Custom API lookups are paused until you enter a valid key from your account settings.</div>";
-        else
-            out << "<div class='setting-help win'>API key saved and active.</div>";
-    }
+                         "Uses your linked OmniStats account for live ranks.",
+                         m_config.custom_api_enabled);
     out << SectionEnd();
     out << SectionStart("Ballchasing Uploader")
         << "<div class='setting-help'>Upload saved replay files to your Ballchasing account. Add your API token from Ballchasing.com.</div>"

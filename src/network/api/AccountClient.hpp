@@ -162,6 +162,7 @@ class AccountClient {
   private:
     enum class WorkerCommand {
         StartSignIn,
+        ExchangeAPIKey,
         Logout
     };
 
@@ -172,6 +173,7 @@ class AccountClient {
     };
 
     bool SendLogoutRequest(const std::string& refreshToken);
+    bool ExchangeAPIKey();
     void QueueLogoutForRotatedToken(const std::string& previousToken, std::string rotatedToken);
     void EnsureWorkerRunningLocked();
     void WorkerLoop();

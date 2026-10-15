@@ -407,7 +407,6 @@ class RmlUiController final : public Rml::EventListener {
     uint64_t m_lastLeafGameVersion = 0;
     uint64_t m_lastRenderedHistoryVersion = 0;
     uint64_t m_lastRenderedDbStatsVersion = 0;
-    uint64_t m_lastCustomApiKeyRejectedVersion = 0;
     uint64_t m_lastAccountStatusVersion = 0;
     bool m_lastShowMenu = false;
     bool m_lastShowOverlay = false;
@@ -454,7 +453,6 @@ class RmlUiController final : public Rml::EventListener {
     SettingsPage m_settingsPage = SettingsPage::General;
     BindCaptureTarget m_bindCaptureTarget = BindCaptureTarget::None;
     bool m_showBallchasingToken = false;
-    bool m_showAdvancedApiKey = false;
     std::string m_editColorKey;
     // Hue is tracked separately from the edited RGBA: dragging saturation or
     // value through gray would otherwise lose the hue the user picked.

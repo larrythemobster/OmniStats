@@ -415,7 +415,6 @@ void RmlUiController::Update(const ConfigData& config, bool configChanged, uint6
         CommitColorPick();
         FinishBindCapture();
         m_showBallchasingToken = false;
-        m_showAdvancedApiKey = false;
         m_confirmReplayUploads = false;
         m_confirmDeleteHistory = false;
         m_editColorKey.clear();
@@ -604,16 +603,6 @@ void RmlUiController::RebuildVisibleUi(bool force, bool configChanged) {
         RebuildToast();
     }
 
-    if (m_state) {
-        const uint64_t rejectedVersion = m_state->ui.customApiKeyRejectedVersion.load();
-        if (rejectedVersion != m_lastCustomApiKeyRejectedVersion) {
-            m_lastCustomApiKeyRejectedVersion = rejectedVersion;
-            if (m_state->ui.customApiKeyRejected.load()) {
-                ShowToast("Your OmniStats API key was rejected. Custom API lookups are paused until you enter a valid key in Settings > Services & API.", true);
-                if (m_state->ui.showMenu.load()) RebuildSettings();
-            }
-        }
-    }
     {
         const AccountStatusSnapshot accountStatus = AccountClient::Instance().GetStatus();
         if (accountStatus.version != m_lastAccountStatusVersion) {
@@ -816,7 +805,6 @@ void RmlUiController::RebuildVisibleUi(bool force, bool configChanged) {
         HashAppend(settingsHash, static_cast<uint64_t>(m_settingsPage));
         HashAppend(settingsHash, static_cast<uint64_t>(m_bindCaptureTarget));
         HashAppend(settingsHash, static_cast<uint64_t>(m_showBallchasingToken));
-        HashAppend(settingsHash, static_cast<uint64_t>(m_showAdvancedApiKey));
         HashAppend(settingsHash, AccountClient::Instance().GetStatus().version);
         HashAppend(settingsHash, static_cast<uint64_t>(m_confirmReplayUploads));
         HashAppend(settingsHash, RemoteConfig::Instance().Version());

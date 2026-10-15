@@ -103,12 +103,7 @@ bool MMRFetcher::IsCustomApiActiveSource() const {
     const bool signedIn = AccountClient::Instance().IsSignedIn();
     const bool hasKey = !config.custom_api_key.empty();
     if (!signedIn && !hasKey) return false;
-
-    if (signedIn) return true;
-    if (!config.enable_mmr_tracking) return true;
-    if (m_useCustomApiFallback.load()) return true;
-
-    return false;
+    return signedIn || !config.enable_mmr_tracking || m_useCustomApiFallback.load();
 }
 
 MMRFetcherDetail::CustomApiBatchResult MMRFetcher::FetchBatchFromCustomApi(const AssembledBatch& batch) {
@@ -134,27 +129,6 @@ MMRFetcherDetail::CustomApiBatchResult MMRFetcher::FetchBatchFromCustomApi(const
     if (!signedIn && config.custom_api_key.empty()) {
         result.httpResult = CustomApiFetchResult::DisabledOrNotReady;
         return result;
-    }
-
-    if (!signedIn) {
-        std::lock_guard<std::mutex> lock(m_queueMutex);
-        if (!m_rejectedCustomApiKey.empty()) {
-            if (m_rejectedCustomApiKey == config.custom_api_key) {
-                if (!m_state->ui.customApiKeyRejected.exchange(true)) {
-                    m_state->ui.customApiKeyRejectedVersion.fetch_add(1);
-                }
-                result.httpResult = CustomApiFetchResult::AuthFailure;
-                return result;
-            }
-            m_rejectedCustomApiKey.clear();
-            m_state->ui.customApiKeyRejected.store(false);
-        }
-    } else {
-        std::lock_guard<std::mutex> lock(m_queueMutex);
-        if (!m_rejectedCustomApiKey.empty()) {
-            m_rejectedCustomApiKey.clear();
-            m_state->ui.customApiKeyRejected.store(false);
-        }
     }
 
     std::string baseUrl = config.custom_api_base_url;
@@ -304,14 +278,8 @@ MMRFetcherDetail::CustomApiBatchResult MMRFetcher::FetchBatchFromCustomApi(const
         return result;
     }
     if (httpCode == 401) {
-        {
-            std::lock_guard<std::mutex> lock(m_queueMutex);
-            m_rejectedCustomApiKey = config.custom_api_key;
-        }
-        if (!m_state->ui.customApiKeyRejected.exchange(true)) {
-            m_state->ui.customApiKeyRejectedVersion.fetch_add(1);
-        }
-        std::cout << "[MMRFetcher] Custom API rejected the configured API key (HTTP 401).\n";
+        accountClient.MarkSignedOut("Your OmniStats session expired or this device was revoked. Sign in again in Settings > Services & API.");
+        std::cout << "[MMRFetcher] Custom API rejected the device token (HTTP 401). Signed out.\n";
         result.httpResult = CustomApiFetchResult::AuthFailure;
         return result;
     }
@@ -388,7 +356,7 @@ void MMRFetcher::ProcessCustomApiBatch(const AssembledBatch& batch) {
                 if (!requeued) FinishRequest(req);
             } else {
                 PublishFetchFailure(req, TrackedAccountFetchStatus::AuthRequired,
-                                    "The rank API rejected the request. Sign in again or check the API key in Settings > Services & API.");
+                                    "The rank API rejected the request. Sign in again in Settings > Services & API.");
                 FinishRequest(req);
             }
         }
@@ -511,7 +479,7 @@ bool MMRFetcher::FetchProfile(MMRRequest req) {
             m_useCustomApiFallback.store(false);
             if (req.reason == MMRRequestReason::TrackedAccount && !config.enable_mmr_tracking) {
                 PublishFetchFailure(req, TrackedAccountFetchStatus::AuthRequired,
-                                    "The rank API rejected the request. Sign in again or check the API key in Settings > Services & API.");
+                                    "The rank API rejected the request. Sign in again in Settings > Services & API.");
                 return false;
             }
         } else if (!config.enable_mmr_tracking || !signedInPrimary) {

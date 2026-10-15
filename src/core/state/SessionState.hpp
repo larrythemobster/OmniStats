@@ -459,8 +459,6 @@ struct UIState {
     mutable std::mutex statsApiMutex;
     StatsApiConfig::CheckResult statsApiResult;
     std::atomic<bool> statsApiChecked{false};
-    std::atomic<bool> customApiKeyRejected{false};
-    std::atomic<uint64_t> customApiKeyRejectedVersion{0};
     std::atomic<bool> ballchasingTokenRejected{false};
     mutable std::mutex replayUploadMutex;
     ReplayUploadStatus replayUploadStatus;

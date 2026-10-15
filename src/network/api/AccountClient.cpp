@@ -751,6 +751,55 @@ AccountClient::PollResult AccountClient::PollToken() {
     }
 }
 
+bool AccountClient::ExchangeAPIKey() {
+    const ConfigData conf = Config::Read();
+    if (conf.custom_api_key.empty() || !conf.account_refresh_token.empty()) return false;
+
+    DeviceKeyPair keyPair;
+    if (!EnsureDeviceKey(&keyPair)) return false;
+
+    const int64_t now = NowUnix();
+    const DeviceProof proof = CreateProof(keyPair.secretKeyBase64Url, "exchange", keyPair.publicId, conf.custom_api_key, now);
+    const nlohmann::json reqJson = {
+        {"api_key", conf.custom_api_key},
+        {"device_public_id", keyPair.publicId},
+        {"device_name", LocalDeviceName()},
+        {"platform", "windows"},
+        {"app_version", AppVersion::Current},
+        {"public_key", keyPair.publicKeyBase64Url},
+        {"proof", {{"timestamp", proof.timestamp}, {"nonce", proof.nonce}, {"signature", proof.signature}}}};
+    const HttpResponse resp = PerformHttpPost(ApiBaseUrl() + "/v1/auth/device/exchange-key", reqJson.dump());
+    if (resp.curlCode != 0 || resp.statusCode != 200) return false;
+
+    try {
+        const auto j = nlohmann::json::parse(resp.body);
+        const std::string accessToken = j.value("access_token", "");
+        const std::string refreshToken = j.value("refresh_token", "");
+        const int expiresIn = std::max(1, j.value("expires_in", 900));
+        const std::string displayName = ExtractDisplayName(j, "");
+        if (accessToken.empty() || refreshToken.empty()) return false;
+
+        Config::Update([&](ConfigData& c) {
+            c.account_refresh_token = refreshToken;
+            c.account_signed_in_name = displayName;
+            c.account_device_public_id = keyPair.publicId;
+            c.custom_api_key.clear();
+        });
+        Config::Save();
+
+        std::lock_guard<std::mutex> lock(m_mutex);
+        m_accessToken = accessToken;
+        m_accessTokenExpiresAt = NowUnix() + expiresIn;
+        m_displayName = displayName;
+        m_errorMessage.clear();
+        m_state = AccountAuthState::SignedIn;
+        ++m_statusVersion;
+        return true;
+    } catch (...) {
+        return false;
+    }
+}
+
 bool AccountClient::Refresh() {
     uint64_t generation = 0;
     {
@@ -1094,25 +1143,38 @@ AccountStatusSnapshot AccountClient::GetStatus() const {
 
 void AccountClient::SyncFromConfig() {
     const ConfigData conf = Config::Read();
-    std::lock_guard<std::mutex> lock(m_mutex);
-    m_devicePublicId = conf.account_device_public_id;
-    m_displayName = conf.account_signed_in_name;
-    if (!conf.account_refresh_token.empty()) {
-        if (m_state != AccountAuthState::AwaitingApproval) {
-            m_state = AccountAuthState::SignedIn;
-            m_errorMessage.clear();
+    const bool migrateAPIKey = conf.account_refresh_token.empty() && !conf.custom_api_key.empty();
+    {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        m_devicePublicId = conf.account_device_public_id;
+        m_displayName = conf.account_signed_in_name;
+        if (!conf.account_refresh_token.empty()) {
+            if (m_state != AccountAuthState::AwaitingApproval) {
+                m_state = AccountAuthState::SignedIn;
+                m_errorMessage.clear();
+            }
+        } else if (conf.credentials_decryption_failed && !conf.account_device_public_id.empty()) {
+            m_state = AccountAuthState::Error;
+            m_errorMessage = "Saved credentials could not be decrypted on this device. Sign in again in Settings > Services & API.";
+            m_accessToken.clear();
+            m_accessTokenExpiresAt = 0;
+        } else if (m_state == AccountAuthState::SignedIn) {
+            m_state = AccountAuthState::SignedOut;
+            m_accessToken.clear();
+            m_accessTokenExpiresAt = 0;
         }
-    } else if (conf.credentials_decryption_failed && !conf.account_device_public_id.empty()) {
-        m_state = AccountAuthState::Error;
-        m_errorMessage = "Saved credentials could not be decrypted on this device. Sign in again in Settings > Services & API.";
-        m_accessToken.clear();
-        m_accessTokenExpiresAt = 0;
-    } else if (m_state == AccountAuthState::SignedIn) {
-        m_state = AccountAuthState::SignedOut;
-        m_accessToken.clear();
-        m_accessTokenExpiresAt = 0;
+        ++m_statusVersion;
     }
-    ++m_statusVersion;
+    if (!migrateAPIKey) return;
+    {
+        std::lock_guard<std::mutex> lock(m_workerMutex);
+        EnsureWorkerRunningLocked();
+        for (const auto& job : m_workerQueue) {
+            if (job.command == WorkerCommand::ExchangeAPIKey) return;
+        }
+        m_workerQueue.push_back(WorkerJob{WorkerCommand::ExchangeAPIKey, false, {}});
+    }
+    m_workerCv.notify_all();
 }
 
 void AccountClient::Shutdown() {
@@ -1149,6 +1211,8 @@ void AccountClient::WorkerLoop() {
 
         if (job.command == WorkerCommand::Logout) {
             (void)SendLogoutRequest(job.refreshToken);
+        } else if (job.command == WorkerCommand::ExchangeAPIKey) {
+            (void)ExchangeAPIKey();
         } else if (job.command == WorkerCommand::StartSignIn) {
             m_cancelPolling.store(false, std::memory_order_relaxed);
             const StartAuthResult startRes = StartAuthorization();

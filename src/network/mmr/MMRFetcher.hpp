@@ -283,7 +283,6 @@ class MMRFetcher {
     // Keyed by PendingPostMatchKey(primaryId, playlist).
     std::unordered_map<std::string, std::deque<std::string>> m_pendingPostMatchesByPlaylist;
     std::unordered_map<std::string, int> m_trackerPublicationBaselineByPlaylist;
-    std::string m_rejectedCustomApiKey;
     DestroyedMatchConfirmationCallback m_destroyedMatchConfirmationCallback;
     std::mutex m_queueMutex;
     std::condition_variable m_cv;

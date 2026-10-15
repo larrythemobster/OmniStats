@@ -155,7 +155,6 @@ void RmlUiController::HandleClick(Rml::Element* target) {
     } else if (action == "settings-page") {
         FinishBindCapture();
         m_showBallchasingToken = false;
-        m_showAdvancedApiKey = false;
         const int page = std::clamp(std::atoi(Attribute(target, "data-page").c_str()), 0, 7);
         m_settingsPage = static_cast<SettingsPage>(page);
         if (m_settingsPage == SettingsPage::Data && m_dbManager) {
@@ -299,9 +298,6 @@ void RmlUiController::HandleClick(Rml::Element* target) {
     } else if (action == "toggle-token") {
         m_showBallchasingToken = !m_showBallchasingToken;
         RebuildSettings();
-    } else if (action == "toggle-advanced-api-key") {
-        m_showAdvancedApiKey = !m_showAdvancedApiKey;
-        RebuildSettings();
     } else if (action == "edit-color") {
         const std::string key = Attribute(target, "data-color-key");
         m_editColorKey = ThemeColorForKey(m_config, key) ? key : std::string{};
@@ -431,9 +427,6 @@ void RmlUiController::HandleInput(Rml::Element* target) {
         m_pendingBallchasingToken = value;
         Config::Update([&](ConfigData& c) { c.ballchasing_token = value; });
         if (m_state) m_state->ui.ballchasingTokenRejected.store(false);
-    } else if (key == "custom_api_key") {
-        Config::Update([&](ConfigData& c) { c.custom_api_key = value; });
-        if (m_state) m_state->ui.customApiKeyRejected.store(false);
     } else if (key == "statsapi_path") {
         // Validate the completed path on blur, not after each character.
         return;
@@ -538,7 +531,7 @@ void RmlUiController::HandleChange(Rml::Element* target, Rml::Event& event) {
     const std::string key = Attribute(target, "data-setting");
     if (key.empty()) return;
     if (event.GetType() != "blur" &&
-        (key == "ballchasing_token" || key == "custom_api_key" || key == "statsapi_path" ||
+        (key == "ballchasing_token" || key == "statsapi_path" ||
          key == "history_with" || key == "history_against" || key == "history_arena" || key == "history_search" ||
          key == "accounts_add_id" || key == "accounts_add_nickname" || key == "accounts_rename_input" || key == "player_note_text" || key == "player_scout_tag" ||
          key.rfind("theme_", 0) == 0)) {
@@ -723,8 +716,6 @@ void RmlUiController::HandleChange(Rml::Element* target, Rml::Event& event) {
             c.use_roman_numerals = checked;
         else if (key == "custom_api_enabled")
             c.custom_api_enabled = checked;
-        else if (key == "custom_api_key")
-            c.custom_api_key = value;
         else if (key == "ballchasing_token") {
             c.ballchasing_token = value;
             m_pendingBallchasingToken = value;
