@@ -613,6 +613,7 @@ namespace Config {
                 if (t.contains("graph_baseline")) Current.themeGraphBaseline = JsonToColor(t["graph_baseline"], Current.themeGraphBaseline);
                 if (t.contains("roster_card")) Current.themeRosterCard = JsonToColor(t["roster_card"], Current.themeRosterCard);
                 if (t.contains("roster_card_self")) Current.themeRosterCardSelf = JsonToColor(t["roster_card_self"], Current.themeRosterCardSelf);
+                if (t.contains("scout_tag")) Current.themeScoutTag = JsonToColor(t["scout_tag"], Current.themeScoutTag);
                 if (t.contains("stat_box")) Current.themeStatBox = JsonToColor(t["stat_box"], Current.themeStatBox);
                 if (t.contains("match_row")) Current.themeMatchRow = JsonToColor(t["match_row"], Current.themeMatchRow);
                 if (t.contains("match_row_alt")) Current.themeMatchRowAlt = JsonToColor(t["match_row_alt"], Current.themeMatchRowAlt);
@@ -992,6 +993,7 @@ namespace Config {
         j["theme"]["graph_baseline"] = ColorToJson(Current.themeGraphBaseline);
         j["theme"]["roster_card"] = ColorToJson(Current.themeRosterCard);
         j["theme"]["roster_card_self"] = ColorToJson(Current.themeRosterCardSelf);
+        j["theme"]["scout_tag"] = ColorToJson(Current.themeScoutTag);
         j["theme"]["stat_box"] = ColorToJson(Current.themeStatBox);
         j["theme"]["match_row"] = ColorToJson(Current.themeMatchRow);
         j["theme"]["match_row_alt"] = ColorToJson(Current.themeMatchRowAlt);

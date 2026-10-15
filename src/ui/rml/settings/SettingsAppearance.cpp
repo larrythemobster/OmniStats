@@ -156,6 +156,7 @@ std::string RmlUiController::RenderSettingsAppearance() {
         << colorRow("theme_graph_panel", "Graph panel", m_config.themeGraphPanel)
         << colorRow("theme_roster_card", "Roster card", m_config.themeRosterCard)
         << colorRow("theme_roster_card_self", "Roster card (you)", m_config.themeRosterCardSelf)
+        << colorRow("theme_scout_tag", "Scout badge & tags", m_config.themeScoutTag)
         << colorRow("theme_stat_box", "Stat boxes / K/D", m_config.themeStatBox)
         << colorRow("theme_match_row", "Previous games row", m_config.themeMatchRow)
         << colorRow("theme_match_row_alt", "Previous games row (alt)", m_config.themeMatchRowAlt)

@@ -218,8 +218,18 @@ void RmlUiController::SnapshotNotes() {
     if (version == m_snap.notesVersion) return;
     std::lock_guard lock(m_state->notes.mutex);
     m_snap.notePreviews.clear();
+    m_snap.noteTags.clear();
     for (const auto& [key, note] : m_state->notes.byKey)
         m_snap.notePreviews.emplace(key, PlayerNotes::Preview(note.text, 140));
+    for (const auto& [key, tags] : m_state->notes.tagsByKey) {
+        if (tags.empty()) continue;
+        std::string list = "Tags: ";
+        for (size_t i = 0; i < tags.size(); ++i)
+            list += (i ? ", " : "") + tags[i];
+        auto& preview = m_snap.notePreviews[key];
+        preview = preview.empty() ? list : preview + " \xC2\xB7 " + list;
+        m_snap.noteTags.emplace(key, tags);
+    }
     m_snap.notesLoaded = m_state->notes.loaded;
     m_snap.notesVersion = version;
 }
@@ -236,6 +246,7 @@ void RmlUiController::ShowPlayerNote(const std::string& primaryId, const std::st
     }
 
     std::optional<PlayerNotes::Note> saved;
+    std::vector<std::string> tags;
     {
         std::lock_guard lock(m_state->notes.mutex);
         // Opening an editor before the stored notes load could overwrite a note
@@ -247,6 +258,7 @@ void RmlUiController::ShowPlayerNote(const std::string& primaryId, const std::st
         }
         if (identity) {
             if (auto it = m_state->notes.byKey.find(identity->Key()); it != m_state->notes.byKey.end()) saved = it->second;
+            if (auto it = m_state->notes.tagsByKey.find(identity->Key()); it != m_state->notes.tagsByKey.end()) tags = it->second;
         }
     }
 
@@ -268,6 +280,23 @@ void RmlUiController::ShowPlayerNote(const std::string& primaryId, const std::st
     }
 
     m_playerNote.Open({primaryId, name, contextLine}, saved);
+    m_playerNote.SetTags(tags);
+    std::string currentRank;
+    std::string rankColor;
+    if (auto it = m_snap.roster.find(primaryId); it != m_snap.roster.end() && it->second.fetched) {
+        if (const std::string tier = BestRankTier(it->second); !tier.empty()) {
+            currentRank = Format::RankTier(tier, m_config.use_roman_numerals);
+            rankColor = CssColor(Format::RankColor(tier));
+        }
+    }
+    m_playerNote.SetScoutLoading(currentRank, rankColor);
+    ++m_nextScoutRequestId;
+    if (m_dbManager && identity) {
+        const std::string ownId = m_snap.myPrimaryId.empty() ? m_config.last_primary_id : m_snap.myPrimaryId;
+        m_dbManager->AsyncGetPlayerScout(ownId, primaryId, m_nextScoutRequestId);
+    } else {
+        m_playerNote.SetScoutResult(std::nullopt);
+    }
     if (!m_playerNoteVisible) {
         m_playerNoteDoc->Show();
         m_playerNoteVisible = true;
@@ -293,38 +322,60 @@ void RmlUiController::RequestClosePlayerNote() {
 
 void RmlUiController::RefreshPlayerNote() {
     if (!m_state) return;
-    const uint64_t version = m_state->notes.version.load(std::memory_order_relaxed);
-    if (version == m_lastViewNotesVersion) return;
-    m_lastViewNotesVersion = version;
-
-    std::unordered_set<std::string> notedKeys;
-    bool loaded = false;
-    uint64_t completedRequestId = 0;
-    bool lastOk = true;
-    std::string lastError;
-    std::optional<PlayerNotes::Note> editorNote;
-    {
-        std::lock_guard lock(m_state->notes.mutex);
-        loaded = m_state->notes.loaded;
-        for (const auto& [key, _] : m_state->notes.byKey)
-            notedKeys.insert(key);
-        completedRequestId = m_state->notes.completedRequestId;
-        lastOk = m_state->notes.lastRequestOk;
-        lastError = m_state->notes.lastRequestError;
-        if (const auto& identity = m_playerNote.Identity()) {
-            if (auto it = m_state->notes.byKey.find(identity->Key()); it != m_state->notes.byKey.end()) editorNote = it->second;
+    const uint64_t notesVersion = m_state->notes.version.load(std::memory_order_relaxed);
+    if (notesVersion != m_lastViewNotesVersion) {
+        m_lastViewNotesVersion = notesVersion;
+        std::unordered_set<std::string> notedKeys;
+        bool loaded = false;
+        uint64_t completedRequestId = 0;
+        uint64_t completedTagRequestId = 0;
+        bool lastOk = true, lastTagOk = true;
+        std::string lastError, lastTagError;
+        std::optional<PlayerNotes::Note> editorNote;
+        std::vector<std::string> editorTags;
+        {
+            std::lock_guard lock(m_state->notes.mutex);
+            loaded = m_state->notes.loaded;
+            for (const auto& [key, _] : m_state->notes.byKey)
+                notedKeys.insert(key);
+            for (const auto& [key, tags] : m_state->notes.tagsByKey)
+                if (!tags.empty()) notedKeys.insert(key);
+            completedRequestId = m_state->notes.completedRequestId;
+            lastOk = m_state->notes.lastRequestOk;
+            lastError = m_state->notes.lastRequestError;
+            completedTagRequestId = m_state->notes.completedTagRequestId;
+            lastTagOk = m_state->notes.lastTagRequestOk;
+            lastTagError = m_state->notes.lastTagRequestError;
+            if (const auto& identity = m_playerNote.Identity()) {
+                const auto key = identity->Key();
+                if (auto it = m_state->notes.byKey.find(key); it != m_state->notes.byKey.end()) editorNote = it->second;
+                if (auto it = m_state->notes.tagsByKey.find(key); it != m_state->notes.tagsByKey.end()) editorTags = it->second;
+            }
+        }
+        if (m_playerNoteVisible) {
+            if (m_playerNote.IsSaving() && completedRequestId == m_playerNote.PendingRequestId())
+                m_playerNote.ApplyResult(completedRequestId, lastOk, lastError, editorNote);
+            else
+                m_playerNote.SyncSaved(editorNote);
+            if (m_playerNote.PendingTagRequestId() && completedTagRequestId == m_playerNote.PendingTagRequestId())
+                m_playerNote.ApplyTagResult(completedTagRequestId, lastTagOk, lastTagError, editorTags);
+            else if (!m_playerNote.PendingTagRequestId())
+                m_playerNote.SetTags(editorTags);
+        }
+        m_history.SetNotedPlayers(notedKeys, loaded);
+        m_insights.SetNotedPlayers(notedKeys, loaded);
+        m_renderDirty = true;
+    }
+    const uint64_t scoutVersion = m_state->scout.version.load(std::memory_order_relaxed);
+    if (m_playerNoteVisible && scoutVersion != m_lastScoutViewVersion) {
+        m_lastScoutViewVersion = scoutVersion;
+        std::lock_guard lock(m_state->scout.mutex);
+        if (m_state->scout.loaded && m_state->scout.requestId == m_nextScoutRequestId &&
+            m_playerNote.PrimaryId() == m_state->scout.playerId) {
+            m_playerNote.SetScoutResult(m_state->scout.success ? std::optional{m_state->scout.profile} : std::nullopt);
+            m_renderDirty = true;
         }
     }
-
-    if (m_playerNoteVisible) {
-        if (m_playerNote.IsSaving() && completedRequestId == m_playerNote.PendingRequestId())
-            m_playerNote.ApplyResult(completedRequestId, lastOk, lastError, editorNote);
-        else
-            m_playerNote.SyncSaved(editorNote);
-    }
-    m_history.SetNotedPlayers(notedKeys, loaded);
-    m_insights.SetNotedPlayers(notedKeys, loaded);
-    m_renderDirty = true;
 }
 
 void RmlUiController::RefreshAccountRow(const std::string& primaryId) {
@@ -508,6 +559,34 @@ bool RmlUiController::HandleViewAction(const std::string& action, Rml::Element* 
         } else if (m_playerNote.Identity() && m_playerNote.BeginDelete(m_nextPlayerNoteRequestId + 1)) {
             ++m_nextPlayerNoteRequestId;
             m_dbManager->AsyncDeletePlayerNote(*m_playerNote.Identity(), m_nextPlayerNoteRequestId);
+        }
+        m_renderDirty = true;
+    } else if (action == "player-scout-add-tag" || action == "player-scout-remove-tag") {
+        const bool add = action == "player-scout-add-tag";
+        const std::string tag = PlayerNotes::NormalizeTag(add ? m_playerNote.TagDraft() : Attribute(target, "data-tag"));
+        if (tag.empty()) {
+            m_playerNote.ShowStatus("Enter a valid tag.", true);
+        } else if (!m_dbManager) {
+            m_playerNote.ShowStatus("The local database is unavailable.", true);
+        } else if (m_playerNote.Identity() && m_playerNote.BeginTagChange(m_nextPlayerTagRequestId + 1)) {
+            ++m_nextPlayerTagRequestId;
+            m_dbManager->AsyncSetPlayerTag(*m_playerNote.Identity(), tag, add, m_nextPlayerTagRequestId);
+        }
+        m_renderDirty = true;
+    } else if (action == "player-scout-open-match") {
+        if (m_playerNote.IsDirty()) {
+            m_playerNote.ShowStatus("Save or discard your note before opening a match.", true);
+        } else {
+            const std::string idText = Attribute(target, "data-id");
+            try {
+                const int64_t id = std::stoll(idText);
+                if (id > 0) {
+                    HidePlayerNote();
+                    ShowHistory(id);
+                }
+            } catch (const std::exception&) {
+                m_playerNote.ShowStatus("Could not open this match.", true);
+            }
         }
         m_renderDirty = true;
     } else if (action == "insights-open") {

@@ -6,6 +6,8 @@
 #include <cstdint>
 #include <optional>
 #include <string>
+#include <vector>
+#include "core/accounts/PlayerScout.hpp"
 
 #include "core/accounts/PlayerNotes.hpp"
 
@@ -22,6 +24,15 @@ struct PlayerNoteOpenRequest {
 
 // State behind player_note.rml. The draft lives here while the user types;
 // nothing reaches SQLite until Save or Delete.
+struct ScoutEncounterRow {
+    std::string match_id;
+    std::string when;
+    std::string playlist;
+    std::string relation;
+    std::string outcome;
+    bool win = false;
+};
+
 class PlayerNoteView {
   public:
     bool Create(Rml::Context* context);
@@ -29,6 +40,21 @@ class PlayerNoteView {
 
     void Open(const PlayerNoteOpenRequest& request, const std::optional<PlayerNotes::Note>& saved);
     void Close();
+    const std::string& PrimaryId() const {
+        return m_primaryId;
+    }
+    void SetTags(const std::vector<std::string>& tags);
+    void SetTagDraft(const std::string& value);
+    const std::string& TagDraft() const {
+        return m_tagDraft;
+    }
+    bool BeginTagChange(uint64_t requestId);
+    void ApplyTagResult(uint64_t requestId, bool ok, const std::string& error, const std::vector<std::string>& tags);
+    uint64_t PendingTagRequestId() const {
+        return m_pendingTagRequestId;
+    }
+    void SetScoutLoading(const std::string& knownRank, const std::string& rankColor = {});
+    void SetScoutResult(const std::optional<PlayerScoutProfile>& profile);
     bool IsOpen() const {
         return m_open;
     }
@@ -84,6 +110,26 @@ class PlayerNoteView {
 
     std::optional<PlayerNotes::Identity> m_identity;
     std::string m_playerNameSource;
+    std::string m_primaryId;
+    std::vector<Rml::String> m_tags;
+    std::vector<ScoutEncounterRow> m_recent;
+    std::string m_tagDraft;
+    Rml::String m_tagValue;
+    Rml::String m_tagStatus;
+    bool m_tagStatusError = false;
+    bool m_tagSaving = false;
+    bool m_tagCanAdd = false;
+    uint64_t m_pendingTagRequestId = 0;
+    bool m_scoutLoading = false;
+    bool m_scoutReady = false;
+    Rml::String m_scoutStatus;
+    Rml::String m_rankLabel;
+    Rml::String m_rankColor;
+    Rml::String m_encounterTotal;
+    Rml::String m_withRecord;
+    Rml::String m_againstRecord;
+    Rml::String m_lastEncounter;
+    Rml::String m_commonPlaylist;
     std::string m_savedText;
     std::string m_draft;
     uint64_t m_pendingRequestId = 0;

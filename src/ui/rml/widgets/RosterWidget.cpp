@@ -94,11 +94,30 @@ std::string RmlUiController::RenderNoteControl(const std::string& primaryId, con
     if (!PlayerNotes::IdentityFromPrimaryId(primaryId)) return {};
     const std::string attrs = " data-action='player-note-open' data-pid='" + Escape(primaryId) + "' data-name='" + Escape(name) + "'";
     if (const std::string* preview = NotePreviewFor(primaryId)) {
-        return "<span class='note-badge tooltip-host'" + attrs + ">NOTE<span class='tooltip-bubble note-preview'>" + Escape(*preview) +
+        return "<span class='note-badge tooltip-host'" + attrs + ">SCOUT<span class='tooltip-bubble note-preview'>" + Escape(*preview) +
                "</span></span>";
     }
     if (!m_snap.notesLoaded) return {};
-    return "<span class='note-add'" + attrs + ">+ Note</span>";
+    return "<span class='note-add'" + attrs + ">Scout</span>";
+}
+
+std::string RmlUiController::RenderTagChips(const std::string& primaryId) const {
+    const auto identity = PlayerNotes::IdentityFromPrimaryId(primaryId);
+    if (!identity) return {};
+    const auto it = m_snap.noteTags.find(identity->Key());
+    if (it == m_snap.noteTags.end()) return {};
+    const auto& tags = it->second;
+    std::string out;
+    for (size_t i = 0; i < tags.size() && i < 2; ++i)
+        out += "<span class='chip chip-tag'>" + Escape(tags[i]) + "</span>";
+    if (tags.size() > 2) out += "<span class='chip chip-tag'>+" + std::to_string(tags.size() - 2) + "</span>";
+    return out;
+}
+
+std::string RmlUiController::BestRankTier(const PlayerData& p) const {
+    if (!p.rankTier.empty() && p.rankTier != "Unranked") return p.rankTier;
+    if (p.mmr <= 0) return {};
+    return MMRFetcher::GetRankTierForPlaylistMmr(BestRankSource(p, p.mmr, m_config.show_extra_playlists), p.mmr);
 }
 
 std::string RmlUiController::RenderPlayerRoster(int team, const char* label) {
@@ -184,6 +203,7 @@ std::string RmlUiController::RenderPlayerRoster(int team, const char* label) {
 
         if (mmr > 0 && matchCount > 0) out << "<span class='chip'>" << matchCount << (matchCount == 1 ? " match" : " matches") << "</span>";
         if (m_config.show_account_wins_overlay && p->totalWins >= 0) out << "<span class='chip'>" << p->totalWins << " wins</span>";
+        if (!self) out << RenderTagChips(p->primaryId);
         out << "</div></div>";
 
         // Trailing status column: yourself, both shared-history records, or a

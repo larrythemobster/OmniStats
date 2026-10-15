@@ -795,6 +795,7 @@ namespace RmlUiDetail {
         if (key == "theme_graph_panel") return &config.themeGraphPanel;
         if (key == "theme_roster_card") return &config.themeRosterCard;
         if (key == "theme_roster_card_self") return &config.themeRosterCardSelf;
+        if (key == "theme_scout_tag") return &config.themeScoutTag;
         if (key == "theme_stat_box") return &config.themeStatBox;
         if (key == "theme_match_row") return &config.themeMatchRow;
         if (key == "theme_match_row_alt") return &config.themeMatchRowAlt;
@@ -816,6 +817,7 @@ namespace RmlUiDetail {
         if (key == "theme_graph_panel") return &config.themeGraphPanel;
         if (key == "theme_roster_card") return &config.themeRosterCard;
         if (key == "theme_roster_card_self") return &config.themeRosterCardSelf;
+        if (key == "theme_scout_tag") return &config.themeScoutTag;
         if (key == "theme_stat_box") return &config.themeStatBox;
         if (key == "theme_match_row") return &config.themeMatchRow;
         if (key == "theme_match_row_alt") return &config.themeMatchRowAlt;
@@ -837,6 +839,7 @@ namespace RmlUiDetail {
         if (key == "theme_graph_panel") return "Graph panel";
         if (key == "theme_roster_card") return "Roster card";
         if (key == "theme_roster_card_self") return "Roster card (you)";
+        if (key == "theme_scout_tag") return "Scout badge & tags";
         if (key == "theme_stat_box") return "Stat boxes / K/D";
         if (key == "theme_match_row") return "Previous games row";
         if (key == "theme_match_row_alt") return "Previous games row (alt)";

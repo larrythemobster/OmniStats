@@ -351,6 +351,7 @@ void RmlUiController::Update(const ConfigData& config, bool configChanged, uint6
                        !sameColor(config.themeMuted, m_config.themeMuted) ||
                        !sameColor(config.themeGraphLine, m_config.themeGraphLine) ||
                        !sameColor(config.themeGraphBaseline, m_config.themeGraphBaseline) ||
+                       !sameColor(config.themeScoutTag, m_config.themeScoutTag) ||
                        FontsDifferFromApplied(config);
 
         const auto activeDragKind = m_drag.kind;

@@ -175,6 +175,11 @@ void RmlUiController::UpdateThemeProperties() {
     rule(".settings-nav button.active", "background-color", accentDark);
     rule(".player-row", "background-color", CssColor(m_config.themeRosterCard));
     rule(".player-row.self", "background-color", CssColor(m_config.themeRosterCardSelf));
+    for (const char* selector : {".note-badge", ".chip.chip-tag", ".scout-tag"}) {
+        rule(selector, "background-color", CssColor(m_config.themeScoutTag));
+        rule(selector, "border-color", scaledColor(m_config.themeScoutTag, 1.35f, 1.0f));
+    }
+    rule(".note-badge:hover, .scout-tag:hover", "border-color", scaledColor(m_config.themeScoutTag, 1.9f, 1.0f));
     rule(".player-chip", "background-color", scaledColor(m_config.themeRosterCard, 1.3f, 0.85f));
     rule(".stat-cell", "background-color", CssColor(m_config.themeStatBox));
     rule(".mini-metric", "background-color", CssColor(m_config.themeStatBox));
@@ -367,9 +372,9 @@ void RmlUiController::RefreshColorPickPreview(bool updateFieldGradient) {
 void RmlUiController::RefreshThemeEditorControls(std::string_view preserveHexKey) {
     if (!m_document || m_settingsPage != SettingsPage::Appearance) return;
 
-    constexpr std::array<const char*, 17> kThemeKeys = {
+    constexpr std::array<const char*, 18> kThemeKeys = {
         "theme_bg", "theme_panel", "theme_topbar", "theme_graph_panel",
-        "theme_roster_card", "theme_roster_card_self", "theme_stat_box", "theme_match_row", "theme_match_row_alt",
+        "theme_roster_card", "theme_roster_card_self", "theme_scout_tag", "theme_stat_box", "theme_match_row", "theme_match_row_alt",
         "theme_text", "theme_accent", "theme_win", "theme_loss", "theme_dim", "theme_muted",
         "theme_graph", "theme_baseline"};
 

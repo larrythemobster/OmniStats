@@ -14,6 +14,7 @@
 #include <optional>
 #include "core/game/Insights.hpp"
 #include "core/accounts/PlayerNotes.hpp"
+#include "core/accounts/PlayerScout.hpp"
 #include "core/config/StatsApiConfig.hpp"
 
 // Data for individual players in the current lobby
@@ -586,10 +587,24 @@ struct PlayerNotesState {
     bool loaded = false;
     bool loadFailed = false;
     std::unordered_map<std::string, PlayerNotes::Note> byKey; // Identity::Key()
+    std::unordered_map<std::string, std::vector<std::string>> tagsByKey;
     // Outcome of the most recent save/delete, matched to the editor by request id.
     uint64_t completedRequestId = 0;
     bool lastRequestOk = true;
     std::string lastRequestError;
+    uint64_t completedTagRequestId = 0;
+    bool lastTagRequestOk = true;
+    std::string lastTagRequestError;
+};
+
+struct PlayerScoutState {
+    mutable std::mutex mutex;
+    std::atomic<uint64_t> version{0};
+    uint64_t requestId = 0;
+    std::string playerId;
+    bool loaded = false;
+    bool success = false;
+    PlayerScoutProfile profile;
 };
 
 class SessionState : public std::enable_shared_from_this<SessionState> {
@@ -600,6 +615,7 @@ class SessionState : public std::enable_shared_from_this<SessionState> {
     InsightsState insights;
     HistoryViewState historyView;
     PlayerNotesState notes;
+    PlayerScoutState scout;
 
     void resetMatch(const std::string& newArena, const std::string& newArenaAsset = "");
     void clearActiveMatchOnDisconnect();

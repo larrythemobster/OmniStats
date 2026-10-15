@@ -2636,7 +2636,7 @@ TEST_F(RmlUiControllerStateTest, RosterShowsEscapedNoteBadgeOnlyForStableIdentit
     EXPECT_EQ(html.find("Toxic <b>"), std::string::npos);
 
     const auto rowOf = [&](size_t start) { return html.substr(start, html.find("player-row", start) - start); };
-    EXPECT_NE(rowOf(stranger).find("+ Note"), std::string::npos);
+    EXPECT_NE(rowOf(stranger).find("note-add"), std::string::npos);
     EXPECT_EQ(rowOf(stranger).find("note-badge"), std::string::npos);
     EXPECT_EQ(rowOf(bot).find("player-note-open"), std::string::npos);
     EXPECT_EQ(rowOf(html.find(">Me<")).find("player-note-open"), std::string::npos);
@@ -2644,6 +2644,47 @@ TEST_F(RmlUiControllerStateTest, RosterShowsEscapedNoteBadgeOnlyForStableIdentit
     const std::string lobby = RenderLobbyRanks(controller);
     EXPECT_NE(lobby.find(">Rival<"), std::string::npos);
     EXPECT_EQ(lobby.find("player-note-open"), std::string::npos);
+}
+
+TEST_F(RmlUiControllerStateTest, RosterShowsEscapedTagChipsWithOverflow) {
+    auto state = std::make_shared<SessionState>();
+    {
+        std::unique_lock lock(state->game.mutex);
+        state->game.myPrimaryId = kSelfId;
+        for (const auto& [id, name] : std::vector<std::pair<std::string, std::string>>{{kSelfId, "Me"}, {kRivalId, "Rival"}}) {
+            PlayerData p;
+            p.primaryId = id;
+            p.name = name;
+            p.team = 0;
+            p.fetched = true;
+            state->game.roster[id] = p;
+        }
+        state->game.version.fetch_add(1);
+    }
+    {
+        std::lock_guard lock(state->notes.mutex);
+        state->notes.loaded = true;
+        const auto key = PlayerNotes::IdentityFromPrimaryId(kRivalId)->Key();
+        state->notes.tagsByKey[key] = {"Fast <b>{{x}}</b>", "Ball chaser", "Tilts"};
+        state->notes.tagsByKey[PlayerNotes::IdentityFromPrimaryId(kSelfId)->Key()] = {"Me tag"};
+        state->notes.version.fetch_add(1);
+    }
+
+    RmlUiController controller(state, nullptr);
+    controller.Update(Config::Read());
+    const std::string html = RenderRoster(controller);
+
+    const size_t rival = html.find(">Rival<");
+    ASSERT_NE(rival, std::string::npos);
+    const std::string row = html.substr(rival, html.find("player-row", rival) - rival);
+    EXPECT_NE(row.find("note-badge"), std::string::npos);
+    EXPECT_NE(row.find("chip-tag'>Fast &lt;b&gt;&#123;&#123;x&#125;&#125;&lt;/b&gt;<"), std::string::npos);
+    EXPECT_NE(row.find("chip-tag'>Ball chaser<"), std::string::npos);
+    EXPECT_EQ(row.find(">Tilts<"), std::string::npos);
+    EXPECT_NE(row.find("chip-tag'>+1<"), std::string::npos);
+    EXPECT_NE(row.find("Tags: Fast"), std::string::npos);
+    EXPECT_EQ(html.find("{{x}}"), std::string::npos);
+    EXPECT_EQ(html.find("Me tag"), std::string::npos);
 }
 
 TEST_F(RmlUiControllerStateTest, OverlayNoteBadgeOpensTheEditorInsteadOfMovingTheCard) {

@@ -274,6 +274,7 @@ TEST_F(ConfigTest, ResetThemeColorsRestoresDefaultColors) {
     conf.themeGraphBaseline = {0.8f, 0.8f, 0.8f, 1.0f};
     conf.themeRosterCard = {0.85f, 0.85f, 0.85f, 1.0f};
     conf.themeRosterCardSelf = {0.86f, 0.86f, 0.86f, 1.0f};
+    conf.themeScoutTag = {0.865f, 0.865f, 0.865f, 1.0f};
     conf.themeStatBox = {0.87f, 0.87f, 0.87f, 1.0f};
     conf.themeMatchRow = {0.88f, 0.88f, 0.88f, 1.0f};
     conf.themeMatchRowAlt = {0.89f, 0.89f, 0.89f, 1.0f};
@@ -297,6 +298,7 @@ TEST_F(ConfigTest, ResetThemeColorsRestoresDefaultColors) {
     EXPECT_EQ(conf.themeGraphBaseline.r, defaults.themeGraphBaseline.r);
     EXPECT_EQ(conf.themeRosterCard.r, defaults.themeRosterCard.r);
     EXPECT_EQ(conf.themeRosterCardSelf.r, defaults.themeRosterCardSelf.r);
+    EXPECT_EQ(conf.themeScoutTag.r, defaults.themeScoutTag.r);
     EXPECT_EQ(conf.themeStatBox.r, defaults.themeStatBox.r);
     EXPECT_EQ(conf.themeMatchRow.r, defaults.themeMatchRow.r);
     EXPECT_EQ(conf.themeMatchRowAlt.r, defaults.themeMatchRowAlt.r);

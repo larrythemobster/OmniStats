@@ -140,6 +140,27 @@ namespace PlayerNotes {
         return out;
     }
 
+    std::string NormalizeTag(std::string_view text) {
+        const auto normalized = NormalizeNote(text);
+        std::vector<char32_t> clean;
+        bool lastSpace = true;
+        for (char32_t cp : Decode(normalized)) {
+            if (cp == U'\n' || cp == U'\t' || cp == U' ') {
+                if (!lastSpace && clean.size() < kMaxTagCodePoints) clean.push_back(U' ');
+                lastSpace = true;
+                continue;
+            }
+            if (clean.size() >= kMaxTagCodePoints) break;
+            clean.push_back(cp);
+            lastSpace = false;
+        }
+        TrimTrailing(clean);
+        std::string out;
+        for (char32_t cp : clean)
+            Encode(cp, out);
+        return out;
+    }
+
     std::string Preview(std::string_view note, size_t maxCodePoints) {
         std::vector<char32_t> cps;
         for (char32_t cp : Decode(note)) {

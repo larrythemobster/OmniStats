@@ -81,6 +81,7 @@ struct RmlRenderSnapshot {
 
     // Identity key -> single-line preview, refreshed when SessionState::notes changes.
     std::unordered_map<std::string, std::string> notePreviews;
+    std::unordered_map<std::string, std::vector<std::string>> noteTags;
     bool notesLoaded = false;
     uint64_t notesVersion = 0;
 };
@@ -294,9 +295,13 @@ class RmlUiController final : public Rml::EventListener {
     static std::string PlaylistImageForName(const std::string& playlist);
     std::string RenderRankBadge(const std::string& tier, bool fetched, const std::string& tooltip = {}) const;
     const std::string* NotePreviewFor(const std::string& primaryId) const;
-    // NOTE badge (with preview tooltip) when a note exists, otherwise a hover-only
-    // "+ Note"; nothing for players without a stable account identity.
+    // SCOUT badge (with preview tooltip) when a note or tag exists, otherwise a hover-only
+    // "Scout"; nothing for players without a stable account identity.
     std::string RenderNoteControl(const std::string& primaryId, const std::string& name) const;
+    // Up to two private tag chips plus a "+N" overflow chip for a roster row.
+    std::string RenderTagChips(const std::string& primaryId) const;
+    // The roster's "best" rank: the reported tier, else the tier implied by the player's best MMR.
+    std::string BestRankTier(const PlayerData& player) const;
 
     Rml::Element* Root(const char* id) const;
     void SetRootRml(const char* id, const std::string& rml);
@@ -374,6 +379,9 @@ class RmlUiController final : public Rml::EventListener {
     Rml::ElementDocument* m_playerNoteDoc = nullptr;
     bool m_playerNoteVisible = false;
     uint64_t m_nextPlayerNoteRequestId = 0;
+    uint64_t m_nextPlayerTagRequestId = 0;
+    uint64_t m_nextScoutRequestId = 0;
+    uint64_t m_lastScoutViewVersion = std::numeric_limits<uint64_t>::max();
     bool m_playerNotesRequested = false;
     uint64_t m_lastViewNotesVersion = std::numeric_limits<uint64_t>::max();
     uint64_t m_lastAccountsVersion = std::numeric_limits<uint64_t>::max();

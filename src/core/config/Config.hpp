@@ -132,6 +132,7 @@ struct ConfigData {
     // Component background colors
     ColorRGBA themeRosterCard = {0.05635613203048706f, 0.05635613203048706f, 0.05635613203048706f, 0.75f};
     ColorRGBA themeRosterCardSelf = {0.054901961237192154f, 0.054901961237192154f, 0.054901961237192154f, 0.7490196228027344f};
+    ColorRGBA themeScoutTag = {0.2654656767845154f, 0.02215452492237091f, 0.041800737380981445f, 1.00f};
     ColorRGBA themeStatBox = {0.054901961237192154f, 0.054901961237192154f, 0.054901961237192154f, 0.7490196228027344f};
     ColorRGBA themeMatchRow = {0.06927955150604248f, 0.06927955150604248f, 0.06927955150604248f, 0.7490196228027344f};
     ColorRGBA themeMatchRowAlt = {0.05098039284348488f, 0.05098039284348488f, 0.05098039284348488f, 0.9843137264251709f};
@@ -218,6 +219,7 @@ struct ConfigData {
         themeGraphBaseline = defaults.themeGraphBaseline;
         themeRosterCard = defaults.themeRosterCard;
         themeRosterCardSelf = defaults.themeRosterCardSelf;
+        themeScoutTag = defaults.themeScoutTag;
         themeStatBox = defaults.themeStatBox;
         themeMatchRow = defaults.themeMatchRow;
         themeMatchRowAlt = defaults.themeMatchRowAlt;

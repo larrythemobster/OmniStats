@@ -164,6 +164,14 @@ class DatabaseManager {
     // fails rather than storing a blank row. Load/save/delete publish results to
     // SessionState::notes.
     std::optional<std::vector<PlayerNotes::Note>> ListPlayerNotes();
+    std::optional<std::vector<PlayerNotes::Tag>> ListPlayerTags();
+    std::optional<std::vector<std::string>> GetPlayerTags(const PlayerNotes::Identity& identity);
+    bool SetPlayerTag(const PlayerNotes::Identity& identity, std::string_view tag, bool add,
+                      int64_t nowUnix, std::string* error = nullptr);
+    void AsyncSetPlayerTag(PlayerNotes::Identity identity, std::string tag, bool add, uint64_t requestId);
+    // Call through AsyncGetPlayerScout off the render thread.
+    std::optional<PlayerScoutProfile> GetPlayerScoutProfile(const std::string& account, const std::string& playerId);
+    void AsyncGetPlayerScout(std::string account, std::string playerId, uint64_t requestId);
     std::optional<PlayerNotes::Note> GetPlayerNote(const PlayerNotes::Identity& identity);
     bool SavePlayerNote(const PlayerNotes::Identity& identity, std::string_view text, std::string_view lastKnownName,
                         int64_t nowUnix, std::string* error = nullptr);

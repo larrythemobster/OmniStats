@@ -1,6 +1,6 @@
 <rml>
 <head>
-    <title>OmniStats Player Note</title>
+    <title>OmniStats Player Scout</title>
     <link type="text/rcss" href="res://omnistats.rcss" />
 </head>
 <body id="app" class="view-document" data-model="player_note">
@@ -13,7 +13,7 @@
                         <span data-attr-class="platform_class" data-if="platform_label != ''">{{platform_label}}</span>
                     </div>
                     <div class="label" data-if="account_label != ''">{{account_label}}</div>
-                    <div class="label player-note-context" data-if="context != ''">{{context}}</div>
+                    <div class="label player-note-context" data-if="context != '' && !available">{{context}}</div>
                 </div>
                 <button class="ghost compact" data-action="player-note-close">Close</button>
             </div>
@@ -21,6 +21,48 @@
             <div class="callout" data-if="!available">{{unavailable_message}}</div>
 
             <div class="player-note-body" data-if="available">
+                <div class="scout-section">
+                    <div class="row scout-section-head">
+                        <span class="stat-section-title grow">MATCH HISTORY TOGETHER</span>
+                        <span class="label" data-if="scout_rank != ''">Current rank: <span class="value" data-style-color="scout_rank_color">{{scout_rank}}</span></span>
+                    </div>
+                    <div class="muted" data-if="scout_loading">{{scout_status}}</div>
+                    <div class="label loss" data-if="!scout_loading && !scout_ready">{{scout_status}}</div>
+                    <div data-if="scout_ready">
+                        <div class="scout-stats">
+                            <div class="scout-stat"><span class="label">Games</span><span class="value mono">{{scout_encounters}}</span></div>
+                            <div class="scout-stat"><span class="label">With</span><span class="value mono">{{scout_with}}</span></div>
+                            <div class="scout-stat"><span class="label">Vs</span><span class="value mono">{{scout_against}}</span></div>
+                            <div class="scout-stat"><span class="label">Last seen</span><span class="value">{{scout_last}}</span></div>
+                        </div>
+                        <div class="label scout-playlist" data-if="scout_playlist != ''">Mostly played in {{scout_playlist}}</div>
+                        <div class="muted" data-if="scout_recent.size == 0">No saved matches with this player yet.</div>
+                        <div class="scout-recent" data-if="scout_recent.size > 0">
+                            <div class="row scout-encounter" data-for="match : scout_recent" data-action="player-scout-open-match" data-attr-data-id="match.match_id">
+                                <span class="mono scout-outcome" data-class-win="match.win" data-class-loss="!match.win">{{match.outcome}}</span>
+                                <span class="value grow scout-playlist-name">{{match.playlist}}</span>
+                                <span class="label scout-relation">{{match.relation}}</span>
+                                <span class="label scout-when">{{match.when}}</span>
+                                <span class="label scout-open">&#x203A;</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="scout-section">
+                    <div class="row scout-section-head">
+                        <span class="stat-section-title grow">PRIVATE TAGS</span>
+                        <span class="label mono">{{tags.size}} / 12</span>
+                    </div>
+                    <div class="scout-tags" data-if="tags.size > 0">
+                        <button class="scout-tag" data-for="tag : tags" data-action="player-scout-remove-tag" data-attr-data-tag="tag" data-class-disabled="tag_saving">{{tag}}<span class="scout-tag-remove">&#xD7;</span></button>
+                    </div>
+                    <div class="row gap-sm" data-if="tag_can_add || tag_saving">
+                        <input type="text" class="text grow scout-tag-input" data-setting="player_scout_tag" data-attr-value="tag_value" maxlength="128" placeholder="Add a tag, e.g. Strong mechanics" />
+                        <button class="ghost compact" data-action="player-scout-add-tag" data-class-disabled="!tag_can_add || tag_saving">Add</button>
+                    </div>
+                    <div class="label" data-if="!tag_can_add && !tag_saving">Tag limit reached. Remove one to add another.</div>
+                    <div class="label loss scout-tag-status" data-if="tag_status_error && tag_status != ''">{{tag_status}}</div>
+                </div>
                 <div class="stat-section-title">PERSONAL NOTE</div>
                 <textarea class="player-note-input" data-setting="player_note_text" data-attr-value="note_value" maxlength="2000" rows="7" cols="40"></textarea>
                 <div class="row player-note-meta">

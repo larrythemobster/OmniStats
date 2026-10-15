@@ -184,6 +184,7 @@ div.value { display: block; }
     white-space: nowrap;
 }
 .chip.chip-mmr { font-family: "JetBrains Mono"; font-weight: 700; }
+.chip.chip-tag { max-width: 110dp; overflow: hidden; text-overflow: ellipsis; border-color: #5b080e; background-color: #44060b; color: #ffffff; }
 .player-flags {
     display: flex;
     flex-direction: column;
@@ -197,23 +198,23 @@ div.value { display: block; }
 .player-flags .label { display: block; font-size: 11dp; line-height: 1.2; text-align: right; }
 .player-flags .encounter { cursor: default; }
 
-/* Player notes: a quiet amber tag when a note exists; "+ Note" appears on row
-   hover only, so cards without notes stay unchanged. */
+/* Player notes: a solid SCOUT pill when a note or tag exists ("Scout badge & tags" theme color);
+   "Scout" appears on row hover only, so cards without notes stay unchanged. */
 .note-badge {
     display: inline-block;
     flex-shrink: 0;
     padding: 0 4dp;
-    border: 1dp #ffb45466;
+    border: 1dp #5b080e;
     border-radius: 4dp;
-    background-color: #ffb45414;
-    color: #ffc976;
+    background-color: #44060b;
+    color: #ffffff;
     font-size: 9dp;
     font-weight: 700;
     letter-spacing: 0.3dp;
     line-height: 1.5;
     cursor: pointer;
 }
-.note-badge:hover { border-color: #ffb454; }
+.note-badge:hover { border-color: #810b14; }
 .note-add {
     display: none;
     flex-shrink: 0;
@@ -1343,7 +1344,32 @@ body.view-document { pointer-events: none; }
 
 .callout.error { border-color: #ff303066; background-color: #ff303014; }
 
-.player-note-card { display: flex; flex-direction: column; width: 460dp; max-width: 94%; max-height: 92%; padding: 16dp 18dp; }
+/* The scout pane reuses the single player-note model across roster, history, and people. */
+.scout-section { display: block; margin-bottom: 16dp; }
+.scout-section-head { align-items: center; margin-bottom: 6dp; }
+.scout-section-head .stat-section-title { margin-bottom: 0; }
+.scout-stats { display: flex; gap: 6dp; margin-bottom: 8dp; }
+.scout-stat { display: flex; flex-direction: column; flex: 1; min-width: 0; padding: 6dp 9dp; background-color: #eef1f508; border: 1dp #eef1f51a; border-radius: 6dp; }
+.scout-stat .label { font-size: 10dp; }
+.scout-stat .value { font-size: 14dp; margin-top: 2dp; white-space: nowrap; }
+.scout-playlist { margin-bottom: 8dp; }
+.scout-recent { display: block; max-height: 150dp; overflow-y: auto; border: 1dp #eef1f51a; border-radius: 6dp; }
+.scout-encounter { min-height: 28dp; padding: 3dp 10dp; gap: 10dp; border-top: 1dp #eef1f50f; font-size: 12dp; cursor: pointer; }
+.scout-encounter:first-child { border-top: 0; }
+.scout-encounter:hover { background-color: #eef1f50a; }
+.scout-outcome { width: 12dp; font-weight: 700; }
+.scout-playlist-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.scout-relation { width: 34dp; }
+.scout-when { width: 82dp; text-align: right; }
+.scout-open { width: 8dp; text-align: right; }
+.scout-tags { display: flex; flex-wrap: wrap; gap: 5dp; margin-bottom: 8dp; }
+.scout-tag { min-height: 24dp; padding: 2dp 8dp 2dp 10dp; border: 1dp #5b080e; border-radius: 12dp; background-color: #44060b; color: #ffffff; font-size: 12dp; }
+.scout-tag:hover { border-color: #810b14; }
+.scout-tag-remove { margin-left: 6dp; color: #ffffffa8; }
+.scout-tag:hover .scout-tag-remove { color: #ffffff; }
+.scout-tag-input { font-size: 12dp; }
+.scout-tag-status { margin-top: 6dp; }
+.player-note-card { display: flex; flex-direction: column; width: 530dp; max-width: 94%; max-height: 92%; overflow-y: auto; padding: 16dp 18dp; }
 .player-note-header { align-items: flex-start; padding-bottom: 10dp; margin-bottom: 10dp; border-bottom: 1dp #eef1f517; }
 .player-note-identity .label { margin-top: 3dp; }
 .player-note-name { font-size: 17dp; }

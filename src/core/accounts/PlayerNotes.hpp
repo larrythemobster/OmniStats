@@ -13,6 +13,8 @@
 namespace PlayerNotes {
 
     inline constexpr size_t kMaxNoteCodePoints = 2000;
+    inline constexpr size_t kMaxTagCodePoints = 32;
+    inline constexpr size_t kMaxTagsPerPlayer = 12;
 
     struct Identity {
         std::string platform;  // TrackedAccounts::PlatformToken, e.g. "Epic"
@@ -35,6 +37,14 @@ namespace PlayerNotes {
     size_t CodePointCount(std::string_view text);
     // Single-line excerpt, ellipsized after `maxCodePoints`.
     std::string Preview(std::string_view note, size_t maxCodePoints);
+    // Returns a single, normalized, bounded tag; empty indicates invalid input.
+    std::string NormalizeTag(std::string_view text);
+
+    struct Tag {
+        Identity identity;
+        std::string text;
+        int64_t createdAtUnix = 0;
+    };
 
     struct Note {
         Identity identity;
