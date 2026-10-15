@@ -30,6 +30,9 @@ class TelemetryReducer {
     // invalidates every roster player's record.
     void RequeueEncounterRecordsLocked(SideEffects& effects);
     void HandleStatFeed(const nlohmann::json& data);
+    void RecordJournalEventLocked(const std::string& type, const nlohmann::json& data,
+                                  const char* actorField, const char* secondaryField,
+                                  const char* source);
     void HandleGoalScored(const nlohmann::json& data, SideEffects& effects);
     void HandleBallHit(const nlohmann::json& data);
     void HandleCrossbarHit(const nlohmann::json& data);
@@ -78,6 +81,7 @@ class TelemetryReducer {
         int64_t endedAtUnixMs = 0;
         float durationSeconds = 0.0f;
         float overtimeSeconds = 0.0f;
+        std::vector<MatchJournalEvent> events;
     };
 
     void FinalizeMatchLocked(int winnerTeam, MatchFinalizeSource source, SideEffects& effects);
@@ -123,6 +127,12 @@ class TelemetryReducer {
     uint64_t m_cachedConfigRevision = 0;
 
     std::string m_lastSavedMatchGuid;
+    std::vector<MatchJournalEvent> m_matchEvents;
+    std::unordered_set<std::string> m_eventNativeKeys;
+    bool m_hasObservedMatchClock = false;
+    std::chrono::steady_clock::time_point m_lastMatchClockSampleAt{};
+    std::string m_lastEventSignature;
+    std::chrono::steady_clock::time_point m_lastEventAt{};
     std::unordered_map<std::string, int> m_lastPlayerBoost;
     std::unordered_set<std::string> m_boostRespawnPending;
     std::unordered_map<std::string, CapturedMatch> m_pendingDestroyedMatches;

@@ -4,6 +4,8 @@
 #include <array>
 #include <cstdint>
 #include "core/state/SessionState.hpp"
+#include "core/state/MatchEvent.hpp"
+#include <vector>
 
 struct MatchSaveSnapshot {
     std::string arenaName;
@@ -30,4 +32,5 @@ struct MatchSaveSnapshot {
     MatchStats localStats;
     float durationSeconds = 0.0f;
     float overtimeSeconds = 0.0f;
+    std::vector<MatchJournalEvent> events;
 };

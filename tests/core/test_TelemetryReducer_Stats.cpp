@@ -845,3 +845,38 @@ TEST(TelemetryReducerStats, BoostCountsSmallPadsButNotKickoffOrDemolitionRefills
     EXPECT_EQ(state->game.currentMatch.boostPickedUpSelf, 36);
     EXPECT_EQ(state->game.currentMatch.boostPickedUp, 36);
 }
+
+TEST(TelemetryReducerStats, JournalCapturesVerifiedEventsAndExcludesStaleAndFreeplayEvents) {
+    Storage::InitializeEnvironment();
+    auto state = std::make_shared<SessionState>();
+    TelemetryReducer reducer(state);
+    // Pre-match/freeplay events must never be attached to a later ranked match.
+    reducer.Reduce(std::string(Constants::EVT_GOAL_SCORED),
+                   nlohmann::json{{"GoalSpeed", 70.0}, {"Scorer", {{"Name", "Me"}}}});
+    StartTimedMatch(reducer, *state, "journal-live-1");
+    SendClock(reducer, 217.0f, false);
+
+    const nlohmann::json shot = {
+        {"MatchGuid", "journal-live-1"}, {"EventName", "Shot"}, {"EventId", "shot-1"}, {"MainTarget", {{"PrimaryId", "Steam|1"}, {"Name", "Me"}}}};
+    reducer.Reduce(std::string(Constants::EVT_STATFEED), shot);
+    reducer.Reduce(std::string(Constants::EVT_STATFEED), shot); // retried with same native identifier
+
+    nlohmann::json stale = shot;
+    stale["MatchGuid"] = "different-match";
+    stale["EventId"] = "shot-stale";
+    reducer.Reduce(std::string(Constants::EVT_STATFEED), stale);
+
+    reducer.Reduce(std::string(Constants::EVT_GOAL_SCORED),
+                   nlohmann::json{{"MatchGuid", "journal-live-1"}, {"GoalSpeed", 112.0}, {"Scorer", {{"PrimaryId", "Steam|1"}, {"Name", "Me"}}}});
+    const auto end = reducer.Reduce(std::string(Constants::EVT_MATCH_ENDED),
+                                    nlohmann::json{{"MatchGuid", "journal-live-1"}, {"WinnerTeamNum", 0}});
+    ASSERT_TRUE(end.saveMatch);
+    ASSERT_EQ(end.saveSnapshot.events.size(), 2u);
+    EXPECT_EQ(end.saveSnapshot.events[0].type, "shot");
+    ASSERT_TRUE(end.saveSnapshot.events[0].matchClockSeconds);
+    EXPECT_DOUBLE_EQ(*end.saveSnapshot.events[0].matchClockSeconds, 217.0);
+    EXPECT_EQ(end.saveSnapshot.events[1].type, "goal");
+    ASSERT_TRUE(end.saveSnapshot.events[1].ballSpeed);
+    EXPECT_DOUBLE_EQ(*end.saveSnapshot.events[1].ballSpeed, 112.0);
+    EXPECT_EQ(end.saveSnapshot.events[1].actorId, "Steam|1");
+}

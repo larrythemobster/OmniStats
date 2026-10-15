@@ -48,6 +48,7 @@ TelemetryReducer::CapturedMatch TelemetryReducer::CaptureMatchLocked() const {
     match.fallbackNonRecordableReason = game.fallbackNonRecordableReason;
     match.nonLiveReplay = m_nonLiveReplayActive;
     match.stats = game.currentMatch;
+    match.events = m_matchEvents;
     match.roster = game.matchRoster;
     for (const auto& [primaryId, player] : game.roster) {
         match.roster[primaryId] = player;

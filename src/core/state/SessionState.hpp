@@ -1,4 +1,5 @@
 #pragma once
+#include "core/state/MatchEvent.hpp"
 #include <string>
 #include <unordered_map>
 #include <mutex>
@@ -353,6 +354,7 @@ struct MatchDetail {
     std::string ballchasingUrl;
     std::vector<MatchDetailPlayer> ourTeam;
     std::vector<MatchDetailPlayer> theirTeam;
+    std::vector<MatchJournalEvent> events;
 };
 
 struct HistoryViewState {

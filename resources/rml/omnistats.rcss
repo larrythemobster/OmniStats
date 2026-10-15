@@ -1722,3 +1722,12 @@ body.view-document { pointer-events: none; }
 .accounts-import-row { padding: 6dp 10dp; border-top: 1dp #eef1f50f; font-size: 12dp; align-items: center; }
 .accounts-import-row:first-child { border-top: 0; }
 .accounts-import-row.header { background-color: #eef1f508; font-weight: 600; font-size: 11dp; color: #9da6b3; text-transform: uppercase; }
+
+/* Match journal: compact, theme-neutral timeline. */
+.history-event-tabs { margin: 6dp 0 9dp; flex-wrap: wrap; }
+.history-event-list { display: block; border: 1dp #eef1f51a; border-radius: 6dp; }
+.history-event-row { display: flex; flex-direction: row; align-items: center; min-height: 28dp; padding: 4dp 10dp; gap: 12dp; border-top: 1dp #eef1f50f; font-size: 12dp; }
+.history-event-row:first-child { border-top: 0; }
+.history-event-clock { width: 45dp; flex-shrink: 0; color: #9da6b3; }
+.history-event-type { width: 88dp; flex-shrink: 0; font-weight: 700; }
+.history-event-player { min-width: 90dp; }

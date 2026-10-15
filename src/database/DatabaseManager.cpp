@@ -307,6 +307,29 @@ static constexpr const char* kMigrationV7Sql = R"(
     CREATE INDEX IF NOT EXISTS idx_matches_match_guid ON Matches(match_guid);
 )";
 
+static constexpr const char* kMigrationV8Sql = R"(
+    CREATE TABLE IF NOT EXISTS MatchEvents (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        match_id INTEGER NOT NULL REFERENCES Matches(id) ON DELETE CASCADE,
+        match_guid TEXT NOT NULL DEFAULT '',
+        event_type TEXT NOT NULL,
+        observed_at_ms INTEGER NOT NULL,
+        match_clock_seconds REAL,
+        actor_id TEXT,
+        actor_name TEXT,
+        secondary_id TEXT,
+        secondary_name TEXT,
+        team INTEGER,
+        value REAL,
+        ball_speed REAL,
+        source TEXT NOT NULL,
+        event_key TEXT,
+        format_version INTEGER NOT NULL DEFAULT 1,
+        UNIQUE(match_id, event_key)
+    );
+    CREATE INDEX IF NOT EXISTS idx_matchevents_match_time ON MatchEvents(match_id, observed_at_ms, id);
+)";
+
 // Append new migrations in ascending version order; each runs in its own BEGIN IMMEDIATE transaction.
 static const std::vector<Migration> kMigrations = {
     {1, kMigrationV1Sql, ApplyMigrationV1},
@@ -316,6 +339,7 @@ static const std::vector<Migration> kMigrations = {
     {5, kMigrationV5Sql},
     {6, kMigrationV6Sql},
     {7, kMigrationV7Sql},
+    {8, kMigrationV8Sql},
 };
 
 static std::string CsvEscape(const std::string& value) {
@@ -737,6 +761,46 @@ bool DatabaseManager::UpsertMatchStatsLocked(sqlite3_int64 matchId, const MatchS
     return ok;
 }
 
+bool DatabaseManager::InsertMatchEventsLocked(sqlite3_int64 matchId, const MatchSaveSnapshot& snapshot) {
+    if (!SqliteTableExists(m_db, "MatchEvents")) return snapshot.events.empty();
+    const char* sql = R"(
+        INSERT OR IGNORE INTO MatchEvents
+          (match_id, match_guid, event_type, observed_at_ms, match_clock_seconds,
+           actor_id, actor_name, secondary_id, secondary_name, team,
+           value, ball_speed, source, event_key)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+    )";
+    sqlite3_stmt* stmt = nullptr;
+    if (sqlite3_prepare_v2(m_db, sql, -1, &stmt, nullptr) != SQLITE_OK) return false;
+    bool ok = true;
+    size_t count = 0;
+    for (const auto& event : snapshot.events) {
+        if (++count > 512) break;
+        sqlite3_reset(stmt);
+        sqlite3_clear_bindings(stmt);
+        sqlite3_bind_int64(stmt, 1, matchId);
+        sqlite3_bind_text(stmt, 2, snapshot.matchGuid.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_text(stmt, 3, event.type.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_int64(stmt, 4, event.observedAtUnixMs);
+        if (event.matchClockSeconds) sqlite3_bind_double(stmt, 5, *event.matchClockSeconds);
+        sqlite3_bind_text(stmt, 6, event.actorId.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_text(stmt, 7, event.actorName.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_text(stmt, 8, event.secondaryId.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_text(stmt, 9, event.secondaryName.c_str(), -1, SQLITE_TRANSIENT);
+        if (event.team) sqlite3_bind_int(stmt, 10, *event.team);
+        if (event.value) sqlite3_bind_double(stmt, 11, *event.value);
+        if (event.ballSpeed) sqlite3_bind_double(stmt, 12, *event.ballSpeed);
+        sqlite3_bind_text(stmt, 13, event.source.c_str(), -1, SQLITE_TRANSIENT);
+        if (!event.eventKey.empty()) sqlite3_bind_text(stmt, 14, event.eventKey.c_str(), -1, SQLITE_TRANSIENT);
+        if (sqlite3_step(stmt) != SQLITE_DONE) {
+            ok = false;
+            break;
+        }
+    }
+    sqlite3_finalize(stmt);
+    return ok;
+}
+
 void DatabaseManager::SaveMatch(const MatchSaveSnapshot& snapshot) {
     std::lock_guard<std::mutex> lock(m_dbMutex);
     if (!m_db) return;
@@ -936,7 +1000,8 @@ void DatabaseManager::SaveMatch(const MatchSaveSnapshot& snapshot) {
     }
     sqlite3_finalize(stmtPlayers);
 
-    if (!ok || !UpsertMatchStatsLocked(matchId, snapshot)) {
+    if (!ok || !UpsertMatchStatsLocked(matchId, snapshot) ||
+        !InsertMatchEventsLocked(matchId, snapshot)) {
         sqlite3_exec(m_db, "ROLLBACK;", nullptr, nullptr, nullptr);
         return;
     }
@@ -960,7 +1025,8 @@ void DatabaseManager::ResolvePendingMatchLocked(sqlite3_int64 matchId, const Mat
         sqlite3_stmt* stmt = nullptr;
         bool ok = sqlite3_exec(m_db, "BEGIN IMMEDIATE;", nullptr, nullptr, nullptr) == SQLITE_OK;
         if (ok && HasStatsTablesLocked()) {
-            for (const char* sql : {"DELETE FROM MatchPlayerStats WHERE match_id = ?;",
+            for (const char* sql : {"DELETE FROM MatchEvents WHERE match_id = ?;",
+                                    "DELETE FROM MatchPlayerStats WHERE match_id = ?;",
                                     "DELETE FROM MatchLocalStats WHERE match_id = ?;"}) {
                 if (!ok) break;
                 ok = sqlite3_prepare_v2(m_db, sql, -1, &stmt, nullptr) == SQLITE_OK;
@@ -1014,7 +1080,8 @@ void DatabaseManager::ResolvePendingMatchLocked(sqlite3_int64 matchId, const Mat
     sqlite3_bind_int(stmt, 2, ourScore);
     sqlite3_bind_int(stmt, 3, theirScore);
     sqlite3_bind_int64(stmt, 4, matchId);
-    const bool ok = sqlite3_step(stmt) == SQLITE_DONE && UpsertMatchStatsLocked(matchId, snapshot);
+    const bool ok = sqlite3_step(stmt) == SQLITE_DONE && UpsertMatchStatsLocked(matchId, snapshot) &&
+                    InsertMatchEventsLocked(matchId, snapshot);
     sqlite3_finalize(stmt);
     if (!ok || sqlite3_exec(m_db, "COMMIT;", nullptr, nullptr, nullptr) != SQLITE_OK) {
         sqlite3_exec(m_db, "ROLLBACK;", nullptr, nullptr, nullptr);
@@ -1373,6 +1440,29 @@ bool DatabaseManager::ExportLocalData(std::string& exportPath, std::string& erro
 
     matchesCsv << "id,timestamp,arena,our_score,their_score,win,match_guid,playlist_id,gamemode,player_count\n";
     playersCsv << "match_id,primary_id,name,team,mmr,mmr_estimated,is_opponent\n";
+    std::ofstream eventsCsv(exportPath + "match_events.csv", std::ios::trunc);
+    if (!eventsCsv.is_open()) {
+        error = "Failed to open match event export.";
+        return false;
+    }
+    eventsCsv << "match_id,event_type,observed_at_ms,match_clock_seconds,actor_id,actor_name,secondary_id,secondary_name,team,value,ball_speed,source,event_key\n";
+    if (SqliteTableExists(m_db, "MatchEvents")) {
+        sqlite3_stmt* events = nullptr;
+        const char* sql = "SELECT match_id,event_type,observed_at_ms,match_clock_seconds,actor_id,actor_name,secondary_id,secondary_name,team,value,ball_speed,source,event_key FROM MatchEvents ORDER BY match_id,observed_at_ms,id;";
+        if (sqlite3_prepare_v2(m_db, sql, -1, &events, nullptr) != SQLITE_OK) {
+            error = "Failed to query match events for export.";
+            return false;
+        }
+        while (sqlite3_step(events) == SQLITE_ROW) {
+            for (int c = 0; c < 13; ++c) {
+                if (c) eventsCsv << ',';
+                if (sqlite3_column_type(events, c) != SQLITE_NULL)
+                    eventsCsv << CsvEscape(SqlColumnText(events, c));
+            }
+            eventsCsv << '\n';
+        }
+        sqlite3_finalize(events);
+    }
 
     const bool hasStatsTables = HasStatsTablesLocked();
     sqlite3_stmt* localStatsStmt = nullptr;
@@ -1781,6 +1871,7 @@ bool DatabaseManager::DeleteLocalMatchHistory(std::string& error) {
 
     char* errMsg = nullptr;
     std::string sql = "BEGIN IMMEDIATE;";
+    if (SqliteTableExists(m_db, "MatchEvents")) sql += "DELETE FROM MatchEvents;";
     if (SqliteTableExists(m_db, "MatchPlayerStats")) sql += "DELETE FROM MatchPlayerStats;";
     if (SqliteTableExists(m_db, "MatchLocalStats")) sql += "DELETE FROM MatchLocalStats;";
     sql += "DELETE FROM MatchPlayers; DELETE FROM Matches; ";
@@ -1866,6 +1957,7 @@ DbMergeResult DatabaseManager::MergeDatabase(const std::string& sourceDbPath) {
         tableExists(srcDb, "MatchPlayerStats") && SqliteTableExists(m_db, "MatchPlayerStats");
     const bool copyLocalStats =
         tableExists(srcDb, "MatchLocalStats") && SqliteTableExists(m_db, "MatchLocalStats");
+    const bool copyEvents = tableExists(srcDb, "MatchEvents") && SqliteTableExists(m_db, "MatchEvents");
     char* errMsg = nullptr;
     if (sqlite3_exec(m_db, "BEGIN IMMEDIATE;", nullptr, nullptr, &errMsg) != SQLITE_OK) {
         result.error = errMsg ? errMsg : "Failed to begin transaction on target database.";
@@ -2099,6 +2191,45 @@ DbMergeResult DatabaseManager::MergeDatabase(const std::string& sourceDbPath) {
         }
 
         if (!loopOk) break;
+        if (copyEvents) {
+            const char* fromSql = "SELECT event_type,observed_at_ms,match_clock_seconds,actor_id,actor_name,secondary_id,secondary_name,team,value,ball_speed,source,event_key,format_version FROM MatchEvents WHERE match_id=? ORDER BY id LIMIT 512;";
+            const char* toSql = "INSERT OR IGNORE INTO MatchEvents (match_id,event_type,observed_at_ms,match_clock_seconds,actor_id,actor_name,secondary_id,secondary_name,team,value,ball_speed,source,event_key,format_version,match_guid) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?);";
+            sqlite3_stmt* from = nullptr;
+            sqlite3_stmt* to = nullptr;
+            if (sqlite3_prepare_v2(srcDb, fromSql, -1, &from, nullptr) != SQLITE_OK ||
+                sqlite3_prepare_v2(m_db, toSql, -1, &to, nullptr) != SQLITE_OK) {
+                result.error = "Failed to prepare match journal import.";
+                loopOk = false;
+            } else {
+                sqlite3_bind_int64(from, 1, oldMatchId);
+                while (sqlite3_step(from) == SQLITE_ROW) {
+                    sqlite3_reset(to);
+                    sqlite3_clear_bindings(to);
+                    sqlite3_bind_int64(to, 1, newMatchId);
+                    for (int col = 0; col < 13; ++col) {
+                        const int dst = col + 2;
+                        const int type = sqlite3_column_type(from, col);
+                        if (type == SQLITE_NULL)
+                            sqlite3_bind_null(to, dst);
+                        else if (type == SQLITE_INTEGER)
+                            sqlite3_bind_int64(to, dst, sqlite3_column_int64(from, col));
+                        else if (type == SQLITE_FLOAT)
+                            sqlite3_bind_double(to, dst, sqlite3_column_double(from, col));
+                        else
+                            sqlite3_bind_text(to, dst, SqlColumnText(from, col).c_str(), -1, SQLITE_TRANSIENT);
+                    }
+                    sqlite3_bind_text(to, 15, matchGuid.c_str(), -1, SQLITE_TRANSIENT);
+                    if (sqlite3_step(to) != SQLITE_DONE) {
+                        result.error = "Failed to import match journal.";
+                        loopOk = false;
+                        break;
+                    }
+                }
+            }
+            sqlite3_finalize(from);
+            sqlite3_finalize(to);
+            if (!loopOk) break;
+        }
         if (copyPlayerStats) {
             sqlite3_reset(selectPlayerStatsStmt);
             sqlite3_clear_bindings(selectPlayerStatsStmt);
@@ -4382,6 +4513,35 @@ bool DatabaseManager::GetMatchDetail(int64_t matchId, MatchDetail& outDetail, co
         }
     }
 
+    if (SqliteTableExists(m_db, "MatchEvents")) {
+        const char* eventsSql = R"(
+            SELECT event_type, observed_at_ms, match_clock_seconds, actor_id, actor_name,
+                   secondary_id, secondary_name, team, value, ball_speed, source, event_key
+            FROM MatchEvents WHERE match_id = ? ORDER BY observed_at_ms, id LIMIT 512;
+        )";
+        sqlite3_stmt* eventsStmt = nullptr;
+        if (sqlite3_prepare_v2(m_db, eventsSql, -1, &eventsStmt, nullptr) == SQLITE_OK) {
+            sqlite3_bind_int64(eventsStmt, 1, matchId);
+            while (sqlite3_step(eventsStmt) == SQLITE_ROW) {
+                MatchJournalEvent e;
+                e.type = SqlColumnText(eventsStmt, 0);
+                e.observedAtUnixMs = sqlite3_column_int64(eventsStmt, 1);
+                if (sqlite3_column_type(eventsStmt, 2) != SQLITE_NULL)
+                    e.matchClockSeconds = sqlite3_column_double(eventsStmt, 2);
+                e.actorId = SqlColumnText(eventsStmt, 3);
+                e.actorName = SqlColumnText(eventsStmt, 4);
+                e.secondaryId = SqlColumnText(eventsStmt, 5);
+                e.secondaryName = SqlColumnText(eventsStmt, 6);
+                if (sqlite3_column_type(eventsStmt, 7) != SQLITE_NULL) e.team = sqlite3_column_int(eventsStmt, 7);
+                if (sqlite3_column_type(eventsStmt, 8) != SQLITE_NULL) e.value = sqlite3_column_double(eventsStmt, 8);
+                if (sqlite3_column_type(eventsStmt, 9) != SQLITE_NULL) e.ballSpeed = sqlite3_column_double(eventsStmt, 9);
+                e.source = SqlColumnText(eventsStmt, 10);
+                e.eventKey = SqlColumnText(eventsStmt, 11);
+                outDetail.events.push_back(std::move(e));
+            }
+            sqlite3_finalize(eventsStmt);
+        }
+    }
     const bool hasStatsTables = HasStatsTablesLocked();
     if (hasStatsTables) {
         const char* localSql =

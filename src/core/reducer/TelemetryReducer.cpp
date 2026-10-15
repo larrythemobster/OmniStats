@@ -196,6 +196,9 @@ SideEffects TelemetryReducer::Reduce(const std::string& eventName, const nlohman
             m_autoSwitchedPlaylistCategory =
                 MmrCategory::Best;
             m_followedGraphPlaylistCategory = MmrCategory::Best;
+            m_matchEvents.clear();
+            m_eventNativeKeys.clear();
+            m_lastEventSignature.clear();
             m_lastPlayerBoost.clear();
             m_boostRespawnPending.clear();
             m_lastPlayerSeen.clear();
@@ -362,12 +365,25 @@ SideEffects TelemetryReducer::Reduce(const std::string& eventName, const nlohman
     if (eventName == Constants::EVT_UPDATE_STATE) {
         HandleUpdateState(data, effects);
     } else if (eventName == Constants::EVT_STATFEED) {
+        if (data.contains("EventName") && data["EventName"].is_string()) {
+            const std::string name = data["EventName"].get<std::string>();
+            const std::string type = name == "EpicSave" || name == "Epic Save" ? "epic_save" : name == "Save"   ? "save"
+                                                                                           : name == "Shot"     ? "shot"
+                                                                                           : name == "Assist"   ? "assist"
+                                                                                           : name == "OwnGoal"  ? "own_goal"
+                                                                                           : name == "Demolish" ? "demolition"
+                                                                                                                : "";
+            if (!type.empty()) RecordJournalEventLocked(type, data,
+                                                        data.contains("MainTarget") ? "MainTarget" : "Player", "SecondaryTarget", "statfeed");
+        }
         HandleStatFeed(data);
     } else if (eventName == Constants::EVT_GOAL_SCORED) {
+        RecordJournalEventLocked("goal", data, "Scorer", nullptr, "goal");
         HandleGoalScored(data, effects);
     } else if (eventName == Constants::EVT_BALL_HIT) {
         HandleBallHit(data);
     } else if (eventName == Constants::EVT_CROSSBAR_HIT) {
+        RecordJournalEventLocked("crossbar", data, nullptr, nullptr, "crossbar");
         HandleCrossbarHit(data);
     } else if (eventName == Constants::EVT_MATCH_ENDED) {
         HandleMatchEnded(data, effects);
@@ -456,6 +472,7 @@ float TelemetryReducer::PausedSecondsWithin(std::chrono::steady_clock::time_poin
 }
 
 void TelemetryReducer::ResetMatchTimingState() {
+    m_hasObservedMatchClock = false;
     m_regulationClockStart.reset();
     m_regulationClockLatest = 0.0f;
     m_overtimeStartedAt.reset();

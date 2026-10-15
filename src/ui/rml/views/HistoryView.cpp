@@ -161,6 +161,14 @@ bool HistoryView::Create(Rml::Context* context) {
         player.RegisterMember("demos", &HistoryDetailPlayerRow::demos);
     }
     constructor.RegisterArray<std::vector<HistoryDetailPlayerRow>>();
+    if (auto event = constructor.RegisterStruct<HistoryEventRow>()) {
+        event.RegisterMember("clock", &HistoryEventRow::clock);
+        event.RegisterMember("type", &HistoryEventRow::type);
+        event.RegisterMember("player", &HistoryEventRow::player);
+        event.RegisterMember("detail", &HistoryEventRow::detail);
+        event.RegisterMember("category", &HistoryEventRow::category);
+    }
+    constructor.RegisterArray<std::vector<HistoryEventRow>>();
 
     constructor.Bind("subtitle", &m_subtitle);
     constructor.Bind("playlist_filter", &m_playlistFilter);
@@ -191,6 +199,11 @@ bool HistoryView::Create(Rml::Context* context) {
     constructor.Bind("detail_our_team", &m_detailOurTeam);
     constructor.Bind("detail_their_team", &m_detailTheirTeam);
     constructor.Bind("detail_ballchasing_url", &m_detailBallchasingUrl);
+    constructor.Bind("detail_events", &m_detailEvents);
+    constructor.Bind("event_filter", &m_eventFilter);
+    constructor.Bind("event_team_filter", &m_eventTeamFilter);
+    constructor.Bind("event_team_available", &m_eventTeamAvailable);
+    constructor.Bind("event_empty", &m_eventEmpty);
 
     m_handle = constructor.GetModelHandle();
     m_bound = true;
@@ -206,6 +219,10 @@ void HistoryView::Reset() {
     m_sourceRows.clear();
     m_totalCount = 0;
     m_detailSource.reset();
+    m_detailEvents.clear();
+    m_eventFilter = "all";
+    m_eventTeamFilter = "all";
+    m_eventTeamAvailable = false;
     m_subtitle = "Your saved match history";
     m_playlistFilter = "All";
     m_playlistOptions = {
@@ -389,6 +406,8 @@ uint64_t HistoryView::BeginDetail(int64_t /*matchId*/) {
     ++m_activeDetailRequestId;
     m_detailOpen = true;
     m_detailLoading = true;
+    m_detailSource.reset();
+    RebuildDetail();
     Dirty("detail_open");
     Dirty("detail_loading");
     return m_activeDetailRequestId;
@@ -419,6 +438,23 @@ void HistoryView::SetNotedPlayers(const std::unordered_set<std::string>& keys, b
     m_notedKeys = keys;
     m_notesLoaded = loaded;
     if (m_detailSource.has_value()) RebuildDetail();
+}
+
+void HistoryView::SetEventFilter(const std::string& filter) {
+    if (filter != "all" && filter != "goals" && filter != "saves" &&
+        filter != "shots" && filter != "demolitions" && filter != "other") return;
+    if (m_eventFilter == filter) return;
+    m_eventFilter = filter;
+    Dirty("event_filter");
+    RebuildDetail();
+}
+
+void HistoryView::SetEventTeamFilter(const std::string& filter) {
+    if (filter != "all" && filter != "ours" && filter != "opponents") return;
+    if (m_eventTeamFilter == filter) return;
+    m_eventTeamFilter = filter;
+    Dirty("event_team_filter");
+    RebuildDetail();
 }
 
 void HistoryView::RebuildRows() {
@@ -474,6 +510,8 @@ void HistoryView::RebuildRows() {
 void HistoryView::RebuildDetail() {
     m_detailOurTeam.clear();
     m_detailTheirTeam.clear();
+    m_detailEvents.clear();
+    m_eventTeamAvailable = false;
     if (!m_detailSource.has_value() || !m_detailSource->found) {
         m_detailResult.clear();
         m_detailWin = false;
@@ -512,6 +550,50 @@ void HistoryView::RebuildDetail() {
         m_detailDuration = FormatDurationAndOvertime(d.durationSeconds, d.overtimeSeconds);
         m_detailV1Note = d.hasPlayerStats ? "" : "Per-player scoreboard stats were not recorded for this match.";
         m_detailBallchasingUrl = d.ballchasingUrl;
+        auto labelForType = [](const std::string& type) -> std::string {
+            if (type == "goal") return "Goal";
+            if (type == "save") return "Save";
+            if (type == "epic_save") return "Epic Save";
+            if (type == "assist") return "Assist";
+            if (type == "shot") return "Shot";
+            if (type == "demolition") return "Demolition";
+            if (type == "own_goal") return "Own Goal";
+            if (type == "crossbar") return "Crossbar";
+            return "Event";
+        };
+        const std::optional<int> ourTeam = d.ourTeam.empty() ? std::nullopt : std::optional<int>(d.ourTeam.front().team);
+        for (const auto& e : d.events) {
+            if (ourTeam && e.team && (*e.team == 0 || *e.team == 1))
+                m_eventTeamAvailable = true;
+            std::string category = "other";
+            if (e.type == "goal" || e.type == "own_goal")
+                category = "goals";
+            else if (e.type == "save" || e.type == "epic_save")
+                category = "saves";
+            else if (e.type == "shot")
+                category = "shots";
+            else if (e.type == "demolition")
+                category = "demolitions";
+            if (m_eventFilter != "all" && m_eventFilter != category) continue;
+            if (m_eventTeamFilter != "all") {
+                if (!ourTeam || !e.team) continue;
+                const bool ours = *ourTeam == *e.team;
+                if ((m_eventTeamFilter == "ours") != ours) continue;
+            }
+            HistoryEventRow row;
+            row.category = category;
+            row.type = labelForType(e.type);
+            row.player = e.actorName.empty() ? (e.actorId.empty() ? "Unknown player" : e.actorId) : e.actorName;
+            row.clock = e.matchClockSeconds ? FormatMinutesSeconds(static_cast<float>(*e.matchClockSeconds)) : "--:--";
+            if (e.type == "demolition" && (!e.secondaryName.empty() || !e.secondaryId.empty()))
+                row.detail = "-> " + (!e.secondaryName.empty() ? e.secondaryName : e.secondaryId);
+            if (e.ballSpeed) {
+                const std::string speed = std::to_string(static_cast<int>(std::lround(*e.ballSpeed)));
+                row.detail = speed + " km/h";
+            }
+            m_detailEvents.push_back(std::move(row));
+        }
+        m_eventEmpty = d.events.empty() ? "No detailed events were recorded for this match." : "No events match this filter.";
 
         for (const auto& p : d.ourTeam) {
             m_detailOurTeam.push_back(FormatDetailPlayer(p, &m_notedKeys, m_notesLoaded));
@@ -524,7 +606,8 @@ void HistoryView::RebuildDetail() {
     for (const char* name : {"detail_open", "detail_loading", "detail_result", "detail_win", "detail_score",
                              "detail_playlist", "detail_arena", "detail_time", "detail_mmr_change",
                              "detail_mmr_tone", "detail_duration", "detail_v1_note",
-                             "detail_our_team", "detail_their_team", "detail_ballchasing_url"}) {
+                             "detail_our_team", "detail_their_team", "detail_ballchasing_url",
+                             "detail_events", "event_empty", "event_team_available"}) {
         Dirty(name);
     }
 }

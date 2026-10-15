@@ -55,6 +55,14 @@ struct HistoryDetailPlayerRow {
     Rml::String demos;
 };
 
+struct HistoryEventRow {
+    Rml::String clock;
+    Rml::String type;
+    Rml::String player;
+    Rml::String detail;
+    Rml::String category;
+};
+
 class HistoryView {
   public:
     static constexpr int kPageSize = 100;
@@ -122,6 +130,8 @@ class HistoryView {
     }
     bool ApplyDetailResult(uint64_t requestId, const std::optional<MatchDetail>& detail);
     void CloseDetail();
+    void SetEventFilter(const std::string& filter);
+    void SetEventTeamFilter(const std::string& filter);
 
     bool IsDetailOpen() const {
         return m_detailOpen;
@@ -197,4 +207,9 @@ class HistoryView {
     Rml::String m_detailBallchasingUrl;
     std::vector<HistoryDetailPlayerRow> m_detailOurTeam;
     std::vector<HistoryDetailPlayerRow> m_detailTheirTeam;
+    std::vector<HistoryEventRow> m_detailEvents;
+    Rml::String m_eventFilter = "all";
+    Rml::String m_eventTeamFilter = "all";
+    bool m_eventTeamAvailable = false;
+    Rml::String m_eventEmpty = "This match has no recorded events.";
 };

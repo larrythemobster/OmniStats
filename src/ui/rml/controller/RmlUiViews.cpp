@@ -593,6 +593,12 @@ bool RmlUiController::HandleViewAction(const std::string& action, Rml::Element* 
         if (!date.empty()) m_history.SetDateFilter(date);
         if (!sort.empty()) m_history.SetSortFilter(sort);
         TriggerHistoryQuery(false);
+    } else if (action == "history-event-team") {
+        m_history.SetEventTeamFilter(Attribute(target, "data-team-filter"));
+        m_renderDirty = true;
+    } else if (action == "history-event-filter") {
+        m_history.SetEventFilter(Attribute(target, "data-event-filter"));
+        m_renderDirty = true;
     } else if (action == "history-clear-filters") {
         m_history.ClearFilters();
         TriggerHistoryQuery(false);

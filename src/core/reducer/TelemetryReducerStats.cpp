@@ -171,3 +171,90 @@ void TelemetryReducer::HandleCrossbarHit(const nlohmann::json& data) {
     }
     std::cout << "[Event] CROSSBAR HIT! Toucher: " << (toucherName.empty() ? "None" : PrivacyLog::Sensitive(toucherName, "player name")) << "\n";
 }
+
+void TelemetryReducer::RecordJournalEventLocked(const std::string& type,
+                                                const nlohmann::json& data,
+                                                const char* actorField,
+                                                const char* secondaryField,
+                                                const char* source) {
+    // Keep UI/freeplay/replay events out of persistent match history.
+    if (!m_state->game.inMatch || m_state->game.matchFinalized ||
+        m_state->game.inReplay || m_nonLiveReplayActive ||
+        m_state->game.fallbackNonRecordableContext ||
+        PlaylistMetadata::IsNonRecordable(m_state->game.playlistId) ||
+        m_matchEvents.size() >= 512) return;
+    const std::string guid = ExtractEventMatchGuid(data);
+    if (m_missingGuidAssociationBlockedByReconnect && guid.empty() &&
+        m_state->game.matchGuid.empty()) return;
+    if (!guid.empty() && !m_state->game.matchGuid.empty() && guid != m_state->game.matchGuid) return;
+    if (!guid.empty() && (m_finalizedMatchGuids.count(guid) || m_pendingDestroyedMatches.count(guid))) return;
+
+    MatchJournalEvent event;
+    event.type = type;
+    event.source = source;
+    event.observedAtUnixMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+                                 std::chrono::system_clock::now().time_since_epoch())
+                                 .count();
+    auto readPlayer = [&](const nlohmann::json& player, std::string& id, std::string& name) {
+        if (!player.is_object()) return;
+        if (player.contains("Name") && player["Name"].is_string()) name = player["Name"].get<std::string>();
+        id = ResolveRosterPlayerIdLocked(player);
+        if (id.empty() && player.contains("PrimaryId") && player["PrimaryId"].is_string()) {
+            const std::string candidate = player["PrimaryId"].get<std::string>();
+            if (candidate != "Unknown" && candidate.rfind("Unknown|", 0) != 0) id = candidate;
+        }
+    };
+    if (actorField && data.contains(actorField)) readPlayer(data[actorField], event.actorId, event.actorName);
+    if (secondaryField && data.contains(secondaryField))
+        readPlayer(data[secondaryField], event.secondaryId, event.secondaryName);
+    if (type == "crossbar" && data.contains("BallLastTouch") && data["BallLastTouch"].is_object()) {
+        const auto& touch = data["BallLastTouch"];
+        if (touch.contains("Player")) readPlayer(touch["Player"], event.actorId, event.actorName);
+    }
+    const auto rosterIt = m_state->game.roster.find(event.actorId);
+    if (rosterIt != m_state->game.roster.end() &&
+        (rosterIt->second.team == 0 || rosterIt->second.team == 1))
+        event.team = rosterIt->second.team;
+    // Only explicitly named remaining-clock fields represent game time.
+    for (const char* field : {"SecondsRemaining", "TimeRemaining"}) {
+        if (data.contains(field) && data[field].is_number()) {
+            const double seconds = data[field].get<double>();
+            if (std::isfinite(seconds) && seconds >= 0.0 && seconds <= 3600.0) event.matchClockSeconds = seconds;
+            break;
+        }
+    }
+    if (!event.matchClockSeconds && m_hasObservedMatchClock &&
+        Now() >= m_lastMatchClockSampleAt &&
+        Now() - m_lastMatchClockSampleAt <= std::chrono::seconds(5))
+        event.matchClockSeconds = static_cast<double>(m_state->game.timeSeconds);
+    if (type == "goal" && data.contains("GoalSpeed") && data["GoalSpeed"].is_number()) {
+        const double speed = data["GoalSpeed"].get<double>();
+        if (std::isfinite(speed) && speed > 0) event.ballSpeed = speed;
+    }
+    if (type == "crossbar" && data.contains("ImpactForce") && data["ImpactForce"].is_number()) {
+        const double impact = data["ImpactForce"].get<double>();
+        if (std::isfinite(impact)) event.value = impact;
+    }
+    // Native unique IDs are authoritative; no generated sequence number is treated as one.
+    for (const char* field : {"EventId", "EventID", "EventGuid"}) {
+        if (data.contains(field) && (data[field].is_string() || data[field].is_number_integer())) {
+            event.eventKey = source;
+            event.eventKey += ":" + type + ":";
+            event.eventKey += data[field].is_string() ? data[field].get<std::string>() : data[field].dump();
+            break;
+        }
+    }
+    if (!event.eventKey.empty()) {
+        if (!m_eventNativeKeys.insert(event.eventKey).second) return;
+    } else {
+        // Suppress retransmission of the *same* payload in a short window,
+        // without merging genuine repeated actions later in the match.
+        const std::string signature = type + ":" + data.dump();
+        const auto now = Now();
+        if (signature == m_lastEventSignature && now >= m_lastEventAt &&
+            now - m_lastEventAt < std::chrono::milliseconds(300)) return;
+        m_lastEventSignature = signature;
+        m_lastEventAt = now;
+    }
+    m_matchEvents.push_back(std::move(event));
+}

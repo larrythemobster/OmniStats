@@ -109,7 +109,35 @@
                         </div>
                     </div>
 
+                    <div class="label" data-if="detail_loading">Loading match details...</div>
                     <div class="callout" data-if="detail_v1_note != ''">{{detail_v1_note}}</div>
+
+                    <div class="history-scoreboard-block">
+                        <div class="stat-section-title">MATCH EVENTS</div>
+                        <div class="row gap-sm history-event-tabs">
+                            <button class="tab-button pill" data-action="history-event-filter" data-event-filter="all" data-class-active="event_filter == 'all'">All</button>
+                            <button class="tab-button pill" data-action="history-event-filter" data-event-filter="goals" data-class-active="event_filter == 'goals'">Goals</button>
+                            <button class="tab-button pill" data-action="history-event-filter" data-event-filter="saves" data-class-active="event_filter == 'saves'">Saves</button>
+                            <button class="tab-button pill" data-action="history-event-filter" data-event-filter="shots" data-class-active="event_filter == 'shots'">Shots</button>
+                            <button class="tab-button pill" data-action="history-event-filter" data-event-filter="demolitions" data-class-active="event_filter == 'demolitions'">Demos</button>
+                            <button class="tab-button pill" data-action="history-event-filter" data-event-filter="other" data-class-active="event_filter == 'other'">Other</button>
+                        </div>
+                        <div class="row gap-sm history-event-tabs" data-if="event_team_available">
+                            <span class="label">Team</span>
+                            <button class="tab-button pill" data-action="history-event-team" data-team-filter="all" data-class-active="event_team_filter == 'all'">Both</button>
+                            <button class="tab-button pill" data-action="history-event-team" data-team-filter="ours" data-class-active="event_team_filter == 'ours'">Ours</button>
+                            <button class="tab-button pill" data-action="history-event-team" data-team-filter="opponents" data-class-active="event_team_filter == 'opponents'">Opponents</button>
+                        </div>
+                        <div class="history-event-list" data-if="detail_events.size > 0">
+                            <div class="history-event-row" data-for="e : detail_events">
+                                <span class="mono history-event-clock">{{e.clock}}</span>
+                                <span class="history-event-type">{{e.type}}</span>
+                                <span class="history-event-player">{{e.player}}</span>
+                                <span class="label">{{e.detail}}</span>
+                            </div>
+                        </div>
+                        <div class="label" data-if="detail_events.size == 0">{{event_empty}}</div>
+                    </div>
 
                     <div class="history-scoreboard-block">
                         <div class="stat-section-title">OUR TEAM</div>

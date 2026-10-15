@@ -193,6 +193,8 @@ void TelemetryReducer::HandleUpdateState(const nlohmann::json& data, SideEffects
         if (game.contains("TimeSeconds") && game["TimeSeconds"].is_number()) {
             const float clock = game["TimeSeconds"].get<float>();
             m_state->game.timeSeconds = clock;
+            m_hasObservedMatchClock = std::isfinite(clock) && clock >= 0.0f && clock <= 3600.0f;
+            if (m_hasObservedMatchClock) m_lastMatchClockSampleAt = Now();
             if (!m_state->game.bOvertime) {
                 m_regulationClockStart = std::max(m_regulationClockStart.value_or(clock), clock);
                 m_regulationClockLatest = clock;
@@ -255,6 +257,9 @@ void TelemetryReducer::HandleUpdateState(const nlohmann::json& data, SideEffects
                     const bool savedInGoalReplay = m_state->ui.inGoalReplay.load(std::memory_order_relaxed);
                     m_state->resetMatch(currentArena, currentArenaAsset);
                     if (startsNewLifecycle) {
+                        m_matchEvents.clear();
+                        m_eventNativeKeys.clear();
+                        m_lastEventSignature.clear();
                         m_state->game.activeMatchGeneration =
                             ++m_nextMatchGeneration;
                         m_missingGuidAssociationBlockedByReconnect =
@@ -359,6 +364,9 @@ void TelemetryReducer::HandleUpdateState(const nlohmann::json& data, SideEffects
                     const std::string currentArena = m_state->game.arenaName;
                     const std::string currentArenaAsset = m_state->game.arenaAsset;
                     m_state->resetMatch(currentArena, currentArenaAsset);
+                    m_matchEvents.clear();
+                    m_eventNativeKeys.clear();
+                    m_lastEventSignature.clear();
                     m_state->ui.ResetMatchTimestamps(SteadyNowMs());
                     m_state->game.activeMatchGeneration =
                         ++m_nextMatchGeneration;
