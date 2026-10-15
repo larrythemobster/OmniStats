@@ -1176,129 +1176,72 @@ TEST(MMRFetcherPostMatchTest, KeepsPostMatchRequestBehindRosterRequest) {
     Config::Update([&](ConfigData& config) { config = original; }, false);
 }
 
-TEST_F(MMRFetcherTest, FallsBackToCustomApiWhenTrackerReturns403) {
-    sessionState->game.myPrimaryId = "Epic|test_epic_id";
-    g_mock_response_code = 403;
-    g_mock_custom_api_response_code = 200;
-    Config::Update([](ConfigData& config) {
-        config.custom_api_enabled = true;
-        config.custom_api_key = "oms_test_account_key";
-    },
-                   false);
-    g_mock_custom_api_response = R"({
-        "players": [{
-            "platform": "Epic",
-            "account_id": "test_epic_id",
-            "skills": [
-                {
-                    "playlist": 11,
-                    "mmr": 1250.0,
-                    "tier": 14,
-                    "division": 2,
-                    "matches_played": 45
-                }
-            ]
-        }]
-    })";
-
-    fetcher->FetchRosterProfileForTests("Epic|test_epic_id", "TestPlayer");
-    EXPECT_EQ(g_mock_perform_count.load(), 4);
-    EXPECT_EQ(g_mock_impersonation_profile, "chrome136");
-    EXPECT_EQ(
-        g_mock_user_agent_header,
-        "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-        "AppleWebKit/537.36 (KHTML, like Gecko) "
-        "Chrome/136.0.0.0 Safari/537.36");
-
-    fetcher->FetchRosterProfileForTests("Epic|test_epic_id", "TestPlayer");
-    EXPECT_EQ(g_mock_perform_count.load(), 5);
-
-    std::shared_lock<std::shared_mutex> lock(sessionState->game.mutex);
-    ASSERT_TRUE(sessionState->game.roster.count("Epic|test_epic_id") > 0);
-    const auto& player = sessionState->game.roster["Epic|test_epic_id"];
-    EXPECT_TRUE(player.fetched);
-    EXPECT_FALSE(player.fetchFailed);
-    EXPECT_EQ(player.rankVerificationSource, "ServerA");
-    EXPECT_EQ(player.playlists.at("2v2"), 1250);
-    EXPECT_EQ(player.playlistTiers.at("2v2"), "Diamond II Div III");
-    EXPECT_EQ(player.mmr, 1250);
-}
-
 namespace {
-    void UseLocalCustomApi(int mmr, int matches) {
-        Config::Update([](ConfigData& config) {
-            config.custom_api_enabled = true;
-            config.custom_api_key = "oms_test_account_key";
+    void SetUpSignedInDeviceAuth(bool enableMmrTracking = false) {
+        auto& account = AccountClient::Instance();
+        AccountClient::DeviceKeyPair keyPair;
+        account.EnsureDeviceKey(&keyPair);
+        Config::Update([&](ConfigData& c) {
+            c.enable_mmr_tracking = enableMmrTracking;
+            c.custom_api_enabled = true;
+            c.account_refresh_token = "valid_refresh_token";
+            c.account_signed_in_name = "SignedInPlayer";
+            c.account_device_public_id = keyPair.publicId;
         },
                        false);
-        g_mock_custom_api_response_code = 200;
-        g_mock_custom_api_response =
-            R"({"players":[{"platform":"Epic","account_id":"local_id","skills":[{"playlist":11,"mmr":)" +
-            std::to_string(mmr) + R"(,"tier":14,"division":2,"matches_played":)" +
-            std::to_string(matches) + R"(}]}]})";
+        account.SyncFromConfig();
+        account.SetClockForTests([]() { return 1700000000; });
+        account.SetCachedAccessTokenForTests("bearer_token_abc", 1700000900);
     }
 } // namespace
 
-TEST_F(MMRFetcherTest, UnavailableTrackerFallsBackToCustomApiForTheLocalSessionBaseline) {
-    sessionState->game.myPrimaryId = "Epic|local_id";
-    g_mock_response_code = 503;
-    UseLocalCustomApi(1250, 45);
-
-    fetcher->FetchRosterProfileForTests("Epic|local_id", "Local");
-    EXPECT_EQ(g_mock_perform_count.load(), 2);
-    {
-        std::shared_lock gameLock(sessionState->game.mutex);
-        std::shared_lock historyLock(sessionState->history.mutex);
-        EXPECT_EQ(sessionState->game.roster.at("Epic|local_id").rankVerificationSource, "ServerA");
-        EXPECT_EQ(sessionState->history.playlistInitialMmr.at("2v2"), 1250);
-    }
-
-    fetcher->FetchRosterProfileForTests("Epic|local_id", "Local");
-    EXPECT_EQ(g_mock_perform_count.load(), 4);
-}
-
-TEST_F(MMRFetcherTest, UnavailableTrackerKeepsOtherPlayersOffTheCustomApi) {
-    sessionState->game.myPrimaryId = "Epic|local_id";
-    sessionState->game.roster["Epic|opponent_id"] =
-        PlayerData{.primaryId = "Epic|opponent_id", .name = "Opponent"};
-    g_mock_response_code = 503;
-    UseLocalCustomApi(1250, 45);
-
-    fetcher->FetchRosterProfileForTests("Epic|opponent_id", "Opponent");
-    EXPECT_EQ(g_mock_perform_count.load(), 1);
-    std::shared_lock lock(sessionState->game.mutex);
-    EXPECT_TRUE(sessionState->game.roster.at("Epic|opponent_id").fetchFailed);
-}
-
-TEST_F(MMRFetcherTest, RateLimitedTrackerDoesNotDelayTheLocalSessionBaseline) {
-    sessionState->game.myPrimaryId = "Epic|local_id";
-    g_mock_response_code = 429;
-    g_mock_headers = "Retry-After: 90\r\n";
-    UseLocalCustomApi(1250, 45);
-
-    fetcher->Start();
-    fetcher->Enqueue("Epic|local_id", "Local");
-    bool baselineSet = false;
-    for (int i = 0; i < 100 && !baselineSet; ++i) {
-        std::this_thread::sleep_for(std::chrono::milliseconds(10));
-        std::shared_lock lock(sessionState->history.mutex);
-        baselineSet = sessionState->history.playlistInitialMmr.count("2v2") > 0;
-    }
-    const size_t pending = fetcher->PendingRequestCountForTests();
-    fetcher->Stop();
-
-    EXPECT_TRUE(baselineSet);
-    EXPECT_EQ(pending, 0u);
-}
-TEST_F(MMRFetcherTest, CustomApiMultipleSkillsParsesAllAndSetsBest) {
-    g_mock_response_code = 403;
-    g_mock_custom_api_response_code = 200;
-    Config::Update([](ConfigData& config) {
-        config.custom_api_enabled = true;
-        config.custom_api_key = "oms_test_account_key";
+TEST_F(MMRFetcherTest, ConfiguredLegacyKeyAloneCannotAuthorizeRankLookups) {
+    Config::Update([](ConfigData& c) {
+        c.custom_api_enabled = true;
+        c.custom_api_key = "legacy_secret_key";
+        c.enable_mmr_tracking = false;
+        c.account_refresh_token.clear();
+        c.account_signed_in_name.clear();
+        c.account_device_public_id.clear();
     },
                    false);
+    AccountClient::Instance().SyncFromConfig();
 
+    EXPECT_FALSE(AccountClient::Instance().IsSignedIn());
+    EXPECT_EQ(MMRFetcher::ActiveRankProvider(), RankProvider::Unavailable);
+    EXPECT_FALSE(fetcher->IsCustomApiActiveSourceForTests());
+
+    MMRRequest req;
+    req.primaryId = "Epic|test_epic_id|0";
+    req.name = "TestPlayer";
+    EXPECT_EQ(fetcher->FetchProfileFromCustomApiForTests(req), CustomApiFetchResult::DisabledOrNotReady);
+    EXPECT_EQ(g_mock_perform_count.load(), 0);
+
+    Config::Update([](ConfigData& c) {
+        c.enable_mmr_tracking = true;
+    },
+                   false);
+    EXPECT_EQ(MMRFetcher::ActiveRankProvider(), RankProvider::Tracker);
+    EXPECT_FALSE(fetcher->IsCustomApiActiveSourceForTests());
+
+    sessionState->game.myPrimaryId = "Epic|test_epic_id|0";
+    sessionState->game.roster["Epic|test_epic_id|0"] =
+        PlayerData{.primaryId = "Epic|test_epic_id|0", .name = "TestPlayer"};
+    g_mock_response_code = 403;
+    g_mock_custom_api_response_code = 200;
+    g_mock_custom_api_response =
+        R"({"players":[{"platform":"Epic","account_id":"test_epic_id","skills":[{"playlist":11,"mmr":1250}]}]})";
+
+    fetcher->FetchRosterProfileForTests("Epic|test_epic_id|0", "TestPlayer");
+
+    for (const auto& h : g_mock_request_headers) {
+        EXPECT_TRUE(h.rfind("X-API-Key:", 0) != 0);
+    }
+}
+
+TEST_F(MMRFetcherTest, CustomApiMultipleSkillsParsesAllAndSetsBest) {
+    SetUpSignedInDeviceAuth(false);
+    g_mock_custom_api_response_code = 200;
     g_mock_custom_api_response = R"({
         "players": [{
             "platform": "Epic",
@@ -1335,11 +1278,7 @@ TEST_F(MMRFetcherTest, CustomApiMultipleSkillsParsesAllAndSetsBest) {
 }
 
 TEST_F(MMRFetcherTest, CustomApiSingleSkillParsesCorrectly) {
-    Config::Update([](ConfigData& config) {
-        config.custom_api_enabled = true;
-        config.custom_api_key = "oms_test_account_key";
-    },
-                   false);
+    SetUpSignedInDeviceAuth(false);
     g_mock_custom_api_response_code = 200;
     g_mock_custom_api_response = R"({
         "players": [{
@@ -1369,11 +1308,7 @@ TEST_F(MMRFetcherTest, CustomApiSingleSkillParsesCorrectly) {
 }
 
 TEST_F(MMRFetcherTest, CustomApiEmptySkillsReturnsUnusableDataAndPreventsFalseSuccess) {
-    Config::Update([](ConfigData& config) {
-        config.custom_api_enabled = true;
-        config.custom_api_key = "oms_test_account_key";
-    },
-                   false);
+    SetUpSignedInDeviceAuth(true);
     g_mock_response_code = 403;
     g_mock_custom_api_response_code = 200;
     g_mock_custom_api_response = R"({
@@ -1402,11 +1337,7 @@ TEST_F(MMRFetcherTest, CustomApiEmptySkillsReturnsUnusableDataAndPreventsFalseSu
 }
 
 TEST_F(MMRFetcherTest, CustomApiUnrecognizedPlaylistIdsReturnsUnusableData) {
-    Config::Update([](ConfigData& config) {
-        config.custom_api_enabled = true;
-        config.custom_api_key = "oms_test_account_key";
-    },
-                   false);
+    SetUpSignedInDeviceAuth(false);
     g_mock_custom_api_response_code = 200;
     g_mock_custom_api_response = R"({
         "players": [{
@@ -1426,11 +1357,7 @@ TEST_F(MMRFetcherTest, CustomApiUnrecognizedPlaylistIdsReturnsUnusableData) {
 }
 
 TEST_F(MMRFetcherTest, CustomApiMissingOrInvalidMmrReturnsUnusableData) {
-    Config::Update([](ConfigData& config) {
-        config.custom_api_enabled = true;
-        config.custom_api_key = "oms_test_account_key";
-    },
-                   false);
+    SetUpSignedInDeviceAuth(false);
     g_mock_custom_api_response_code = 200;
     g_mock_custom_api_response = R"({
         "players": [{
@@ -1451,11 +1378,7 @@ TEST_F(MMRFetcherTest, CustomApiMissingOrInvalidMmrReturnsUnusableData) {
 }
 
 TEST_F(MMRFetcherTest, CustomApiMissingPlayersArrayReturnsUnusableData) {
-    Config::Update([](ConfigData& config) {
-        config.custom_api_enabled = true;
-        config.custom_api_key = "oms_test_account_key";
-    },
-                   false);
+    SetUpSignedInDeviceAuth(false);
     g_mock_custom_api_response_code = 200;
     g_mock_custom_api_response = R"({ "players": [] })";
 
@@ -1467,11 +1390,7 @@ TEST_F(MMRFetcherTest, CustomApiMissingPlayersArrayReturnsUnusableData) {
 }
 
 TEST_F(MMRFetcherTest, CustomApiMalformedJsonReturnsUnusableData) {
-    Config::Update([](ConfigData& config) {
-        config.custom_api_enabled = true;
-        config.custom_api_key = "oms_test_account_key";
-    },
-                   false);
+    SetUpSignedInDeviceAuth(false);
     g_mock_custom_api_response_code = 200;
     g_mock_custom_api_response = "{ not valid json";
 
@@ -1483,11 +1402,7 @@ TEST_F(MMRFetcherTest, CustomApiMalformedJsonReturnsUnusableData) {
 }
 
 TEST_F(MMRFetcherTest, CustomApiNotFound404ReturnsUnusableData) {
-    Config::Update([](ConfigData& config) {
-        config.custom_api_enabled = true;
-        config.custom_api_key = "oms_test_account_key";
-    },
-                   false);
+    SetUpSignedInDeviceAuth(false);
     g_mock_custom_api_response_code = 404;
     g_mock_custom_api_response = R"({"error": {"code": "not_found", "message": "Player not found"}})";
 
@@ -1498,11 +1413,7 @@ TEST_F(MMRFetcherTest, CustomApiNotFound404ReturnsUnusableData) {
 }
 
 TEST_F(MMRFetcherTest, CustomApiServerAndNetworkFailureReturnsTransientError) {
-    Config::Update([](ConfigData& config) {
-        config.custom_api_enabled = true;
-        config.custom_api_key = "oms_test_account_key";
-    },
-                   false);
+    SetUpSignedInDeviceAuth(false);
 
     MMRRequest req;
     req.primaryId = "Epic|test_epic_id|0";
@@ -1518,11 +1429,7 @@ TEST_F(MMRFetcherTest, CustomApiServerAndNetworkFailureReturnsTransientError) {
 }
 
 TEST_F(MMRFetcherTest, CustomApiXboxPlayerResponseHandledCorrectly) {
-    Config::Update([](ConfigData& config) {
-        config.custom_api_enabled = true;
-        config.custom_api_key = "oms_test_account_key";
-    },
-                   false);
+    SetUpSignedInDeviceAuth(false);
     g_mock_custom_api_response_code = 200;
     g_mock_custom_api_response = R"({
         "players": [{
@@ -1554,11 +1461,7 @@ TEST_F(MMRFetcherTest, CustomApiXboxPlayerResponseHandledCorrectly) {
 }
 
 TEST_F(MMRFetcherTest, CustomApiPlatformMappingsSupported) {
-    Config::Update([](ConfigData& config) {
-        config.custom_api_enabled = true;
-        config.custom_api_key = "oms_test_account_key";
-    },
-                   false);
+    SetUpSignedInDeviceAuth(false);
     g_mock_custom_api_response_code = 200;
 
     const std::vector<std::tuple<std::string, std::string, std::string>> platforms = {
@@ -1595,11 +1498,7 @@ TEST_F(MMRFetcherTest, CustomApiPlatformMappingsSupported) {
 
 TEST_F(MMRFetcherTest, CustomApiUpdatesLocalPlayerHistoryAndCache) {
     sessionState->game.myPrimaryId = "Epic|local_hero_id|0";
-    Config::Update([](ConfigData& config) {
-        config.custom_api_enabled = true;
-        config.custom_api_key = "oms_test_account_key";
-    },
-                   false);
+    SetUpSignedInDeviceAuth(false);
     g_mock_custom_api_response_code = 200;
     g_mock_custom_api_response = R"({
         "players": [{
@@ -1633,11 +1532,7 @@ TEST_F(MMRFetcherTest, CustomApiUpdatesLocalPlayerHistoryAndCache) {
 TEST_F(MMRFetcherTest, SwitchingAccountsKeepsEachSessionGraphOnItsOwnRating) {
     const std::string firstId = "Epic|first_account|0";
     const std::string secondId = "Epic|second_account|0";
-    Config::Update([](ConfigData& config) {
-        config.custom_api_enabled = true;
-        config.custom_api_key = "oms_test_account_key";
-    },
-                   false);
+    SetUpSignedInDeviceAuth(false);
     g_mock_custom_api_response_code = 200;
 
     auto fetch = [&](const std::string& primaryId, const std::string& accountId, int mmr, int matches) {
@@ -2030,12 +1925,7 @@ TEST(MMRFetcherBatchTest, ResponseParsingMapsEachPlayerIncludingMissingAndErrore
 }
 
 TEST_F(MMRFetcherTest, WholeBatchHttpFailureYieldsPerPlayerFailures) {
-    Config::Update([](ConfigData& c) {
-        c.custom_api_enabled = true;
-        c.custom_api_key = "test_key";
-        c.enable_mmr_tracking = false;
-    },
-                   false);
+    SetUpSignedInDeviceAuth(false);
 
     AssembledBatch batch;
     for (int i = 1; i <= 3; ++i) {
@@ -2062,12 +1952,7 @@ TEST_F(MMRFetcherTest, WholeBatchHttpFailureYieldsPerPlayerFailures) {
 }
 
 TEST_F(MMRFetcherTest, EndToEndCoalescesQueuedRosterRequestsIntoSingleHttpCall) {
-    Config::Update([](ConfigData& c) {
-        c.custom_api_enabled = true;
-        c.custom_api_key = "test_key";
-        c.enable_mmr_tracking = false;
-    },
-                   false);
+    SetUpSignedInDeviceAuth(false);
 
     nlohmann::json playersArray = nlohmann::json::array();
     for (int i = 1; i <= 6; ++i) {

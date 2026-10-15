@@ -621,6 +621,7 @@ AccountClient::PollResult AccountClient::PollTokenOnce() {
                 c.account_refresh_token = refreshToken;
                 c.account_signed_in_name = displayName;
                 c.account_device_public_id = keyPair.publicId;
+                c.custom_api_key.clear();
             });
             Config::Save();
 
@@ -751,15 +752,29 @@ AccountClient::PollResult AccountClient::PollToken() {
     }
 }
 
-bool AccountClient::ExchangeAPIKey() {
+bool AccountClient::ExchangeAPIKey(uint64_t generation) {
+    {
+        std::lock_guard lock(m_mutex);
+        if (generation != m_authGeneration) return false;
+    }
     const ConfigData conf = Config::Read();
     if (conf.custom_api_key.empty() || !conf.account_refresh_token.empty()) return false;
 
+    const auto fail = [&](std::string message) {
+        std::lock_guard lock(m_mutex);
+        if (generation == m_authGeneration) {
+            m_errorMessage = std::move(message);
+            m_pendingSignedOutToast = m_errorMessage;
+            m_state = AccountAuthState::Error;
+            ++m_statusVersion;
+        }
+        return false;
+    };
     DeviceKeyPair keyPair;
-    if (!EnsureDeviceKey(&keyPair)) return false;
-
-    const int64_t now = NowUnix();
-    const DeviceProof proof = CreateProof(keyPair.secretKeyBase64Url, "exchange", keyPair.publicId, conf.custom_api_key, now);
+    if (!EnsureDeviceKey(&keyPair)) {
+        return fail("Unable to read this device's key. Sign in again in Settings > Services & API.");
+    }
+    const DeviceProof proof = CreateProof(keyPair.secretKeyBase64Url, "exchange", keyPair.publicId, conf.custom_api_key, NowUnix());
     const nlohmann::json reqJson = {
         {"api_key", conf.custom_api_key},
         {"device_public_id", keyPair.publicId},
@@ -769,34 +784,60 @@ bool AccountClient::ExchangeAPIKey() {
         {"public_key", keyPair.publicKeyBase64Url},
         {"proof", {{"timestamp", proof.timestamp}, {"nonce", proof.nonce}, {"signature", proof.signature}}}};
     const HttpResponse resp = PerformHttpPost(ApiBaseUrl() + "/v1/auth/device/exchange-key", reqJson.dump());
-    if (resp.curlCode != 0 || resp.statusCode != 200) return false;
+    if (resp.curlCode != 0 || resp.statusCode >= 500 || resp.statusCode == 429) {
+        return fail("Unable to link your saved API key right now. It is still saved. Restart OmniStats to retry, or sign in in Settings > Services & API.");
+    }
+    if (resp.statusCode != 200) {
+        const ParsedApiError error = ParseApiError(resp.body);
+        if (error.code == "device_limit_reached") {
+            return fail("Your account's device limit was reached. Remove an unused device with Manage devices, then restart OmniStats or sign in again.");
+        }
+        if (error.code == "email_verification_required") {
+            return fail("Verify your OmniStats email, then sign in in Settings > Services & API to link this device.");
+        }
+        if (error.code == "device_revoked") {
+            return fail("This device was revoked. Sign in again and approve it in your browser to reconnect.");
+        }
+        return fail("Your saved API key could not link this device. Sign in in Settings > Services & API.");
+    }
 
     try {
         const auto j = nlohmann::json::parse(resp.body);
         const std::string accessToken = j.value("access_token", "");
         const std::string refreshToken = j.value("refresh_token", "");
-        const int expiresIn = std::max(1, j.value("expires_in", 900));
+        const int expiresIn = j.value("expires_in", 0);
         const std::string displayName = ExtractDisplayName(j, "");
-        if (accessToken.empty() || refreshToken.empty()) return false;
-
-        Config::Update([&](ConfigData& c) {
-            c.account_refresh_token = refreshToken;
-            c.account_signed_in_name = displayName;
-            c.account_device_public_id = keyPair.publicId;
-            c.custom_api_key.clear();
-        });
-        Config::Save();
-
-        std::lock_guard<std::mutex> lock(m_mutex);
-        m_accessToken = accessToken;
-        m_accessTokenExpiresAt = NowUnix() + expiresIn;
-        m_displayName = displayName;
-        m_errorMessage.clear();
-        m_state = AccountAuthState::SignedIn;
-        ++m_statusVersion;
+        if (accessToken.empty() || refreshToken.empty() || expiresIn <= 0) {
+            return fail("OmniStats returned an incomplete device session. Restart to retry, or sign in in Settings > Services & API.");
+        }
+        const int64_t issuedAt = NowUnix();
+        bool cancelled;
+        {
+            std::lock_guard lock(m_mutex);
+            cancelled = generation != m_authGeneration || m_stopWorker.load(std::memory_order_relaxed);
+            if (!cancelled) {
+                Config::Update([&](ConfigData& c) {
+                    c.account_refresh_token = refreshToken;
+                    c.account_signed_in_name = displayName;
+                    c.account_device_public_id = keyPair.publicId;
+                    c.custom_api_key.clear();
+                });
+                Config::Save();
+                m_accessToken = accessToken;
+                m_accessTokenExpiresAt = issuedAt + expiresIn;
+                m_displayName = displayName;
+                m_errorMessage.clear();
+                m_state = AccountAuthState::SignedIn;
+                ++m_statusVersion;
+            }
+        }
+        if (cancelled) {
+            (void)SendLogoutRequest(refreshToken);
+            return false;
+        }
         return true;
     } catch (...) {
-        return false;
+        return fail("OmniStats returned an invalid device session. Restart to retry, or sign in in Settings > Services & API.");
     }
 }
 
@@ -872,6 +913,7 @@ bool AccountClient::Refresh() {
                     c.account_refresh_token = newRefreshToken;
                     c.account_signed_in_name = displayName;
                     c.account_device_public_id = keyPair.publicId;
+                    c.custom_api_key.clear();
                 });
                 m_accessToken = accessToken;
                 m_accessTokenExpiresAt = issuedAt + expiresIn;
@@ -942,6 +984,7 @@ bool AccountClient::Logout() {
     Config::Update([](ConfigData& c) {
         c.account_refresh_token.clear();
         c.account_signed_in_name.clear();
+        c.custom_api_key.clear();
     });
     Config::Save();
 
@@ -987,6 +1030,10 @@ bool AccountClient::SendLogoutRequest(const std::string& refreshToken) {
 void AccountClient::BeginSignInAsync(bool openBrowser) {
     m_cancelPolling.store(true, std::memory_order_relaxed);
     {
+        std::lock_guard lock(m_mutex);
+        ++m_authGeneration;
+    }
+    {
         std::lock_guard<std::mutex> lock(m_workerMutex);
         EnsureWorkerRunningLocked();
         m_workerQueue.clear();
@@ -1019,6 +1066,7 @@ void AccountClient::LogoutAsync() {
     Config::Update([](ConfigData& c) {
         c.account_refresh_token.clear();
         c.account_signed_in_name.clear();
+        c.custom_api_key.clear();
     });
     Config::Save();
     {
@@ -1074,9 +1122,14 @@ void AccountClient::OpenManageDevicesBrowser() {
 
 void AccountClient::MarkSignedOut(std::string reason) {
     m_cancelPolling.store(true, std::memory_order_relaxed);
+    {
+        std::lock_guard lock(m_mutex);
+        ++m_authGeneration;
+    }
     Config::Update([](ConfigData& c) {
         c.account_refresh_token.clear();
         c.account_signed_in_name.clear();
+        c.custom_api_key.clear();
     });
     Config::Save();
 
@@ -1126,8 +1179,8 @@ AccountStatusSnapshot AccountClient::GetStatus() const {
     snap.pollIntervalSeconds = m_pollIntervalSeconds;
     snap.errorMessage = m_errorMessage;
 
-    if (m_state == AccountAuthState::AwaitingApproval) {
-        snap.state = AccountAuthState::AwaitingApproval;
+    if (m_state == AccountAuthState::Migrating || m_state == AccountAuthState::AwaitingApproval) {
+        snap.state = m_state;
     } else if (!conf.account_refresh_token.empty()) {
         snap.state = AccountAuthState::SignedIn;
         snap.displayName = conf.account_signed_in_name.empty()
@@ -1141,13 +1194,35 @@ AccountStatusSnapshot AccountClient::GetStatus() const {
     return snap;
 }
 
+void AccountClient::RetryKeyMigrationAsync() {
+    {
+        std::lock_guard lock(m_mutex);
+        if (m_state != AccountAuthState::Error) return;
+        m_keyExchangeAttempted = false;
+    }
+    SyncFromConfig();
+}
+
 void AccountClient::SyncFromConfig() {
     const ConfigData conf = Config::Read();
-    const bool migrateAPIKey = conf.account_refresh_token.empty() && !conf.custom_api_key.empty();
+    if (!conf.account_refresh_token.empty() && !conf.custom_api_key.empty()) {
+        Config::Update([](ConfigData& c) { c.custom_api_key.clear(); });
+        Config::Save();
+    }
+    bool migrateAPIKey = false;
+    uint64_t generation = 0;
     {
         std::lock_guard<std::mutex> lock(m_mutex);
         m_devicePublicId = conf.account_device_public_id;
         m_displayName = conf.account_signed_in_name;
+        if (conf.account_refresh_token.empty() && !conf.custom_api_key.empty() &&
+            !m_keyExchangeAttempted && m_state != AccountAuthState::AwaitingApproval) {
+            m_keyExchangeAttempted = true;
+            migrateAPIKey = true;
+            generation = m_authGeneration;
+            m_state = AccountAuthState::Migrating;
+            m_errorMessage.clear();
+        }
         if (!conf.account_refresh_token.empty()) {
             if (m_state != AccountAuthState::AwaitingApproval) {
                 m_state = AccountAuthState::SignedIn;
@@ -1169,10 +1244,7 @@ void AccountClient::SyncFromConfig() {
     {
         std::lock_guard<std::mutex> lock(m_workerMutex);
         EnsureWorkerRunningLocked();
-        for (const auto& job : m_workerQueue) {
-            if (job.command == WorkerCommand::ExchangeAPIKey) return;
-        }
-        m_workerQueue.push_back(WorkerJob{WorkerCommand::ExchangeAPIKey, false, {}});
+        m_workerQueue.push_back(WorkerJob{WorkerCommand::ExchangeAPIKey, false, {}, generation});
     }
     m_workerCv.notify_all();
 }
@@ -1212,7 +1284,7 @@ void AccountClient::WorkerLoop() {
         if (job.command == WorkerCommand::Logout) {
             (void)SendLogoutRequest(job.refreshToken);
         } else if (job.command == WorkerCommand::ExchangeAPIKey) {
-            (void)ExchangeAPIKey();
+            (void)ExchangeAPIKey(job.authGeneration);
         } else if (job.command == WorkerCommand::StartSignIn) {
             m_cancelPolling.store(false, std::memory_order_relaxed);
             const StartAuthResult startRes = StartAuthorization();
@@ -1424,5 +1496,6 @@ void AccountClient::ResetForTests() {
     m_state = AccountAuthState::SignedOut;
     m_cancelPolling.store(false, std::memory_order_relaxed);
     m_stopWorker.store(false, std::memory_order_relaxed);
+    m_keyExchangeAttempted = false;
     ++m_statusVersion;
 }

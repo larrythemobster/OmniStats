@@ -29,7 +29,7 @@ namespace {
 
 RankProvider MMRFetcher::ActiveRankProvider() {
     const ConfigData conf = Config::Read();
-    const bool customApi = conf.custom_api_enabled && (AccountClient::Instance().IsSignedIn() || !conf.custom_api_key.empty());
+    const bool customApi = conf.custom_api_enabled && AccountClient::Instance().IsSignedIn();
     if (customApi) return conf.enable_mmr_tracking ? RankProvider::OmniStatsApiWithTrackerFallback : RankProvider::OmniStatsApi;
     return conf.enable_mmr_tracking ? RankProvider::Tracker : RankProvider::Unavailable;
 }
@@ -513,8 +513,7 @@ void MMRFetcher::WorkerLoop() {
         };
 
         if (!customApiActive) {
-            if (m_rateLimitedUntil > now &&
-                !m_useCustomApiFallback.load()) {
+            if (m_rateLimitedUntil > now) {
                 const auto wakeAt = m_rateLimitedUntil;
                 m_cv.wait_until(lock, wakeAt);
                 continue;

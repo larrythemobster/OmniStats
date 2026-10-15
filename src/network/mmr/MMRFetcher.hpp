@@ -289,6 +289,5 @@ class MMRFetcher {
     std::chrono::steady_clock::time_point m_rateLimitedUntil{};
     size_t m_forbiddenStrikeCount = 0;
     std::jthread m_workerThread;
-    std::atomic<bool> m_useCustomApiFallback{false};
     std::atomic<bool> m_isRunning{false};
 };

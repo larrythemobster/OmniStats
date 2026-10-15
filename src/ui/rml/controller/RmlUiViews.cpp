@@ -33,7 +33,8 @@ bool RmlUiController::WantsAttention() const {
     // and the host skips Update() while the window is hidden, so the pending
     // flag itself has to keep the window drawn.
     return m_insightsVisible || m_historyVisible || m_accountsVisible || m_playerNoteVisible || m_onboardingVisible ||
-           (m_state && m_state->ui.showSessionRecap.load());
+           m_accountPromptPending || (m_state && m_state->ui.showSessionRecap.load()) ||
+           (m_state && m_state->ui.showMenu.load());
 }
 
 void RmlUiController::OpenInsights() {
@@ -500,7 +501,10 @@ void RmlUiController::ShowOnboarding() {
 }
 
 void RmlUiController::FinishOnboarding() {
-    Config::Update([](ConfigData& c) { c.onboarding_completed = true; });
+    Config::Update([](ConfigData& c) {
+        c.onboarding_completed = true;
+        c.account_link_prompt_shown = true;
+    });
     m_config = Config::Read();
     if (m_onboardingDoc) m_onboardingDoc->Hide();
     m_onboardingVisible = false;
@@ -526,6 +530,31 @@ void RmlUiController::RefreshOnboarding() {
             SetElementRml(slot, rml, false);
         }
     }
+    m_renderDirty = true;
+}
+void RmlUiController::CheckAccountLinkPrompt() {
+    if (!m_config.onboarding_completed || m_config.account_link_prompt_shown) {
+        m_accountPromptPending = false;
+        return;
+    }
+    const AccountStatusSnapshot accountStatus = AccountClient::Instance().GetStatus();
+    if (accountStatus.state == AccountAuthState::Migrating) {
+        m_accountPromptPending = true;
+        return;
+    }
+    m_accountPromptPending = false;
+    if (accountStatus.state == AccountAuthState::SignedIn || AccountClient::Instance().IsSignedIn() ||
+        !m_config.account_refresh_token.empty()) {
+        return;
+    }
+    m_settingsPage = SettingsPage::Integrations;
+    if (m_state) {
+        m_state->ui.showMenu.store(true);
+        m_state->ui.dashboardLayoutEditMode.store(false);
+    }
+    RebuildSettings();
+    Config::Update([](ConfigData& c) { c.account_link_prompt_shown = true; });
+    m_config = Config::Read();
     m_renderDirty = true;
 }
 
@@ -871,6 +900,10 @@ bool RmlUiController::HandleViewAction(const std::string& action, Rml::Element* 
         RefreshOnboarding();
     } else if (action == "account-sign-in") {
         AccountClient::Instance().BeginSignInAsync(true);
+        if (m_state && m_state->ui.showMenu.load()) RebuildSettings();
+        if (m_onboardingVisible) RefreshOnboarding();
+    } else if (action == "account-retry-migration") {
+        AccountClient::Instance().RetryKeyMigrationAsync();
         if (m_state && m_state->ui.showMenu.load()) RebuildSettings();
         if (m_onboardingVisible) RefreshOnboarding();
     } else if (action == "account-cancel") {

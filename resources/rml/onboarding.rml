@@ -62,10 +62,12 @@
                             </div>
                             <div class="setting-help">The private, more reliable option for live ranks with one-click browser approval and no third-party scraping.</div>
                             <div class="setting-help win" data-if="account_signed_in">{{account_status}}</div>
+                            <div class="setting-help" data-if="account_migrating">{{account_status}}</div>
                             <div class="setting-help loss" data-if="account_has_error">{{account_status}}</div>
                         </div>
                         <div class="row gap-xs">
-                            <button class="primary" data-if="!account_signed_in && !account_awaiting" data-action="account-sign-in">Sign in with OmniStats</button>
+                            <button class="primary" data-if="!account_signed_in && !account_awaiting && !account_migrating" data-action="account-sign-in">Sign in with OmniStats</button>
+                            <button class="ghost" data-if="account_migrating" disabled="disabled">Connecting...</button>
                             <button class="primary" data-if="account_awaiting" data-action="account-open-verify">Open browser</button>
                             <button class="ghost" data-if="account_awaiting" data-action="account-cancel">Cancel</button>
                             <button class="ghost" data-if="account_signed_in" data-action="account-sign-out">Sign out</button>

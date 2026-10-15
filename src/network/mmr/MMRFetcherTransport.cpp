@@ -100,10 +100,7 @@ namespace {
 bool MMRFetcher::IsCustomApiActiveSource() const {
     const auto config = Config::Read();
     if (!config.custom_api_enabled) return false;
-    const bool signedIn = AccountClient::Instance().IsSignedIn();
-    const bool hasKey = !config.custom_api_key.empty();
-    if (!signedIn && !hasKey) return false;
-    return signedIn || !config.enable_mmr_tracking || m_useCustomApiFallback.load();
+    return AccountClient::Instance().IsSignedIn();
 }
 
 MMRFetcherDetail::CustomApiBatchResult MMRFetcher::FetchBatchFromCustomApi(const AssembledBatch& batch) {
@@ -125,8 +122,7 @@ MMRFetcherDetail::CustomApiBatchResult MMRFetcher::FetchBatchFromCustomApi(const
         return result;
     }
     auto& accountClient = AccountClient::Instance();
-    const bool signedIn = accountClient.IsSignedIn();
-    if (!signedIn && config.custom_api_key.empty()) {
+    if (!accountClient.IsSignedIn()) {
         result.httpResult = CustomApiFetchResult::DisabledOrNotReady;
         return result;
     }
@@ -170,12 +166,8 @@ MMRFetcherDetail::CustomApiBatchResult MMRFetcher::FetchBatchFromCustomApi(const
             void* headers = nullptr;
             headers = ci.slist_append(headers, "Content-Type: application/json");
             headers = ci.slist_append(headers, "Accept: application/json");
-            if (signedIn) {
-                headers = ci.slist_append(headers, ("Authorization: Bearer " + bearerToken).c_str());
-                headers = ci.slist_append(headers, ("X-Omni-Device-Id: " + deviceId).c_str());
-            } else {
-                headers = ci.slist_append(headers, ("X-API-Key: " + config.custom_api_key).c_str());
-            }
+            headers = ci.slist_append(headers, ("Authorization: Bearer " + bearerToken).c_str());
+            headers = ci.slist_append(headers, ("X-Omni-Device-Id: " + deviceId).c_str());
 
             ci.easy_setopt(ci_curl, CI_CURLOPT_URL, currentUrl.c_str());
             ci.easy_setopt(ci_curl, CI_CURLOPT_POST, 1L);
@@ -221,15 +213,34 @@ MMRFetcherDetail::CustomApiBatchResult MMRFetcher::FetchBatchFromCustomApi(const
         return true;
     };
 
-    if (signedIn) {
-        std::string accessToken = accountClient.AccessToken();
-        std::string deviceId = accountClient.DevicePublicId();
-        if (accessToken.empty() || deviceId.empty()) {
+    std::string accessToken = accountClient.AccessToken();
+    std::string deviceId = accountClient.DevicePublicId();
+    if (accessToken.empty() || deviceId.empty()) {
+        if (!accountClient.IsSignedIn()) {
+            result.httpResult = CustomApiFetchResult::AuthFailure;
+            return result;
+        }
+        result.httpResult = CustomApiFetchResult::TransientError;
+        return result;
+    }
+    if (!performRequest(accessToken, deviceId)) {
+        result.httpResult = CustomApiFetchResult::DisabledOrNotReady;
+        return result;
+    }
+    if (res == 0 && httpCode == 401) {
+        if (!accountClient.Refresh()) {
             if (!accountClient.IsSignedIn()) {
                 result.httpResult = CustomApiFetchResult::AuthFailure;
-                return result;
+            } else {
+                result.httpResult = CustomApiFetchResult::TransientError;
             }
-            result.httpResult = CustomApiFetchResult::TransientError;
+            return result;
+        }
+        accessToken = accountClient.AccessToken();
+        deviceId = accountClient.DevicePublicId();
+        if (accessToken.empty() || deviceId.empty()) {
+            accountClient.MarkSignedOut("Your OmniStats session expired or this device was revoked. Sign in again in Settings > Services & API.");
+            result.httpResult = CustomApiFetchResult::AuthFailure;
             return result;
         }
         if (!performRequest(accessToken, deviceId)) {
@@ -237,35 +248,9 @@ MMRFetcherDetail::CustomApiBatchResult MMRFetcher::FetchBatchFromCustomApi(const
             return result;
         }
         if (res == 0 && httpCode == 401) {
-            if (!accountClient.Refresh()) {
-                if (!accountClient.IsSignedIn()) {
-                    result.httpResult = CustomApiFetchResult::AuthFailure;
-                } else {
-                    result.httpResult = CustomApiFetchResult::TransientError;
-                }
-                return result;
-            }
-            accessToken = accountClient.AccessToken();
-            deviceId = accountClient.DevicePublicId();
-            if (accessToken.empty() || deviceId.empty()) {
-                accountClient.MarkSignedOut("Your OmniStats session expired or this device was revoked. Sign in again in Settings > Services & API.");
-                result.httpResult = CustomApiFetchResult::AuthFailure;
-                return result;
-            }
-            if (!performRequest(accessToken, deviceId)) {
-                result.httpResult = CustomApiFetchResult::DisabledOrNotReady;
-                return result;
-            }
-            if (res == 0 && httpCode == 401) {
-                accountClient.MarkSignedOut("Your OmniStats session expired or this device was revoked. Sign in again in Settings > Services & API.");
-                std::cout << "[MMRFetcher] Custom API rejected refreshed device token (HTTP 401). Signed out.\n";
-                result.httpResult = CustomApiFetchResult::AuthFailure;
-                return result;
-            }
-        }
-    } else {
-        if (!performRequest("", "")) {
-            result.httpResult = CustomApiFetchResult::DisabledOrNotReady;
+            accountClient.MarkSignedOut("Your OmniStats session expired or this device was revoked. Sign in again in Settings > Services & API.");
+            std::cout << "[MMRFetcher] Custom API rejected refreshed device token (HTTP 401). Signed out.\n";
+            result.httpResult = CustomApiFetchResult::AuthFailure;
             return result;
         }
     }
@@ -349,7 +334,6 @@ void MMRFetcher::ProcessCustomApiBatch(const AssembledBatch& batch) {
     const auto config = Config::Read();
 
     if (res.httpResult == CustomApiFetchResult::AuthFailure) {
-        m_useCustomApiFallback.store(false);
         for (const auto& req : batch.requests) {
             if (config.enable_mmr_tracking && m_rateLimitedUntil <= now) {
                 const bool requeued = FetchProfileTracker(req);
@@ -466,8 +450,7 @@ bool MMRFetcher::FetchProfile(MMRRequest req) {
     }
     const ConfigData config = Config::Read();
     const bool signedInPrimary = config.custom_api_enabled && AccountClient::Instance().IsSignedIn();
-    const bool tryCustomApiFirst = signedInPrimary || m_useCustomApiFallback.load();
-    if (tryCustomApiFirst) {
+    if (signedInPrimary) {
         const auto customResult = FetchProfileFromCustomApi(req);
         if (customResult == CustomApiFetchResult::SuccessFinished) {
             return false;
@@ -476,13 +459,12 @@ bool MMRFetcher::FetchProfile(MMRRequest req) {
             return true;
         }
         if (customResult == CustomApiFetchResult::AuthFailure) {
-            m_useCustomApiFallback.store(false);
             if (req.reason == MMRRequestReason::TrackedAccount && !config.enable_mmr_tracking) {
                 PublishFetchFailure(req, TrackedAccountFetchStatus::AuthRequired,
                                     "The rank API rejected the request. Sign in again in Settings > Services & API.");
                 return false;
             }
-        } else if (!config.enable_mmr_tracking || !signedInPrimary) {
+        } else if (!config.enable_mmr_tracking) {
             if (customResult == CustomApiFetchResult::TransientError) {
                 if (ScheduleRetry(req, kTransientRetryDelay, "transient custom API failure")) {
                     return true;
@@ -491,7 +473,7 @@ bool MMRFetcher::FetchProfile(MMRRequest req) {
                 return false;
             } else if (customResult == CustomApiFetchResult::UnusableData) {
                 const auto now = std::chrono::steady_clock::now();
-                if (!config.enable_mmr_tracking || m_rateLimitedUntil > now) {
+                if (m_rateLimitedUntil > now) {
                     PublishFetchFailure(req, TrackedAccountFetchStatus::Failed, "The rank API returned no usable data.");
                     return false;
                 }
@@ -513,8 +495,6 @@ bool MMRFetcher::FetchProfile(MMRRequest req) {
 
 bool MMRFetcher::FetchProfileTracker(MMRRequest req) {
     const ConfigData config = Config::Read();
-    const bool signedInPrimary = config.custom_api_enabled && AccountClient::Instance().IsSignedIn();
-    const bool tryCustomApiFirst = signedInPrimary || m_useCustomApiFallback.load();
     if (!config.enable_mmr_tracking) {
         if (req.reason == MMRRequestReason::PostMatch) {
             EnsureProvisionalPoint(req, req.previousMmr);
@@ -522,17 +502,6 @@ bool MMRFetcher::FetchProfileTracker(MMRRequest req) {
         PublishFetchFailure(req, TrackedAccountFetchStatus::ProviderUnavailable, "No rank source is enabled.");
         return false;
     }
-    const auto localCustomApiFallback = [&]() -> std::optional<bool> {
-        if (tryCustomApiFirst) return std::nullopt;
-        if (req.reason != MMRRequestReason::TrackedAccount) {
-            std::shared_lock<std::shared_mutex> gameLock(m_state->game.mutex);
-            if (req.primaryId != m_state->game.myPrimaryId) return std::nullopt;
-        }
-        const auto result = FetchProfileFromCustomApi(req);
-        if (result == CustomApiFetchResult::SuccessFinished) return false;
-        if (result == CustomApiFetchResult::SuccessRequeued) return true;
-        return std::nullopt;
-    };
     auto& ci = CurlImpersonate::Instance();
     if (!ci.IsReady()) {
         std::cout << "[MMRFetcher] Skipping " << PrivacyLog::Sensitive(req.name, "player name")
@@ -550,7 +519,6 @@ bool MMRFetcher::FetchProfileTracker(MMRRequest req) {
     }
     if (req.reason == MMRRequestReason::TrackedAccount && plat != "steam" &&
         req.name.find_first_not_of(" \t") == std::string::npos) {
-        if (const auto requeued = localCustomApiFallback()) return *requeued;
         RecordTrackedOutcome(req, TrackedAccountFetchEvent{.status = TrackedAccountFetchStatus::Unsupported,
                                                            .detail = "Tracker looks up this platform by in-game name. Play once on this account with OmniStats running, or use the OmniStats rank API."});
         return false;
@@ -636,26 +604,6 @@ bool MMRFetcher::FetchProfileTracker(MMRRequest req) {
                   << " (HTTP " << httpCode << ") - Curl error: " << res << "\n";
 
         if (httpCode == 403) {
-            if (!tryCustomApiFirst) {
-                std::cout
-                    << "[MMRFetcher] Tracker.gg returned HTTP 403 after "
-                    << kTrackerForbiddenAttempts
-                    << " attempts. Attempting fallback to custom API...\n";
-                const auto customResult = FetchProfileFromCustomApi(req);
-                if (customResult == CustomApiFetchResult::SuccessFinished) {
-                    std::cout << "[MMRFetcher] Successfully fetched ranks from custom API for "
-                              << PrivacyLog::Sensitive(req.name, "player name") << "!\n";
-                    m_useCustomApiFallback.store(true);
-                    return false;
-                }
-                if (customResult == CustomApiFetchResult::SuccessRequeued) {
-                    std::cout << "[MMRFetcher] Successfully fetched ranks from custom API for "
-                              << PrivacyLog::Sensitive(req.name, "player name") << "!\n";
-                    m_useCustomApiFallback.store(true);
-                    return true;
-                }
-                std::cout << "[MMRFetcher] Custom API fallback was unavailable or failed.\n";
-            }
             if (!m_isRunning) return false;
 
             size_t strike = 0;
@@ -694,13 +642,11 @@ bool MMRFetcher::FetchProfileTracker(MMRRequest req) {
             }
             std::cout << "[MMRFetcher] Rate limited by Tracker.gg (HTTP 429). Pausing requests for "
                       << std::chrono::duration_cast<std::chrono::seconds>(lockout).count() << " seconds.\n";
-            if (const auto requeued = localCustomApiFallback()) return *requeued;
             if (ScheduleRetry(req, lockout, "rate limited")) return true;
         } else if (res != 0 || httpCode == 408 || (httpCode >= 500 && httpCode <= 599)) {
             if (ScheduleRetry(req, kTransientRetryDelay, "transient Tracker failure")) return true;
         }
 
-        if (const auto requeued = localCustomApiFallback()) return *requeued;
         const TrackedAccountFetchStatus status =
             httpCode == 404   ? TrackedAccountFetchStatus::NotFound
             : httpCode == 429 ? TrackedAccountFetchStatus::RateLimited
@@ -717,7 +663,6 @@ bool MMRFetcher::FetchProfileTracker(MMRRequest req) {
         m_rateLimitedUntil = {};
     }
     if (recoveredFromForbidden) {
-        m_useCustomApiFallback.store(false);
         std::cout
             << "[MMRFetcher] Tracker.gg requests recovered; circuit breaker reset.\n";
     }
@@ -728,7 +673,6 @@ bool MMRFetcher::FetchProfileTracker(MMRRequest req) {
         if (!jsonResp.contains("data") || !jsonResp["data"].is_object() ||
             !jsonResp["data"].contains("segments") || !jsonResp["data"]["segments"].is_array()) {
             if (ScheduleRetry(req, kTransientRetryDelay, "incomplete Tracker response")) return true;
-            if (const auto requeued = localCustomApiFallback()) return *requeued;
             return false;
         }
 
@@ -847,7 +791,6 @@ bool MMRFetcher::FetchProfileTracker(MMRRequest req) {
     } catch (const std::exception& e) {
         std::cout << "[MMRFetcher] JSON Parse Error: " << e.what() << "\n";
         if (ScheduleRetry(req, kTransientRetryDelay, "invalid Tracker response")) return true;
-        if (const auto requeued = localCustomApiFallback()) return *requeued;
 
         PublishFetchFailure(req, TrackedAccountFetchStatus::Failed, "Tracker returned an invalid response.");
         return false;

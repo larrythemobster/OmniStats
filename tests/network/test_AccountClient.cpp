@@ -30,6 +30,7 @@ class AccountClientTest : public ::testing::Test {
             c.account_device_public_id.clear();
             c.account_refresh_token.clear();
             c.account_device_key.clear();
+            c.custom_api_key.clear();
         });
         Config::Save();
         AccountClient::Instance().ResetForTests();
@@ -481,4 +482,143 @@ TEST_F(AccountClientTest, RefreshCompletingAfterLogoutStaysSignedOutAndRevokesRo
         EXPECT_TRUE(cv.wait_for(lock, std::chrono::seconds(3), sentRotated));
     }
     client.Shutdown();
+}
+
+TEST_F(AccountClientTest, StartupExchangesLegacyKeyAndPersistsDeviceSession) {
+    AccountClient client;
+    Config::Update([](ConfigData& c) { c.custom_api_key = "oms_saved_key"; });
+    std::atomic<int> exchanges{0};
+    client.SetClockForTests([] { return 1700000000; });
+    client.SetTransportForTests([&](const std::string& url, const std::string& body) {
+        EXPECT_NE(url.find("/v1/auth/device/exchange-key"), std::string::npos);
+        ++exchanges;
+        const auto request = nlohmann::json::parse(body);
+        const auto proof = request.at("proof");
+        std::vector<uint8_t> publicKey, signature;
+        EXPECT_TRUE(AccountClient::Base64UrlDecode(request.at("public_key").get<std::string>(), publicKey));
+        EXPECT_TRUE(AccountClient::Base64UrlDecode(proof.at("signature").get<std::string>(), signature));
+        const auto canonical = AccountClient::BuildProofCanonical(
+            "exchange", request.at("device_public_id").get<std::string>(), proof.at("timestamp").get<int64_t>(),
+            proof.at("nonce").get<std::string>(), "oms_saved_key");
+        if (publicKey.size() == crypto_sign_PUBLICKEYBYTES && signature.size() == crypto_sign_BYTES) {
+            EXPECT_EQ(crypto_sign_verify_detached(signature.data(), reinterpret_cast<const unsigned char*>(canonical.data()),
+                                                  canonical.size(), publicKey.data()),
+                      0);
+        } else {
+            ADD_FAILURE() << "Invalid device proof";
+        }
+        return AccountClient::HttpResponse{0, 200, R"({"access_token":"access","refresh_token":"refresh","expires_in":900,"account":{"display_name":"Linked"}})"};
+    });
+    client.SyncFromConfig();
+    for (int i = 0; i < 500 && !client.IsSignedIn(); ++i)
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    EXPECT_TRUE(client.IsSignedIn());
+    client.SyncFromConfig();
+    client.Shutdown();
+    EXPECT_EQ(exchanges.load(), 1);
+    EXPECT_EQ(client.GetStatus().state, AccountAuthState::SignedIn);
+    EXPECT_EQ(client.AccessToken(), "access");
+    EXPECT_EQ(Config::Read().account_refresh_token, "refresh");
+    EXPECT_TRUE(Config::Read().custom_api_key.empty());
+    Config::Load();
+    EXPECT_EQ(Config::Read().account_refresh_token, "refresh");
+    EXPECT_TRUE(Config::Read().custom_api_key.empty());
+}
+
+TEST_F(AccountClientTest, FailedStartupExchangeKeepsKeyAndExplainsRecovery) {
+    struct Failure {
+        long status;
+        const char* code;
+        const char* recovery;
+    };
+    for (const auto& failure : {
+             Failure{409, "device_limit_reached", "Remove an unused device"},
+             Failure{403, "email_verification_required", "Verify your OmniStats email"},
+             Failure{401, "invalid_api_key", "Sign in in Settings"},
+             Failure{503, "server_error", "Restart OmniStats to retry"},
+             Failure{0, "network_error", "Restart OmniStats to retry"},
+             Failure{200, "", "incomplete device session"}}) {
+        AccountClient client;
+        Config::Update([](ConfigData& c) { c.custom_api_key = "oms_saved_key"; });
+        client.SetTransportForTests([&](const std::string&, const std::string&) {
+            return AccountClient::HttpResponse{failure.status == 0 ? 7 : 0, failure.status,
+                                               nlohmann::json{{"error", {{"code", failure.code}}}}.dump()};
+        });
+        client.SyncFromConfig();
+        for (int i = 0; i < 500 && client.GetStatus().state == AccountAuthState::Migrating; ++i)
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        client.Shutdown();
+        EXPECT_EQ(client.GetStatus().state, AccountAuthState::Error);
+        EXPECT_NE(client.GetStatus().errorMessage.find(failure.recovery), std::string::npos);
+        EXPECT_EQ(Config::Read().custom_api_key, "oms_saved_key");
+        EXPECT_TRUE(Config::Read().account_refresh_token.empty());
+    }
+}
+
+TEST_F(AccountClientTest, StartupExchangeCompletingAfterLogoutRevokesReturnedSession) {
+    AccountClient client;
+    Config::Update([](ConfigData& c) { c.custom_api_key = "oms_saved_key"; });
+    std::mutex mutex;
+    std::condition_variable cv;
+    bool entered = false, release = false, revoked = false;
+    client.SetTransportForTests([&](const std::string& url, const std::string& body) {
+        std::unique_lock lock(mutex);
+        if (url.ends_with("/logout")) {
+            EXPECT_EQ(nlohmann::json::parse(body).at("refresh_token"), "cancelled-refresh");
+            revoked = true;
+            cv.notify_all();
+            return AccountClient::HttpResponse{0, 200, "{}"};
+        }
+        entered = true;
+        cv.notify_all();
+        cv.wait(lock, [&] { return release; });
+        return AccountClient::HttpResponse{0, 200, R"({"access_token":"cancelled-access","refresh_token":"cancelled-refresh","expires_in":900})"};
+    });
+    client.SyncFromConfig();
+    {
+        std::unique_lock lock(mutex);
+        EXPECT_TRUE(cv.wait_for(lock, std::chrono::seconds(5), [&] { return entered; }));
+    }
+    client.LogoutAsync();
+    {
+        std::lock_guard lock(mutex);
+        release = true;
+    }
+    cv.notify_all();
+    {
+        std::unique_lock lock(mutex);
+        EXPECT_TRUE(cv.wait_for(lock, std::chrono::seconds(5), [&] { return revoked; }));
+    }
+    client.Shutdown();
+    EXPECT_FALSE(client.IsSignedIn());
+    EXPECT_EQ(client.GetStatus().state, AccountAuthState::SignedOut);
+    EXPECT_TRUE(Config::Read().account_refresh_token.empty());
+    EXPECT_TRUE(Config::Read().custom_api_key.empty());
+}
+
+TEST_F(AccountClientTest, ExplicitRetryMigratesPreservedKeyWithoutOpeningBrowser) {
+    AccountClient client;
+    Config::Update([](ConfigData& c) { c.custom_api_key = "oms_saved_key"; });
+    std::atomic<int> requests{0};
+    std::atomic<int> browserOpens{0};
+    client.SetOpenUrlForTests([&](const std::string&) { ++browserOpens; });
+    client.SetTransportForTests([&](const std::string&, const std::string&) {
+        if (++requests == 1) return AccountClient::HttpResponse{7, 0, ""};
+        return AccountClient::HttpResponse{0, 200, R"({"access_token":"retry-access","refresh_token":"retry-refresh","expires_in":900})"};
+    });
+    client.SyncFromConfig();
+    for (int i = 0; i < 500 && client.GetStatus().state == AccountAuthState::Migrating; ++i)
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    EXPECT_EQ(client.GetStatus().state, AccountAuthState::Error);
+    client.SyncFromConfig();
+    EXPECT_EQ(client.GetStatus().state, AccountAuthState::Error);
+    client.RetryKeyMigrationAsync();
+    for (int i = 0; i < 500 && !client.IsSignedIn(); ++i)
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    EXPECT_TRUE(client.IsSignedIn());
+    client.Shutdown();
+    EXPECT_EQ(requests.load(), 2);
+    EXPECT_EQ(browserOpens.load(), 0);
+    EXPECT_EQ(Config::Read().account_refresh_token, "retry-refresh");
+    EXPECT_TRUE(Config::Read().custom_api_key.empty());
 }

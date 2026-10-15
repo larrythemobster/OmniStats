@@ -425,6 +425,7 @@ namespace Config {
                 Current.onboarding_completed = j["onboarding_completed"];
             else
                 Current.onboarding_completed = !Current.privacy_policy_accepted_version.empty();
+            ReadField(j, "account_link_prompt_shown", Current.account_link_prompt_shown);
             const auto nonEmptyJsonString = [&](const char* key) {
                 return j.contains(key) && j[key].is_string() && !j[key].get<std::string>().empty();
             };
@@ -826,6 +827,7 @@ namespace Config {
         j["terms_accepted_version"] = Current.terms_accepted_version;
         j["privacy_accepted_at"] = Current.privacy_accepted_at;
         j["onboarding_completed"] = Current.onboarding_completed;
+        j["account_link_prompt_shown"] = Current.account_link_prompt_shown;
         j["position"] = Current.position;
         j["show_running_indicator"] = Current.show_running_indicator;
         j["use_roman_numerals"] = Current.use_roman_numerals;

@@ -202,30 +202,47 @@ class TrackedAccountRefreshTest : public ::testing::Test {
     }
 
     void UseCustomApi() {
-        Config::Update([](ConfigData& c) {
+        auto& account = AccountClient::Instance();
+        AccountClient::DeviceKeyPair keyPair;
+        account.EnsureDeviceKey(&keyPair);
+        Config::Update([&](ConfigData& c) {
             c.custom_api_enabled = true;
-            c.custom_api_key = "oms_test_key";
+            c.custom_api_key.clear();
+            c.account_refresh_token = "valid_refresh_token";
+            c.account_signed_in_name = "SignedInPlayer";
+            c.account_device_public_id = keyPair.publicId;
             c.enable_mmr_tracking = false;
         },
                        false);
+        account.SyncFromConfig();
+        account.SetClockForTests([]() { return 1700000000; });
+        account.SetCachedAccessTokenForTests("bearer_token_abc", 1700000900);
     }
 
     void UseTrackerOnly() {
         Config::Update([](ConfigData& c) {
             c.custom_api_enabled = false;
             c.custom_api_key.clear();
+            c.account_refresh_token.clear();
+            c.account_signed_in_name.clear();
+            c.account_device_public_id.clear();
             c.enable_mmr_tracking = true;
         },
                        false);
+        AccountClient::Instance().SyncFromConfig();
     }
 
     void UseNoProvider() {
         Config::Update([](ConfigData& c) {
             c.custom_api_enabled = false;
             c.custom_api_key.clear();
+            c.account_refresh_token.clear();
+            c.account_signed_in_name.clear();
+            c.account_device_public_id.clear();
             c.enable_mmr_tracking = false;
         },
                        false);
+        AccountClient::Instance().SyncFromConfig();
     }
 
     void StartService(int64_t now = 1'800'000'000) {
@@ -372,9 +389,14 @@ TEST_F(TrackedAccountRefreshTest, AuthenticationFailuresReportSignInRequired) {
         events.clear();
         AccountClient::Instance().ResetForTests();
         UseCustomApi();
-        Config::Update([code](ConfigData& c) { c.custom_api_key = "oms_key_" + std::to_string(code); }, false);
+        AccountClient::Instance().SetTransportForTests([code](const std::string&, const std::string&) {
+            AccountClient::HttpResponse resp;
+            resp.statusCode = code;
+            resp.body = R"({"error":{"code":"invalid_grant","message":"Expired"}})";
+            return resp;
+        });
         g_apiStatus = code;
-        g_apiBody = R"({"error":{"code":"invalid_api_key","message":"Unauthorized"}})";
+        g_apiBody = R"({"error":{"code":"invalid_token","message":"Unauthorized"}})";
         fetcher->EnqueueTrackedAccount(kEpic, "");
         ProcessNextBatch();
         const auto outcome = LastTerminal(kEpic);

@@ -62,6 +62,13 @@ std::string RmlUiController::RenderSettingsIntegrations() {
             << "<button class='ghost' data-action='account-manage-devices'>Manage devices</button>"
             << "<button class='ghost' data-action='account-sign-out'>Sign out</button>"
             << "</div></div>";
+    } else if (accountStatus.state == AccountAuthState::Migrating) {
+        out << "<div class='setting-row'><div class='setting-info'>"
+            << "<div class='setting-name'>Upgrading account connection...</div>"
+            << "<div class='setting-help'>Connecting this device using your saved credentials. Live ranks will be available shortly.</div>"
+            << "</div><div class='row gap-xs'>"
+            << "<button class='ghost' disabled='disabled'>Connecting...</button>"
+            << "</div></div>";
     } else if (accountStatus.state == AccountAuthState::AwaitingApproval) {
         out << "<div class='setting-row'><div class='setting-info'>"
             << "<div class='setting-name'>Waiting for browser approval...</div>"
@@ -80,8 +87,11 @@ std::string RmlUiController::RenderSettingsIntegrations() {
             out << "<div class='setting-help loss'>" << Escape(accountStatus.errorMessage) << "</div>";
         }
         out << "</div><div class='row gap-xs'>"
-            << "<button class='primary' data-action='account-sign-in'>Sign in with OmniStats</button>"
-            << "<button class='ghost' data-action='account-manage-devices'>Manage devices</button>"
+            << "<button class='primary' data-action='account-sign-in'>Sign in with OmniStats</button>";
+        if (!m_config.custom_api_key.empty()) {
+            out << "<button class='ghost' data-action='account-retry-migration'>Retry migration</button>";
+        }
+        out << "<button class='ghost' data-action='account-manage-devices'>Manage devices</button>"
             << "</div></div>";
     }
     out << ToggleControl("custom_api_enabled",

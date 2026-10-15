@@ -14,6 +14,7 @@
 
 enum class AccountAuthState {
     SignedOut,
+    Migrating,
     AwaitingApproval,
     SignedIn,
     Error
@@ -145,6 +146,7 @@ class AccountClient {
     bool IsSignedIn() const;
     AccountStatusSnapshot GetStatus() const;
     void SyncFromConfig();
+    void RetryKeyMigrationAsync();
     void Shutdown();
 
     void SetTransportForTests(HttpTransportFn transport);
@@ -170,10 +172,11 @@ class AccountClient {
         WorkerCommand command = WorkerCommand::StartSignIn;
         bool openBrowser = true;
         std::string refreshToken;
+        uint64_t authGeneration = 0;
     };
 
     bool SendLogoutRequest(const std::string& refreshToken);
-    bool ExchangeAPIKey();
+    bool ExchangeAPIKey(uint64_t generation);
     void QueueLogoutForRotatedToken(const std::string& previousToken, std::string rotatedToken);
     void EnsureWorkerRunningLocked();
     void WorkerLoop();
@@ -186,8 +189,9 @@ class AccountClient {
     std::condition_variable m_refreshCv;
     bool m_refreshInFlight = false;
     bool m_lastRefreshSucceeded = false;
-    // Incremented by logout; refresh results started under an older generation are discarded.
+    // Authentication changes invalidate in-flight refresh and migration results.
     uint64_t m_authGeneration = 0;
+    bool m_keyExchangeAttempted = false;
 
     AccountAuthState m_state = AccountAuthState::SignedOut;
     std::string m_displayName;

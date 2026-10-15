@@ -333,6 +333,7 @@ class RmlUiController final : public Rml::EventListener {
     void ShowOnboarding();
     void FinishOnboarding();
     void RefreshOnboarding();
+    void CheckAccountLinkPrompt();
     bool HandleViewAction(const std::string& action, Rml::Element* target);
 
     std::shared_ptr<SessionState> m_state;
@@ -464,6 +465,7 @@ class RmlUiController final : public Rml::EventListener {
     bool m_confirmReplayUploads = false;
     bool m_confirmDeleteHistory = false;
     bool m_showUpdatePrompt = false;
+    bool m_accountPromptPending = false;
     DragState m_drag;
     bool m_pointerPressed = false;
     std::string m_pendingBallchasingToken;

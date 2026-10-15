@@ -13,6 +13,7 @@
 #include <algorithm>
 #include <filesystem>
 #include <fstream>
+#include <future>
 #include <memory>
 #include <limits>
 #include <mutex>
@@ -28,6 +29,7 @@
 #include "ui/rml/backend/RmlCapture.hpp"
 #include "ui/rml/controller/RmlUiHelpers.hpp"
 #include "network/ExternalUpdaterLauncher.hpp"
+#include "network/api/AccountClient.hpp"
 #include "network/mmr/MMRFetcher.hpp"
 #include "ui/Formatting.hpp"
 
@@ -67,6 +69,7 @@ class RmlUiControllerStateTest : public ::testing::Test {
             c.second_monitor_mode = false;
             c.ballchasing_token.clear();
             c.onboarding_completed = true;
+            c.account_link_prompt_shown = true;
         },
                        true);
     }
@@ -2023,20 +2026,6 @@ TEST_F(RmlUiControllerStateTest, BuildTrendSectionsIncludesLobbyStrengthSection)
     EXPECT_EQ(emptySections[4].rows[0].label, "Not enough ranked data");
 }
 
-TEST_F(RmlUiControllerStateTest, IntegrationsRendersAccountSectionAndCollapsedAdvancedApiKey) {
-    auto state = std::make_shared<SessionState>();
-    RmlUiController controller(state, nullptr);
-    controller.Update(Config::Read());
-
-    const std::string html = RenderIntegrationSettings(controller);
-    EXPECT_NE(html.find("Account"), std::string::npos);
-    EXPECT_NE(html.find("data-action='account-sign-in'"), std::string::npos);
-    EXPECT_NE(html.find("data-action='account-manage-devices'"), std::string::npos);
-    EXPECT_NE(html.find("Advanced: use API key instead"), std::string::npos);
-    EXPECT_NE(html.find("data-action='toggle-advanced-api-key'"), std::string::npos);
-    EXPECT_EQ(html.find("data-setting='custom_api_key'"), std::string::npos);
-}
-
 TEST_F(RmlUiControllerStateTest, IdleOverlayLayoutRequestsNoWakeDeadlineAndDoesNotRenderExtraFrames) {
     WarpDevice warp;
     if (!warp.Create(1280, 800)) GTEST_SKIP() << "WARP not available.";
@@ -3193,4 +3182,129 @@ TEST_F(RmlUiControllerStateTest, StatsApiRepairRunsOffRenderThreadAndPublishesRe
     EXPECT_TRUE(state->ui.statsApiChecked.load());
     std::error_code ec;
     std::filesystem::remove_all(dir, ec);
+}
+
+TEST_F(RmlUiControllerStateTest, AccountLinkPrompt_EligibleExistingUserShowsMenuAndPersistsPromptSeen) {
+    WarpDevice warp;
+    if (!warp.Create(1280, 800)) GTEST_SKIP() << "WARP not available.";
+
+    Config::Update([](ConfigData& c) {
+        c.onboarding_completed = true;
+        c.account_link_prompt_shown = false;
+        c.account_refresh_token.clear();
+        c.account_signed_in_name.clear();
+    },
+                   true);
+
+    auto state = std::make_shared<SessionState>();
+    RmlUiController controller(state, nullptr);
+    ASSERT_TRUE(controller.Initialize(nullptr, warp.device.Get(), warp.context.Get(), 1280, 800, 1.0f));
+
+    EXPECT_TRUE(state->ui.showMenu.load());
+    EXPECT_TRUE(controller.WantsAttention());
+    EXPECT_TRUE(controller.WantsInteraction());
+    EXPECT_TRUE(Config::Read().account_link_prompt_shown);
+
+    controller.Update(Config::Read(), false);
+    controller.Render();
+
+    auto* root = SettingsRoot(controller);
+    ASSERT_NE(root, nullptr);
+    EXPECT_NE(root->QuerySelector("[data-action='account-sign-in']"), nullptr);
+}
+
+TEST_F(RmlUiControllerStateTest, AccountLinkPrompt_AlreadyLinkedUserIsNotPrompted) {
+    WarpDevice warp;
+    if (!warp.Create(1280, 800)) GTEST_SKIP() << "WARP not available.";
+
+    Config::Update([](ConfigData& c) {
+        c.onboarding_completed = true;
+        c.account_link_prompt_shown = false;
+        c.account_refresh_token = "mock_refresh_token";
+        c.account_signed_in_name = "PlayerOne";
+    },
+                   true);
+
+    auto state = std::make_shared<SessionState>();
+    RmlUiController controller(state, nullptr);
+    ASSERT_TRUE(controller.Initialize(nullptr, warp.device.Get(), warp.context.Get(), 1280, 800, 1.0f));
+
+    EXPECT_FALSE(state->ui.showMenu.load());
+    EXPECT_FALSE(controller.WantsAttention());
+    EXPECT_FALSE(Config::Read().account_link_prompt_shown);
+}
+
+TEST_F(RmlUiControllerStateTest, AccountLinkPrompt_AlreadySeenPromptIsNotPromptedAgain) {
+    WarpDevice warp;
+    if (!warp.Create(1280, 800)) GTEST_SKIP() << "WARP not available.";
+
+    Config::Update([](ConfigData& c) {
+        c.onboarding_completed = true;
+        c.account_link_prompt_shown = true;
+        c.account_refresh_token.clear();
+    },
+                   true);
+
+    auto state = std::make_shared<SessionState>();
+    RmlUiController controller(state, nullptr);
+    ASSERT_TRUE(controller.Initialize(nullptr, warp.device.Get(), warp.context.Get(), 1280, 800, 1.0f));
+
+    EXPECT_FALSE(state->ui.showMenu.load());
+    EXPECT_FALSE(controller.WantsAttention());
+}
+
+TEST_F(RmlUiControllerStateTest, AccountLinkPromptWaitsForMigrationAndOffersRecoveryOnFailure) {
+    WarpDevice warp;
+    if (!warp.Create(1280, 800)) GTEST_SKIP() << "WARP not available.";
+    auto& account = AccountClient::Instance();
+    account.ResetForTests();
+    std::promise<void> release;
+    bool released = false;
+    const auto gate = release.get_future().share();
+    struct Cleanup {
+        AccountClient& account;
+        std::promise<void>& release;
+        bool& released;
+        ~Cleanup() {
+            if (!released) release.set_value();
+            account.ResetForTests();
+        }
+    } cleanup{account, release, released};
+    account.SetTransportForTests([gate](const std::string&, const std::string&) {
+        gate.wait();
+        return AccountClient::HttpResponse{0, 503, "{}"};
+    });
+    Config::Update([](ConfigData& c) {
+        c.onboarding_completed = true;
+        c.account_link_prompt_shown = false;
+        c.account_refresh_token.clear();
+        c.custom_api_key = "oms_legacy_key";
+    });
+    account.SyncFromConfig();
+    auto state = std::make_shared<SessionState>();
+    RmlUiController controller(state, nullptr);
+    ASSERT_TRUE(controller.Initialize(nullptr, warp.device.Get(), warp.context.Get(), 1280, 800, 1.0f));
+    EXPECT_FALSE(state->ui.showMenu.load());
+    EXPECT_FALSE(Config::Read().account_link_prompt_shown);
+    state->ui.showMenu.store(true);
+    SetSettingsPage(controller, 5);
+    controller.Update(Config::Read(), false);
+    controller.Render();
+    auto* root = SettingsRoot(controller);
+    ASSERT_NE(root, nullptr);
+    EXPECT_EQ(root->QuerySelector("[data-action='account-sign-in']"), nullptr);
+    state->ui.showMenu.store(false);
+    release.set_value();
+    released = true;
+    for (int i = 0; i < 700 && !state->ui.showMenu.load(); ++i) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        controller.Update(Config::Read(), false);
+    }
+    EXPECT_TRUE(state->ui.showMenu.load());
+    EXPECT_TRUE(Config::Read().account_link_prompt_shown);
+    controller.Render();
+    root = SettingsRoot(controller);
+    ASSERT_NE(root, nullptr);
+    EXPECT_NE(root->QuerySelector("[data-action='account-retry-migration']"), nullptr);
+    EXPECT_NE(root->QuerySelector("[data-action='account-sign-in']"), nullptr);
 }

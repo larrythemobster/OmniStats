@@ -51,6 +51,7 @@ class OnboardingView {
     Rml::String m_identityHint;
     bool m_accountSignedIn = false;
     bool m_accountAwaiting = false;
+    bool m_accountMigrating = false;
     bool m_accountHasError = false;
     Rml::String m_accountStatus;
     Rml::String m_accountUserCode;

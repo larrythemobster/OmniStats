@@ -81,6 +81,7 @@ struct ConfigData {
     std::string terms_accepted_version = "";
     std::string privacy_accepted_at = "";
     bool onboarding_completed = false;
+    bool account_link_prompt_shown = false;
 
     std::string position = "top-right";
     bool show_running_indicator = true;

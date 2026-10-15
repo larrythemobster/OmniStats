@@ -131,7 +131,11 @@ bool RmlUiController::Initialize(HWND hwnd, ID3D11Device* device, ID3D11DeviceCo
         SetRootRml("overlay-root", "");
     }
     RebuildVisibleUi(true);
-    if (!m_config.onboarding_completed) ShowOnboarding();
+    if (!m_config.onboarding_completed) {
+        ShowOnboarding();
+    } else {
+        CheckAccountLinkPrompt();
+    }
     return true;
 }
 
@@ -353,6 +357,7 @@ void RmlUiController::Update(const ConfigData& config, bool configChanged, uint6
                        !sameColor(config.themeGraphBaseline, m_config.themeGraphBaseline) ||
                        !sameColor(config.themeScoutTag, m_config.themeScoutTag) ||
                        FontsDifferFromApplied(config);
+        if (!m_config.account_link_prompt_shown) CheckAccountLinkPrompt();
 
         const auto activeDragKind = m_drag.kind;
         const std::string draggingId = m_drag.containerId;
@@ -613,9 +618,11 @@ void RmlUiController::RebuildVisibleUi(bool force, bool configChanged) {
             }
             if (m_state && m_state->ui.showMenu.load()) RebuildSettings();
             if (m_onboardingVisible) RefreshOnboarding();
+            if (m_accountPromptPending) CheckAccountLinkPrompt();
+        } else if (m_accountPromptPending) {
+            CheckAccountLinkPrompt();
         }
     }
-
     // Do not replace DOM while a pointer target is active, but keep safe leaf
     // telemetry flowing. This preserves drag/click stability without freezing
     // live counters for the entire interaction. Structural versions remain
