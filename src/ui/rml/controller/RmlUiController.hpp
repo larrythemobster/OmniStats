@@ -107,6 +107,9 @@ class RmlUiController final : public Rml::EventListener {
     void Render();
     bool ShouldRender() const;
     void RequestRender();
+    bool HasPendingInteractionUpdate() const noexcept {
+        return m_interactionUpdatePending;
+    }
     std::optional<int64_t> NextVisibilityWakeMs() const noexcept {
         return m_nextVisibilityWakeMs;
     }
@@ -501,6 +504,7 @@ class RmlUiController final : public Rml::EventListener {
     Tournaments::ReminderTracker m_tournamentReminder;
     bool m_rebuildingUi = false;
     bool m_renderDirty = true;
+    bool m_interactionUpdatePending = false;
     std::chrono::steady_clock::time_point m_nextRmlUpdateAt = std::chrono::steady_clock::time_point::max();
     std::optional<int64_t> m_nextVisibilityWakeMs;
     bool m_deferredSelectRebuild = false;

@@ -1195,6 +1195,28 @@ TEST_F(RmlUiControllerStateTest, LiveTelemetryDoesNotInvalidateOpenSettingsDom) 
     EXPECT_EQ(LastSettingsFingerprint(controller), before);
 }
 
+TEST_F(RmlUiControllerStateTest, UncapturedKeyboardAndGamepadInputDoNotInvalidateSettings) {
+    auto state = std::make_shared<SessionState>();
+    state->ui.showMenu.store(true);
+    RmlUiController controller(state, nullptr);
+    const ConfigData config = Config::Read();
+    controller.Update(config);
+    const std::string before = LastSettingsFingerprint(controller);
+    ASSERT_FALSE(before.empty());
+
+    state->ui.lastKeyboardKeyPressed.store('Q');
+    state->ui.lastControllerButtonPressed.store(3);
+    state->ui.lastRawControllerButtonPressed.store(8);
+    controller.Update(config, false);
+    EXPECT_EQ(LastSettingsFingerprint(controller), before);
+
+    state->ui.lastKeyboardKeyPressed.store('Z');
+    state->ui.lastControllerButtonPressed.store(12);
+    state->ui.lastRawControllerButtonPressed.store(20);
+    controller.Update(config, false);
+    EXPECT_EQ(LastSettingsFingerprint(controller), before);
+}
+
 TEST_F(RmlUiControllerStateTest, ActiveOverlayDragPreservesCoordinatesAndPreventsRebuilds) {
     auto state = std::make_shared<SessionState>();
     state->ui.showMenu.store(true);
@@ -1612,6 +1634,9 @@ TEST_F(RmlUiControllerStateTest, OverlayControlsStayClickableWhileTelemetryUpdat
     controller.ProcessWindowMessage(hwnd, WM_LBUTTONUP, 0, position);
     controller.Render();
     EXPECT_TRUE(Config::Read().overlay_layout.toolboxOpen) << "overlay toolbox click was swallowed";
+    EXPECT_TRUE(controller.HasPendingInteractionUpdate()) << "click should bypass the data update timer";
+    controller.Update(Config::Read(), false);
+    EXPECT_FALSE(controller.HasPendingInteractionUpdate());
 
     DestroyWindow(hwnd);
 }

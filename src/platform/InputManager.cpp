@@ -232,6 +232,10 @@ InputManager::~InputManager() {
 
 void InputManager::Start() {
     m_isRunning = true;
+    {
+        std::lock_guard lock(m_overlayHoldMutex);
+        m_overlayHolds = {};
+    }
     RefreshConfigCache();
 
     SDL_SetMainReady();
@@ -274,11 +278,20 @@ void InputManager::Stop() {
             m_gamepadThread.join();
         }
     }
+    {
+        std::lock_guard lock(m_overlayHoldMutex);
+        m_overlayHolds = {};
+        if (m_state) m_state->ui.showOverlay.store(false, std::memory_order_relaxed);
+    }
     SDL_QuitSubSystem(SDL_INIT_GAMECONTROLLER | SDL_INIT_JOYSTICK);
     g_instance.store(nullptr, std::memory_order_release);
 }
 
 void InputManager::RefreshConfigCache() {
+    const uint64_t revision = Config::Revision();
+    if (m_cachedConfigRevision.load(std::memory_order_acquire) == revision) return;
+    std::lock_guard lock(m_configCacheMutex);
+    if (m_cachedConfigRevision.load(std::memory_order_relaxed) == revision) return;
     const ConfigData conf = Config::Read();
     m_keyOverlay.store(conf.key_overlay, std::memory_order_relaxed);
     m_keyCycle.store(conf.key_cycle, std::memory_order_relaxed);
@@ -313,6 +326,15 @@ void InputManager::RefreshConfigCache() {
     m_gamepadGraphPanRightRaw.store(conf.gamepad_graph_pan_right_raw, std::memory_order_relaxed);
     m_gamepadGraphPanRightRawButton.store(conf.gamepad_graph_pan_right_raw_button, std::memory_order_relaxed);
     m_showExtraPlaylists.store(conf.show_extra_playlists, std::memory_order_relaxed);
+    m_cachedConfigRevision.store(revision, std::memory_order_release);
+}
+
+void InputManager::SetOverlayHeld(OverlayHoldSource source, bool held) {
+    std::lock_guard lock(m_overlayHoldMutex);
+    m_overlayHolds.Set(source, held);
+    if (m_state && !m_state->ui.inputCaptureActive.load(std::memory_order_relaxed)) {
+        m_state->ui.showOverlay.store(m_overlayHolds.Visible(), std::memory_order_relaxed);
+    }
 }
 
 bool InputManager::HandleWindowMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
@@ -495,18 +517,12 @@ void InputManager::KeyboardThreadLoop() {
         }
 
         if (m_state) {
-            auto& state = *m_state;
-            const bool controllerConnected = state.ui.controllerConnected.load(std::memory_order_relaxed);
-            if (!inputCaptureActive && IsRocketLeagueForeground()) {
-                if ((GetAsyncKeyState(VK_MENU) & 0x8000) == 0 &&
-                    (GetAsyncKeyState(m_keyOverlay.load(std::memory_order_relaxed)) & 0x8000)) {
-                    state.ui.showOverlay = true;
-                } else if (!controllerConnected) {
-                    state.ui.showOverlay = false;
-                }
-            } else if (!inputCaptureActive && !controllerConnected) {
-                state.ui.showOverlay = false;
-            }
+            const int keyOverlay = m_keyOverlay.load(std::memory_order_relaxed);
+            const bool keyboardHeld = !inputCaptureActive && IsRocketLeagueForeground() &&
+                                      (GetAsyncKeyState(VK_MENU) & 0x8000) == 0 &&
+                                      keyOverlay > 0 && keyOverlay < 256 &&
+                                      (GetAsyncKeyState(keyOverlay) & 0x8000) != 0;
+            SetOverlayHeld(OverlayHoldSource::Keyboard, keyboardHeld);
         }
 
         // The overlay key is polled, so this wait bounds how late a press or release is seen.
@@ -531,10 +547,12 @@ LRESULT CALLBACK InputManager::LowLevelKeyboardProc(int nCode, WPARAM wParam,
         if (keyDown) {
             st->ui.lastKeyboardKeyPressed.store(static_cast<int>(kb->vkCode));
         }
+        const int keyOverlay = self->m_keyOverlay.load(std::memory_order_relaxed);
         if (st->ui.inputCaptureActive.load(std::memory_order_relaxed)) {
+            if (kb->vkCode == keyOverlay && !keyDown)
+                self->SetOverlayHeld(OverlayHoldSource::Keyboard, false);
             return CallNextHookEx(m_hook, nCode, wParam, lParam);
         }
-        const int keyOverlay = self->m_keyOverlay.load(std::memory_order_relaxed);
         const int keyCycle = self->m_keyCycle.load(std::memory_order_relaxed);
         const int keyExpand = self->m_keyExpand.load(std::memory_order_relaxed);
         const int keySession = self->m_keySession.load(std::memory_order_relaxed);
@@ -542,14 +560,9 @@ LRESULT CALLBACK InputManager::LowLevelKeyboardProc(int nCode, WPARAM wParam,
         const bool showExtraPlaylists = self->m_showExtraPlaylists.load(std::memory_order_relaxed);
 
         if (kb->vkCode == keyOverlay) {
-            bool isAltDown = (GetKeyState(VK_MENU) & 0x8000);
-            if (!isAltDown) {
-                if (wParam == WM_KEYDOWN || wParam == WM_SYSKEYDOWN)
-                    st->ui.showOverlay = true;
-                else if (wParam == WM_KEYUP || wParam == WM_SYSKEYUP)
-                    st->ui.showOverlay = false;
-                return CallNextHookEx(m_hook, nCode, wParam, lParam);
-            }
+            const bool isAltDown = (GetKeyState(VK_MENU) & 0x8000) != 0;
+            self->SetOverlayHeld(OverlayHoldSource::Keyboard, keyDown && !isAltDown);
+            return CallNextHookEx(m_hook, nCode, wParam, lParam);
         }
 
         if (kb->vkCode == keyCycle && wParam == WM_KEYDOWN) {
@@ -679,7 +692,6 @@ void InputManager::GamepadThreadLoop() {
             const int gamepadOverlay = self->m_gamepadOverlay.load(std::memory_order_relaxed);
             const bool gamepadOverlayRaw = self->m_gamepadOverlayRaw.load(std::memory_order_relaxed);
             const int gamepadOverlayRawButton = self->m_gamepadOverlayRawButton.load(std::memory_order_relaxed);
-            const int keyOverlay = self->m_keyOverlay.load(std::memory_order_relaxed);
             const bool inputCaptureActive = st->ui.inputCaptureActive.load(std::memory_order_relaxed);
 
             if (controller != nullptr) {
@@ -738,13 +750,8 @@ void InputManager::GamepadThreadLoop() {
                         buttonHeld = currentStates[gamepadOverlay];
                     }
 
+                    self->SetOverlayHeld(OverlayHoldSource::Gamepad, !inputCaptureActive && buttonHeld);
                     if (!inputCaptureActive) {
-                        if (buttonHeld) {
-                            st->ui.showOverlay = true;
-                        } else if (!(GetAsyncKeyState(keyOverlay) & 0x8000)) {
-                            st->ui.showOverlay = false;
-                        }
-
                         const bool overlayVisible = st->ui.showOverlay.load();
 
                         if (overlayVisible && isPressed(self->m_gamepadCycle.load(std::memory_order_relaxed),
@@ -819,13 +826,8 @@ void InputManager::GamepadThreadLoop() {
                     const int overlayButton = gamepadOverlayRaw ? gamepadOverlayRawButton : gamepadOverlay;
                     const bool buttonHeld = overlayButton >= 0 && overlayButton < 256 && currentStates[overlayButton];
 
+                    self->SetOverlayHeld(OverlayHoldSource::Gamepad, !inputCaptureActive && buttonHeld);
                     if (!inputCaptureActive) {
-                        if (buttonHeld) {
-                            st->ui.showOverlay = true;
-                        } else if (!(GetAsyncKeyState(keyOverlay) & 0x8000)) {
-                            st->ui.showOverlay = false;
-                        }
-
                         const bool overlayVisible = st->ui.showOverlay.load();
 
                         if (overlayVisible && isPressed(self->m_gamepadCycle.load(std::memory_order_relaxed),
@@ -872,6 +874,7 @@ void InputManager::GamepadThreadLoop() {
             }
         }
         const bool hasController = controller != nullptr || fallbackJoystick != nullptr;
+        if (self && !hasController) self->SetOverlayHeld(OverlayHoldSource::Gamepad, false);
         const auto sleepDuration = hasController ? std::chrono::milliseconds(16) : std::chrono::milliseconds(250);
         std::unique_lock<std::mutex> lock(m_gamepadWakeMutex);
         m_gamepadWakeCv.wait_for(lock, sleepDuration, [this] { return !m_isRunning.load(std::memory_order_relaxed); });

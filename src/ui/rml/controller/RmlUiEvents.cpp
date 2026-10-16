@@ -60,6 +60,8 @@ void RmlUiController::ProcessEvent(Rml::Event& event) {
     if (!target) return;
     const uint64_t configRevisionBefore = Config::Revision();
     const std::string type = event.GetType().c_str();
+    if (type == "click" || type == "change" || type == "input" ||
+        type == "mouseup" || type == "blur") m_interactionUpdatePending = true;
     if (type == "mousedown") m_pointerPressed = true;
     if (type == "click")
         HandleClick(target);

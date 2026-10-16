@@ -329,6 +329,7 @@ bool RmlUiController::WantsInteraction() const {
 }
 
 void RmlUiController::Update(const ConfigData& config, bool configChanged, uint64_t configRevision) {
+    m_interactionUpdatePending = false;
     // UI event handlers apply their own targeted/structural updates immediately.
     // The render loop observes that Config revision a few microseconds later; do
     // not treat the same revision as a second UI invalidation and rebuild again.
@@ -619,7 +620,6 @@ void RmlUiController::RebuildVisibleUi(bool force, bool configChanged) {
             if (AccountClient::Instance().ConsumeSignedOutNotification(signedOutReason)) {
                 ShowToast(signedOutReason, true);
             }
-            if (m_state && m_state->ui.showMenu.load()) RebuildSettings();
             if (m_onboardingVisible) RefreshOnboarding();
             if (m_accountPromptPending) CheckAccountLinkPrompt();
         } else if (m_accountPromptPending) {
@@ -842,9 +842,11 @@ void RmlUiController::RebuildVisibleUi(bool force, bool configChanged) {
             const bool controllerConnected = m_state->ui.controllerConnected.load(std::memory_order_relaxed);
             HashAppend(settingsHash, static_cast<uint64_t>(controllerConnected));
             HashAppend(settingsHash, static_cast<uint64_t>(m_state->ui.controllerIsGameController.load(std::memory_order_relaxed)));
-            HashAppend(settingsHash, static_cast<uint64_t>(static_cast<int64_t>(m_state->ui.lastKeyboardKeyPressed.load(std::memory_order_relaxed))));
-            HashAppend(settingsHash, static_cast<uint64_t>(static_cast<int64_t>(m_state->ui.lastControllerButtonPressed.load(std::memory_order_relaxed))));
-            HashAppend(settingsHash, static_cast<uint64_t>(static_cast<int64_t>(m_state->ui.lastRawControllerButtonPressed.load(std::memory_order_relaxed))));
+            if (m_bindCaptureTarget != BindCaptureTarget::None) {
+                HashAppend(settingsHash, static_cast<uint64_t>(static_cast<int64_t>(m_state->ui.lastKeyboardKeyPressed.load(std::memory_order_relaxed))));
+                HashAppend(settingsHash, static_cast<uint64_t>(static_cast<int64_t>(m_state->ui.lastControllerButtonPressed.load(std::memory_order_relaxed))));
+                HashAppend(settingsHash, static_cast<uint64_t>(static_cast<int64_t>(m_state->ui.lastRawControllerButtonPressed.load(std::memory_order_relaxed))));
+            }
             HashAppend(settingsHash, static_cast<uint64_t>(m_state->ui.statsApiChecked.load(std::memory_order_relaxed)));
             if (updateAvailable) {
                 std::lock_guard lock(m_state->ui.updateMutex);

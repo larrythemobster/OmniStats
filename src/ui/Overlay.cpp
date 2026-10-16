@@ -279,8 +279,6 @@ void Overlay::RunLoop() {
     bool wasRLActive = false;
     bool lastExternalForegroundWasRL = false;
     auto lastRescan = std::chrono::steady_clock::now() - std::chrono::seconds(2);
-    auto rlFocusReadyAt = (std::chrono::steady_clock::time_point::min)();
-    bool validateDeviceAfterFocus = false;
     auto lastFrameTime = std::chrono::steady_clock::now();
     auto lastUiDataUpdate = lastFrameTime - std::chrono::milliseconds(100);
     uint64_t lastConfigRevision = Config::Revision();
@@ -413,35 +411,19 @@ void Overlay::RunLoop() {
             if (IsWindowVisible(m_hwnd)) ShowWindow(m_hwnd, SW_HIDE);
             wasRLActive = false;
             lastFrameTime = std::chrono::steady_clock::now();
-            std::this_thread::sleep_for(std::chrono::milliseconds(150));
+            std::this_thread::sleep_for(std::chrono::milliseconds(50));
             continue;
         }
 
-        const auto renderNow = std::chrono::steady_clock::now();
-        if (m_frameConfig.require_rl_focus && !m_frameConfig.second_monitor_mode && isRLActive && !wasRLActive) {
-            rlFocusReadyAt = renderNow + std::chrono::milliseconds(500);
-            validateDeviceAfterFocus = true;
-            wasRLActive = true;
-            lastFrameTime = renderNow;
-            std::cout << "[D3D11] Rocket League gained focus; delaying overlay rendering for 500 ms.\n";
-        }
-
-        if (validateDeviceAfterFocus && renderNow < rlFocusReadyAt) {
-            std::this_thread::sleep_for(std::chrono::milliseconds(25));
-            continue;
-        }
-
-        if (validateDeviceAfterFocus) {
-            validateDeviceAfterFocus = false;
-            if (m_d3d11 && m_d3d11->Device()) {
-                const HRESULT deviceReason = m_d3d11->Device()->GetDeviceRemovedReason();
-                if (deviceReason != S_OK) {
-                    std::cout << "[D3D11] Device unhealthy after Rocket League focus transition: 0x"
-                              << std::hex << deviceReason << std::dec << "\n";
-                    if (!HandleDeviceLost("Rocket League focus transition", deviceReason)) done = true;
-                    lastFrameTime = std::chrono::steady_clock::now();
-                    continue;
-                }
+        if (m_frameConfig.require_rl_focus && !m_frameConfig.second_monitor_mode && isRLActive && !wasRLActive &&
+            m_d3d11 && m_d3d11->Device()) {
+            const HRESULT deviceReason = m_d3d11->Device()->GetDeviceRemovedReason();
+            if (deviceReason != S_OK) {
+                std::cout << "[D3D11] Device unhealthy after Rocket League focus transition: 0x"
+                          << std::hex << deviceReason << std::dec << "\n";
+                if (!HandleDeviceLost("Rocket League focus transition", deviceReason)) done = true;
+                lastFrameTime = std::chrono::steady_clock::now();
+                continue;
             }
         }
 
@@ -476,7 +458,8 @@ void Overlay::RunLoop() {
         constexpr auto kUiDataInterval = std::chrono::milliseconds(100);
         const unsigned currentInputSignature = inputSignature();
         const bool inputChanged = currentInputSignature != lastInputSignature;
-        if (configChanged || inputChanged || visibilityWakeDue || uiNow - lastUiDataUpdate >= kUiDataInterval) {
+        if (configChanged || inputChanged || visibilityWakeDue || m_rmlUi->HasPendingInteractionUpdate() ||
+            uiNow - lastUiDataUpdate >= kUiDataInterval) {
             m_rmlUi->Update(m_frameConfig, configChanged, lastConfigRevision);
             configDirty = false;
             lastUiDataUpdate = uiNow;

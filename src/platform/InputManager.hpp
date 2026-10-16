@@ -1,11 +1,13 @@
 #pragma once
 #include <windows.h>
 #include <memory>
+#include <cstdint>
 #include <atomic>
 #include <thread>
 #include <condition_variable>
 #include <mutex>
 #include "core/state/SessionState.hpp"
+#include "platform/OverlayHoldState.hpp"
 
 #ifndef OMNISTATS_ENABLE_LOW_LEVEL_HOOK
 #define OMNISTATS_ENABLE_LOW_LEVEL_HOOK 0
@@ -44,6 +46,7 @@ class InputManager {
     void KeyboardThreadLoop();
     void GamepadThreadLoop();
     void RefreshConfigCache();
+    void SetOverlayHeld(OverlayHoldSource source, bool held);
 
     std::shared_ptr<SessionState> m_state;
     std::jthread m_keyboardThread;
@@ -51,6 +54,10 @@ class InputManager {
     std::mutex m_gamepadWakeMutex;
     std::condition_variable m_gamepadWakeCv;
     std::atomic<bool> m_isRunning{false};
+    std::mutex m_overlayHoldMutex;
+    OverlayHoldState m_overlayHolds;
+    std::mutex m_configCacheMutex;
+    std::atomic<uint64_t> m_cachedConfigRevision{UINT64_MAX};
     std::atomic<DWORD> m_keyboardThreadId{0};
     std::atomic<int> m_keyOverlay{VK_TAB};
     std::atomic<int> m_keyCycle{VK_F6};
