@@ -318,91 +318,18 @@ div.value { display: block; }
 .overlay-drag { cursor: move; }
 .overlay-widget-handle { cursor: move; min-height: 24dp; padding: 2dp 0; }
 .widget-close { min-width: 24dp; width: 24dp; min-height: 22dp; height: 22dp; padding: 0; margin-left: 6dp; background-color: #35171a; border-color: #743238; color: #ffb2b7; }
-.overlay-visibility-bar {
-    display: flex;
-    flex-direction: column;
-    gap: 4dp;
-    margin-top: 5dp;
-    margin-bottom: 4dp;
-    padding: 5dp 6dp;
-    border: 1dp #2a2a2acc;
-    border-radius: 6dp;
-    background-color: #151515d9;
-    cursor: default;
+.overlay-card.dock-hover-target {
+    border: 2dp solid #ff0021 !important;
+    background-color: #ff002120 !important;
 }
-.overlay-card.interactive .overlay-visibility-bar,
-.overlay-card.interactive .overlay-visibility-bar * {
-    cursor: default;
-}
-.overlay-card.interactive .overlay-visibility-bar select,
-.overlay-card.interactive .overlay-visibility-bar input {
-    cursor: pointer;
-}
-.overlay-visibility-row {
-    min-height: 24dp;
-    flex-wrap: wrap;
-}
-.overlay-vis-label {
-    flex-shrink: 0;
-    font-size: 11dp;
-    margin-right: 4dp;
-}
-.overlay-visibility-bar select.compact-select {
-    min-width: 0;
-    height: 24dp;
-    font-size: 11dp;
-}
-.overlay-visibility-bar select.compact-select selectvalue {
-    height: 22dp;
-    padding: 2dp 24dp 2dp 6dp;
-}
-.overlay-visibility-bar select.compact-select selectarrow {
-    width: 22dp;
-    height: 22dp;
-}
-.overlay-visibility-bar select.overlay-vis-mode {
-    flex: 1 1 162dp;
-    min-width: 162dp;
-}
-.overlay-visibility-bar select.overlay-vis-event {
-    flex: 1 1 156dp;
-    min-width: 156dp;
-}
-.overlay-visibility-bar select.overlay-vis-seconds {
-    width: 66dp;
-    flex-shrink: 0;
-}
-.overlay-visibility-toggles {
-    margin-top: 2dp;
-    align-items: center;
-}
-.overlay-vis-toggle {
-    align-items: center;
-}
-.toggle-switch.compact-toggle {
-    width: 32dp;
-    min-width: 32dp;
-    height: 18dp;
-    margin-left: 0;
-}
-.toggle-switch.compact-toggle input.checkbox {
-    width: 32dp;
-    min-width: 32dp;
-    height: 18dp;
-    border-radius: 9dp;
-}
-.toggle-switch.compact-toggle .toggle-thumb {
-    left: 3dp;
-    top: 3dp;
-    width: 10dp;
-    height: 10dp;
-    border-radius: 5dp;
-}
-.toggle-switch.compact-toggle input.checkbox:checked ~ .toggle-thumb {
-    left: 19dp;
-}
-.overlay-vis-toggle-label {
-    font-size: 11dp;
+.overlay-dock-guide {
+    position: absolute;
+    display: none;
+    pointer-events: none;
+    background-color: #ff0021;
+    height: 4dp;
+    border-radius: 2dp;
+    z-index: 500;
 }
 .overlay-resize {
     position: absolute;
@@ -1880,3 +1807,14 @@ body.view-document { pointer-events: none; }
 .accounts-history-num { width: 64dp; flex-shrink: 0; text-align: right; }
 .accounts-history-last { width: 120dp; flex-shrink: 0; text-align: right; }
 .accounts-history-stale { color: #e3a33b; }
+
+.tournament-countdown { gap: 10dp; min-height: 24dp; font-size: 16dp; font-weight: 700; }
+.tournament-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tournament-region { flex-shrink: 0; font-size: 10dp; font-weight: 400; }
+.tournament-remaining { flex-shrink: 0; font-size: 16dp; white-space: nowrap; }
+.tournament-dashboard { width: 320dp; max-width: 100%; box-sizing: border-box; }
+.display-card-setting { padding: 4dp 0; border-bottom: 1dp #eef1f514; }
+.display-card-options { padding-left: 12dp; gap: 14dp; align-items: center; }
+.display-card-options .setting-row { border: 0; }
+.layout-position-toolbar { position: absolute; right: 16dp; bottom: 16dp; gap: 16dp; pointer-events: auto; }
+.toast.tournament-compact { font-size: 12dp; padding: 5dp 10dp; max-width: 300dp; border-radius: 6dp; }

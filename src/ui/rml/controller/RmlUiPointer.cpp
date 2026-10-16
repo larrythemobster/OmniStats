@@ -57,7 +57,7 @@ void RmlUiController::HandleMouseDown(Rml::Element* target, Rml::Event& event) {
         if (cur->HasAttribute("data-setting")) return;
         const std::string curAction = Attribute(cur, "data-action");
         if (curAction == "overlay-remove-widget" || curAction == "overlay-remove-container" ||
-            curAction == "overlay-visibility" || curAction == "player-note-open" || curAction == "open-player-tracker") {
+            curAction == "player-note-open" || curAction == "open-player-tracker") {
             return;
         }
     }
@@ -147,6 +147,8 @@ void RmlUiController::HandleMouseDown(Rml::Element* target, Rml::Event& event) {
             m_drag.element = root->QuerySelector(("[data-container='" + id + "']").c_str());
             m_drag.guideX = m_document ? m_document->GetElementById("overlay-snap-x") : nullptr;
             m_drag.guideY = m_document ? m_document->GetElementById("overlay-snap-y") : nullptr;
+            m_drag.dockGuide = m_document ? m_document->GetElementById("overlay-dock-indicator") : nullptr;
+            m_drag.dockTarget = nullptr;
             if (m_drag.element) {
                 // Outside edit mode a container auto-fits its visible widgets, so
                 // use its actual rendered bounds instead of the saved/default size.
@@ -382,6 +384,43 @@ void RmlUiController::HandleMouseMove(Rml::Event& event) {
         m_drag.guideY->SetProperty("display", ySnap.snapped ? "block" : "none");
         if (ySnap.snapped) m_drag.guideY->SetProperty("top", std::to_string(toDp(ySnap.guide)) + "dp");
     }
+    std::string hoverTargetId;
+    bool dockAtTop = false;
+    float dockX = 0.0f, dockY = 0.0f, dockW = 0.0f, dockH = 0.0f;
+    if (m_drag.kind == DragKind::OverlayMove && m_drag.allowDock) {
+        for (const auto& other : m_config.overlay_layout.containers) {
+            if (other.id == m_drag.containerId) continue;
+            const auto [width, height] = OverlayContainerSize(other, m_dpiScale, &m_config);
+            if (mouseX >= other.x && mouseX <= other.x + width && mouseY >= other.y && mouseY <= other.y + height) {
+                hoverTargetId = other.id;
+                dockAtTop = mouseY < other.y + height * 0.25f;
+                dockX = other.x;
+                dockY = other.y;
+                dockW = width;
+                dockH = height;
+                break;
+            }
+        }
+    }
+    auto* overlayRoot = Root("overlay-root");
+    auto* hoverElem = (!hoverTargetId.empty() && overlayRoot) ? overlayRoot->QuerySelector(("[data-container='" + hoverTargetId + "']").c_str()) : nullptr;
+    if (m_drag.dockTarget && m_drag.dockTarget != hoverElem) {
+        m_drag.dockTarget->SetClass("dock-hover-target", false);
+    }
+    m_drag.dockTarget = hoverElem;
+    if (hoverElem) {
+        hoverElem->SetClass("dock-hover-target", true);
+    }
+    if (m_drag.dockGuide) {
+        if (hoverElem) {
+            m_drag.dockGuide->SetProperty("display", "block");
+            m_drag.dockGuide->SetProperty("left", std::to_string(toDp(dockX)) + "dp");
+            m_drag.dockGuide->SetProperty("top", std::to_string(toDp(dockAtTop ? dockY : dockY + dockH - 4.0f * dpi)) + "dp");
+            m_drag.dockGuide->SetProperty("width", std::to_string(toDp(dockW)) + "dp");
+        } else {
+            m_drag.dockGuide->SetProperty("display", "none");
+        }
+    }
 }
 
 void RmlUiController::HandleMouseUp(Rml::Event& event) {
@@ -390,6 +429,14 @@ void RmlUiController::HandleMouseUp(Rml::Event& event) {
     const float mouseY = event.GetParameter<float>("mouse_y", 0.0f);
     if (m_drag.guideX) m_drag.guideX->SetProperty("display", "none");
     if (m_drag.guideY) m_drag.guideY->SetProperty("display", "none");
+    if (m_drag.dockTarget) {
+        m_drag.dockTarget->SetClass("dock-hover-target", false);
+        m_drag.dockTarget = nullptr;
+    }
+    if (m_drag.dockGuide) {
+        m_drag.dockGuide->SetProperty("display", "none");
+        m_drag.dockGuide = nullptr;
+    }
 
     // Component sliders do not use our DragState, but they share the same
     // staged color model. Commit them once when the pointer is released.
