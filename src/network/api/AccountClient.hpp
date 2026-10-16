@@ -12,6 +12,8 @@
 #include <thread>
 #include <vector>
 
+struct ConfigData;
+
 enum class AccountAuthState {
     SignedOut,
     Migrating,
@@ -144,6 +146,7 @@ class AccountClient {
     bool ConsumeSignedOutNotification(std::string& outReason);
 
     bool IsSignedIn() const;
+    bool IsSignedIn(const ConfigData& conf) const;
     AccountStatusSnapshot GetStatus() const;
     void SyncFromConfig();
     void RetryKeyMigrationAsync();

@@ -773,7 +773,7 @@ bool AccountClient::ExchangeAPIKey(uint64_t generation) {
     };
     DeviceKeyPair keyPair;
     if (!EnsureDeviceKey(&keyPair)) {
-        return fail("Unable to read this device's key. Sign in again in Settings > Services & API.");
+        return fail("Unable to read this device's key. Sign in again in Settings > Accounts & services.");
     }
     const DeviceProof proof = CreateProof(keyPair.secretKeyBase64Url, "exchange", keyPair.publicId, conf.custom_api_key, NowUnix());
     const nlohmann::json reqJson = {
@@ -786,7 +786,7 @@ bool AccountClient::ExchangeAPIKey(uint64_t generation) {
         {"proof", {{"timestamp", proof.timestamp}, {"nonce", proof.nonce}, {"signature", proof.signature}}}};
     const HttpResponse resp = PerformHttpPost(ApiBaseUrl() + "/v1/auth/device/exchange-key", reqJson.dump());
     if (resp.curlCode != 0 || resp.statusCode >= 500 || resp.statusCode == 429) {
-        return fail("Unable to link your saved API key right now. It is still saved. Restart OmniStats to retry, or sign in in Settings > Services & API.");
+        return fail("Unable to link your saved API key right now. It is still saved. Restart OmniStats to retry, or sign in in Settings > Accounts & services.");
     }
     if (resp.statusCode != 200) {
         const ParsedApiError error = ParseApiError(resp.body);
@@ -794,12 +794,12 @@ bool AccountClient::ExchangeAPIKey(uint64_t generation) {
             return fail("Your account's device limit was reached. Remove an unused device with Manage devices, then restart OmniStats or sign in again.");
         }
         if (error.code == "email_verification_required") {
-            return fail("Verify your OmniStats email, then sign in in Settings > Services & API to link this device.");
+            return fail("Verify your OmniStats email, then sign in in Settings > Accounts & services to link this device.");
         }
         if (error.code == "device_revoked") {
             return fail("This device was revoked. Sign in again and approve it in your browser to reconnect.");
         }
-        return fail("Your saved API key could not link this device. Sign in in Settings > Services & API.");
+        return fail("Your saved API key could not link this device. Sign in in Settings > Accounts & services.");
     }
 
     try {
@@ -809,7 +809,7 @@ bool AccountClient::ExchangeAPIKey(uint64_t generation) {
         const int expiresIn = j.value("expires_in", 0);
         const std::string displayName = ExtractDisplayName(j, "");
         if (accessToken.empty() || refreshToken.empty() || expiresIn <= 0) {
-            return fail("OmniStats returned an incomplete device session. Restart to retry, or sign in in Settings > Services & API.");
+            return fail("OmniStats returned an incomplete device session. Restart to retry, or sign in in Settings > Accounts & services.");
         }
         const int64_t issuedAt = NowUnix();
         bool cancelled;
@@ -838,7 +838,7 @@ bool AccountClient::ExchangeAPIKey(uint64_t generation) {
         }
         return true;
     } catch (...) {
-        return fail("OmniStats returned an invalid device session. Restart to retry, or sign in in Settings > Services & API.");
+        return fail("OmniStats returned an invalid device session. Restart to retry, or sign in in Settings > Accounts & services.");
     }
 }
 
@@ -886,7 +886,7 @@ bool AccountClient::Refresh() {
     }
 
     if (resp.statusCode == 401 || resp.statusCode == 403) {
-        MarkSignedOut("Your OmniStats session expired or this device was revoked. Sign in again in Settings > Services & API.");
+        MarkSignedOut("Your OmniStats session expired or this device was revoked. Sign in again in Settings > Accounts & services.");
         return finish(false);
     }
 
@@ -1160,9 +1160,11 @@ bool AccountClient::ConsumeSignedOutNotification(std::string& outReason) {
     m_pendingSignedOutToast.clear();
     return true;
 }
-
 bool AccountClient::IsSignedIn() const {
-    const ConfigData conf = Config::Read();
+    return IsSignedIn(Config::Read());
+}
+
+bool AccountClient::IsSignedIn(const ConfigData& conf) const {
     if (conf.account_refresh_token.empty()) return false;
     std::lock_guard<std::mutex> lock(m_mutex);
     return m_state != AccountAuthState::AwaitingApproval;
@@ -1231,7 +1233,7 @@ void AccountClient::SyncFromConfig() {
             }
         } else if (conf.credentials_decryption_failed && !conf.account_device_public_id.empty()) {
             m_state = AccountAuthState::Error;
-            m_errorMessage = "Saved credentials could not be decrypted on this device. Sign in again in Settings > Services & API.";
+            m_errorMessage = "Saved credentials could not be decrypted on this device. Sign in again in Settings > Accounts & services.";
             m_accessToken.clear();
             m_accessTokenExpiresAt = 0;
         } else if (m_state == AccountAuthState::SignedIn) {
