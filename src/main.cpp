@@ -1,3 +1,4 @@
+#include "core/tournaments/TournamentSchedule.hpp"
 #define WIN32_LEAN_AND_MEAN
 #include <chrono>
 #include <cstdio>
@@ -227,6 +228,7 @@ int main(int argc, char* argv[]) {
         }
         TelemetryManager::Initialize(dbManager);
         RemoteConfig::Instance().Start();
+        Tournaments::TournamentScheduleService::Instance().Start();
     };
     if (consentedAtStartup) startConsentedServices(false);
     // Start Backend Threads
@@ -255,6 +257,7 @@ int main(int argc, char* argv[]) {
     }
     Overlay overlay(g_state, dbManager, accountManager);
     if (!overlay.Initialize()) {
+        Tournaments::TournamentScheduleService::Instance().Stop();
         RemoteConfig::Instance().Shutdown();
         TelemetryManager::Shutdown();
         Config::ShutdownSaver();
@@ -280,6 +283,7 @@ int main(int argc, char* argv[]) {
         uploader->Stop();
         std::cout << "[Main] ReplayUploader stopped.\n";
     }
+    Tournaments::TournamentScheduleService::Instance().Stop();
     AccountClient::Instance().Shutdown();
     RemoteConfig::Instance().Shutdown();
     TelemetryManager::Shutdown();

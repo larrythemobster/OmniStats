@@ -5,3 +5,4 @@
 *.wxs text eol=crlf
 *.png binary
 *.ico binary
+*.cache binary

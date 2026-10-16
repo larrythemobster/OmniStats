@@ -163,6 +163,12 @@ struct ConfigData {
     bool show_previous_games_summary = true;
     int previous_games_limit = 20;
 
+    bool show_tournaments = true;
+    std::string tournament_region = "auto";
+    int tournament_reminder_minutes = 10;
+    bool tournament_reminder_standard_only = false;
+    bool tournament_sound_cue = false;
+
     // Overlay Component Visibility Toggles
     bool show_streaks_stats = true;
     bool show_longest_loss_streak = false;

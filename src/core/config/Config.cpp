@@ -569,6 +569,16 @@ namespace Config {
             ReadField(j, "show_previous_games_summary", Current.show_previous_games_summary);
             ReadField(j, "previous_games_limit", Current.previous_games_limit);
             Current.previous_games_limit = std::clamp(Current.previous_games_limit, 10, 50);
+            ReadField(j, "show_tournaments", Current.show_tournaments);
+            ReadField(j, "tournament_region", Current.tournament_region);
+            ReadField(j, "tournament_reminder_minutes", Current.tournament_reminder_minutes);
+            ReadField(j, "tournament_reminder_standard_only", Current.tournament_reminder_standard_only);
+            ReadField(j, "tournament_sound_cue", Current.tournament_sound_cue);
+            const auto& region = Current.tournament_region;
+            if (region != "auto" && region != "US" && region != "EU" && region != "OCE" &&
+                region != "SAM" && region != "ASIA" && region != "ME" && region != "SAF") Current.tournament_region = "auto";
+            const int reminder = Current.tournament_reminder_minutes;
+            if (reminder != 0 && reminder != 5 && reminder != 10 && reminder != 15) Current.tournament_reminder_minutes = 10;
             ReadField(j, "show_streaks_stats", Current.show_streaks_stats);
             ReadField(j, "show_longest_loss_streak", Current.show_longest_loss_streak);
             ReadField(j, "show_gamemode_breakdown", Current.show_gamemode_breakdown);
@@ -647,6 +657,7 @@ namespace Config {
                         ReadField(jw, "order", w.order);
                         ReadField(jw, "height", w.height);
                         ReadField(jw, "collapsed", w.collapsed);
+                        ReadField(jw, "enabled", w.enabled);
                         Current.dashboard_layout.widgets.push_back(w);
                     }
                 }
@@ -660,6 +671,12 @@ namespace Config {
                 }
                 if (jl.contains("toolbox_open") && jl["toolbox_open"].is_boolean()) {
                     Current.overlay_layout.toolboxOpen = jl["toolbox_open"].get<bool>();
+                }
+                Current.overlay_layout.disabledWidgets.clear();
+                if (jl.contains("disabled_widgets") && jl["disabled_widgets"].is_array()) {
+                    for (const auto& widget : jl["disabled_widgets"]) {
+                        if (widget.is_string()) Current.overlay_layout.disabledWidgets.push_back(DashboardLayout::WidgetIdFromConfigString(widget.get<std::string>()));
+                    }
                 }
                 if (jl.contains("containers") && jl["containers"].is_array()) {
                     Current.overlay_layout.containers.clear();
@@ -908,6 +925,11 @@ namespace Config {
         j["show_rank_progress"] = Current.show_rank_progress;
         j["show_previous_games_summary"] = Current.show_previous_games_summary;
         j["previous_games_limit"] = Current.previous_games_limit;
+        j["show_tournaments"] = Current.show_tournaments;
+        j["tournament_region"] = Current.tournament_region;
+        j["tournament_reminder_minutes"] = Current.tournament_reminder_minutes;
+        j["tournament_reminder_standard_only"] = Current.tournament_reminder_standard_only;
+        j["tournament_sound_cue"] = Current.tournament_sound_cue;
         j["show_streaks_stats"] = Current.show_streaks_stats;
         j["show_longest_loss_streak"] = Current.show_longest_loss_streak;
         j["show_gamemode_breakdown"] = Current.show_gamemode_breakdown;
@@ -946,6 +968,7 @@ namespace Config {
             jw["order"] = w.order;
             jw["height"] = w.height;
             jw["collapsed"] = w.collapsed;
+            jw["enabled"] = w.enabled;
             jw_arr.push_back(jw);
         }
         jl["widgets"] = jw_arr;
@@ -954,6 +977,9 @@ namespace Config {
         nlohmann::json jol;
         jol["version"] = Current.overlay_layout.version;
         jol["toolbox_open"] = Current.overlay_layout.toolboxOpen;
+        jol["disabled_widgets"] = nlohmann::json::array();
+        for (auto widget : Current.overlay_layout.disabledWidgets)
+            jol["disabled_widgets"].push_back(DashboardLayout::ToConfigString(widget));
         nlohmann::json jc_arr = nlohmann::json::array();
         for (const auto& c : Current.overlay_layout.containers) {
             nlohmann::json jc;
