@@ -24,9 +24,9 @@ Removing an account deletes its row and its rank rows in one transaction. `Match
 
 Other data paths:
 
-- **Export Local Data** writes `tracked_accounts.json` next to the match exports.
-- **Delete History & Identity** keeps tracked accounts. They are user-curated, like settings.
-- **Merge Database** imports matches only.
+- **Match history > Export** writes `tracked_accounts.json` next to the match exports.
+- **Delete history and identity** keeps tracked accounts. They are user-curated, like settings.
+- **Merge another database** imports matches only.
 - Support bundles list table row counts. Tracked IDs, nicknames and in-game names are added to the log redaction list.
 
 ## Identity

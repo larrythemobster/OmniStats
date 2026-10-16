@@ -4,17 +4,17 @@
 
 Open **Settings > Display** and select **In-game overlay** or **Second-monitor dashboard**. Each mode has its own card toggles. Enabling an unplaced card adds it automatically. Turning a card off preserves its position and visibility rule.
 
-Use **Position** next to an enabled card to move, resize, or dock it. **Done positioning** returns to settings. Layout editing does not contain visibility controls.
+Use **Position cards** at the top of the card list to move, resize, or dock cards. **Done positioning** returns to normal play. Layout editing does not contain visibility controls.
 
-Overlay cards have a **Show when** selector in Display settings:
+Each enabled overlay card has its own **Show when** selector in the card list:
 
 - **Always**: visible in menus and matches.
 - **While key held**: visible while holding the overlay key or controller button.
 - **In matches**: visible throughout an active match.
-- **After an event**: visible for 1 to 30 seconds after the selected match event.
+- **After an event**: visible for 1 to 30 seconds after the selected match event. The event and duration appear below the card.
 - **In menus**: visible outside matches.
 
-Docked cards share their container's visibility rule. Expand **Card details** for the additional key-held and goal-replay options, session metrics, playlist columns, and other card details.
+Docked cards keep their own rules. **Show card options** adds goal-replay hiding for each card, the key-held override for In matches, In menus, and After an event, and the session metrics, playlist columns, and other card details.
 
 Existing placements and visibility rules are preserved. New standalone cards enabled from settings start with **Always** visibility.
 
@@ -34,7 +34,7 @@ Schedules refresh every 30 minutes. Failed refreshes retry after five minutes wh
 
 - **Display**: mode, card visibility, placement, and card details.
 - **Reminders**: tournament notification preferences and region.
-- **Appearance**: text size and units; fonts and colours under Advanced appearance.
+- **Appearance**: text size and units; fonts and colors under **Show fonts and colors**.
 - **Controls**: keyboard and controller bindings.
 - **Accounts & services**: OmniStats sign-in, integrations, Rocket League identity, and rank details.
 - **Data & support**: history, data tools, sessions, startup preferences, and troubleshooting.
