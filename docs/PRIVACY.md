@@ -14,7 +14,7 @@ OmniStats is a local-first Windows companion application for Rocket League. Tele
 | **Crash reports** | `api.omnistats.org` | Windows minidump, app version, and installation ID. May contain process memory. | Opt-in |
 | **Discord Rich Presence** | Discord (Local IPC) | Current match score and playlist status sent to the local Discord client. | Opt-in |
 
-The installation ID is a persistent pseudonymous identifier used to correlate diagnostic pings. It is not linked to personal accounts.
+The installation ID is a persistent pseudonymous identifier used to correlate diagnostic pings. It is not linked to personal accounts. The server keeps each ID and its first recorded startup date for long-term installation counts, even after individual startup records expire. This counts installations, not people; clearing local identity data can generate a new ID.
 
 ## Local data storage
 
