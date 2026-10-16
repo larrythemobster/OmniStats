@@ -9,4 +9,7 @@ namespace Storage {
 
     // Ensures the data directory exists
     void InitializeEnvironment();
+
+    // Documents\My Games\Rocket League\TAGame\ with a trailing separator, or empty.
+    std::string GetRocketLeagueTAGameDirectory();
 }

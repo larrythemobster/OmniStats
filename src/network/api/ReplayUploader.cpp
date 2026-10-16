@@ -2,7 +2,7 @@
 #include "core/config/Config.hpp"
 #include "platform/KeyPressSimulator.hpp"
 #include "utils/PrivacyLog.hpp"
-#include "utils/Env.hpp"
+#include "utils/Storage.hpp"
 #include "core/state/SessionState.hpp"
 #include "database/DatabaseManager.hpp"
 #include <nlohmann/json.hpp>
@@ -14,8 +14,6 @@
 #include <random>
 #include <curl/curl.h>
 #include <windows.h>
-#include <shlobj.h>
-#pragma comment(lib, "ole32.lib")
 #include <filesystem>
 #include <vector>
 #include <shared_mutex>
@@ -462,20 +460,7 @@ void ReplayUploader::PublishUploadState() {
 }
 
 void ReplayUploader::WorkerLoop() {
-    std::string base_tagame;
-    PWSTR path = NULL;
-    if (SUCCEEDED(SHGetKnownFolderPath(FOLDERID_Documents, 0, NULL, &path))) {
-        int size_needed = WideCharToMultiByte(CP_UTF8, 0, path, -1, NULL, 0, NULL, NULL);
-        std::string str(size_needed, 0);
-        WideCharToMultiByte(CP_UTF8, 0, path, -1, &str[0], size_needed, NULL, NULL);
-        if (size_needed > 0 && str.back() == '\0') str.pop_back();
-        base_tagame = str + "\\My Games\\Rocket League\\TAGame\\";
-        CoTaskMemFree(path);
-    } else {
-        if (const std::optional<std::string> userProfile = Env::Get("USERPROFILE")) {
-            base_tagame = *userProfile + "\\Documents\\My Games\\Rocket League\\TAGame\\";
-        }
-    }
+    const std::string base_tagame = Storage::GetRocketLeagueTAGameDirectory();
 
     std::vector<std::string> target_dirs;
     if (!base_tagame.empty()) {
