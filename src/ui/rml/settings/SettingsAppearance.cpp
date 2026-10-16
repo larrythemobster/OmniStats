@@ -94,7 +94,7 @@ std::string RmlUiController::RenderSettingsAppearance() {
         std::ostringstream html;
         const bool isEditing = (m_editColorKey == key);
         html << "<div class='setting-row" << (isEditing ? " color-row-active" : "") << "'><div class='setting-info'><div class='setting-name'>" << label
-             << "</div><div class='setting-help'>Click the swatch to pick a color, or edit the hex value.</div></div>"
+             << "</div></div>"
              << "<button id='theme-swatch-" << key << "' class='color-dot color-dot-button" << (isEditing ? " active" : "") << "' style='background-color:" << CssColor(color)
              << "' data-action='edit-color' data-color-key='" << key << "'></button>"
              << "<input id='theme-hex-" << key << "' type='text' class='text mono' style='width:100dp;margin-left:6dp' data-setting='" << key
@@ -144,21 +144,20 @@ std::string RmlUiController::RenderSettingsAppearance() {
         << SelectRow("crossbar_display_mode", "Crossbar hit display", "", {{"raw", "Raw Force (UU/s)"}, {"speed", "Speed (MPH/KPH)"}}, m_config.crossbar_display_mode)
         << ToggleControl("use_roman_numerals", "Use Roman numerals", "I, II, III in rank labels.", m_config.use_roman_numerals)
         << SectionEnd()
-        << "<div style='margin:14dp 0 16dp;'>"
-        << Button("toggle-advanced-appearance", m_showAdvancedAppearance ? "Hide advanced appearance" : "Advanced appearance", "ghost")
+        << "<div class='settings-disclosure'>"
+        << Button("toggle-advanced-appearance", m_showAdvancedAppearance ? "Hide fonts and colors" : "Show fonts and colors", "ghost")
         << "</div>";
     if (!m_showAdvancedAppearance) return out.str();
     out << SectionStart("Fonts")
-        << "<div class='row wrap gap-sm' style='margin-bottom:8dp'>" << Button("reset-fonts", "Reset fonts", "ghost") << "</div>"
+        << ActionRow("Reset fonts", "Restore Inter, JetBrains Mono, and Russo One.", Button("reset-fonts", "Reset", "ghost"))
         << SelectRow("font_ui", "Text", "Labels, names, and body text. Default: Inter.", fontOptions(m_config.font_ui), m_config.font_ui)
         << SelectRow("font_mono", "Numbers", "MMR, scores, graph labels, and stat values. Default: JetBrains Mono.", fontOptions(m_config.font_mono), m_config.font_mono)
         << SelectRow("font_display", "Titles", "Card titles, the app name, and recap headlines. Default: Russo One.", fontOptions(m_config.font_display), m_config.font_display)
         << SectionEnd();
     out << SectionStart("Colors")
-        << "<div class='row wrap gap-sm' style='margin-bottom:8dp'>"
-        << Button("reset-theme-colors", "Reset colors", "ghost")
-        << Button("reset-theme-and-layout", "Reset theme and layout", "ghost")
-        << "</div>"
+        << "<div class='setting-help section-help'>Click a swatch to pick a color, or edit the hex value.</div>"
+        << ActionRow("Reset colors", "Restore the default color theme. Reset theme and layout also restores card positions.",
+                     Button("reset-theme-colors", "Reset colors", "ghost") + Button("reset-theme-and-layout", "Reset theme and layout", "ghost"))
         << colorRow("theme_bg", "Overlay background", m_config.themeBg)
         << colorRow("theme_panel", "Settings panels", m_config.themeSettingsPanel)
         << colorRow("theme_topbar", "Top bar", m_config.themeTopbar)

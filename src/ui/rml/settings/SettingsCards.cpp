@@ -54,11 +54,8 @@ std::string RmlUiController::RenderSettingsCards() {
     std::ostringstream out;
     const bool dashboard = m_config.second_monitor_mode;
     out << SectionStart(dashboard ? "Dashboard cards" : "Overlay cards")
-        << "<div class='setting-help'>Choose which cards are visible on your " << (dashboard ? "dashboard" : "overlay") << ".</div>"
-        << "<div class='row gap-sm' style='margin-top:8dp;margin-bottom:6dp'>"
-        << Button(dashboard ? "dashboard-edit" : "overlay-edit-toggle", "Position cards", "ghost")
-        << "</div>"
-        << "<div class='setting-help' style='margin-bottom:10dp'>Position cards enters edit mode so you can move, resize, and dock cards on screen.</div>";
+        << ActionRow("Card positions", dashboard ? "Move and resize cards on the dashboard." : "Move, resize, and dock cards on screen.",
+                     Button(dashboard ? "dashboard-edit" : "overlay-edit-toggle", "Position cards", "ghost"));
     std::vector<DashboardLayout::WidgetId> cards = {
         DashboardLayout::WidgetId::LiveRoster,
         DashboardLayout::WidgetId::LiveMatchStats, DashboardLayout::WidgetId::SessionStats,
@@ -67,38 +64,50 @@ std::string RmlUiController::RenderSettingsCards() {
         DashboardLayout::WidgetId::DemoTracker, DashboardLayout::WidgetId::StreaksStats,
         DashboardLayout::WidgetId::GamemodeBreakdown};
     if (!dashboard) cards.insert(cards.begin(), DashboardLayout::WidgetId::Tournaments);
+    out << "<div class='row card-list-head'><span class='grow'>Card</span>";
+    if (!dashboard) out << "<span class='card-head-rule'>Show when</span>";
+    out << "<span class='card-head-toggle'>On</span></div>";
     for (auto widget : cards) {
         const bool tournament = widget == DashboardLayout::WidgetId::Tournaments;
         const bool enabled = WidgetSettings::Enabled(m_config, widget, dashboard);
         const bool disabled = tournament && !AccountClient::Instance().IsSignedIn();
         const std::string dom = WidgetDomId(widget);
-        out << "<div class='display-card-setting'>"
-            << ToggleControl("widget_enabled:" + dom, tournament ? "Tournament countdown" : DashboardLayout::GetWidgetDisplayName(widget),
-                             disabled ? "Sign in to OmniStats to see tournaments." : "", enabled, disabled);
-        if (enabled && !disabled && !dashboard) {
-            const auto vis = OverlayLayout::GetWidgetVisibility(m_config.overlay_layout, widget);
-            out << "<div class='row display-card-options'><div class='grow'>"
-                << SelectRow("widget_vis_mode:" + dom, "Show when", "",
-                             OverlayVisibilityModeOptions(), OverlayLayout::ToConfigString(vis.mode));
-            if (vis.mode == OverlayLayout::Visibility::AfterEvent) {
-                out << SelectRow("widget_vis_event:" + dom, "Event", "", OverlayVisibilityEventOptions(), OverlayLayout::ToConfigString(vis.event))
-                    << SelectRow("widget_vis_seconds:" + dom, "Seconds", "", OverlayVisibilitySecondsOptions(), std::to_string(vis.seconds));
-            }
-            if (m_showCardDetails) {
-                out << ToggleControl("widget_vis_key_held:" + dom, "Also while key held", "", vis.alsoWhileKeyHeld)
-                    << ToggleControl("widget_vis_hide_replay:" + dom, "Hide during goal replays", "", vis.hideDuringReplay);
-            }
-            out << "</div></div>";
+        out << "<div class='display-card-setting'><div class='setting-row card-row'><div class='setting-info'><div class='setting-name'>"
+            << Escape(tournament ? "Tournament countdown" : DashboardLayout::GetWidgetDisplayName(widget)) << "</div>";
+        if (disabled) out << "<div class='setting-help'>Sign in under Accounts &amp; services to see tournaments.</div>";
+        out << "</div>";
+        const bool showRules = enabled && !disabled && !dashboard;
+        const auto vis = OverlayLayout::GetWidgetVisibility(m_config.overlay_layout, widget);
+        if (showRules) {
+            out << "<div class='row card-rule'>"
+                << SelectControl("widget_vis_mode:" + dom, OverlayVisibilityModeOptions(), OverlayLayout::ToConfigString(vis.mode)) << "</div>";
+        }
+        out << ToggleSwitch("widget_enabled:" + dom, enabled, disabled) << "</div>";
+        if (showRules && vis.mode == OverlayLayout::Visibility::AfterEvent) {
+            out << "<div class='row card-rule card-rule-sub'><span class='card-rule-label'>After</span>"
+                << SelectControl("widget_vis_event:" + dom, OverlayVisibilityEventOptions(), OverlayLayout::ToConfigString(vis.event))
+                << "<span class='card-rule-label'>for</span>"
+                << SelectControl("widget_vis_seconds:" + dom, OverlayVisibilitySecondsOptions(), std::to_string(vis.seconds), "seconds-select")
+                << "</div>";
+        }
+        if (showRules && m_showCardDetails) {
+            const bool keyHeldOption = vis.mode == OverlayLayout::Visibility::AlwaysInMatch ||
+                                       vis.mode == OverlayLayout::Visibility::MenusOnly ||
+                                       vis.mode == OverlayLayout::Visibility::AfterEvent;
+            out << "<div class='display-card-options'>";
+            if (keyHeldOption) out << ToggleControl("widget_vis_key_held:" + dom, "Also show while key held", "", vis.alsoWhileKeyHeld);
+            out << ToggleControl("widget_vis_hide_replay:" + dom, "Hide during goal replays", "", vis.hideDuringReplay)
+                << "</div>";
         }
         out << "</div>";
     }
     out << SectionEnd()
-        << "<div style='margin:14dp 0 16dp;'>"
-        << Button("toggle-card-details", m_showCardDetails ? "Hide card details" : "Card details", "ghost")
+        << "<div class='settings-disclosure'>"
+        << Button("toggle-card-details", m_showCardDetails ? "Hide card options" : "Show card options", "ghost")
         << "</div>";
     if (!m_showCardDetails) return out.str();
 
-    out << SectionStart("Session Card")
+    out << SectionStart("Session card")
         << ToggleControl("show_session_record", "Record", "", m_config.show_session_record)
         << ToggleControl("show_session_goals", "Goals", "", m_config.show_session_goals)
         << ToggleControl("show_session_saves", "Saves", "", m_config.show_session_saves)
@@ -114,7 +123,7 @@ std::string RmlUiController::RenderSettingsCards() {
         << ToggleControl("show_account_wins_overlay", "Account wins", "", m_config.show_account_wins_overlay)
         << SectionEnd();
 
-    out << SectionStart("Lobby Rank Playlists")
+    out << SectionStart("Lobby rank playlists")
         << ToggleControl("show_lobby_rank_1v1", "1v1", "", m_config.show_lobby_rank_1v1, !m_config.show_lobby_ranks_overlay)
         << ToggleControl("show_lobby_rank_2v2", "2v2", "", m_config.show_lobby_rank_2v2, !m_config.show_lobby_ranks_overlay)
         << ToggleControl("show_lobby_rank_3v3", "3v3", "", m_config.show_lobby_rank_3v3, !m_config.show_lobby_ranks_overlay)
@@ -132,7 +141,7 @@ std::string RmlUiController::RenderSettingsCards() {
     std::vector<SelectOption> gameCounts;
     for (int count : {10, 20, 30, 40, 50})
         gameCounts.push_back({std::to_string(count), std::to_string(count)});
-    out << SectionStart("Card Details")
+    out << SectionStart("Card details")
         << SelectRow("previous_games_limit", "Previous games to show", "", gameCounts, std::to_string(m_config.previous_games_limit), !m_config.show_previous_games_summary)
         << ToggleControl("show_longest_loss_streak", "Show longest loss streak", "", m_config.show_longest_loss_streak, !m_config.show_streaks_stats)
         << ToggleControl("show_gamemode_record_1v1", "1v1 breakdown", "", m_config.show_gamemode_record_1v1, !m_config.show_gamemode_breakdown)
@@ -145,10 +154,11 @@ std::string RmlUiController::RenderSettingsCards() {
 
 std::string RmlUiController::RenderSettingsReminders() {
     std::ostringstream out;
-    out << SectionStart("Tournaments");
+    out << SectionStart("Tournament reminders")
+        << "<div class='setting-help section-help'>Reminders work even when the tournament countdown card is off.</div>";
     const bool signedIn = AccountClient::Instance().IsSignedIn();
     const auto tournaments = Tournaments::TournamentScheduleService::Instance().Snapshot();
-    if (!signedIn) out << "<div class='setting-help'>Sign in to OmniStats to see the tournament schedule.</div>";
+    if (!signedIn) out << "<div class='setting-notice'>Sign in under Accounts &amp; services to get the tournament schedule.</div>";
     const bool disabled = !signedIn;
     std::string regionHelp = "Not detected yet. Open Rocket League to detect your region.";
     if (tournaments->regionSource == "ping")
@@ -159,9 +169,9 @@ std::string RmlUiController::RenderSettingsReminders() {
     out << SelectRow("tournament_region", "Region", regionHelp,
                      {{"auto", autoLabel}, {"US", "US"}, {"EU", "Europe"}, {"OCE", "Oceania"}, {"SAM", "South America"}, {"ASIA", "Asia"}, {"ME", "Middle East"}, {"SAF", "South Africa"}},
                      m_config.tournament_region, disabled)
-        << SelectRow("tournament_reminder_minutes", "Reminder", "Small and brief during matches.",
+        << SelectRow("tournament_reminder_minutes", "Remind me", "A short notice appears on screen, even during matches.",
                      {{"0", "Off"}, {"5", "5 min before"}, {"10", "10 min before"}, {"15", "15 min before"}}, std::to_string(m_config.tournament_reminder_minutes), disabled)
-        << ToggleControl("tournament_reminder_standard_only", "Standard tournaments only", "Only remind me about 2v2 and 3v3 Soccar.", m_config.tournament_reminder_standard_only, disabled);
+        << ToggleControl("tournament_reminder_standard_only", "Standard tournaments only", "Only 2v2 and 3v3 Soccar.", m_config.tournament_reminder_standard_only, disabled);
     if (m_config.second_monitor_mode)
         out << ToggleControl("tournament_sound_cue", "Sound cue", "Play a sound when a tournament is about to start.", m_config.tournament_sound_cue, disabled);
     out << SectionEnd();

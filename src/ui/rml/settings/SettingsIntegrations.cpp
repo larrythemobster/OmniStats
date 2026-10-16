@@ -53,7 +53,7 @@ std::string RmlUiController::RenderSettingsIntegrations() {
     std::ostringstream out;
     const AccountStatusSnapshot accountStatus = AccountClient::Instance().GetStatus();
     const bool signedIn = accountStatus.state == AccountAuthState::SignedIn;
-    out << SectionStart("Live Ranks");
+    out << SectionStart("Live ranks");
     if (signedIn) {
         out << "<div class='setting-row'><div class='setting-info'>"
             << "<div class='setting-name win'>Connected as " << Escape(accountStatus.displayName) << "</div>"
@@ -113,13 +113,20 @@ std::string RmlUiController::RenderSettingsIntegrations() {
                                    : "Sends lobby player names and platform IDs to Tracker Network to look up public ranks.",
                          m_config.enable_mmr_tracking);
     out << SectionEnd();
-    out << SectionStart("Ballchasing Uploader")
-        << "<div class='setting-help'>Upload saved replay files to your Ballchasing account. Add your API token from Ballchasing.com.</div>"
+    out << SectionStart("Ballchasing uploads")
+        << "<div class='setting-help section-help'>Upload saved replay files to your Ballchasing account. Get an API token from ballchasing.com.</div>"
         << "<div class='setting-row'><div class='setting-info'><div class='setting-name'>API token</div></div><input type='" << (m_showBallchasingToken ? "text" : "password") << "' class='text' data-setting='ballchasing_token' value='" << Escape(m_pendingBallchasingToken) << "'/><button class='ghost' data-action='toggle-token'>" << (m_showBallchasingToken ? "Hide" : "Show") << "</button></div>";
     if (m_config.auto_upload_replays && m_config.ballchasing_token.empty()) {
         out << "<div class='setting-help loss'>Add an API token to start uploading replays.</div>";
     } else if (m_config.auto_upload_replays && m_state && m_state->ui.ballchasingTokenRejected.load()) {
         out << "<div class='setting-help loss'>Ballchasing rejected this token. Uploads are paused until you enter a valid one.</div>";
+    }
+
+    out << ToggleControl("auto_upload_replays", "Auto-upload new replays", "Sends each saved replay to Ballchasing.", m_config.auto_upload_replays);
+    if (m_config.auto_upload_replays) {
+        out << SelectRow("ballchasing_visibility", "Upload visibility", "", {{"private", "Private"}, {"unlisted", "Unlisted"}, {"public", "Public"}}, m_config.ballchasing_visibility)
+            << ToggleControl("ballchasing_filter_ranked_only", "Ranked matches only", "", m_config.ballchasing_filter_ranked_only)
+            << ToggleControl("ballchasing_filter_wins_only", "Wins only", "", m_config.ballchasing_filter_wins_only);
     }
 
     if (m_state) {
@@ -128,24 +135,20 @@ std::string RmlUiController::RenderSettingsIntegrations() {
             std::lock_guard lock(m_state->ui.replayUploadMutex);
             status = m_state->ui.replayUploadStatus;
         }
-        out << "<div class='setting-row'><div class='setting-info'>"
-            << "<div class='setting-name'>Queue status</div>"
-            << "<div class='setting-help'>" << status.uploadedToday << " uploaded today · "
-            << status.retrying << " retrying · "
-            << status.failed << " failed</div></div>";
-        if (status.failed > 0) {
-            out << "<button class='ghost' data-action='retry-failed-uploads'>Retry failed</button>";
+        if (m_config.auto_upload_replays || status.uploadedToday > 0 || status.retrying > 0 || status.failed > 0) {
+            out << "<div class='setting-row'><div class='setting-info'>"
+                << "<div class='setting-name'>Upload queue</div>"
+                << "<div class='setting-help'>" << status.uploadedToday << " uploaded today · "
+                << status.retrying << " retrying · "
+                << status.failed << " failed</div></div>";
+            if (status.failed > 0) {
+                out << "<button class='ghost' data-action='retry-failed-uploads'>Retry failed</button>";
+            }
+            out << "</div>";
         }
-        out << "</div>";
     }
-
-    out
-        << ToggleControl("auto_upload_replays", "Auto-upload new replays", "Uploads saved replay files using the selected privacy level.", m_config.auto_upload_replays)
-        << SelectRow("ballchasing_visibility", "Upload visibility", "", {{"private", "Private"}, {"unlisted", "Unlisted"}, {"public", "Public"}}, m_config.ballchasing_visibility)
-        << ToggleControl("ballchasing_filter_ranked_only", "Upload ranked only", "Only upload replays from competitive matches.", m_config.ballchasing_filter_ranked_only)
-        << ToggleControl("ballchasing_filter_wins_only", "Upload wins only", "Only upload replays from matches you won.", m_config.ballchasing_filter_wins_only)
-        << SectionEnd();
-    out << SectionStart("Replay Saving")
+    out << SectionEnd();
+    out << SectionStart("Replay saving")
         << ToggleControl("auto_save_replays", "Auto-save replays", "Presses your Rocket League save-replay key for you. Nothing is injected into the game.", m_config.auto_save_replays);
     if (m_config.auto_save_replays) {
         const bool active = m_bindCaptureTarget == BindCaptureTarget::KeySaveReplay;

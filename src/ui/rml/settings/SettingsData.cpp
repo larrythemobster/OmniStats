@@ -61,16 +61,17 @@ std::string RmlUiController::RenderSettingsData() {
             : "Detailed stats not yet recorded";
 
     std::ostringstream out;
-    out << SectionStart("Privacy & Diagnostics")
-        << "<div class='setting-help'>Startup diagnostics are required after accepting the privacy notice. Match data and player names are not included.</div>"
+    out << SectionStart("Privacy and diagnostics")
+        << "<div class='setting-help section-help'>Startup diagnostics are required after accepting the privacy notice. Match data and player names are not included.</div>"
         << ToggleControl("crash_reports_enabled", "Upload crash reports", "Pending minidumps are sent on the next startup.", m_config.crash_reports_enabled)
         << SectionEnd();
-    out << SectionStart("Local Data")
-        << "<div class='setting-row'><div class='setting-info'><div class='setting-name'>Stats history</div><div class='setting-help'>"
-        << Escape(detailedSummary) << "</div></div></div>"
-        << "<div class='setting-help mono'>" << Escape(Storage::GetDataDirectory()) << "</div><div class='row wrap gap-sm' style='margin-top:8dp'>"
-        << Button("open-data-folder", "Open data folder") << Button("export-data", "Export local data") << Button("merge-database", "Merge database") << Button("delete-history", "Delete history and identity", "danger") << "</div>"
-        << "<div class='setting-help' style='margin-top:8dp'>Merge matches and history from an older omnistats.db file (such as a backup or from another PC) into your current database. Duplicates are automatically skipped.</div>"
-        << "<div class='setting-help' style='margin-top:4dp'>Deleting local history also clears the saved local account identity. Settings, service tokens, and tracked accounts in Accounts are kept.</div>" << SectionEnd();
+    out << SectionStart("Local data")
+        << ActionRow("Match history", detailedSummary, Button("open-data-folder", "Open folder", "ghost") + Button("export-data", "Export", "ghost"))
+        << "<div class='setting-path mono'>" << Escape(Storage::GetDataDirectory()) << "</div>"
+        << ActionRow("Merge another database", "Import matches from an older omnistats.db, such as a backup or another PC. Duplicates are skipped.",
+                     Button("merge-database", "Merge", "ghost"))
+        << ActionRow("Delete history and identity", "Removes local match history and the saved account identity. Settings, service tokens, and tracked accounts are kept.",
+                     Button("delete-history", "Delete", "danger"))
+        << SectionEnd();
     return out.str();
 }

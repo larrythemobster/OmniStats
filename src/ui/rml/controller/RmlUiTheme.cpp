@@ -136,7 +136,7 @@ void RmlUiController::UpdateThemeProperties() {
     rule("#app", "color", text);
     rule(".card", "background-color", bg);
     rule(".dashboard-shell", "background-color", scaledColor(m_config.themeBg, 0.55f, 1.0f));
-    for (const char* selector : {".card", ".card-title", ".value", ".metric-value", ".setting-name", ".debug-value",
+    for (const char* selector : {".card", ".card-title", ".value", ".metric-value", ".setting-name", ".setting-title", ".debug-value",
                                  "button, .button, input.text, input.password, select", "select selectvalue, select selectbox option",
                                  ".tooltip-bubble"})
         rule(selector, "color", text);
@@ -164,7 +164,7 @@ void RmlUiController::UpdateThemeProperties() {
     for (const char* selector : {".dim", ".lobby-rank-matches", ".dashboard-edit-zone", ".setting-help", ".match-time"})
         rule(selector, "color", dim);
     rule(".lobby-rank-header", "background-color", scaledColor(m_config.themeBg, 0.70f, 0.80f));
-    for (const char* selector : {".accent", ".setting-title", ".badge.accent", ".accounts-active-label"})
+    for (const char* selector : {".accent", ".badge.accent", ".accounts-active-label"})
         rule(selector, "color", accent);
     rule(".accounts-active-dot", "background-color", accent);
     rule(".overlay-edit", "border-color", accent);
@@ -193,8 +193,8 @@ void RmlUiController::UpdateThemeProperties() {
     rule("button.version-update:hover", "border-color", accentMid);
     rule("button.version-update.failed", "color", loss);
     rule("input.text:focus, input.password:focus, select:focus, select:checked", "border-color", accent);
-    rule("input.checkbox:checked", "border-color", accent);
-    rule("input.checkbox:checked", "background-color", accentDark);
+    rule("input.checkbox:checked", "border-color", scaledColor(m_config.themeAccent, 1.6f, 1.0f));
+    rule("input.checkbox:checked", "background-color", accent);
     rule("input.range sliderprogress", "background-color", accentMid);
     rule("input.range sliderbar", "border-color", accent);
     rule("scrollbarvertical sliderbar:active, scrollbarhorizontal sliderbar:active", "background-color", accent);

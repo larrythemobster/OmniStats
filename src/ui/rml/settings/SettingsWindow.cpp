@@ -61,7 +61,7 @@ void RmlUiController::RebuildSettings() {
         content << RenderSettingsGeneral() << RenderSettingsCards();
         break;
     case SettingsPage::Reminders:
-        content << "<div class='setting-help'>Reminders work even when the tournament countdown card is off.</div>" << RenderSettingsReminders();
+        content << RenderSettingsReminders();
         break;
     case SettingsPage::Appearance:
         content << RenderSettingsAppearance();
@@ -74,23 +74,23 @@ void RmlUiController::RebuildSettings() {
                 << SectionStart("Rocket League account")
                 << SelectRow("identity", "Local account", "Automatically detected in your first match.", IdentityOptions(), m_config.last_primary_id)
                 << SectionEnd()
-                << "<div style='margin:14dp 0 16dp;'>"
-                << Button("toggle-rank-details", m_showRankDetails ? "Hide rank details" : "Rank details", "ghost")
+                << "<div class='settings-disclosure'>"
+                << Button("toggle-rank-details", m_showRankDetails ? "Hide rank options" : "Show rank options", "ghost")
                 << "</div>";
         if (m_showRankDetails) content << RenderSettingsRanks();
         break;
     case SettingsPage::DataSupport:
         content << RenderSettingsData()
                 << SectionStart("Sessions")
-                << ToggleControl("reset_session_on_close", "Reset session when OmniStats closes", "", m_config.reset_session_on_close)
-                << ToggleControl("show_session_recap_on_close", "Show a session recap afterwards", "", m_config.show_session_recap_on_close, !m_config.reset_session_on_close)
+                << ToggleControl("reset_session_on_close", "Reset session when OmniStats closes", "Start each launch with a fresh session record.", m_config.reset_session_on_close)
+                << ToggleControl("show_session_recap_on_close", "Show a session recap afterwards", "Requires resetting the session on close.", m_config.show_session_recap_on_close, !m_config.reset_session_on_close)
                 << SectionEnd()
                 << SectionStart("Startup and updates")
                 << ToggleControl("run_on_startup", "Run on Windows startup", "", m_config.run_on_startup)
                 << ToggleControl("enable_auto_updates", "Automatically install updates", "Installs updates the next time OmniStats starts.", m_config.enable_auto_updates)
                 << SectionEnd()
-                << "<div style='margin:14dp 0 16dp;'>"
-                << Button("toggle-troubleshooting", m_showTroubleshooting ? "Hide troubleshooting" : "Troubleshooting", "ghost")
+                << "<div class='settings-disclosure'>"
+                << Button("toggle-troubleshooting", m_showTroubleshooting ? "Hide troubleshooting" : "Show troubleshooting", "ghost")
                 << "</div>";
         if (m_showTroubleshooting) content << RenderSettingsTroubleshooting();
         break;
@@ -137,7 +137,7 @@ void RmlUiController::RebuildSettings() {
         const auto page = static_cast<SettingsPage>(i);
         out << "<button class='" << (page == m_settingsPage ? "active" : "") << "' data-action='settings-page' data-page='" << i << "'>" << SettingsPageName(page) << "</button>";
     }
-    out << "</div><div class='settings-page' data-page='" << static_cast<int>(m_settingsPage) << "'>" << RenderReleaseBanners() << content.str() << "</div></div><div class='settings-footer'>" << Button("history-open", "History", "ghost") << Button("accounts-open", "Accounts", "ghost") << Button("insights-open", "Insights", "ghost") << Button("help-discord", "Help / Discord", "ghost") << Button("close-settings", "Done", "primary") << "</div></div>";
+    out << "</div><div class='settings-page' data-page='" << static_cast<int>(m_settingsPage) << "'>" << RenderReleaseBanners() << content.str() << "</div></div><div class='settings-footer'>" << Button("history-open", "History", "ghost") << Button("accounts-open", "Accounts", "ghost") << Button("insights-open", "Insights", "ghost") << Button("help-discord", "Help on Discord", "ghost") << "<div class='grow'></div>" << Button("close-settings", "Done", "primary") << "</div></div>";
 
     if (m_confirmReplayUploads) {
         out << "<div class='confirm-backdrop'><div class='card privacy-dialog'><div class='card-title'>Before you upload replays</div>"

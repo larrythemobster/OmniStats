@@ -54,7 +54,10 @@ std::string RmlUiController::RenderSettingsShortcuts() {
         const bool active = m_bindCaptureTarget == target;
         html << "<div class='setting-row'><div class='setting-info'><div class='setting-name'>" << Escape(label) << "</div></div><div class='row gap-xs'>"
              << "<button data-action='capture-bind' data-bind='" << bindTarget(target) << "'>" << (active ? "Press a key..." : Escape(GetKeyDisplayName(key))) << "</button>";
-        if (active || canClear) html << "<button class='ghost' data-action='" << (active ? "cancel-bind" : "clear-bind") << "' data-bind='" << bindTarget(target) << "'>" << (active ? "Cancel" : "Clear") << "</button>";
+        if (active || canClear)
+            html << "<button class='ghost' data-action='" << (active ? "cancel-bind" : "clear-bind") << "' data-bind='" << bindTarget(target) << "'>" << (active ? "Cancel" : "Clear") << "</button>";
+        else
+            html << "<span class='bind-fixed'>Required</span>";
         html << "</div></div>";
         return html.str();
     };

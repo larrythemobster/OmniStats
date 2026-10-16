@@ -51,14 +51,16 @@ std::string RmlUiController::RenderSettingsGeneral() {
     std::ostringstream out;
     out << SectionStart("Display mode")
         << SelectRow("display_mode", "Use OmniStats as", "", {{"overlay", "In-game overlay"}, {"dashboard", "Second-monitor dashboard"}}, m_config.second_monitor_mode ? "dashboard" : "overlay")
-        << ToggleControl("require_rl_focus", "Only show while Rocket League is active", "The dashboard stays visible while Rocket League is running.", m_config.require_rl_focus)
+        << ToggleControl("require_rl_focus", "Only show while Rocket League is active",
+                         m_config.second_monitor_mode ? "Hides the dashboard when Rocket League isn't running." : "Hides the overlay when you tab out of Rocket League.",
+                         m_config.require_rl_focus)
         << SectionEnd();
 
     const std::string summaryHelp = "Displays the result and match statistics for " +
                                     std::to_string(std::clamp(m_config.match_summary_seconds, 5, 60)) + " seconds.";
-    out << SectionStart("Match Behavior")
+    out << SectionStart("Match behavior")
         << ToggleControl("show_match_summary", "Show post-match summary", summaryHelp, m_config.show_match_summary)
-        << ToggleControl("show_running_indicator", "Show running indicator", "Small status badge while the transparent overlay is active.", m_config.show_running_indicator)
+        << ToggleControl("show_running_indicator", "Show running indicator", "A small badge that shows the overlay is running.", m_config.show_running_indicator)
         << SectionEnd();
     return out.str();
 }

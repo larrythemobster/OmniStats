@@ -635,13 +635,18 @@ namespace RmlUiDetail {
         return std::to_string(diff / 86400) + "d ago";
     }
 
+    std::string ToggleSwitch(std::string_view key, bool checked, bool disabled) {
+        std::string out = "<div class='toggle-switch'><input type='checkbox' class='checkbox' data-setting='" + Escape(key) + "' ";
+        if (checked) out += "checked='checked' ";
+        if (disabled) out += "disabled='disabled' ";
+        out += "/><span class='toggle-thumb'></span></div>";
+        return out;
+    }
+
     std::string ToggleControl(std::string_view key, std::string_view label, std::string_view help, bool checked, bool disabled) {
         std::string out = "<div class='setting-row'><div class='setting-info'><div class='setting-name'>" + Escape(label) + "</div>";
         if (!help.empty()) out += "<div class='setting-help'>" + Escape(help) + "</div>";
-        out += "</div><div class='toggle-switch'><input type='checkbox' class='checkbox' data-setting='" + Escape(key) + "' ";
-        if (checked) out += "checked='checked' ";
-        if (disabled) out += "disabled='disabled' ";
-        out += "/><span class='toggle-thumb'></span></div></div>";
+        out += "</div>" + ToggleSwitch(key, checked, disabled) + "</div>";
         return out;
     }
 
@@ -668,6 +673,15 @@ namespace RmlUiDetail {
         std::string out = "<div class='setting-row'><div class='setting-info'><div class='setting-name'>" + Escape(label) + "</div>";
         if (!help.empty()) out += "<div class='setting-help'>" + Escape(help) + "</div>";
         out += "</div>" + SelectControl(key, options, current, "", disabled) + "</div>";
+        return out;
+    }
+
+    std::string ActionRow(std::string_view label, std::string_view help, std::string_view actions) {
+        std::string out = "<div class='setting-row'><div class='setting-info'><div class='setting-name'>" + Escape(label) + "</div>";
+        if (!help.empty()) out += "<div class='setting-help'>" + Escape(help) + "</div>";
+        out += "</div><div class='row gap-sm setting-actions'>";
+        out += actions;
+        out += "</div></div>";
         return out;
     }
 

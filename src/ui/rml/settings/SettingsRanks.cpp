@@ -51,18 +51,18 @@ std::string RmlUiController::RenderSettingsRanks() {
     const std::string rosterCategory = MmrCategoryToString(StringToMmrCategory(m_config.mmr_category));
     const std::string graphCategory = MmrCategoryToString(StringToMmrCategory(m_config.graph_mmr_category));
     std::ostringstream out;
-    out << SectionStart("Player Ranks")
+    out << SectionStart("Player ranks")
         << SelectRow("mmr_category", "Player MMR category", "Rank displayed beside live lobby players.", MmrCategoryOptions(true, m_config.show_extra_playlists), rosterCategory)
         << ToggleControl("auto_switch_mmr_category", "Automatically follow current playlist", "", m_config.auto_switch_mmr_category)
         << ToggleControl("show_extra_playlists", "Show extra playlists", "Hoops, Rumble, Dropshot, Snow Day, and Heatseeker.", m_config.show_extra_playlists)
         << SectionEnd();
 
-    out << SectionStart("Personal MMR Graph")
+    out << SectionStart("Personal MMR graph")
         << ToggleControl("graph_follow_current_playlist", "Follow current playlist", "", m_config.graph_follow_current_playlist)
         << SelectRow("graph_mmr_category", "Default graph category", "", MmrCategoryOptions(false, m_config.show_extra_playlists), graphCategory)
         << SectionEnd();
 
-    out << SectionStart("Your Ranks");
+    out << SectionStart("Your ranks");
     const PlayerData* me = nullptr;
     std::string effectiveId = m_snap.myPrimaryId.empty() ? m_config.last_primary_id : m_snap.myPrimaryId;
     if (!effectiveId.empty()) {

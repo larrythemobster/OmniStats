@@ -103,9 +103,11 @@ namespace RmlUiDetail {
     std::string FormatNumber(float value, int precision = 0);
     std::string FormatRecord(int wins, int losses);
     std::string FormatClock(int64_t unixSeconds);
+    std::string ToggleSwitch(std::string_view key, bool checked, bool disabled = false);
     std::string ToggleControl(std::string_view key, std::string_view label, std::string_view help, bool checked, bool disabled = false);
     std::string SelectControl(std::string_view key, const std::vector<SelectOption>& options, std::string_view current, const char* klass = "", bool disabled = false);
     std::string SelectRow(std::string_view key, std::string_view label, std::string_view help, const std::vector<SelectOption>& options, std::string_view current, bool disabled = false);
+    std::string ActionRow(std::string_view label, std::string_view help, std::string_view actions);
     std::vector<SelectOption> MmrCategoryOptions(bool includeBest, bool extras);
     std::vector<SelectOption> GamemodeScopeOptions();
     std::string GamemodeScopeValue(const ConfigData& config);
