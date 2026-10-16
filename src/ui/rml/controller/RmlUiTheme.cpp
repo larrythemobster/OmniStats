@@ -198,7 +198,6 @@ void RmlUiController::UpdateThemeProperties() {
     rule("input.range sliderprogress", "background-color", accentMid);
     rule("input.range sliderbar", "border-color", accent);
     rule("scrollbarvertical sliderbar:active, scrollbarhorizontal sliderbar:active", "background-color", accent);
-    rule("select selectbox option:checked", "background-color", accentDark);
 
     const std::string line = scaledColor(m_config.themeText, 1.0f, 0.10f);
     const std::string lineSoft = scaledColor(m_config.themeText, 1.0f, 0.06f);
