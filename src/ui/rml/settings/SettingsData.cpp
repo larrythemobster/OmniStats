@@ -69,7 +69,7 @@ std::string RmlUiController::RenderSettingsData() {
         << "<div class='setting-row'><div class='setting-info'><div class='setting-name'>Stats history</div><div class='setting-help'>"
         << Escape(detailedSummary) << "</div></div></div>"
         << "<div class='setting-help mono'>" << Escape(Storage::GetDataDirectory()) << "</div><div class='row wrap gap-sm' style='margin-top:8dp'>"
-        << Button("open-data-folder", "Open Data Folder") << Button("export-data", "Export Local Data") << Button("merge-database", "Merge Database") << Button("delete-history", "Delete History & Identity", "danger") << "</div>"
+        << Button("open-data-folder", "Open data folder") << Button("export-data", "Export local data") << Button("merge-database", "Merge database") << Button("delete-history", "Delete history and identity", "danger") << "</div>"
         << "<div class='setting-help' style='margin-top:8dp'>Merge matches and history from an older omnistats.db file (such as a backup or from another PC) into your current database. Duplicates are automatically skipped.</div>"
         << "<div class='setting-help' style='margin-top:4dp'>Deleting local history also clears the saved local account identity. Settings, service tokens, and tracked accounts in Accounts are kept.</div>" << SectionEnd();
     return out.str();

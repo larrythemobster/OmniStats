@@ -52,8 +52,8 @@ std::string RmlUiController::RenderSettingsCards() {
     out << SectionStart("Overlay Layout")
         << ToggleControl("overlay_edit_mode", "Edit overlay layout", "Move and resize native overlay containers.", m_state && m_state->ui.dashboardLayoutEditMode.load())
         << "<div class='row wrap gap-sm' style='margin-top:8dp'>"
-        << Button("reset-overlay", "Reset Overlay Layout", "ghost")
-        << Button("reset-theme-and-layout", "Reset Theme & Layout to Default", "ghost")
+        << Button("reset-overlay", "Reset overlay layout", "ghost")
+        << Button("reset-theme-and-layout", "Reset theme and layout", "ghost")
         << "</div>" << SectionEnd();
 
     out << SectionStart("Session Card")

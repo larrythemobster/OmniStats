@@ -55,7 +55,7 @@ std::string RmlUiController::RenderSettingsGeneral() {
     if (m_config.second_monitor_mode) {
         out << ToggleControl("second_monitor_show_roster", "Show live roster", "", m_config.second_monitor_show_roster)
             << ToggleControl("second_monitor_show_session", "Show session information", "", m_config.second_monitor_show_session)
-            << "<div class='row gap-sm' style='margin-top:8dp'>" << Button("reset-dashboard", "Reset Dashboard Layout", "ghost") << "</div>";
+            << "<div class='row gap-sm' style='margin-top:8dp'>" << Button("reset-dashboard", "Reset dashboard layout", "ghost") << "</div>";
     }
     out << SectionEnd();
 
@@ -70,11 +70,11 @@ std::string RmlUiController::RenderSettingsGeneral() {
 
     out << SectionStart("Startup & Updates")
         << ToggleControl("run_on_startup", "Run on Windows startup", "", m_config.run_on_startup)
-        << ToggleControl("enable_auto_updates", "Automatically install updates", "Installs updates automatically on the next launch. OmniStats always checks for updates at startup, periodically while running, and when Settings is opened.", m_config.enable_auto_updates)
+        << ToggleControl("enable_auto_updates", "Automatically install updates", "Installs updates the next time OmniStats starts.", m_config.enable_auto_updates)
         << SectionEnd();
 
     out << SectionStart("Player Identity")
-        << SelectRow("identity", "Local account", "Used for lifetime history before telemetry identifies you.", IdentityOptions(), m_config.last_primary_id)
+        << SelectRow("identity", "Local account", "The Rocket League account your match history belongs to. OmniStats picks it up automatically in your first match.", IdentityOptions(), m_config.last_primary_id)
         << SectionEnd();
     return out.str();
 }

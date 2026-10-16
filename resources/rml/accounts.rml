@@ -12,16 +12,16 @@
                     <div class="label">{{subtitle}}</div>
                 </div>
                 <div class="row gap-sm">
-                    <button class="ghost compact" data-action="accounts-refresh-all" data-if="loaded && rows.size > 0">Refresh All</button>
-                    <button class="ghost compact" data-action="accounts-open-import" data-if="has_import_candidates">Import Known</button>
-                    <button class="primary compact" data-action="accounts-open-add" data-if="has_service">Add Account</button>
+                    <button class="ghost compact" data-action="accounts-refresh-all" data-if="loaded && rows.size > 0">Refresh all</button>
+                    <button class="ghost compact" data-action="accounts-open-import" data-if="has_import_candidates">Import known</button>
+                    <button class="primary compact" data-action="accounts-open-add" data-if="has_service">Add account</button>
                     <button class="ghost compact" data-action="accounts-close">Close</button>
                 </div>
             </div>
 
             <div class="callout accounts-provider-banner" data-if="provider_unavailable">
-                <div class="grow">No rank source is configured. Enable Tracker rank lookup or sign in to OmniStats in Settings &#x203A; Services &amp; API.</div>
-                <button class="ghost compact" data-action="accounts-open-settings">Open Settings</button>
+                <div class="grow">No rank source is set up. Sign in to OmniStats or turn on Tracker Network rank lookup in Settings &#x203A; Services &amp; API.</div>
+                <button class="ghost compact" data-action="open-rank-settings">Open settings</button>
             </div>
 
             <div class="accounts-toolbar" data-if="loaded && rows.size > 0">
@@ -38,8 +38,8 @@
                 <div class="accounts-empty" data-if="loaded && rows.size == 0">
                     <div class="muted view-empty">{{empty_message}}</div>
                     <div class="row gap-sm view-actions" style="justify-content:center" data-if="has_service">
-                        <button class="primary" data-action="accounts-open-add">Add Account</button>
-                        <button class="ghost" data-if="has_import_candidates" data-action="accounts-open-import">Import Known Accounts</button>
+                        <button class="primary" data-action="accounts-open-add">Add account</button>
+                        <button class="ghost" data-if="has_import_candidates" data-action="accounts-open-import">Import known accounts</button>
                     </div>
                 </div>
 
@@ -188,7 +188,7 @@
                         <div class="row" style="align-items:center">
                             <div class="grow">Remove this tracked account? Local match history is kept.</div>
                             <div class="row gap-sm">
-                                <button class="danger compact" data-action="accounts-detail-confirm-remove">Confirm Remove</button>
+                                <button class="danger compact" data-action="accounts-detail-confirm-remove">Remove</button>
                                 <button class="ghost compact" data-action="accounts-detail-cancel-remove">Cancel</button>
                             </div>
                         </div>
@@ -228,7 +228,7 @@
             <div id="accounts-add-modal" class="history-detail-backdrop" data-if="add_open">
                 <div class="card accounts-dialog-card">
                     <div class="accounts-dialog-header">
-                        <div class="brand-title">Add Account</div>
+                        <div class="brand-title">Add account</div>
                         <div class="label">Track a Rocket League account by its platform ID</div>
                     </div>
 
@@ -263,7 +263,7 @@
 
                     <div class="row gap-sm" style="justify-content:flex-end;margin-top:16dp">
                         <button class="ghost" data-action="accounts-add-close">Cancel</button>
-                        <button class="primary" data-action="accounts-add-submit">Add Account</button>
+                        <button class="primary" data-action="accounts-add-submit">Add account</button>
                     </div>
                 </div>
             </div>
@@ -271,7 +271,7 @@
             <div id="accounts-import-modal" class="history-detail-backdrop" data-if="import_open">
                 <div class="card accounts-dialog-card">
                     <div class="accounts-dialog-header">
-                        <div class="brand-title">Import Known Accounts</div>
+                        <div class="brand-title">Import known accounts</div>
                         <div class="label">Accounts OmniStats identified on this PC before</div>
                     </div>
 

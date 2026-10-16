@@ -140,15 +140,15 @@ std::string RmlUiController::RenderSettingsAppearance() {
         << SelectRow("ui_scale", "App-wide text size", "Changes text size throughout the dashboard and overlay.", scales, currentScale)
         << SectionEnd();
     out << SectionStart("Fonts")
-        << "<div class='row wrap gap-sm' style='margin-bottom:8dp'>" << Button("reset-fonts", "Reset Fonts to Default", "ghost") << "</div>"
+        << "<div class='row wrap gap-sm' style='margin-bottom:8dp'>" << Button("reset-fonts", "Reset fonts", "ghost") << "</div>"
         << SelectRow("font_ui", "Text", "Labels, names, and body text. Default: Inter.", fontOptions(m_config.font_ui), m_config.font_ui)
         << SelectRow("font_mono", "Numbers", "MMR, scores, graph labels, and stat values. Default: JetBrains Mono.", fontOptions(m_config.font_mono), m_config.font_mono)
         << SelectRow("font_display", "Titles", "Card titles, the app name, and recap headlines. Default: Russo One.", fontOptions(m_config.font_display), m_config.font_display)
         << SectionEnd();
     out << SectionStart("Colors")
         << "<div class='row wrap gap-sm' style='margin-bottom:8dp'>"
-        << Button("reset-theme-colors", "Reset Colors to Default", "ghost")
-        << Button("reset-theme-and-layout", "Reset Theme & Layout to Default", "ghost")
+        << Button("reset-theme-colors", "Reset colors", "ghost")
+        << Button("reset-theme-and-layout", "Reset theme and layout", "ghost")
         << "</div>"
         << colorRow("theme_bg", "Overlay background", m_config.themeBg)
         << colorRow("theme_panel", "Settings panels", m_config.themeSettingsPanel)

@@ -113,8 +113,8 @@ void RmlUiController::RebuildSettings() {
         const bool failed = m_state->ui.updateDownloadFailed.load();
         const bool downloading = m_state->ui.updateDownloading.load();
         std::string label = downloading ? (ver.empty() ? "Starting updater..." : "Starting v" + ver + "...")
-                            : failed    ? (ver.empty() ? "Retry Update" : "Retry Update v" + ver)
-                                        : (ver.empty() ? "Update Available" : "Update Available: v" + ver);
+                            : failed    ? (ver.empty() ? "Retry update" : "Retry update v" + ver)
+                                        : (ver.empty() ? "Update available" : "Update to v" + ver);
         out << Button("update-app", label, "primary");
     }
     out << "</div><div class='settings-body'><div class='settings-nav'>";
@@ -125,12 +125,12 @@ void RmlUiController::RebuildSettings() {
     out << "</div><div class='settings-page' data-page='" << static_cast<int>(m_settingsPage) << "'>" << RenderReleaseBanners() << content.str() << "</div></div><div class='settings-footer'>" << Button("history-open", "History", "ghost") << Button("accounts-open", "Accounts", "ghost") << Button("insights-open", "Insights", "ghost") << Button("help-discord", "Help / Discord", "ghost") << Button("close-settings", "Done", "primary") << "</div></div>";
 
     if (m_confirmReplayUploads) {
-        out << "<div class='confirm-backdrop'><div class='card privacy-dialog'><div class='card-title'>Replay Upload Privacy Warning</div>"
+        out << "<div class='confirm-backdrop'><div class='card privacy-dialog'><div class='card-title'>Before you upload replays</div>"
             << "<div class='setting-help'>Rocket League replay files can include player names, platform IDs, match timestamps, teams, scores, gameplay events, and other participants in the match.</div>"
             << "<div class='setting-help' style='margin-top:8dp'>Only enable this if you understand that replay data leaves your PC and is handled by Ballchasing under its own terms and privacy policy.</div>"
             << "<div class='setting-help' style='margin-top:8dp'>Current visibility: <b>" << Escape(m_config.ballchasing_visibility) << "</b></div>";
         if (m_config.ballchasing_token.empty()) out << "<div class='setting-help loss' style='margin-top:8dp'>Add a Ballchasing API token before uploads can succeed.</div>";
-        out << "<div class='row gap-sm' style='margin-top:12dp'>" << Button("confirm-replay-upload", "Enable Replay Uploads", "primary") << Button("cancel-replay-upload", "Cancel", "ghost") << "</div></div></div>";
+        out << "<div class='row gap-sm' style='margin-top:12dp'>" << Button("confirm-replay-upload", "Enable uploads", "primary") << Button("cancel-replay-upload", "Cancel", "ghost") << "</div></div></div>";
     }
     if (m_confirmDeleteHistory) {
         out << "<div class='confirm-backdrop'><div class='card' style='width:470dp'><div class='card-title loss'>Delete local history and saved identity?</div><div class='setting-help'>This removes local match history and your selected account identity. Settings, service tokens, and tracked accounts in Accounts are kept. This cannot be undone.</div><div class='row gap-sm' style='margin-top:12dp'>" << Button("confirm-delete-history", "Delete", "danger") << Button("cancel-delete-history", "Cancel", "ghost") << "</div></div></div>";

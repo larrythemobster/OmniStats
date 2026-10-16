@@ -89,7 +89,7 @@
                 </div>
 
                 <div class="row gap-sm player-note-actions">
-                    <button class="danger compact" data-action="player-note-delete" data-if="has_saved && !confirm_delete">Delete Note</button>
+                    <button class="danger compact" data-action="player-note-delete" data-if="has_saved && !confirm_delete">Delete note</button>
                     <div class="grow"></div>
                     <button class="ghost" data-action="player-note-close">Cancel</button>
                     <button class="primary" data-action="player-note-save" data-class-disabled="!dirty || saving">{{save_label}}</button>

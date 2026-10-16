@@ -217,7 +217,7 @@ class AccountsView {
     Rml::String m_providerBannerText;
     bool m_hasImportCandidates = false;
     int m_importCandidatesCount = 0;
-    Rml::String m_importButtonLabel = "Import Known";
+    Rml::String m_importButtonLabel = "Import known";
     int m_rowCount = 0;
     Rml::String m_emptyMessage = "No accounts tracked yet. Add an account to follow ranks and compare MMR across playlists.";
     Rml::String m_subtitle = "Tracked Rocket League accounts";

@@ -277,7 +277,7 @@ void AccountsView::Reset() {
     m_providerBannerText.clear();
     m_hasImportCandidates = false;
     m_importCandidatesCount = 0;
-    m_importButtonLabel = "Import Known";
+    m_importButtonLabel = "Import known";
     m_rowCount = 0;
     m_emptyMessage = "No accounts tracked yet. Add an account to follow ranks and compare MMR across playlists.";
     m_subtitle = "Tracked Rocket League accounts";
@@ -542,7 +542,7 @@ void AccountsView::UpdateSnapshot(const AccountManagerService::Snapshot& snapsho
 
     m_importCandidatesCount = static_cast<int>(importCandidatesCount);
     m_hasImportCandidates = (m_importCandidatesCount > 0);
-    m_importButtonLabel = m_hasImportCandidates ? "Import (" + std::to_string(m_importCandidatesCount) + ")" : "Import Known";
+    m_importButtonLabel = m_hasImportCandidates ? "Import (" + std::to_string(m_importCandidatesCount) + ")" : "Import known";
 
     RebuildRows();
     RebuildHistory();
