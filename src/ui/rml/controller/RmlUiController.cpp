@@ -691,10 +691,11 @@ void RmlUiController::RebuildVisibleUi(bool force, bool configChanged) {
     HashAppend(runtimeStructuralHash, static_cast<uint64_t>(m_config.show_tournaments && AccountClient::Instance().IsSignedIn()));
     if (!m_config.second_monitor_mode) {
         for (const auto& container : m_config.overlay_layout.containers) {
-            const bool cVis = OverlayLayout::ContainerVisible(container, visState, nowMs);
-            const bool replayHidden = container.visibility.hideDuringReplay && visState.inReplay;
-            HashAppend(runtimeStructuralHash, static_cast<uint64_t>(cVis));
-            HashAppend(runtimeStructuralHash, static_cast<uint64_t>(replayHidden));
+            for (auto widget : container.widgets) {
+                const auto vis = OverlayLayout::GetWidgetVisibility(m_config.overlay_layout, widget);
+                const bool wVis = OverlayLayout::IsVisibilityActive(vis, visState, nowMs);
+                HashAppend(runtimeStructuralHash, static_cast<uint64_t>(wVis));
+            }
         }
     }
     if (m_state && m_config.second_monitor_mode) {

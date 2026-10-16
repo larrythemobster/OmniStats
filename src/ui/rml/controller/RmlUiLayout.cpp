@@ -130,50 +130,39 @@ std::string RmlUiController::RenderOverlayContainer(const OverlayLayout::Contain
     const OverlayLayout::VisibilityState visState =
         m_state ? OverlayLayout::SnapshotVisibilityState(*m_state, editMode)
                 : OverlayLayout::VisibilityState{.editMode = editMode};
-    const bool containerVisible = OverlayLayout::ContainerVisible(container, visState, nowMs);
     const bool replayHidden = container.visibility.hideDuringReplay && visState.inReplay;
     auto visible = [&](DashboardLayout::WidgetId widget) {
         if (editMode) return true;
         if (!WidgetSettings::Enabled(m_config, widget, false)) return false;
         if (widget == DashboardLayout::WidgetId::Tournaments && (!m_config.show_tournaments || !AccountClient::Instance().IsSignedIn())) return false;
-        if (settingsOpen) {
-            if (widget == DashboardLayout::WidgetId::StreaksStats) return m_config.show_streaks_stats;
-            if (widget == DashboardLayout::WidgetId::GamemodeBreakdown) return m_config.show_gamemode_breakdown;
-            if (widget == DashboardLayout::WidgetId::LobbyRanks) return m_config.show_lobby_ranks_overlay;
-            if (widget == DashboardLayout::WidgetId::DemoTracker) return m_config.show_demo_tracker_overlay;
-            if (widget == DashboardLayout::WidgetId::PreviousGames) return m_config.show_previous_games_summary;
-            if (widget == DashboardLayout::WidgetId::RankProgress) return m_config.show_rank_progress;
-            return true;
-        }
+        if (settingsOpen) return true;
+
+        const auto vis = OverlayLayout::GetWidgetVisibility(m_config.overlay_layout, widget);
+        const bool widgetVisible = OverlayLayout::IsVisibilityActive(vis, visState, nowMs);
+
         switch (widget) {
         case DashboardLayout::WidgetId::LiveRoster:
-            return containerVisible;
         case DashboardLayout::WidgetId::MmrGraph:
-            return containerVisible;
-        case DashboardLayout::WidgetId::LiveMatchStats:
-            return containerVisible && expanded;
         case DashboardLayout::WidgetId::SessionStats:
-            // Session stats follow the container visibility rule like every other
-            // roster card; they are not a permanent HUD element by default.
-            return containerVisible;
-        case DashboardLayout::WidgetId::StreaksStats:
-            return containerVisible && m_config.show_streaks_stats;
-        case DashboardLayout::WidgetId::GamemodeBreakdown:
-            return containerVisible && m_config.show_gamemode_breakdown;
-        case DashboardLayout::WidgetId::LobbyRanks:
-            return containerVisible && m_config.show_lobby_ranks_overlay;
-        case DashboardLayout::WidgetId::DemoTracker:
-            if (!m_config.show_demo_tracker_overlay || replayHidden) return false;
-            if (container.visibility.mode == OverlayLayout::Visibility::KeyHeld) {
-                return m_snap.inMatch;
-            }
-            return containerVisible;
-        case DashboardLayout::WidgetId::PreviousGames:
-            return containerVisible && m_config.show_previous_games_summary;
-        case DashboardLayout::WidgetId::RankProgress:
-            return containerVisible && m_config.show_rank_progress;
         case DashboardLayout::WidgetId::Tournaments:
-            return containerVisible;
+            return widgetVisible;
+        case DashboardLayout::WidgetId::LiveMatchStats:
+            return widgetVisible && expanded;
+        case DashboardLayout::WidgetId::StreaksStats:
+            return widgetVisible && m_config.show_streaks_stats;
+        case DashboardLayout::WidgetId::GamemodeBreakdown:
+            return widgetVisible && m_config.show_gamemode_breakdown;
+        case DashboardLayout::WidgetId::LobbyRanks:
+            return widgetVisible && m_config.show_lobby_ranks_overlay;
+        case DashboardLayout::WidgetId::DemoTracker:
+            if (!m_config.show_demo_tracker_overlay) return false;
+            if (replayHidden || (vis.hideDuringReplay && visState.inReplay)) return false;
+            if (vis.mode == OverlayLayout::Visibility::KeyHeld || container.visibility.mode == OverlayLayout::Visibility::KeyHeld) return m_snap.inMatch;
+            return widgetVisible;
+        case DashboardLayout::WidgetId::PreviousGames:
+            return widgetVisible && m_config.show_previous_games_summary;
+        case DashboardLayout::WidgetId::RankProgress:
+            return widgetVisible && m_config.show_rank_progress;
         }
         return false;
     };
@@ -238,30 +227,11 @@ std::string RmlUiController::RenderOverlayContainer(const OverlayLayout::Contain
     if (settingsOpen || editMode) out << " interactive";
     if (editMode) out << " overlay-edit";
     out << "' data-container='" << Escape(container.id) << "'";
-    if (settingsOpen && !editMode) out << " data-action='overlay-drag'";
-    out << " style='left:" << toDp(x) << "dp;top:" << toDp(y) << "dp;width:" << toDp(w) << "dp;";
-    // The saved height is edit-mode geometry, matching the pre-RmlUi overlay.
-    // During normal play (and while Settings is merely open), overlay windows
-    // auto-size vertically to their currently visible widgets. Keeping the saved
-    // default height as a permanent min-height is what produced the huge empty
-    // main_stack panel after the RmlUi migration.
-    if (editMode) out << "min-height:" << toDp(std::min(h, 900.0f * dpi)) << "dp;";
-    out << "'>";
-    if (editMode) {
-        out << "<div class='row overlay-drag' data-action='overlay-drag' data-container='" << Escape(container.id)
-            << "'><span class='badge accent'>MOVE</span><div class='grow'></div><span class='label'>" << Escape(container.id)
-            << "</span><button class='widget-close' data-action='overlay-remove-container' data-container='" << Escape(container.id)
-            << "' title='Remove this overlay container'>×</button></div>";
-    }
+    if (settingsOpen || editMode) out << " data-action='overlay-drag'";
+    out << " style='left:" << toDp(x) << "dp;top:" << toDp(y) << "dp;width:" << toDp(w) << "dp;'>";
     for (size_t i = 0; i < widgets.size(); ++i) {
         const auto widget = widgets[i];
-        if (editMode) {
-            out << "<div class='row overlay-widget-handle' data-action='overlay-widget-drag' data-container='" << Escape(container.id)
-                << "' data-widget='" << WidgetDomId(widget) << "' style='margin-top:" << (i ? 10 : 4) << "dp'>"
-                << "<div class='card-subtitle grow'>" << Escape(DashboardLayout::GetWidgetDisplayName(widget)) << "</div>"
-                << "<button class='widget-close' data-action='overlay-remove-widget' data-container='" << Escape(container.id)
-                << "' data-widget='" << WidgetDomId(widget) << "'>×</button></div>";
-        } else if (widgets.size() > 1 && widget != DashboardLayout::WidgetId::PreviousGames && widget != DashboardLayout::WidgetId::RankProgress && widget != DashboardLayout::WidgetId::Tournaments) {
+        if (widgets.size() > 1 && widget != DashboardLayout::WidgetId::PreviousGames && widget != DashboardLayout::WidgetId::RankProgress && widget != DashboardLayout::WidgetId::Tournaments) {
             out << "<div class='overlay-widget-title' style='margin-top:" << (i ? 8 : 2) << "dp'>" << Escape(DashboardLayout::GetWidgetDisplayName(widget)) << "</div>";
         }
         out << "<div class='live-widget' data-live-widget='" << WidgetDomId(widget)

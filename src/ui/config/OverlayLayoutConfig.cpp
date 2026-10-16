@@ -279,6 +279,9 @@ namespace OverlayLayout {
                 validContainers.push_back(c);
             }
         }
+        for (auto& [id, vis] : layout.widgetVisibility) {
+            Sanitize(vis);
+        }
         layout.containers = validContainers;
     }
 
@@ -298,10 +301,10 @@ namespace OverlayLayout {
         return snap;
     }
 
-    bool ContainerVisible(const ContainerConfig& config, const VisibilityState& state, int64_t nowMs) noexcept {
+    bool IsVisibilityActive(const ContainerConfig::Visibility& visibility, const VisibilityState& state, int64_t nowMs) noexcept {
         if (state.editMode) return true;
 
-        const auto vis = SanitizedCopy(config.visibility);
+        const auto vis = SanitizedCopy(visibility);
         if (vis.hideDuringReplay && state.inReplay) return false;
 
         switch (vis.mode) {
@@ -324,12 +327,47 @@ namespace OverlayLayout {
         return state.keyHeld;
     }
 
-    std::optional<int64_t> NextVisibilityChangeMs(const ContainerConfig& config,
+    bool ContainerVisible(const ContainerConfig& config, const VisibilityState& state, int64_t nowMs) noexcept {
+        return IsVisibilityActive(config.visibility, state, nowMs);
+    }
+
+    ContainerConfig::Visibility GetWidgetVisibility(const LayoutConfig& layout, DashboardLayout::WidgetId widget) {
+        auto it = layout.widgetVisibility.find(widget);
+        if (it != layout.widgetVisibility.end()) {
+            auto vis = it->second;
+            Sanitize(vis);
+            return vis;
+        }
+        for (const auto& c : layout.containers) {
+            if (std::find(c.widgets.begin(), c.widgets.end(), widget) != c.widgets.end()) {
+                auto vis = c.visibility;
+                Sanitize(vis);
+                return vis;
+            }
+        }
+        ContainerConfig::Visibility def;
+        if (widget == DashboardLayout::WidgetId::LobbyRanks) {
+            def.mode = Visibility::AfterEvent;
+            def.event = Visibility::FirstCountdown;
+            def.seconds = 8;
+            def.alsoWhileKeyHeld = true;
+            def.hideDuringReplay = true;
+        } else if (widget == DashboardLayout::WidgetId::Tournaments) {
+            def.mode = Visibility::Always;
+        } else {
+            def.mode = Visibility::KeyHeld;
+            def.alsoWhileKeyHeld = true;
+        }
+        Sanitize(def);
+        return def;
+    }
+
+    std::optional<int64_t> NextVisibilityChangeMs(const ContainerConfig::Visibility& visibility,
                                                   const VisibilityState& state,
                                                   int64_t nowMs) noexcept {
         if (state.editMode) return std::nullopt;
 
-        const auto vis = SanitizedCopy(config.visibility);
+        const auto vis = SanitizedCopy(visibility);
         if (vis.hideDuringReplay && state.inReplay) return std::nullopt;
         if (vis.mode != Visibility::AfterEvent) return std::nullopt;
         if (vis.alsoWhileKeyHeld && state.keyHeld) return std::nullopt;
@@ -343,15 +381,28 @@ namespace OverlayLayout {
         return std::nullopt;
     }
 
+    std::optional<int64_t> NextVisibilityChangeMs(const ContainerConfig& config,
+                                                  const VisibilityState& state,
+                                                  int64_t nowMs) noexcept {
+        return NextVisibilityChangeMs(config.visibility, state, nowMs);
+    }
+
     std::optional<int64_t> NextVisibilityChangeMs(const LayoutConfig& layout,
                                                   const VisibilityState& state,
                                                   int64_t nowMs) noexcept {
         std::optional<int64_t> earliest;
         for (const auto& container : layout.containers) {
-            const auto candidate = NextVisibilityChangeMs(container, state, nowMs);
-            if (!candidate.has_value()) continue;
-            if (!earliest.has_value() || *candidate < *earliest) {
-                earliest = candidate;
+            const auto cCandidate = NextVisibilityChangeMs(container, state, nowMs);
+            if (cCandidate.has_value() && (!earliest.has_value() || *cCandidate < *earliest)) {
+                earliest = cCandidate;
+            }
+            for (auto widget : container.widgets) {
+                const auto vis = GetWidgetVisibility(layout, widget);
+                const auto candidate = NextVisibilityChangeMs(vis, state, nowMs);
+                if (!candidate.has_value()) continue;
+                if (!earliest.has_value() || *candidate < *earliest) {
+                    earliest = candidate;
+                }
             }
         }
         return earliest;

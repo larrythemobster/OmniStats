@@ -19,7 +19,6 @@ namespace DashboardLayout {
                 {WidgetId::DemoTracker, Zone::Right, 4, 0.0f, false},
                 {WidgetId::LobbyRanks, Zone::Right, 5, 0.0f, false},
                 {WidgetId::GamemodeBreakdown, Zone::Hidden, 0, 0.0f, false},
-                {WidgetId::Tournaments, Zone::Hidden, 1, 0.0f, false},
             }};
     }
 
@@ -38,9 +37,7 @@ namespace DashboardLayout {
             WidgetId::GamemodeBreakdown,
             WidgetId::LobbyRanks,
             WidgetId::DemoTracker,
-            WidgetId::PreviousGames,
-            WidgetId::Tournaments};
-
+            WidgetId::PreviousGames};
         std::vector<WidgetPlacement> validWidgets;
         for (const auto& id : allIds) {
             bool found = false;

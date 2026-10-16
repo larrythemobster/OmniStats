@@ -76,22 +76,19 @@ std::string RmlUiController::RenderSettingsCards() {
             << ToggleControl("widget_enabled:" + dom, tournament ? "Tournament countdown" : DashboardLayout::GetWidgetDisplayName(widget),
                              disabled ? "Sign in to OmniStats to see tournaments." : "", enabled, disabled);
         if (enabled && !disabled && !dashboard) {
-            for (const auto& container : m_config.overlay_layout.containers) {
-                if (std::find(container.widgets.begin(), container.widgets.end(), widget) == container.widgets.end()) continue;
-                out << "<div class='row display-card-options'><div class='grow'>"
-                    << SelectRow("overlay_vis_mode:" + container.id, "Show when", container.widgets.size() > 1 ? "Shared with the other cards in this docked group." : "",
-                                 OverlayVisibilityModeOptions(), OverlayLayout::ToConfigString(container.visibility.mode));
-                if (container.visibility.mode == OverlayLayout::Visibility::AfterEvent) {
-                    out << SelectRow("overlay_vis_event:" + container.id, "Event", "", OverlayVisibilityEventOptions(), OverlayLayout::ToConfigString(container.visibility.event))
-                        << SelectRow("overlay_vis_seconds:" + container.id, "Seconds", "", OverlayVisibilitySecondsOptions(), std::to_string(container.visibility.seconds));
-                }
-                if (m_showCardDetails) {
-                    out << ToggleControl("overlay_vis_key_held:" + container.id, "Also while key held", "", container.visibility.alsoWhileKeyHeld)
-                        << ToggleControl("overlay_vis_hide_replay:" + container.id, "Hide during goal replays", "", container.visibility.hideDuringReplay);
-                }
-                out << "</div></div>";
-                break;
+            const auto vis = OverlayLayout::GetWidgetVisibility(m_config.overlay_layout, widget);
+            out << "<div class='row display-card-options'><div class='grow'>"
+                << SelectRow("widget_vis_mode:" + dom, "Show when", "",
+                             OverlayVisibilityModeOptions(), OverlayLayout::ToConfigString(vis.mode));
+            if (vis.mode == OverlayLayout::Visibility::AfterEvent) {
+                out << SelectRow("widget_vis_event:" + dom, "Event", "", OverlayVisibilityEventOptions(), OverlayLayout::ToConfigString(vis.event))
+                    << SelectRow("widget_vis_seconds:" + dom, "Seconds", "", OverlayVisibilitySecondsOptions(), std::to_string(vis.seconds));
             }
+            if (m_showCardDetails) {
+                out << ToggleControl("widget_vis_key_held:" + dom, "Also while key held", "", vis.alsoWhileKeyHeld)
+                    << ToggleControl("widget_vis_hide_replay:" + dom, "Hide during goal replays", "", vis.hideDuringReplay);
+            }
+            out << "</div></div>";
         }
         out << "</div>";
     }

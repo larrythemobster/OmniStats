@@ -1,6 +1,7 @@
 #pragma once
 #include <cstdint>
 #include <optional>
+#include <map>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -82,6 +83,7 @@ namespace OverlayLayout {
         bool toolboxOpen = false;
         std::vector<ContainerConfig> containers;
         std::vector<DashboardLayout::WidgetId> disabledWidgets;
+        std::map<DashboardLayout::WidgetId, ContainerConfig::Visibility> widgetVisibility;
     };
 
     LayoutConfig DefaultOverlayLayout();
@@ -94,6 +96,11 @@ namespace OverlayLayout {
     VisibilityEvent VisibilityEventFromConfigString(std::string_view value) noexcept;
 
     VisibilityState SnapshotVisibilityState(const SessionState& state, bool editMode = false) noexcept;
+    Visibility GetWidgetVisibility(const LayoutConfig& layout, DashboardLayout::WidgetId widget);
+    bool IsVisibilityActive(const Visibility& vis, const VisibilityState& state, int64_t nowMs) noexcept;
+    std::optional<int64_t> NextVisibilityChangeMs(const Visibility& vis,
+                                                  const VisibilityState& state,
+                                                  int64_t nowMs) noexcept;
     bool ContainerVisible(const ContainerConfig& config, const VisibilityState& state, int64_t nowMs) noexcept;
     std::optional<int64_t> NextVisibilityChangeMs(const ContainerConfig& config,
                                                   const VisibilityState& state,

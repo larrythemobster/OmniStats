@@ -643,6 +643,41 @@ namespace Config {
                 }
             }
 
+            const auto readVisibility = [](const nlohmann::json& jv, OverlayLayout::ContainerConfig::Visibility& vis) {
+                if (jv.contains("mode")) {
+                    if (jv["mode"].is_string()) {
+                        vis.mode = OverlayLayout::VisibilityModeFromConfigString(jv["mode"].get<std::string>());
+                    } else if (jv["mode"].is_number_integer()) {
+                        vis.mode = static_cast<OverlayLayout::VisibilityMode>(jv["mode"].get<int>());
+                    } else {
+                        vis.mode = OverlayLayout::Visibility::KeyHeld;
+                    }
+                }
+                if (jv.contains("event")) {
+                    if (jv["event"].is_string()) {
+                        vis.event = OverlayLayout::VisibilityEventFromConfigString(jv["event"].get<std::string>());
+                    } else if (jv["event"].is_number_integer()) {
+                        vis.event = static_cast<OverlayLayout::VisibilityEvent>(jv["event"].get<int>());
+                    } else {
+                        vis.event = OverlayLayout::Visibility::FirstCountdown;
+                    }
+                }
+                if (jv.contains("seconds") && jv["seconds"].is_number_integer()) {
+                    vis.seconds = jv["seconds"].get<int>();
+                }
+                if (jv.contains("also_while_key_held") && jv["also_while_key_held"].is_boolean()) {
+                    vis.alsoWhileKeyHeld = jv["also_while_key_held"].get<bool>();
+                } else if (jv.contains("alsoWhileKeyHeld") && jv["alsoWhileKeyHeld"].is_boolean()) {
+                    vis.alsoWhileKeyHeld = jv["alsoWhileKeyHeld"].get<bool>();
+                }
+                if (jv.contains("hide_during_replay") && jv["hide_during_replay"].is_boolean()) {
+                    vis.hideDuringReplay = jv["hide_during_replay"].get<bool>();
+                } else if (jv.contains("hideDuringReplay") && jv["hideDuringReplay"].is_boolean()) {
+                    vis.hideDuringReplay = jv["hideDuringReplay"].get<bool>();
+                }
+                OverlayLayout::Sanitize(vis);
+            };
+
             if (j.contains("dashboard_layout")) {
                 auto& jl = j["dashboard_layout"];
                 ReadField(jl, "version", Current.dashboard_layout.version);
@@ -696,40 +731,19 @@ namespace Config {
                             }
                         }
                         if (jc.contains("visibility") && jc["visibility"].is_object()) {
-                            const auto& jv = jc["visibility"];
-                            if (jv.contains("mode")) {
-                                if (jv["mode"].is_string()) {
-                                    c.visibility.mode = OverlayLayout::VisibilityModeFromConfigString(jv["mode"].get<std::string>());
-                                } else if (jv["mode"].is_number_integer()) {
-                                    c.visibility.mode = static_cast<OverlayLayout::VisibilityMode>(jv["mode"].get<int>());
-                                } else {
-                                    c.visibility.mode = OverlayLayout::Visibility::KeyHeld;
-                                }
-                            }
-                            if (jv.contains("event")) {
-                                if (jv["event"].is_string()) {
-                                    c.visibility.event = OverlayLayout::VisibilityEventFromConfigString(jv["event"].get<std::string>());
-                                } else if (jv["event"].is_number_integer()) {
-                                    c.visibility.event = static_cast<OverlayLayout::VisibilityEvent>(jv["event"].get<int>());
-                                } else {
-                                    c.visibility.event = OverlayLayout::Visibility::FirstCountdown;
-                                }
-                            }
-                            if (jv.contains("seconds") && jv["seconds"].is_number_integer()) {
-                                c.visibility.seconds = jv["seconds"].get<int>();
-                            }
-                            if (jv.contains("also_while_key_held") && jv["also_while_key_held"].is_boolean()) {
-                                c.visibility.alsoWhileKeyHeld = jv["also_while_key_held"].get<bool>();
-                            } else if (jv.contains("alsoWhileKeyHeld") && jv["alsoWhileKeyHeld"].is_boolean()) {
-                                c.visibility.alsoWhileKeyHeld = jv["alsoWhileKeyHeld"].get<bool>();
-                            }
-                            if (jv.contains("hide_during_replay") && jv["hide_during_replay"].is_boolean()) {
-                                c.visibility.hideDuringReplay = jv["hide_during_replay"].get<bool>();
-                            } else if (jv.contains("hideDuringReplay") && jv["hideDuringReplay"].is_boolean()) {
-                                c.visibility.hideDuringReplay = jv["hideDuringReplay"].get<bool>();
-                            }
+                            readVisibility(jc["visibility"], c.visibility);
                         }
                         Current.overlay_layout.containers.push_back(c);
+                    }
+                }
+                Current.overlay_layout.widgetVisibility.clear();
+                if (jl.contains("widget_visibility") && jl["widget_visibility"].is_object()) {
+                    for (const auto& [key, jv] : jl["widget_visibility"].items()) {
+                        if (!jv.is_object()) continue;
+                        const auto wid = DashboardLayout::WidgetIdFromConfigString(key);
+                        OverlayLayout::ContainerConfig::Visibility vis;
+                        readVisibility(jv, vis);
+                        Current.overlay_layout.widgetVisibility[wid] = vis;
                     }
                 }
                 OverlayLayout::Sanitize(Current.overlay_layout);
@@ -980,6 +994,18 @@ namespace Config {
         jol["disabled_widgets"] = nlohmann::json::array();
         for (auto widget : Current.overlay_layout.disabledWidgets)
             jol["disabled_widgets"].push_back(DashboardLayout::ToConfigString(widget));
+        nlohmann::json jwv = nlohmann::json::object();
+        for (const auto& [wid, vis] : Current.overlay_layout.widgetVisibility) {
+            auto sanitizedVis = vis;
+            OverlayLayout::Sanitize(sanitizedVis);
+            jwv[DashboardLayout::ToConfigString(wid)] = {
+                {"mode", OverlayLayout::ToConfigString(sanitizedVis.mode)},
+                {"event", OverlayLayout::ToConfigString(sanitizedVis.event)},
+                {"seconds", sanitizedVis.seconds},
+                {"also_while_key_held", sanitizedVis.alsoWhileKeyHeld},
+                {"hide_during_replay", sanitizedVis.hideDuringReplay}};
+        }
+        jol["widget_visibility"] = jwv;
         nlohmann::json jc_arr = nlohmann::json::array();
         for (const auto& c : Current.overlay_layout.containers) {
             nlohmann::json jc;

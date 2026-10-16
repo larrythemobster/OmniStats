@@ -751,6 +751,30 @@ void RmlUiController::HandleChange(Rml::Element* target, Rml::Event& event) {
                     }
                 }
             }
+        } else if (key.rfind("widget_vis_", 0) == 0) {
+            const size_t colon = key.find(':');
+            if (colon != std::string::npos && colon + 1 < key.size()) {
+                const std::string_view field(key.data(), colon);
+                const std::string dom = key.substr(colon + 1);
+                const auto widget = WidgetFromDom(dom);
+                auto vis = OverlayLayout::GetWidgetVisibility(c.overlay_layout, widget);
+                if (field == "widget_vis_mode") {
+                    vis.mode = OverlayLayout::VisibilityModeFromConfigString(value);
+                } else if (field == "widget_vis_event") {
+                    vis.event = OverlayLayout::VisibilityEventFromConfigString(value);
+                } else if (field == "widget_vis_seconds") {
+                    vis.seconds = std::clamp(
+                        std::atoi(value.c_str()),
+                        OverlayLayout::kMinVisibilitySeconds,
+                        OverlayLayout::kMaxVisibilitySeconds);
+                } else if (field == "widget_vis_key_held") {
+                    vis.alsoWhileKeyHeld = checked;
+                } else if (field == "widget_vis_hide_replay") {
+                    vis.hideDuringReplay = checked;
+                }
+                OverlayLayout::Sanitize(vis);
+                c.overlay_layout.widgetVisibility[widget] = vis;
+            }
         } else if (key.rfind("overlay_vis_", 0) == 0) {
             const size_t colon = key.find(':');
             if (colon != std::string::npos && colon + 1 < key.size()) {
