@@ -1,3 +1,4 @@
+#include "ui/config/WidgetSettings.hpp"
 #include <gtest/gtest.h>
 #include "core/config/Config.hpp"
 #include "utils/Storage.hpp"
@@ -54,6 +55,32 @@ TEST_F(ConfigTest, SaveAndLoad) {
     ConfigData loadedData = Config::Read();
     EXPECT_EQ(loadedData.port, 12345);
     EXPECT_EQ(loadedData.host, "test_host");
+}
+
+TEST_F(ConfigTest, CardVisibilityPersistsWithoutLosingPlacement) {
+    Config::Update([](ConfigData& c) {
+        c.overlay_layout.containers.clear();
+        WidgetSettings::SetEnabled(c, DashboardLayout::WidgetId::Tournaments, false, true, 1280, 720);
+        c.overlay_layout.containers.front().x = 187;
+        WidgetSettings::SetEnabled(c, DashboardLayout::WidgetId::Tournaments, false, false, 1280, 720);
+        WidgetSettings::SetEnabled(c, DashboardLayout::WidgetId::MmrGraph, true, false, 1280, 720);
+    },
+                   false);
+    Config::Save();
+    Config::Update([](ConfigData& c) {
+        c.overlay_layout = OverlayLayout::DefaultOverlayLayout();
+        c.dashboard_layout = DashboardLayout::DefaultLayout();
+    },
+                   false);
+    Config::Load();
+    EXPECT_FALSE(WidgetSettings::Enabled(Config::Read(), DashboardLayout::WidgetId::Tournaments, false));
+    EXPECT_FALSE(WidgetSettings::Enabled(Config::Read(), DashboardLayout::WidgetId::MmrGraph, true));
+    Config::Update([](ConfigData& c) {
+        WidgetSettings::SetEnabled(c, DashboardLayout::WidgetId::Tournaments, false, true, 1280, 720);
+    },
+                   false);
+    ASSERT_EQ(Config::Read().overlay_layout.containers.size(), 1u);
+    EXPECT_FLOAT_EQ(Config::Read().overlay_layout.containers.front().x, 187);
 }
 
 TEST_F(ConfigTest, PersistsSettingsPanelThemeColor) {

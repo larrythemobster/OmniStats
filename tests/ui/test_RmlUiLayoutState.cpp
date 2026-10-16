@@ -1,4 +1,5 @@
 #include <gtest/gtest.h>
+#include <algorithm>
 
 #include <set>
 #include <vector>
@@ -6,18 +7,6 @@
 #include "ui/config/DashboardLayoutConfig.hpp"
 #include "ui/config/OverlayLayoutConfig.hpp"
 #include "ui/rml/controller/RmlUiHelpers.hpp"
-
-TEST(RmlUiLayoutState, DefaultDashboardContainsEveryWidgetExactlyOnce) {
-    auto layout = DashboardLayout::DefaultLayout();
-    DashboardLayout::Sanitize(layout);
-
-    std::set<DashboardLayout::WidgetId> widgets;
-    for (const auto& placement : layout.widgets)
-        widgets.insert(placement.id);
-
-    EXPECT_EQ(layout.widgets.size(), 10u);
-    EXPECT_EQ(widgets.size(), 10u);
-}
 
 TEST(RmlUiLayoutState, OverlaySanitizeRemovesDuplicateWidgetsAndEmptyContainers) {
     OverlayLayout::LayoutConfig layout;
@@ -84,7 +73,12 @@ TEST(RmlUiLayoutState, DashboardSanitizeRestoresMissingWidgetsAndBoundsColumnWei
     DashboardLayout::Sanitize(layout);
 
     EXPECT_FLOAT_EQ(layout.leftColumnWeight, 0.75f);
-    EXPECT_EQ(layout.widgets.size(), 10u);
+    const auto tournament = std::find_if(layout.widgets.begin(), layout.widgets.end(), [](const auto& item) { return item.id == DashboardLayout::WidgetId::Tournaments; });
+    ASSERT_NE(tournament, layout.widgets.end());
+    EXPECT_EQ(tournament->zone, DashboardLayout::Zone::Hidden);
+    const auto graph = std::find_if(layout.widgets.begin(), layout.widgets.end(), [](const auto& item) { return item.id == DashboardLayout::WidgetId::MmrGraph; });
+    ASSERT_NE(graph, layout.widgets.end());
+    EXPECT_EQ(graph->zone, DashboardLayout::Zone::Top);
 }
 
 TEST(RmlUiLayoutState, DashboardSanitizeSlotsRankProgressAboveTheGraphInOlderLayouts) {

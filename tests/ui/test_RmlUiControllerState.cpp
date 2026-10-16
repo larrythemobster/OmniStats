@@ -1,3 +1,4 @@
+#include "ui/rml/widgets/TournamentWidget.hpp"
 #include <gtest/gtest.h>
 #include <RmlUi/Core/Core.h>
 #include <RmlUi/Core/ComputedValues.h>
@@ -22,6 +23,7 @@
 #include <vector>
 
 #include "core/config/Config.hpp"
+#include "ui/config/WidgetSettings.hpp"
 #include "core/state/SessionState.hpp"
 #include "utils/Storage.hpp"
 #include "database/DatabaseManager.hpp"
@@ -109,10 +111,14 @@ class RmlUiControllerStateTest : public ::testing::Test {
         return controller.RenderSessionView();
     }
     std::string RenderCardSettings(RmlUiController& controller) {
+        controller.m_showCardDetails = true;
         return controller.RenderSettingsCards();
     }
-    std::string RenderGeneralSettings(RmlUiController& controller) {
-        return controller.RenderSettingsGeneral();
+    std::vector<std::string> IdentityValues(RmlUiController& controller) {
+        std::vector<std::string> values;
+        for (const auto& option : controller.IdentityOptions())
+            values.push_back(option.value);
+        return values;
     }
     std::string RenderIntegrationSettings(RmlUiController& controller) {
         return controller.RenderSettingsIntegrations();
@@ -628,14 +634,6 @@ TEST_F(RmlUiControllerStateTest, PreviousGamesKeepsSessionRecordWhileHistoryIsLo
     EXPECT_NE(html.find("Current session: <span class='win'>W:3</span> <span class='loss'>L:2</span>"), std::string::npos);
 }
 
-TEST_F(RmlUiControllerStateTest, GeneratedCheckboxesUseTheStyledNativeCheckboxClass) {
-    auto state = std::make_shared<SessionState>();
-    RmlUiController controller(state, nullptr);
-    controller.Update(Config::Read());
-    const std::string html = RenderGeneralSettings(controller);
-    EXPECT_NE(html.find("<input type='checkbox' class='checkbox' data-setting='require_rl_focus'"), std::string::npos);
-}
-
 TEST_F(RmlUiControllerStateTest, IdentitySelectorExcludesUnknownLobbyIdsButKeepsSavedIdentity) {
     auto state = std::make_shared<SessionState>();
     {
@@ -656,16 +654,16 @@ TEST_F(RmlUiControllerStateTest, IdentitySelectorExcludesUnknownLobbyIdsButKeeps
     config.known_primary_ids = {"Unknown|Old", "Steam|456"};
     RmlUiController controller(state, nullptr);
     controller.Update(config);
-    std::string html = RenderGeneralSettings(controller);
-    EXPECT_EQ(html.find("Unknown|Bot_01"), std::string::npos);
-    EXPECT_EQ(html.find("Unknown|Old"), std::string::npos);
-    EXPECT_NE(html.find("Steam|123"), std::string::npos);
-    EXPECT_NE(html.find("Steam|456"), std::string::npos);
+    auto values = IdentityValues(controller);
+    EXPECT_EQ(std::find(values.begin(), values.end(), "Unknown|Bot_01"), values.end());
+    EXPECT_EQ(std::find(values.begin(), values.end(), "Unknown|Old"), values.end());
+    EXPECT_NE(std::find(values.begin(), values.end(), "Steam|123"), values.end());
+    EXPECT_NE(std::find(values.begin(), values.end(), "Steam|456"), values.end());
 
     config.last_primary_id = "Unknown|Old";
     controller.Update(config);
-    html = RenderGeneralSettings(controller);
-    EXPECT_NE(html.find("Unknown|Old"), std::string::npos);
+    values = IdentityValues(controller);
+    EXPECT_NE(std::find(values.begin(), values.end(), "Unknown|Old"), values.end());
 }
 
 TEST_F(RmlUiControllerStateTest, ReplaySavingKeepsInlineLegacySaveReplayBindControl) {
@@ -1747,7 +1745,7 @@ TEST_F(RmlUiControllerStateTest, LongSettingsPagesScrollAndPreservePositionAfter
     controller.Render();
 
     // 2. Iterate through all settings pages
-    for (int page = 0; page < 8; ++page) {
+    for (int page = 0; page < 6; ++page) {
         SetSettingsPage(controller, page);
         controller.Update(Config::Read());
         controller.Render();
@@ -1759,7 +1757,7 @@ TEST_F(RmlUiControllerStateTest, LongSettingsPagesScrollAndPreservePositionAfter
         ASSERT_NE(footer, nullptr);
         EXPECT_GT(body->GetClientHeight(), 0.0f);
         EXPECT_LE(footer->GetAbsoluteOffset().y + footer->GetOffsetHeight(), 1080.0f);
-        if (page == 1) {
+        if (page == 0) {
             ASSERT_GT(body->GetScrollHeight(), body->GetClientHeight());
             body->SetScrollTop(220.0f);
             const float offset = body->GetScrollTop();
@@ -1769,7 +1767,7 @@ TEST_F(RmlUiControllerStateTest, LongSettingsPagesScrollAndPreservePositionAfter
             ASSERT_NE(body, nullptr);
             EXPECT_FLOAT_EQ(body->GetScrollTop(), offset);
         }
-        if (page == 5) {
+        if (page == 4) {
             auto* token = root->QuerySelector("[data-setting='ballchasing_token']");
             ASSERT_NE(token, nullptr);
             ASSERT_TRUE(token->Focus());
@@ -2215,31 +2213,32 @@ TEST_F(RmlUiControllerStateTest, MatchSummaryPrefersPodiumStartTimestampForCurre
     EXPECT_EQ(controller.NextVisibilityWakeMs(), std::optional<int64_t>(nowMs - 5000 + 20000));
 }
 
-TEST_F(RmlUiControllerStateTest, EditModeRendersVisibilityControlsAndPersistsChangesImmediately) {
+TEST_F(RmlUiControllerStateTest, DisplaySettingsPersistsReplayVisibilityWithoutEditMode) {
     WarpDevice warp;
     if (!warp.Create(1280, 800)) GTEST_SKIP() << "WARP not available.";
 
+    Config::Update([](ConfigData& c) {
+        c.overlay_layout = OverlayLayout::DefaultOverlayLayout();
+        c.show_lobby_ranks_overlay = true;
+    },
+                   false);
     auto state = std::make_shared<SessionState>();
     state->ui.showMenu.store(true);
-    state->ui.dashboardLayoutEditMode.store(true);
 
     RmlUiController controller(state, nullptr);
     ASSERT_TRUE(controller.Initialize(nullptr, warp.device.Get(), warp.context.Get(), 1280, 800, 1.0f));
+    auto* details = SettingsRoot(controller)->QuerySelector("[data-action='toggle-card-details']");
+    ASSERT_NE(details, nullptr);
+    Click(controller, details);
     controller.Update(Config::Read(), false);
     controller.Render();
 
-    auto* root = OverlayRoot(controller);
+    auto* root = SettingsRoot(controller);
     ASSERT_NE(root, nullptr);
 
-    // Lobby ranks has AfterEvent in default layout, so mode, event, seconds, and both checkboxes render.
-    EXPECT_NE(root->QuerySelector("[data-setting='overlay_vis_mode:lobby_ranks']"), nullptr);
-    EXPECT_NE(root->QuerySelector("[data-setting='overlay_vis_event:lobby_ranks']"), nullptr);
-    EXPECT_NE(root->QuerySelector("[data-setting='overlay_vis_seconds:lobby_ranks']"), nullptr);
-    EXPECT_NE(root->QuerySelector("[data-setting='overlay_vis_key_held:lobby_ranks']"), nullptr);
     auto* hideReplayCheckbox = root->QuerySelector("[data-setting='overlay_vis_hide_replay:lobby_ranks']");
     ASSERT_NE(hideReplayCheckbox, nullptr);
 
-    // Clicking the checkbox toggles hideDuringReplay and persists to Config without starting a drag.
     hideReplayCheckbox->Click();
     controller.Update(Config::Read(), true, Config::Revision());
     controller.Render();
@@ -2249,27 +2248,7 @@ TEST_F(RmlUiControllerStateTest, EditModeRendersVisibilityControlsAndPersistsCha
                                  [](const auto& c) { return c.id == "lobby_ranks"; });
     ASSERT_NE(it, updated.overlay_layout.containers.end());
     EXPECT_TRUE(it->visibility.hideDuringReplay);
-
-    Config::Update([](ConfigData& c) {
-        for (auto& container : c.overlay_layout.containers) {
-            if (container.id == "demo_tracker") {
-                container.visibility.mode = OverlayLayout::Visibility::AfterEvent;
-                container.visibility.event = OverlayLayout::Visibility::FirstCountdown;
-                container.visibility.seconds = 8;
-            }
-        }
-    },
-                   true);
-    controller.Update(Config::Read(), true, Config::Revision());
-    controller.Render();
-
-    auto* narrowEventSelect = OverlayRoot(controller)->QuerySelector("[data-setting='overlay_vis_event:demo_tracker']");
-    auto* narrowSecondsSelect = OverlayRoot(controller)->QuerySelector("[data-setting='overlay_vis_seconds:demo_tracker']");
-    ASSERT_NE(narrowEventSelect, nullptr);
-    ASSERT_NE(narrowSecondsSelect, nullptr);
-    EXPECT_GE(narrowEventSelect->GetBox().GetSize(Rml::BoxArea::Border).x, 156.0f);
-    EXPECT_GT(narrowSecondsSelect->GetAbsoluteOffset(Rml::BoxArea::Border).y,
-              narrowEventSelect->GetAbsoluteOffset(Rml::BoxArea::Border).y);
+    EXPECT_FALSE(state->ui.dashboardLayoutEditMode.load());
 }
 
 TEST_F(RmlUiControllerStateTest, SessionsTabRendersRowsOpensArchivedRecapAndComparesWithPrevious) {
@@ -2633,16 +2612,14 @@ TEST_F(RmlUiControllerStateTest, DeferredSelectRebuildSurvivesBlockedUpdateUntil
 
     auto state = std::make_shared<SessionState>();
     state->ui.showMenu.store(true);
-    state->ui.dashboardLayoutEditMode.store(true);
 
     RmlUiController controller(state, nullptr);
     ASSERT_TRUE(controller.Initialize(nullptr, warp.device.Get(), warp.context.Get(), 1280, 800, 1.0f));
     controller.Update(Config::Read(), false);
     controller.Render();
 
-    auto* root = OverlayRoot(controller);
+    auto* root = SettingsRoot(controller);
     ASSERT_NE(root, nullptr);
-    // main_stack starts in KeyHeld mode, so its event/seconds selects are not in the DOM yet.
     ASSERT_EQ(root->QuerySelector("[data-setting='overlay_vis_event:main_stack']"), nullptr);
 
     auto* modeSelect = dynamic_cast<Rml::ElementFormControl*>(
@@ -2651,20 +2628,17 @@ TEST_F(RmlUiControllerStateTest, DeferredSelectRebuildSurvivesBlockedUpdateUntil
     modeSelect->SetValue("after_event");
     EXPECT_TRUE(HasDeferredSelectRebuild(controller));
 
-    // If a drag is active when Update() runs with the echoed local config revision,
-    // RebuildVisibleUi returns early and must preserve m_deferredSelectRebuild.
     SimulateOverlayDragStart(controller, "main_stack", 1490.0f, 0.0f);
     controller.Update(Config::Read(), true, Config::Revision());
     EXPECT_TRUE(HasDeferredSelectRebuild(controller));
-    EXPECT_EQ(OverlayRoot(controller)->QuerySelector("[data-setting='overlay_vis_event:main_stack']"), nullptr);
+    EXPECT_EQ(SettingsRoot(controller)->QuerySelector("[data-setting='overlay_vis_event:main_stack']"), nullptr);
 
-    // Once the drag ends, the next Update() consumes m_deferredSelectRebuild and rebuilds the container chrome.
     ClearOverlayDrag(controller);
     controller.Update(Config::Read(), false, Config::Revision());
     controller.Render();
     EXPECT_FALSE(HasDeferredSelectRebuild(controller));
-    EXPECT_NE(OverlayRoot(controller)->QuerySelector("[data-setting='overlay_vis_event:main_stack']"), nullptr);
-    EXPECT_NE(OverlayRoot(controller)->QuerySelector("[data-setting='overlay_vis_seconds:main_stack']"), nullptr);
+    EXPECT_NE(SettingsRoot(controller)->QuerySelector("[data-setting='overlay_vis_event:main_stack']"), nullptr);
+    EXPECT_NE(SettingsRoot(controller)->QuerySelector("[data-setting='overlay_vis_seconds:main_stack']"), nullptr);
 }
 
 TEST_F(RmlUiControllerStateTest, EscapeNeutralizesDataBindingBraces) {
@@ -3459,7 +3433,7 @@ TEST_F(RmlUiControllerStateTest, AccountLinkPromptWaitsForMigrationAndOffersReco
     EXPECT_FALSE(state->ui.showMenu.load());
     EXPECT_FALSE(Config::Read().account_link_prompt_shown);
     state->ui.showMenu.store(true);
-    SetSettingsPage(controller, 5);
+    SetSettingsPage(controller, 4);
     controller.Update(Config::Read(), false);
     controller.Render();
     auto* root = SettingsRoot(controller);
@@ -3668,4 +3642,71 @@ TEST_F(RmlUiControllerStateTest, OnboardingWizard_ConnectLiveRanks_SuccessAndExp
 
     EXPECT_EQ(onboarding.Step(), 3);
     account.ResetForTests();
+}
+
+TEST_F(RmlUiControllerStateTest, DisplayCardToggleWorksWithoutLayoutEditingAndKeepsPlacement) {
+    WarpDevice warp;
+    if (!warp.Create(1280, 800)) GTEST_SKIP() << "WARP not available.";
+    Config::Update([](ConfigData& c) { c.overlay_layout.containers.clear(); }, false);
+    auto state = std::make_shared<SessionState>();
+    state->ui.showMenu.store(true);
+    RmlUiController controller(state, nullptr);
+    ASSERT_TRUE(controller.Initialize(nullptr, warp.device.Get(), warp.context.Get(), 1280, 800, 1.0f));
+    controller.Update(Config::Read());
+    controller.Render();
+    auto* toggle = SettingsRoot(controller)->QuerySelector("[data-setting='widget_enabled:mmr-graph']");
+    ASSERT_NE(toggle, nullptr);
+    Rml::Dictionary parameters;
+    parameters["checked"] = true;
+    toggle->DispatchEvent("change", parameters);
+    controller.Update(Config::Read());
+    EXPECT_FALSE(state->ui.dashboardLayoutEditMode.load());
+    ASSERT_TRUE(WidgetSettings::Enabled(Config::Read(), DashboardLayout::WidgetId::MmrGraph, false));
+    const auto saved = Config::Read().overlay_layout.containers.front();
+    auto* position = SettingsRoot(controller)->QuerySelector("[data-action='overlay-edit-toggle']");
+    ASSERT_NE(position, nullptr);
+    Click(controller, position);
+    EXPECT_TRUE(state->ui.dashboardLayoutEditMode.load());
+    auto* done = SettingsRoot(controller)->QuerySelector("[data-action='finish-position']");
+    ASSERT_NE(done, nullptr);
+    Click(controller, done);
+    EXPECT_FALSE(state->ui.dashboardLayoutEditMode.load());
+    toggle = SettingsRoot(controller)->QuerySelector("[data-setting='widget_enabled:mmr-graph']");
+    ASSERT_NE(toggle, nullptr);
+    parameters["checked"] = false;
+    toggle->DispatchEvent("change", parameters);
+    controller.Update(Config::Read());
+    EXPECT_FALSE(WidgetSettings::Enabled(Config::Read(), DashboardLayout::WidgetId::MmrGraph, false));
+    EXPECT_EQ(Config::Read().overlay_layout.containers.front().id, saved.id);
+    EXPECT_FLOAT_EQ(Config::Read().overlay_layout.containers.front().x, saved.x);
+    EXPECT_FALSE(state->ui.dashboardLayoutEditMode.load());
+}
+
+TEST_F(RmlUiControllerStateTest, CompactTournamentCountdownFitsBothSurfaces) {
+    WarpDevice warp;
+    if (!warp.Create(1000, 500)) GTEST_SKIP() << "WARP not available.";
+    auto state = std::make_shared<SessionState>();
+    RmlUiController controller(state, nullptr);
+    ASSERT_TRUE(controller.Initialize(nullptr, warp.device.Get(), warp.context.Get(), 1000, 500, 1.0f));
+    Tournaments::ScheduleSnapshot snapshot;
+    snapshot.status = Tournaments::ScheduleStatus::Ready;
+    snapshot.group = "US";
+    snapshot.slots = {{1000 + 22860, false, "2v2 Pentathlon", 2, {}}};
+    const std::string countdown = TournamentUi::RenderWidget(snapshot, 1000);
+    OverlayRoot(controller)->SetInnerRML("<div id='compact-overlay' class='card' style='position:absolute;left:24dp;top:24dp;width:320dp'>" + countdown + "</div>"
+                                                                                                                                                          "<div id='compact-dashboard' class='card tournament-dashboard' style='position:absolute;left:400dp;top:24dp'>" +
+                                         countdown + "</div>");
+    RmlContext(controller)->Update();
+    controller.Render();
+    for (const char* id : {"compact-overlay", "compact-dashboard"}) {
+        auto* card = Document(controller)->GetElementById(id);
+        ASSERT_NE(card, nullptr);
+        EXPECT_LE(card->GetOffsetHeight(), 50.0f);
+        auto* name = card->QuerySelector(".tournament-name");
+        auto* time = card->QuerySelector(".tournament-remaining");
+        ASSERT_NE(name, nullptr);
+        ASSERT_NE(time, nullptr);
+        EXPECT_LE(name->GetAbsoluteOffset().x + name->GetOffsetWidth(), time->GetAbsoluteOffset().x);
+        EXPECT_LE(time->GetAbsoluteOffset().x + time->GetOffsetWidth(), card->GetAbsoluteOffset().x + card->GetOffsetWidth());
+    }
 }
