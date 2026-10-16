@@ -27,7 +27,7 @@ namespace {
     }
 
     std::string ProviderUnavailableDetail() {
-        return "No rank source is configured. Enable Tracker rank lookup or sign in to OmniStats in Settings > Services & API.";
+        return "No rank source is configured. Enable Tracker rank lookup or sign in to OmniStats in Settings > Accounts & services.";
     }
 }
 

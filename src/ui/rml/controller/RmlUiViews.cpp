@@ -394,7 +394,7 @@ void RmlUiController::RefreshAccountRow(const std::string& primaryId) {
         ShowToast("Refreshed recently; try again in a minute.");
         break;
     case AccountManagerService::RefreshRequest::ProviderUnavailable:
-        ShowToast("Connect live ranks in Settings > Services & API to refresh ranks.");
+        ShowToast("Connect live ranks in Settings > Accounts & services to refresh ranks.");
         break;
     case AccountManagerService::RefreshRequest::Unsupported:
         ShowToast("Ranks can't be refreshed for this account.");
@@ -592,7 +592,7 @@ void RmlUiController::RebuildStatsApiPrompt() {
         break;
     case StatsApiPrompt::NotFound:
         title = "Couldn't find Rocket League's Stats API config";
-        body = "Set the file location in Settings › Troubleshooting, then try again.";
+        body = "Set the file location in Settings > Data & support > Troubleshooting, then try again.";
         actions = "<div class='grow'></div>" + Button("statsapi-prompt-close", "Close", "ghost") +
                   Button("statsapi-prompt-troubleshoot", "Open troubleshooting", "primary");
         break;
@@ -625,7 +625,7 @@ void RmlUiController::CheckAccountLinkPrompt() {
         !m_config.account_refresh_token.empty()) {
         return;
     }
-    m_settingsPage = SettingsPage::Integrations;
+    m_settingsPage = SettingsPage::Accounts;
     if (m_state) {
         m_state->ui.showMenu.store(true);
         m_state->ui.dashboardLayoutEditMode.store(false);
@@ -965,16 +965,17 @@ bool RmlUiController::HandleViewAction(const std::string& action, Rml::Element* 
         Config::Update([](ConfigData& c) { c.check_stats_api_config_on_startup = false; });
         m_config = Config::Read();
         SetStatsApiPrompt(StatsApiPrompt::Hidden);
-        ShowToast("You can fix the Stats API later in Settings > Troubleshooting.");
+        ShowToast("You can fix the Stats API later in Settings > Data & support > Troubleshooting.");
         return true;
     } else if (action == "statsapi-prompt-troubleshoot") {
         SetStatsApiPrompt(StatsApiPrompt::Hidden);
-        m_settingsPage = SettingsPage::Troubleshooting;
+        m_settingsPage = SettingsPage::DataSupport;
+        m_showTroubleshooting = true;
         if (m_state) m_state->ui.showMenu.store(true);
         m_renderDirty = true;
         return true;
     } else if (action == "open-rank-settings") {
-        m_settingsPage = SettingsPage::Integrations;
+        m_settingsPage = SettingsPage::Accounts;
         if (m_state) m_state->ui.showMenu.store(true);
         m_renderDirty = true;
         return true;

@@ -1,3 +1,5 @@
+#include "ui/config/WidgetSettings.hpp"
+#include "ui/rml/widgets/TournamentWidget.hpp"
 #include "ui/rml/controller/RmlUiController.hpp"
 #include <shobjidl.h>
 #include <commdlg.h>
@@ -55,7 +57,7 @@ bool RmlUiController::RankSourceAvailable() const {
 
 std::string RmlUiController::RenderRankSourceHint(bool interactive) const {
     if (RankSourceAvailable()) return {};
-    std::string html = "<div class='rank-source-hint row'><div class='grow'>Ranks are off. Connect live ranks in Settings &#x203A; Services &amp; API.</div>";
+    std::string html = "<div class='rank-source-hint row'><div class='grow'>Ranks are off. Connect live ranks in Settings &#x203A; Accounts &amp; services.</div>";
     if (interactive) html += "<button class='primary compact' data-action='open-rank-settings'>Connect</button>";
     return html + "</div>";
 }
@@ -115,43 +117,10 @@ std::string RmlUiController::RenderWidget(DashboardLayout::WidgetId id, bool das
     case DashboardLayout::WidgetId::RankProgress:
         // The overlay keeps the bare bar so it reads as part of the card it is docked to.
         return RenderSelfRankProgress(dashboard);
+    case DashboardLayout::WidgetId::Tournaments:
+        return TournamentUi::RenderWidget(*Tournaments::TournamentScheduleService::Instance().Snapshot(), static_cast<int64_t>(std::time(nullptr)));
     }
     return {};
-}
-
-std::string RmlUiController::RenderOverlayContainerVisibilityControls(const OverlayLayout::ContainerConfig& container) const {
-    auto vis = container.visibility;
-    OverlayLayout::Sanitize(vis);
-
-    const std::string id = Escape(container.id);
-    const std::string modeKey = "overlay_vis_mode:" + container.id;
-    const std::string eventKey = "overlay_vis_event:" + container.id;
-    const std::string secondsKey = "overlay_vis_seconds:" + container.id;
-    const std::string keyHeldKey = "overlay_vis_key_held:" + container.id;
-    const std::string hideReplayKey = "overlay_vis_hide_replay:" + container.id;
-
-    std::ostringstream out;
-    out << "<div class='overlay-visibility-bar' data-action='overlay-visibility' data-container='" << id << "'>"
-        << "<div class='row wrap gap-xs overlay-visibility-row'><span class='label overlay-vis-label'>Visibility</span>"
-        << SelectControl(modeKey, OverlayVisibilityModeOptions(), OverlayLayout::ToConfigString(vis.mode), "compact-select overlay-vis-mode grow")
-        << "</div>";
-    if (vis.mode == OverlayLayout::Visibility::AfterEvent) {
-        out << "<div class='row wrap gap-xs overlay-visibility-row'>"
-            << SelectControl(eventKey, OverlayVisibilityEventOptions(), OverlayLayout::ToConfigString(vis.event), "compact-select overlay-vis-event grow")
-            << SelectControl(secondsKey, OverlayVisibilitySecondsOptions(), std::to_string(vis.seconds), "compact-select overlay-vis-seconds")
-            << "</div>";
-    }
-    out << "<div class='row wrap gap-sm overlay-visibility-toggles'>"
-        << "<div class='row gap-xs overlay-vis-toggle'><div class='toggle-switch compact-toggle'>"
-        << "<input type='checkbox' class='checkbox' data-setting='" << Escape(keyHeldKey) << "' data-container='" << id << "'";
-    if (vis.alsoWhileKeyHeld) out << " checked='checked'";
-    out << "/><span class='toggle-thumb'></span></div><span class='label overlay-vis-toggle-label'>Also while key held</span></div>"
-        << "<div class='row gap-xs overlay-vis-toggle'><div class='toggle-switch compact-toggle'>"
-        << "<input type='checkbox' class='checkbox' data-setting='" << Escape(hideReplayKey) << "' data-container='" << id << "'";
-    if (vis.hideDuringReplay) out << " checked='checked'";
-    out << "/><span class='toggle-thumb'></span></div><span class='label overlay-vis-toggle-label'>Hide during goal replays</span></div>"
-        << "</div></div>";
-    return out.str();
 }
 
 std::string RmlUiController::RenderOverlayContainer(const OverlayLayout::ContainerConfig& container, bool editMode) {
@@ -165,6 +134,8 @@ std::string RmlUiController::RenderOverlayContainer(const OverlayLayout::Contain
     const bool replayHidden = container.visibility.hideDuringReplay && visState.inReplay;
     auto visible = [&](DashboardLayout::WidgetId widget) {
         if (editMode) return true;
+        if (!WidgetSettings::Enabled(m_config, widget, false)) return false;
+        if (widget == DashboardLayout::WidgetId::Tournaments && (!m_config.show_tournaments || !AccountClient::Instance().IsSignedIn())) return false;
         if (settingsOpen) {
             if (widget == DashboardLayout::WidgetId::StreaksStats) return m_config.show_streaks_stats;
             if (widget == DashboardLayout::WidgetId::GamemodeBreakdown) return m_config.show_gamemode_breakdown;
@@ -201,6 +172,8 @@ std::string RmlUiController::RenderOverlayContainer(const OverlayLayout::Contain
             return containerVisible && m_config.show_previous_games_summary;
         case DashboardLayout::WidgetId::RankProgress:
             return containerVisible && m_config.show_rank_progress;
+        case DashboardLayout::WidgetId::Tournaments:
+            return containerVisible;
         }
         return false;
     };
@@ -278,8 +251,7 @@ std::string RmlUiController::RenderOverlayContainer(const OverlayLayout::Contain
         out << "<div class='row overlay-drag' data-action='overlay-drag' data-container='" << Escape(container.id)
             << "'><span class='badge accent'>MOVE</span><div class='grow'></div><span class='label'>" << Escape(container.id)
             << "</span><button class='widget-close' data-action='overlay-remove-container' data-container='" << Escape(container.id)
-            << "' title='Remove this overlay container'>×</button></div>"
-            << RenderOverlayContainerVisibilityControls(container);
+            << "' title='Remove this overlay container'>×</button></div>";
     }
     for (size_t i = 0; i < widgets.size(); ++i) {
         const auto widget = widgets[i];
@@ -289,7 +261,7 @@ std::string RmlUiController::RenderOverlayContainer(const OverlayLayout::Contain
                 << "<div class='card-subtitle grow'>" << Escape(DashboardLayout::GetWidgetDisplayName(widget)) << "</div>"
                 << "<button class='widget-close' data-action='overlay-remove-widget' data-container='" << Escape(container.id)
                 << "' data-widget='" << WidgetDomId(widget) << "'>×</button></div>";
-        } else if (widgets.size() > 1 && widget != DashboardLayout::WidgetId::PreviousGames && widget != DashboardLayout::WidgetId::RankProgress) {
+        } else if (widgets.size() > 1 && widget != DashboardLayout::WidgetId::PreviousGames && widget != DashboardLayout::WidgetId::RankProgress && widget != DashboardLayout::WidgetId::Tournaments) {
             out << "<div class='overlay-widget-title' style='margin-top:" << (i ? 8 : 2) << "dp'>" << Escape(DashboardLayout::GetWidgetDisplayName(widget)) << "</div>";
         }
         out << "<div class='live-widget' data-live-widget='" << WidgetDomId(widget)
@@ -330,7 +302,7 @@ std::string RmlUiController::RenderOverlayToolbox(bool editMode) {
         << "<div class='label'>Click to add to the center, or drag onto the overlay to place it.</div>"
         << "<div class='row gap-sm' style='margin-top:8dp'>" << Button("reset-overlay", "Reset", "ghost") << "</div>"
         << "<div class='col gap-xs' style='margin-top:8dp'>";
-    const std::array<DashboardLayout::WidgetId, 10> all = {DashboardLayout::WidgetId::LiveRoster, DashboardLayout::WidgetId::LiveMatchStats, DashboardLayout::WidgetId::SessionStats, DashboardLayout::WidgetId::RankProgress, DashboardLayout::WidgetId::MmrGraph, DashboardLayout::WidgetId::StreaksStats, DashboardLayout::WidgetId::GamemodeBreakdown, DashboardLayout::WidgetId::LobbyRanks, DashboardLayout::WidgetId::DemoTracker, DashboardLayout::WidgetId::PreviousGames};
+    const std::array<DashboardLayout::WidgetId, 11> all = {DashboardLayout::WidgetId::LiveRoster, DashboardLayout::WidgetId::LiveMatchStats, DashboardLayout::WidgetId::SessionStats, DashboardLayout::WidgetId::RankProgress, DashboardLayout::WidgetId::MmrGraph, DashboardLayout::WidgetId::StreaksStats, DashboardLayout::WidgetId::GamemodeBreakdown, DashboardLayout::WidgetId::LobbyRanks, DashboardLayout::WidgetId::DemoTracker, DashboardLayout::WidgetId::PreviousGames, DashboardLayout::WidgetId::Tournaments};
     for (auto w : all) {
         const bool active = present.count(w) != 0;
         out << "<div class='row" << (active ? "" : " toolbox-draggable") << "'";
@@ -367,7 +339,8 @@ void RmlUiController::RebuildOverlay() {
     out << RenderOverlayToolbox(editMode);
     if (editMode) {
         out << "<div id='overlay-snap-x' class='overlay-snap-guide vertical'></div>"
-            << "<div id='overlay-snap-y' class='overlay-snap-guide horizontal'></div>";
+            << "<div id='overlay-snap-y' class='overlay-snap-guide horizontal'></div>"
+            << "<div id='overlay-dock-indicator' class='overlay-dock-guide'></div>";
     }
     SetRootRml("overlay-root", out.str());
     m_liveDomNeedsPrime = true;
@@ -439,12 +412,14 @@ void RmlUiController::RebuildDashboard() {
         std::vector<DashboardLayout::WidgetPlacement> result;
         for (const auto& p : layout.widgets) {
             if (p.zone != zone) continue;
+            if (!editMode && !WidgetSettings::Enabled(m_config, p.id, true)) continue;
             if (!editMode && p.id == DashboardLayout::WidgetId::LiveRoster && !m_config.second_monitor_show_roster) continue;
             if (!editMode && p.id == DashboardLayout::WidgetId::SessionStats && !m_config.second_monitor_show_session) continue;
             if (!editMode && p.id == DashboardLayout::WidgetId::LobbyRanks && !m_config.show_lobby_ranks_overlay) continue;
             if (!editMode && p.id == DashboardLayout::WidgetId::DemoTracker && !m_config.show_demo_tracker_overlay) continue;
             if (!editMode && p.id == DashboardLayout::WidgetId::PreviousGames && !m_config.show_previous_games_summary) continue;
             if (!editMode && p.id == DashboardLayout::WidgetId::RankProgress && !m_config.show_rank_progress) continue;
+            if (!editMode && p.id == DashboardLayout::WidgetId::Tournaments && (!m_config.show_tournaments || !AccountClient::Instance().IsSignedIn())) continue;
             result.push_back(p);
         }
         std::sort(result.begin(), result.end(), [](const auto& a, const auto& b) { return a.order < b.order; });
@@ -522,6 +497,9 @@ void RmlUiController::RebuildDashboard() {
             << "<span class='tooltip-bubble'>" << Escape(updateTooltip) << "</span></button>";
     }
     out << "</div><div id='dashboard-match-status' class='match-status'>{{dashboard_status}}</div></div>"
+        << "<div id='tournament-topbar-root'>"
+        << (m_config.show_tournaments && AccountClient::Instance().IsSignedIn() ? TournamentUi::RenderTopbar(*Tournaments::TournamentScheduleService::Instance().Snapshot(), static_cast<int64_t>(std::time(nullptr)), m_config.tournament_reminder_standard_only, m_config.tournament_reminder_minutes) : "")
+        << "</div>"
         << "<div class='topbar-actions'>"
         << Button("history-open", "History", "ghost compact")
         << Button("accounts-open", "Accounts", "ghost compact")
@@ -582,6 +560,7 @@ void RmlUiController::MoveDashboardWidget(DashboardLayout::WidgetId widget, Dash
         for (auto& placement : c.dashboard_layout.widgets) {
             if (placement.id == widget) {
                 placement.zone = zone;
+                placement.enabled = true;
                 break;
             }
         }

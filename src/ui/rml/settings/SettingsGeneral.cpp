@@ -49,32 +49,16 @@ using namespace RmlUiDetail;
 
 std::string RmlUiController::RenderSettingsGeneral() {
     std::ostringstream out;
-    out << SectionStart("Window & Visibility")
-        << ToggleControl("require_rl_focus", "Require Rocket League focus", "Hide the overlay while another app has focus.", m_config.require_rl_focus)
-        << ToggleControl("second_monitor_mode", "Second-monitor dashboard", "Use OmniStats as a normal interactive dashboard window.", m_config.second_monitor_mode);
-    if (m_config.second_monitor_mode) {
-        out << ToggleControl("second_monitor_show_roster", "Show live roster", "", m_config.second_monitor_show_roster)
-            << ToggleControl("second_monitor_show_session", "Show session information", "", m_config.second_monitor_show_session)
-            << "<div class='row gap-sm' style='margin-top:8dp'>" << Button("reset-dashboard", "Reset dashboard layout", "ghost") << "</div>";
-    }
-    out << SectionEnd();
+    out << SectionStart("Display mode")
+        << SelectRow("display_mode", "Use OmniStats as", "", {{"overlay", "In-game overlay"}, {"dashboard", "Second-monitor dashboard"}}, m_config.second_monitor_mode ? "dashboard" : "overlay")
+        << ToggleControl("require_rl_focus", "Only show while Rocket League is active", "The dashboard stays visible while Rocket League is running.", m_config.require_rl_focus)
+        << SectionEnd();
 
     const std::string summaryHelp = "Displays the result and match statistics for " +
                                     std::to_string(std::clamp(m_config.match_summary_seconds, 5, 60)) + " seconds.";
     out << SectionStart("Match Behavior")
         << ToggleControl("show_match_summary", "Show post-match summary", summaryHelp, m_config.show_match_summary)
         << ToggleControl("show_running_indicator", "Show running indicator", "Small status badge while the transparent overlay is active.", m_config.show_running_indicator)
-        << ToggleControl("reset_session_on_close", "Reset session when OmniStats closes", "", m_config.reset_session_on_close)
-        << ToggleControl("show_session_recap_on_close", "Show a session recap afterwards", "Opens the recap card when a session with at least one game is reset.", m_config.show_session_recap_on_close, !m_config.reset_session_on_close)
-        << SectionEnd();
-
-    out << SectionStart("Startup & Updates")
-        << ToggleControl("run_on_startup", "Run on Windows startup", "", m_config.run_on_startup)
-        << ToggleControl("enable_auto_updates", "Automatically install updates", "Installs updates the next time OmniStats starts.", m_config.enable_auto_updates)
-        << SectionEnd();
-
-    out << SectionStart("Player Identity")
-        << SelectRow("identity", "Local account", "The Rocket League account your match history belongs to. OmniStats picks it up automatically in your first match.", IdentityOptions(), m_config.last_primary_id)
         << SectionEnd();
     return out.str();
 }

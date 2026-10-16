@@ -388,6 +388,7 @@ namespace RmlUiDetail {
         if (value == "demos") return DashboardLayout::WidgetId::DemoTracker;
         if (value == "previous-games") return DashboardLayout::WidgetId::PreviousGames;
         if (value == "rank-progress") return DashboardLayout::WidgetId::RankProgress;
+        if (value == "tournaments") return DashboardLayout::WidgetId::Tournaments;
         return DashboardLayout::WidgetId::LiveRoster;
     }
 
@@ -687,10 +688,11 @@ namespace RmlUiDetail {
 
     std::vector<SelectOption> OverlayVisibilityModeOptions() {
         return {
-            {"key_held", "While scoreboard key held"},
-            {"always_in_match", "Always during match"},
-            {"after_event", "For N s after event"},
-            {"menus_only", "In menus only"}};
+            {"always_visible", "Always"},
+            {"key_held", "While key held"},
+            {"always_in_match", "In matches"},
+            {"after_event", "After an event"},
+            {"menus_only", "In menus"}};
     }
 
     std::vector<SelectOption> OverlayVisibilityEventOptions() {
@@ -1023,6 +1025,9 @@ namespace RmlUiDetail {
         case DashboardLayout::WidgetId::RankProgress:
             size = {380.0f, 80.0f};
             break;
+        case DashboardLayout::WidgetId::Tournaments:
+            size = {320.0f, 40.0f};
+            break;
         default:
             size = {320.0f, 200.0f};
             break;
@@ -1033,6 +1038,7 @@ namespace RmlUiDetail {
     std::pair<float, float> OverlayWidgetMinSize(DashboardLayout::WidgetId widget, float dpiScale) {
         const float dpi = SanitizedScale(dpiScale);
         if (widget == DashboardLayout::WidgetId::LiveRoster) return {430.0f * dpi, 120.0f * dpi};
+        if (widget == DashboardLayout::WidgetId::Tournaments) return {240.0f * dpi, 40.0f * dpi};
         return {220.0f * dpi, 120.0f * dpi};
     }
 
@@ -1089,6 +1095,7 @@ namespace RmlUiDetail {
             }
             height += std::max<int>(0, static_cast<int>(container.widgets.size()) - 1) * 42.0f * scale;
         }
-        return {std::max(width, 220.0f * scale), std::max(height, 120.0f * scale)};
+        const bool compact = container.widgets.size() == 1 && container.widgets.front() == DashboardLayout::WidgetId::Tournaments;
+        return {std::max(width, 220.0f * scale), std::max(height, (compact ? 40.0f : 120.0f) * scale)};
     }
 }

@@ -48,6 +48,11 @@
 using namespace RmlUiDetail;
 
 void RmlUiController::RebuildSettings() {
+    if (m_state && m_state->ui.showMenu.load() && m_state->ui.dashboardLayoutEditMode.load()) {
+        SetRootRml("settings-root", "<div class='layout-position-toolbar card row'><span class='label'>Move or resize cards. Visibility stays in Display settings.</span>" +
+                                        Button("finish-position", "Done positioning", "primary compact") + "</div>");
+        return;
+    }
     float scrollTop = 0.0f;
     if (auto* root = Root("settings-root")) {
         if (auto* page = root->QuerySelector(".settings-page");
@@ -57,29 +62,44 @@ void RmlUiController::RebuildSettings() {
     }
     std::ostringstream content;
     switch (m_settingsPage) {
-    case SettingsPage::General:
-        content << RenderSettingsGeneral();
+    case SettingsPage::Display:
+        content << RenderSettingsGeneral() << RenderSettingsCards();
         break;
-    case SettingsPage::Cards:
-        content << RenderSettingsCards();
-        break;
-    case SettingsPage::Ranks:
-        content << RenderSettingsRanks();
-        break;
-    case SettingsPage::Shortcuts:
-        content << RenderSettingsShortcuts();
+    case SettingsPage::Reminders:
+        content << "<div class='setting-help'>Reminders work even when the tournament countdown card is off.</div>" << RenderSettingsReminders();
         break;
     case SettingsPage::Appearance:
         content << RenderSettingsAppearance();
         break;
-    case SettingsPage::Integrations:
-        content << RenderSettingsIntegrations();
+    case SettingsPage::Controls:
+        content << RenderSettingsShortcuts();
         break;
-    case SettingsPage::Data:
-        content << RenderSettingsData();
+    case SettingsPage::Accounts:
+        content << RenderSettingsIntegrations()
+                << SectionStart("Rocket League account")
+                << SelectRow("identity", "Local account", "Automatically detected in your first match.", IdentityOptions(), m_config.last_primary_id)
+                << SectionEnd()
+                << "<div style='margin:14dp 0 16dp;'>"
+                << Button("toggle-rank-details", m_showRankDetails ? "Hide rank details" : "Rank details", "ghost")
+                << "</div>";
+        if (m_showRankDetails) content << RenderSettingsRanks();
         break;
-    case SettingsPage::Troubleshooting:
-        content << RenderSettingsTroubleshooting();
+    case SettingsPage::DataSupport:
+        content << RenderSettingsData()
+                << SectionStart("Sessions")
+                << ToggleControl("reset_session_on_close", "Reset session when OmniStats closes", "", m_config.reset_session_on_close)
+                << ToggleControl("show_session_recap_on_close", "Show a session recap afterwards", "", m_config.show_session_recap_on_close, !m_config.reset_session_on_close)
+                << SectionEnd()
+                << SectionStart("Startup and updates")
+                << ToggleControl("run_on_startup", "Run on Windows startup", "", m_config.run_on_startup)
+                << ToggleControl("enable_auto_updates", "Automatically install updates", "Installs updates the next time OmniStats starts.", m_config.enable_auto_updates)
+                << SectionEnd()
+                << "<div style='margin:14dp 0 16dp;'>"
+                << Button("toggle-troubleshooting", m_showTroubleshooting ? "Hide troubleshooting" : "Troubleshooting", "ghost")
+                << "</div>";
+        if (m_showTroubleshooting) content << RenderSettingsTroubleshooting();
+        break;
+    case SettingsPage::Count:
         break;
     }
 
@@ -118,7 +138,7 @@ void RmlUiController::RebuildSettings() {
         out << Button("update-app", label, "primary");
     }
     out << "</div><div class='settings-body'><div class='settings-nav'>";
-    for (int i = 0; i < 8; ++i) {
+    for (int i = 0; i < static_cast<int>(SettingsPage::Count); ++i) {
         const auto page = static_cast<SettingsPage>(i);
         out << "<button class='" << (page == m_settingsPage ? "active" : "") << "' data-action='settings-page' data-page='" << i << "'>" << SettingsPageName(page) << "</button>";
     }

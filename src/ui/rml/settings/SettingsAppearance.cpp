@@ -139,6 +139,15 @@ std::string RmlUiController::RenderSettingsAppearance() {
     out << SectionStart("Scale")
         << SelectRow("ui_scale", "App-wide text size", "Changes text size throughout the dashboard and overlay.", scales, currentScale)
         << SectionEnd();
+    out << SectionStart("Units and formatting")
+        << SelectRow("speed_units", "Speed units", "", {{"metric", "Kilometers per hour"}, {"imperial", "Miles per hour"}}, m_config.imperial_units ? "imperial" : "metric")
+        << SelectRow("crossbar_display_mode", "Crossbar hit display", "", {{"raw", "Raw Force (UU/s)"}, {"speed", "Speed (MPH/KPH)"}}, m_config.crossbar_display_mode)
+        << ToggleControl("use_roman_numerals", "Use Roman numerals", "I, II, III in rank labels.", m_config.use_roman_numerals)
+        << SectionEnd()
+        << "<div style='margin:14dp 0 16dp;'>"
+        << Button("toggle-advanced-appearance", m_showAdvancedAppearance ? "Hide advanced appearance" : "Advanced appearance", "ghost")
+        << "</div>";
+    if (!m_showAdvancedAppearance) return out.str();
     out << SectionStart("Fonts")
         << "<div class='row wrap gap-sm' style='margin-bottom:8dp'>" << Button("reset-fonts", "Reset fonts", "ghost") << "</div>"
         << SelectRow("font_ui", "Text", "Labels, names, and body text. Default: Inter.", fontOptions(m_config.font_ui), m_config.font_ui)
@@ -170,10 +179,5 @@ std::string RmlUiController::RenderSettingsAppearance() {
         << colorRow("theme_baseline", "Graph baseline", m_config.themeGraphBaseline)
         << SectionEnd();
 
-    out << SectionStart("Units & Formatting")
-        << SelectRow("speed_units", "Speed units", "", {{"metric", "Kilometers per hour"}, {"imperial", "Miles per hour"}}, m_config.imperial_units ? "imperial" : "metric")
-        << SelectRow("crossbar_display_mode", "Crossbar hit display", "", {{"raw", "Raw Force (UU/s)"}, {"speed", "Speed (MPH/KPH)"}}, m_config.crossbar_display_mode)
-        << ToggleControl("use_roman_numerals", "Use Roman numerals", "I, II, III in rank labels.", m_config.use_roman_numerals)
-        << SectionEnd();
     return out.str();
 }

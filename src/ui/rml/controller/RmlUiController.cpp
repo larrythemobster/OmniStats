@@ -1,4 +1,6 @@
+#include "ui/rml/widgets/TournamentWidget.hpp"
 #include "ui/rml/controller/RmlUiController.hpp"
+#include <mmsystem.h>
 #include <shobjidl.h>
 #include <commdlg.h>
 
@@ -686,6 +688,7 @@ void RmlUiController::RebuildVisibleUi(bool force, bool configChanged) {
     HashAppend(runtimeStructuralHash, static_cast<uint64_t>(m_snap.inMatch));
     HashAppend(runtimeStructuralHash, static_cast<uint64_t>(m_config.second_monitor_mode));
     HashAppend(runtimeStructuralHash, static_cast<uint64_t>(RankSourceAvailable()));
+    HashAppend(runtimeStructuralHash, static_cast<uint64_t>(m_config.show_tournaments && AccountClient::Instance().IsSignedIn()));
     if (!m_config.second_monitor_mode) {
         for (const auto& container : m_config.overlay_layout.containers) {
             const bool cVis = OverlayLayout::ContainerVisible(container, visState, nowMs);
@@ -751,6 +754,8 @@ void RmlUiController::RebuildVisibleUi(bool force, bool configChanged) {
            << m_config.show_lobby_rank_snowday << '|' << m_config.show_lobby_rank_heatseeker << '|'
            << m_config.show_account_wins_overlay << '|' << m_config.show_demo_tracker_overlay << '|' << m_config.show_rank_progress << '|'
            << m_config.show_previous_games_summary << '|' << m_config.previous_games_limit << '|'
+           << m_config.show_tournaments << '|' << m_config.tournament_region << '|'
+           << m_config.tournament_reminder_minutes << '|' << m_config.tournament_reminder_standard_only << '|'
            << m_config.show_streaks_stats << '|' << m_config.show_longest_loss_streak << '|'
            << m_config.show_gamemode_breakdown << '|' << m_config.show_gamemode_record_1v1 << '|'
            << m_config.show_gamemode_record_2v2 << '|' << m_config.show_gamemode_record_3v3 << '|'
@@ -761,6 +766,8 @@ void RmlUiController::RebuildVisibleUi(bool force, bool configChanged) {
            << m_config.use_roman_numerals << '|' << m_config.key_cycle << '|' << m_config.key_expand << '|'
            << m_config.key_session << '|';
         fp << m_config.overlay_layout.version << '|' << m_config.overlay_layout.toolboxOpen << '|';
+        for (auto widget : m_config.overlay_layout.disabledWidgets)
+            fp << "disabled:" << static_cast<int>(widget) << ';';
         for (const auto& container : m_config.overlay_layout.containers) {
             fp << container.id << ':' << container.x << ',' << container.y << ',' << container.w << ',' << container.h
                << ',' << static_cast<int>(container.visibility.mode) << ',' << static_cast<int>(container.visibility.event)
@@ -773,7 +780,7 @@ void RmlUiController::RebuildVisibleUi(bool force, bool configChanged) {
         fp << '|' << m_config.dashboard_layout.version << '|' << m_config.dashboard_layout.leftColumnWeight << '|';
         for (const auto& widget : m_config.dashboard_layout.widgets)
             fp << static_cast<int>(widget.id) << ',' << static_cast<int>(widget.zone) << ',' << widget.order << ','
-               << widget.height << ',' << widget.collapsed << ';';
+               << widget.height << ',' << widget.collapsed << ',' << widget.enabled << ';';
 
         const std::string renderConfigFingerprint = fp.str();
         renderConfigChanged = force || m_lastRenderConfigFingerprint != renderConfigFingerprint;
@@ -821,6 +828,7 @@ void RmlUiController::RebuildVisibleUi(bool force, bool configChanged) {
         HashAppend(settingsHash, static_cast<uint64_t>(m_onboarding.ShowFallback()));
         HashAppend(settingsHash, static_cast<uint64_t>(m_confirmReplayUploads));
         HashAppend(settingsHash, RemoteConfig::Instance().Version());
+        HashAppend(settingsHash, Tournaments::TournamentScheduleService::Instance().Snapshot()->version);
         HashAppend(settingsHash, static_cast<uint64_t>(m_confirmDeleteHistory));
         HashAppend(settingsHash, m_editColorKey);
         HashAppend(settingsHash, m_statsApiPathError);
@@ -857,14 +865,14 @@ void RmlUiController::RebuildVisibleUi(bool force, bool configChanged) {
                 HashAppend(settingsHash, static_cast<uint64_t>(result.rlRunning));
             }
         }
-        if (m_settingsPage == SettingsPage::Data && m_state) {
+        if (m_settingsPage == SettingsPage::DataSupport && m_state) {
             HashAppend(settingsHash, m_state->ui.dbStatsVersion.load(std::memory_order_relaxed));
         }
-        if (m_settingsPage == SettingsPage::Integrations && m_state) {
+        if (m_settingsPage == SettingsPage::Accounts && m_state) {
             HashAppend(settingsHash, m_state->ui.replayUploadVersion.load(std::memory_order_relaxed));
             HashAppend(settingsHash, static_cast<uint64_t>(m_state->ui.ballchasingTokenRejected.load(std::memory_order_relaxed)));
         }
-        if (m_settingsPage == SettingsPage::General || m_settingsPage == SettingsPage::Ranks) {
+        if (m_settingsPage == SettingsPage::Accounts) {
             // game.version also advances for ordinary match counters. Hash only
             // the identity/rank fields rendered by these settings pages, without
             // sorting IDs or constructing a large temporary fingerprint string.
@@ -882,7 +890,7 @@ void RmlUiController::RebuildVisibleUi(bool force, bool configChanged) {
                     HashAppend(playerHash, static_cast<uint64_t>(player.fetched));
                     HashAppend(playerHash, static_cast<uint64_t>(static_cast<int64_t>(player.mmr)));
                     HashAppend(playerHash, player.rankTier);
-                    if (m_settingsPage == SettingsPage::Ranks) {
+                    if (m_showRankDetails) {
                         for (auto category : MmrCategories(false, m_config.show_extra_playlists)) {
                             const std::string key = MmrCategoryToString(category);
                             HashAppend(playerHash, key);
@@ -926,6 +934,7 @@ void RmlUiController::RebuildVisibleUi(bool force, bool configChanged) {
     if (rebuiltMainStructure) m_liveDomNeedsPrime = true;
 
     RefreshLiveUi(false);
+    RefreshTournaments(rebuiltMainStructure || renderConfigChanged);
 }
 
 void RmlUiController::RefreshLiveUi(bool force, bool allowStructural) {
@@ -1228,24 +1237,22 @@ bool RmlUiController::ValidateStatsApiPath(std::string input, std::string& norma
 
 const char* RmlUiController::SettingsPageName(SettingsPage page) {
     switch (page) {
-    case SettingsPage::General:
-        return "General";
-    case SettingsPage::Cards:
-        return "Cards";
-    case SettingsPage::Ranks:
-        return "Ranks";
-    case SettingsPage::Shortcuts:
-        return "Shortcuts";
+    case SettingsPage::Display:
+        return "Display";
+    case SettingsPage::Reminders:
+        return "Reminders";
     case SettingsPage::Appearance:
         return "Appearance";
-    case SettingsPage::Integrations:
-        return "Services & API";
-    case SettingsPage::Data:
-        return "Data";
-    case SettingsPage::Troubleshooting:
-        return "Troubleshooting";
+    case SettingsPage::Controls:
+        return "Controls";
+    case SettingsPage::Accounts:
+        return "Accounts & services";
+    case SettingsPage::DataSupport:
+        return "Data & support";
+    case SettingsPage::Count:
+        break;
     }
-    return "General";
+    return "Display";
 }
 
 const char* RmlUiController::ZoneName(DashboardLayout::Zone zone) {
@@ -1286,6 +1293,8 @@ std::string RmlUiController::WidgetDomId(DashboardLayout::WidgetId id) {
         return "previous-games";
     case DashboardLayout::WidgetId::RankProgress:
         return "rank-progress";
+    case DashboardLayout::WidgetId::Tournaments:
+        return "tournaments";
     }
     return "live-roster";
 }
@@ -1295,6 +1304,39 @@ std::string RmlUiController::PlaylistImageForName(const std::string& playlist) {
     return index >= 0 ? "res://images/Playlists/" + std::to_string(index) + ".png" : "";
 }
 
+void RmlUiController::RefreshTournaments(bool force) {
+    const int64_t now = static_cast<int64_t>(std::time(nullptr));
+    const auto snapshot = Tournaments::TournamentScheduleService::Instance().Snapshot();
+    const bool enabled = AccountClient::Instance().IsSignedIn();
+    if (enabled && !m_onboardingVisible) {
+        const auto* next = Tournaments::NextSlot(snapshot->slots, now, m_config.tournament_reminder_standard_only);
+        if (next && m_tournamentReminder.ShouldFire(*next, now, m_config.tournament_reminder_minutes, m_config.tournament_reminder_standard_only)) {
+            if (m_config.second_monitor_mode) {
+                if (m_config.tournament_sound_cue) PlaySoundW(L"SystemNotification", nullptr, SND_ALIAS | SND_ASYNC | SND_NODEFAULT);
+            } else {
+                ShowToast(next->title + (m_snap.inMatch ? " in " : " tournament starts in ") + TournamentUi::Countdown(next->startUnix - now), false, m_snap.inMatch);
+            }
+        }
+    }
+    if (enabled) {
+        const int64_t wake = SteadyNowMs() + (60 - now % 60) * 1000;
+        if (!m_nextVisibilityWakeMs || wake < *m_nextVisibilityWakeMs) m_nextVisibilityWakeMs = wake;
+    }
+    if (!force && m_tournamentVersion == snapshot->version && m_tournamentMinute == now / 60) return;
+    m_tournamentVersion = snapshot->version;
+    m_tournamentMinute = now / 60;
+    if (auto* root = Root("tournament-topbar-root"))
+        SetElementRml(root, enabled && m_config.show_tournaments ? TournamentUi::RenderTopbar(*snapshot, now, m_config.tournament_reminder_standard_only, m_config.tournament_reminder_minutes) : "", false);
+    if (auto* app = Root("app")) {
+        Rml::ElementList widgets;
+        app->GetElementsByClassName(widgets, "live-widget");
+        for (auto* widget : widgets) {
+            if (Attribute(widget, "data-live-widget") == "tournaments")
+                SetElementRml(widget, enabled ? TournamentUi::RenderWidget(*snapshot, now) : "", false);
+        }
+    }
+}
+
 void RmlUiController::RebuildToast() {
     if (m_statusMessage.empty() || (m_statusUntilMs && SteadyNowMs() >= m_statusUntilMs)) {
         m_statusMessage.clear();
@@ -1302,13 +1344,16 @@ void RmlUiController::RebuildToast() {
         SetRootRml("toast-root", "");
         return;
     }
-    SetRootRml("toast-root", "<div class='toast " + std::string(m_statusError ? "error" : "success") + "'>" + Escape(m_statusMessage) + "</div>");
+    SetRootRml("toast-root", "<div class='toast " + std::string(m_statusCompact ? "tournament-compact" : m_statusError ? "error"
+                                                                                                                       : "success") +
+                                 "'>" + Escape(m_statusMessage) + "</div>");
 }
 
-void RmlUiController::ShowToast(std::string message, bool error) {
+void RmlUiController::ShowToast(std::string message, bool error, bool compact) {
     m_statusMessage = std::move(message);
     m_statusError = error;
-    m_statusUntilMs = SteadyNowMs() + 5000;
+    m_statusCompact = compact;
+    m_statusUntilMs = SteadyNowMs() + (compact ? 3000 : 5000);
     RebuildToast();
 }
 

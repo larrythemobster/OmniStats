@@ -1,3 +1,8 @@
+#include "network/api/AccountClient.hpp"
+#include <windows.h>
+#include <shellapi.h>
+#include "ui/config/WidgetSettings.hpp"
+#include "core/tournaments/TournamentSchedule.hpp"
 #include "ui/rml/controller/RmlUiController.hpp"
 #include <shobjidl.h>
 #include <commdlg.h>
@@ -94,7 +99,23 @@ void RmlUiController::HandleClick(Rml::Element* target) {
     target = actionTarget;
     if (HandleViewAction(action, target)) return;
 
-    if (action == "overlay-add-widget") {
+    if (action == "toggle-card-details" || action == "toggle-advanced-appearance" ||
+        action == "toggle-rank-details" || action == "toggle-troubleshooting") {
+        if (action == "toggle-card-details") m_showCardDetails = !m_showCardDetails;
+        if (action == "toggle-advanced-appearance") m_showAdvancedAppearance = !m_showAdvancedAppearance;
+        if (action == "toggle-rank-details") m_showRankDetails = !m_showRankDetails;
+        if (action == "toggle-troubleshooting") m_showTroubleshooting = !m_showTroubleshooting;
+        RebuildSettings();
+    } else if (action == "position-widget" || action == "overlay-edit-toggle" || action == "finish-position") {
+        if (m_state) {
+            m_state->ui.showMenu.store(true);
+            m_state->ui.dashboardLayoutEditMode.store(action != "finish-position");
+        }
+        Config::Update([](ConfigData& c) { c.overlay_layout.toolboxOpen = false; });
+        m_config = Config::Read();
+        RebuildVisibleUi(true, true);
+        RebuildSettings();
+    } else if (action == "overlay-add-widget") {
         const auto widget = WidgetFromDom(Attribute(target, "data-widget"));
         const float screenWidth = static_cast<float>(m_width);
         const float screenHeight = static_cast<float>(m_height);
@@ -155,9 +176,9 @@ void RmlUiController::HandleClick(Rml::Element* target) {
     } else if (action == "settings-page") {
         FinishBindCapture();
         m_showBallchasingToken = false;
-        const int page = std::clamp(std::atoi(Attribute(target, "data-page").c_str()), 0, 7);
+        const int page = std::clamp(std::atoi(Attribute(target, "data-page").c_str()), 0, static_cast<int>(SettingsPage::Count) - 1);
         m_settingsPage = static_cast<SettingsPage>(page);
-        if (m_settingsPage == SettingsPage::Data && m_dbManager) {
+        if (m_settingsPage == SettingsPage::DataSupport && m_dbManager) {
             m_dbManager->AsyncRefreshDetailedStatsSummary();
         }
         RebuildSettings();
@@ -541,18 +562,6 @@ void RmlUiController::HandleChange(Rml::Element* target, Rml::Event& event) {
     std::string value = ControlValue(target);
     const bool checked = EventChecked(event, target);
 
-    if (key == "overlay_edit_mode") {
-        if (m_state) m_state->ui.dashboardLayoutEditMode.store(checked);
-        if (checked)
-            Config::Update([](ConfigData& c) { c.overlay_layout.toolboxOpen = false; }, true);
-        else
-            Config::RequestSave();
-        m_config = Config::Read();
-        RebuildSettings();
-        RebuildDashboard();
-        RebuildOverlay();
-        return;
-    }
     if (key == "auto_upload_replays" && checked && !m_config.ballchasing_upload_notice_accepted) {
         m_confirmReplayUploads = true;
         RebuildSettings();
@@ -587,16 +596,25 @@ void RmlUiController::HandleChange(Rml::Element* target, Rml::Event& event) {
         return true;
     };
 
+    const bool signedIn = AccountClient::Instance().IsSignedIn(m_config);
     bool themeChanged = false;
     Config::Update([&](ConfigData& c) {
         if (key == "require_rl_focus")
             c.require_rl_focus = checked;
-        else if (key == "second_monitor_mode")
-            c.second_monitor_mode = checked;
-        else if (key == "second_monitor_show_roster")
-            c.second_monitor_show_roster = checked;
-        else if (key == "second_monitor_show_session")
-            c.second_monitor_show_session = checked;
+        else if (key.rfind("widget_enabled:", 0) == 0) {
+            const auto widget = WidgetFromDom(key.substr(15));
+            if (widget != DashboardLayout::WidgetId::Tournaments || signedIn)
+                WidgetSettings::SetEnabled(c, widget, c.second_monitor_mode, checked, static_cast<float>(m_width), static_cast<float>(m_height));
+        } else if (key == "display_mode")
+            c.second_monitor_mode = value == "dashboard";
+        else if (key == "tournament_region")
+            c.tournament_region = value;
+        else if (key == "tournament_reminder_minutes")
+            c.tournament_reminder_minutes = std::clamp(std::atoi(value.c_str()), 0, 15);
+        else if (key == "tournament_reminder_standard_only")
+            c.tournament_reminder_standard_only = checked;
+        else if (key == "tournament_sound_cue")
+            c.tournament_sound_cue = checked;
         else if (key == "show_match_summary")
             c.show_match_summary = checked;
         else if (key == "show_running_indicator")
@@ -630,33 +648,9 @@ void RmlUiController::HandleChange(Rml::Element* target, Rml::Event& event) {
             c.show_session_mmr_change = checked;
         else if (key == "use_rank_icons")
             c.use_rank_icons = checked;
-        else if (key == "show_lobby_ranks_overlay") {
-            c.show_lobby_ranks_overlay = checked;
-            for (auto& w : c.dashboard_layout.widgets)
-                if (w.id == DashboardLayout::WidgetId::LobbyRanks) w.zone = checked ? DashboardLayout::Zone::Left : DashboardLayout::Zone::Hidden;
-        } else if (key == "show_account_wins_overlay")
+        else if (key == "show_account_wins_overlay")
             c.show_account_wins_overlay = checked;
-        else if (key == "show_demo_tracker_overlay") {
-            c.show_demo_tracker_overlay = checked;
-            for (auto& w : c.dashboard_layout.widgets)
-                if (w.id == DashboardLayout::WidgetId::DemoTracker) w.zone = checked ? DashboardLayout::Zone::Right : DashboardLayout::Zone::Hidden;
-        } else if (key == "show_rank_progress") {
-            c.show_rank_progress = checked;
-            for (auto& w : c.dashboard_layout.widgets)
-                if (w.id == DashboardLayout::WidgetId::RankProgress) w.zone = checked ? DashboardLayout::Zone::Right : DashboardLayout::Zone::Hidden;
-        } else if (key == "show_previous_games_summary") {
-            c.show_previous_games_summary = checked;
-            for (auto& w : c.dashboard_layout.widgets)
-                if (w.id == DashboardLayout::WidgetId::PreviousGames) w.zone = checked ? DashboardLayout::Zone::Top : DashboardLayout::Zone::Hidden;
-        } else if (key == "show_streaks_stats") {
-            c.show_streaks_stats = checked;
-            for (auto& w : c.dashboard_layout.widgets)
-                if (w.id == DashboardLayout::WidgetId::StreaksStats) w.zone = checked ? DashboardLayout::Zone::Right : DashboardLayout::Zone::Hidden;
-        } else if (key == "show_gamemode_breakdown") {
-            c.show_gamemode_breakdown = checked;
-            for (auto& w : c.dashboard_layout.widgets)
-                if (w.id == DashboardLayout::WidgetId::GamemodeBreakdown) w.zone = checked ? DashboardLayout::Zone::Right : DashboardLayout::Zone::Hidden;
-        } else if (key == "show_lobby_rank_1v1")
+        else if (key == "show_lobby_rank_1v1")
             c.show_lobby_rank_1v1 = checked;
         else if (key == "show_lobby_rank_2v2")
             c.show_lobby_rank_2v2 = checked;
@@ -798,6 +792,8 @@ void RmlUiController::HandleChange(Rml::Element* target, Rml::Event& event) {
             }
         }
     });
+    if (key == "show_tournaments" || key == "tournament_region" || key == "widget_enabled:tournaments")
+        Tournaments::TournamentScheduleService::Instance().RequestRefresh();
 
     if (key == "run_on_startup") Config::SetWindowsAutoStart(checked);
     if (key == "identity" && m_state) {

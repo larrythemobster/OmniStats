@@ -73,6 +73,8 @@ namespace OverlayLayout {
             return "after_event";
         case Visibility::MenusOnly:
             return "menus_only";
+        case Visibility::Always:
+            return "always_visible";
         default:
             return "key_held";
         }
@@ -102,6 +104,7 @@ namespace OverlayLayout {
         if (token == "alwaysinmatch" || token == "always") return Visibility::AlwaysInMatch;
         if (token == "afterevent") return Visibility::AfterEvent;
         if (token == "menusonly" || token == "menuonly" || token == "inmenusonly") return Visibility::MenusOnly;
+        if (token == "alwaysvisible") return Visibility::Always;
         return Visibility::KeyHeld;
     }
 
@@ -189,7 +192,7 @@ namespace OverlayLayout {
     void Sanitize(ContainerConfig::Visibility& visibility) {
         const int modeInt = static_cast<int>(visibility.mode);
         if (modeInt < static_cast<int>(Visibility::KeyHeld) ||
-            modeInt > static_cast<int>(Visibility::MenusOnly)) {
+            modeInt > static_cast<int>(Visibility::Always)) {
             visibility.mode = Visibility::KeyHeld;
         }
         const int eventInt = static_cast<int>(visibility.event);
@@ -308,6 +311,8 @@ namespace OverlayLayout {
             return state.inMatch || (vis.alsoWhileKeyHeld && state.keyHeld);
         case Visibility::MenusOnly:
             return (state.inMenus && !state.inMatch) || (vis.alsoWhileKeyHeld && state.keyHeld);
+        case Visibility::Always:
+            return true;
         case Visibility::AfterEvent: {
             if (vis.alsoWhileKeyHeld && state.keyHeld) return true;
             const int64_t eventMs = ActiveEventTimestampMs(vis.event, state);

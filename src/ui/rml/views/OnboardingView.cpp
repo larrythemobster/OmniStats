@@ -106,7 +106,7 @@ void OnboardingView::Refresh(const ConfigData& config, const StatsApiConfig::Che
     Set(m_discord, config.discord_rpc_enabled, "discord");
     Set(m_crashReports, config.crash_reports_enabled, "crash_reports");
     Set(m_identityHint,
-        Rml::String(accountDetected ? "Your account was detected from a match. You can change it later in Settings > General."
+        Rml::String(accountDetected ? "Your account was detected from a match. You can change it later in Settings > Accounts & services."
                                     : "Only accounts OmniStats has already seen are listed. Auto-detect works for new installs."),
         "identity_hint");
 

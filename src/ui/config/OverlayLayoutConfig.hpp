@@ -21,7 +21,8 @@ namespace OverlayLayout {
                 KeyHeld = 0,
                 AlwaysInMatch = 1,
                 AfterEvent = 2,
-                MenusOnly = 3
+                MenusOnly = 3,
+                Always = 4
             };
             enum Event {
                 MatchStart = 0,
@@ -80,6 +81,7 @@ namespace OverlayLayout {
         int version = 1;
         bool toolboxOpen = false;
         std::vector<ContainerConfig> containers;
+        std::vector<DashboardLayout::WidgetId> disabledWidgets;
     };
 
     LayoutConfig DefaultOverlayLayout();

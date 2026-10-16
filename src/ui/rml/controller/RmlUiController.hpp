@@ -21,6 +21,7 @@
 #include <thread>
 
 #include "core/config/Config.hpp"
+#include "core/tournaments/TournamentSchedule.hpp"
 #include "core/state/SessionState.hpp"
 #include "core/game/RankProgress.hpp"
 #include "core/game/StatsScope.hpp"
@@ -127,14 +128,13 @@ class RmlUiController final : public Rml::EventListener {
 
   private:
     enum class SettingsPage {
-        General,
-        Cards,
-        Ranks,
-        Shortcuts,
+        Display,
+        Reminders,
         Appearance,
-        Integrations,
-        Data,
-        Troubleshooting
+        Controls,
+        Accounts,
+        DataSupport,
+        Count
     };
 
     enum class BindCaptureTarget {
@@ -191,6 +191,8 @@ class RmlUiController final : public Rml::EventListener {
         Rml::Element* guideX = nullptr;
         Rml::Element* guideY = nullptr;
         Rml::Element* dropTarget = nullptr;
+        Rml::Element* dockGuide = nullptr;
+        Rml::Element* dockTarget = nullptr;
         std::vector<DragSnapRect> snapRects;
     };
 
@@ -266,11 +268,11 @@ class RmlUiController final : public Rml::EventListener {
     std::string RenderOverlayContainer(const OverlayLayout::ContainerConfig& container, bool editMode);
     // Overlay key hints (cycle / expand / session) that close the roster block.
     std::string RenderRosterFooter() const;
-    std::string RenderOverlayContainerVisibilityControls(const OverlayLayout::ContainerConfig& container) const;
     std::string RenderOverlayToolbox(bool editMode);
 
     std::string RenderSettingsGeneral();
     std::string RenderSettingsCards();
+    std::string RenderSettingsReminders();
     std::string RenderSettingsRanks();
     std::string RenderSettingsShortcuts();
     std::string RenderSettingsAppearance();
@@ -300,7 +302,8 @@ class RmlUiController final : public Rml::EventListener {
     // Runs `work` off the render thread; the returned callback runs on the render thread during Update().
     bool StartBackgroundTask(std::string startedToast, std::function<std::function<void()>(std::stop_token)> work);
     void PublishBackgroundTaskCompletion();
-    void ShowToast(std::string message, bool error = false);
+    void ShowToast(std::string message, bool error = false, bool compact = false);
+    void RefreshTournaments(bool force = false);
 
     static bool ValidateStatsApiPath(std::string input, std::string& normalized, std::string& error);
     static const char* SettingsPageName(SettingsPage page);
@@ -445,7 +448,7 @@ class RmlUiController final : public Rml::EventListener {
     uint64_t m_lastSettingsRosterHash = 0;
     bool m_hasSettingsRosterHash = false;
     uint64_t m_lastSettingsRosterGameVersion = std::numeric_limits<uint64_t>::max();
-    SettingsPage m_lastSettingsRosterPage = SettingsPage::General;
+    SettingsPage m_lastSettingsRosterPage = SettingsPage::Display;
     std::unordered_map<std::string, std::string> m_lastLiveWidgetRml;
     RmlLiveModel m_liveModel;
     bool m_liveDomNeedsPrime = true;
@@ -465,7 +468,7 @@ class RmlUiController final : public Rml::EventListener {
     int m_lastRecentMatchHistoryLimit = 0;
 
     bool m_detailedStatsSummaryRequested = false;
-    SettingsPage m_settingsPage = SettingsPage::General;
+    SettingsPage m_settingsPage = SettingsPage::Display;
     BindCaptureTarget m_bindCaptureTarget = BindCaptureTarget::None;
     bool m_showBallchasingToken = false;
     std::string m_editColorKey;
@@ -476,6 +479,10 @@ class RmlUiController final : public Rml::EventListener {
     // The SV texture only needs to change when the visible hue bucket changes.
     // Avoid rebinding/regenerating a procedural texture for every mouse pixel.
     int m_colorPickerGradientHue = -1;
+    bool m_showCardDetails = false;
+    bool m_showAdvancedAppearance = false;
+    bool m_showRankDetails = false;
+    bool m_showTroubleshooting = false;
     bool m_confirmReplayUploads = false;
     bool m_confirmDeleteHistory = false;
     bool m_showUpdatePrompt = false;
@@ -488,6 +495,10 @@ class RmlUiController final : public Rml::EventListener {
     std::string m_statusMessage;
     bool m_statusError = false;
     int64_t m_statusUntilMs = 0;
+    bool m_statusCompact = false;
+    uint64_t m_tournamentVersion = 0;
+    int64_t m_tournamentMinute = -1;
+    Tournaments::ReminderTracker m_tournamentReminder;
     bool m_rebuildingUi = false;
     bool m_renderDirty = true;
     std::chrono::steady_clock::time_point m_nextRmlUpdateAt = std::chrono::steady_clock::time_point::max();
