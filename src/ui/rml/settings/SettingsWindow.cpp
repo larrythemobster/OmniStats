@@ -48,11 +48,6 @@
 using namespace RmlUiDetail;
 
 void RmlUiController::RebuildSettings() {
-    if (m_state && m_state->ui.showMenu.load() && m_state->ui.dashboardLayoutEditMode.load()) {
-        SetRootRml("settings-root", "<div class='layout-position-toolbar card row'><span class='label'>Move or resize cards. Visibility stays in Display settings.</span>" +
-                                        Button("finish-position", "Done positioning", "primary compact") + "</div>");
-        return;
-    }
     float scrollTop = 0.0f;
     if (auto* root = Root("settings-root")) {
         if (auto* page = root->QuerySelector(".settings-page");

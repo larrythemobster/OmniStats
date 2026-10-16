@@ -3667,10 +3667,12 @@ TEST_F(RmlUiControllerStateTest, DisplayCardToggleWorksWithoutLayoutEditingAndKe
     ASSERT_NE(position, nullptr);
     Click(controller, position);
     EXPECT_TRUE(state->ui.dashboardLayoutEditMode.load());
-    auto* done = SettingsRoot(controller)->QuerySelector("[data-action='finish-position']");
+    auto* done = OverlayRoot(controller)->QuerySelector("[data-action='finish-position']");
     ASSERT_NE(done, nullptr);
     Click(controller, done);
     EXPECT_FALSE(state->ui.dashboardLayoutEditMode.load());
+    state->ui.showMenu.store(true);
+    controller.Update(Config::Read());
     toggle = SettingsRoot(controller)->QuerySelector("[data-setting='widget_enabled:mmr-graph']");
     ASSERT_NE(toggle, nullptr);
     parameters["checked"] = false;

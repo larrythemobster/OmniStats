@@ -108,13 +108,15 @@ void RmlUiController::HandleClick(Rml::Element* target) {
         RebuildSettings();
     } else if (action == "position-widget" || action == "overlay-edit-toggle" || action == "finish-position") {
         if (m_state) {
-            m_state->ui.showMenu.store(true);
-            m_state->ui.dashboardLayoutEditMode.store(action != "finish-position");
+            const bool editing = action != "finish-position";
+            m_state->ui.dashboardLayoutEditMode.store(editing);
+            m_state->ui.showMenu.store(false);
+            if (!editing) Config::RequestSave();
         }
+        SetRootRml("settings-root", "");
         Config::Update([](ConfigData& c) { c.overlay_layout.toolboxOpen = false; });
         m_config = Config::Read();
         RebuildVisibleUi(true, true);
-        RebuildSettings();
     } else if (action == "overlay-add-widget") {
         const auto widget = WidgetFromDom(Attribute(target, "data-widget"));
         const float screenWidth = static_cast<float>(m_width);
@@ -185,7 +187,6 @@ void RmlUiController::HandleClick(Rml::Element* target) {
     } else if (action == "close-settings") {
         FinishBindCapture();
         if (m_state) {
-            if (m_state->ui.dashboardLayoutEditMode.exchange(false)) Config::RequestSave();
             m_state->ui.showMenu.store(false);
         }
         SetRootRml("settings-root", "");
