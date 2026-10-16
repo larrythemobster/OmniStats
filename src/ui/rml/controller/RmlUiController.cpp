@@ -842,8 +842,10 @@ void RmlUiController::RebuildVisibleUi(bool force, bool configChanged) {
             const bool controllerConnected = m_state->ui.controllerConnected.load(std::memory_order_relaxed);
             HashAppend(settingsHash, static_cast<uint64_t>(controllerConnected));
             HashAppend(settingsHash, static_cast<uint64_t>(m_state->ui.controllerIsGameController.load(std::memory_order_relaxed)));
-            if (m_bindCaptureTarget != BindCaptureTarget::None) {
+            const bool capturing = m_bindCaptureTarget != BindCaptureTarget::None;
+            if (capturing)
                 HashAppend(settingsHash, static_cast<uint64_t>(static_cast<int64_t>(m_state->ui.lastKeyboardKeyPressed.load(std::memory_order_relaxed))));
+            if (capturing || (controllerConnected && m_settingsPage == SettingsPage::Controls)) {
                 HashAppend(settingsHash, static_cast<uint64_t>(static_cast<int64_t>(m_state->ui.lastControllerButtonPressed.load(std::memory_order_relaxed))));
                 HashAppend(settingsHash, static_cast<uint64_t>(static_cast<int64_t>(m_state->ui.lastRawControllerButtonPressed.load(std::memory_order_relaxed))));
             }
