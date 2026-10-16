@@ -73,9 +73,9 @@ TEST(RmlUiLayoutState, DashboardSanitizeRestoresMissingWidgetsAndBoundsColumnWei
     DashboardLayout::Sanitize(layout);
 
     EXPECT_FLOAT_EQ(layout.leftColumnWeight, 0.75f);
+    EXPECT_EQ(layout.widgets.size(), 10u);
     const auto tournament = std::find_if(layout.widgets.begin(), layout.widgets.end(), [](const auto& item) { return item.id == DashboardLayout::WidgetId::Tournaments; });
-    ASSERT_NE(tournament, layout.widgets.end());
-    EXPECT_EQ(tournament->zone, DashboardLayout::Zone::Hidden);
+    EXPECT_EQ(tournament, layout.widgets.end());
     const auto graph = std::find_if(layout.widgets.begin(), layout.widgets.end(), [](const auto& item) { return item.id == DashboardLayout::WidgetId::MmrGraph; });
     ASSERT_NE(graph, layout.widgets.end());
     EXPECT_EQ(graph->zone, DashboardLayout::Zone::Top);

@@ -67,3 +67,33 @@ TEST(WidgetSettings, IsSignedInAcceptsConfigReferenceWithoutDeadlockInsideUpdate
     },
                    false);
 }
+
+TEST(WidgetSettings, DockedWidgetsHaveIndependentVisibilityRules) {
+    using Id = DashboardLayout::WidgetId;
+    OverlayLayout::LayoutConfig layout;
+    OverlayLayout::ContainerConfig stack;
+    stack.id = "stack";
+    stack.widgets = {Id::Tournaments, Id::PreviousGames};
+    layout.containers = {stack};
+
+    OverlayLayout::ContainerConfig::Visibility visTourn;
+    visTourn.mode = OverlayLayout::Visibility::MenusOnly;
+    layout.widgetVisibility[Id::Tournaments] = visTourn;
+
+    OverlayLayout::ContainerConfig::Visibility visGames;
+    visGames.mode = OverlayLayout::Visibility::AlwaysInMatch;
+    layout.widgetVisibility[Id::PreviousGames] = visGames;
+
+    OverlayLayout::VisibilityState state;
+    state.inMatch = false;
+    state.inMenus = true;
+    const auto rTourn = OverlayLayout::GetWidgetVisibility(layout, Id::Tournaments);
+    const auto rGames = OverlayLayout::GetWidgetVisibility(layout, Id::PreviousGames);
+    EXPECT_TRUE(OverlayLayout::IsVisibilityActive(rTourn, state, 100));
+    EXPECT_FALSE(OverlayLayout::IsVisibilityActive(rGames, state, 100));
+
+    state.inMatch = true;
+    state.inMenus = false;
+    EXPECT_FALSE(OverlayLayout::IsVisibilityActive(rTourn, state, 100));
+    EXPECT_TRUE(OverlayLayout::IsVisibilityActive(rGames, state, 100));
+}

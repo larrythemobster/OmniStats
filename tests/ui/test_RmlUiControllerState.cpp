@@ -2236,7 +2236,7 @@ TEST_F(RmlUiControllerStateTest, DisplaySettingsPersistsReplayVisibilityWithoutE
     auto* root = SettingsRoot(controller);
     ASSERT_NE(root, nullptr);
 
-    auto* hideReplayCheckbox = root->QuerySelector("[data-setting='overlay_vis_hide_replay:lobby_ranks']");
+    auto* hideReplayCheckbox = root->QuerySelector("[data-setting='widget_vis_hide_replay:lobby-ranks']");
     ASSERT_NE(hideReplayCheckbox, nullptr);
 
     hideReplayCheckbox->Click();
@@ -2244,10 +2244,8 @@ TEST_F(RmlUiControllerStateTest, DisplaySettingsPersistsReplayVisibilityWithoutE
     controller.Render();
 
     const ConfigData updated = Config::Read();
-    const auto it = std::find_if(updated.overlay_layout.containers.begin(), updated.overlay_layout.containers.end(),
-                                 [](const auto& c) { return c.id == "lobby_ranks"; });
-    ASSERT_NE(it, updated.overlay_layout.containers.end());
-    EXPECT_TRUE(it->visibility.hideDuringReplay);
+    const auto vis = OverlayLayout::GetWidgetVisibility(updated.overlay_layout, DashboardLayout::WidgetId::LobbyRanks);
+    EXPECT_TRUE(vis.hideDuringReplay);
     EXPECT_FALSE(state->ui.dashboardLayoutEditMode.load());
 }
 
@@ -2620,10 +2618,10 @@ TEST_F(RmlUiControllerStateTest, DeferredSelectRebuildSurvivesBlockedUpdateUntil
 
     auto* root = SettingsRoot(controller);
     ASSERT_NE(root, nullptr);
-    ASSERT_EQ(root->QuerySelector("[data-setting='overlay_vis_event:main_stack']"), nullptr);
+    ASSERT_EQ(root->QuerySelector("[data-setting='widget_vis_event:live-roster']"), nullptr);
 
     auto* modeSelect = dynamic_cast<Rml::ElementFormControl*>(
-        root->QuerySelector("[data-setting='overlay_vis_mode:main_stack']"));
+        root->QuerySelector("[data-setting='widget_vis_mode:live-roster']"));
     ASSERT_NE(modeSelect, nullptr);
     modeSelect->SetValue("after_event");
     EXPECT_TRUE(HasDeferredSelectRebuild(controller));
@@ -2631,14 +2629,14 @@ TEST_F(RmlUiControllerStateTest, DeferredSelectRebuildSurvivesBlockedUpdateUntil
     SimulateOverlayDragStart(controller, "main_stack", 1490.0f, 0.0f);
     controller.Update(Config::Read(), true, Config::Revision());
     EXPECT_TRUE(HasDeferredSelectRebuild(controller));
-    EXPECT_EQ(SettingsRoot(controller)->QuerySelector("[data-setting='overlay_vis_event:main_stack']"), nullptr);
+    EXPECT_EQ(SettingsRoot(controller)->QuerySelector("[data-setting='widget_vis_event:live-roster']"), nullptr);
 
     ClearOverlayDrag(controller);
     controller.Update(Config::Read(), false, Config::Revision());
     controller.Render();
     EXPECT_FALSE(HasDeferredSelectRebuild(controller));
-    EXPECT_NE(SettingsRoot(controller)->QuerySelector("[data-setting='overlay_vis_event:main_stack']"), nullptr);
-    EXPECT_NE(SettingsRoot(controller)->QuerySelector("[data-setting='overlay_vis_seconds:main_stack']"), nullptr);
+    EXPECT_NE(SettingsRoot(controller)->QuerySelector("[data-setting='widget_vis_event:live-roster']"), nullptr);
+    EXPECT_NE(SettingsRoot(controller)->QuerySelector("[data-setting='widget_vis_seconds:live-roster']"), nullptr);
 }
 
 TEST_F(RmlUiControllerStateTest, EscapeNeutralizesDataBindingBraces) {
