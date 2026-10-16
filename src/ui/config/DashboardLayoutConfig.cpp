@@ -19,6 +19,7 @@ namespace DashboardLayout {
                 {WidgetId::DemoTracker, Zone::Right, 4, 0.0f, false},
                 {WidgetId::LobbyRanks, Zone::Right, 5, 0.0f, false},
                 {WidgetId::GamemodeBreakdown, Zone::Hidden, 0, 0.0f, false},
+                {WidgetId::Tournaments, Zone::Hidden, 1, 0.0f, false},
             }};
     }
 
@@ -37,7 +38,8 @@ namespace DashboardLayout {
             WidgetId::GamemodeBreakdown,
             WidgetId::LobbyRanks,
             WidgetId::DemoTracker,
-            WidgetId::PreviousGames};
+            WidgetId::PreviousGames,
+            WidgetId::Tournaments};
 
         std::vector<WidgetPlacement> validWidgets;
         for (const auto& id : allIds) {
@@ -98,6 +100,8 @@ namespace DashboardLayout {
             return "previous_games";
         case WidgetId::RankProgress:
             return "rank_progress";
+        case WidgetId::Tournaments:
+            return "tournaments";
         }
         return "unknown";
     }
@@ -129,6 +133,7 @@ namespace DashboardLayout {
         if (value == "demo_tracker") return WidgetId::DemoTracker;
         if (value == "previous_games") return WidgetId::PreviousGames;
         if (value == "rank_progress") return WidgetId::RankProgress;
+        if (value == "tournaments") return WidgetId::Tournaments;
         return WidgetId::LiveRoster;
     }
 
@@ -163,6 +168,8 @@ namespace DashboardLayout {
             return "Previous Games";
         case WidgetId::RankProgress:
             return "Rank Progress";
+        case WidgetId::Tournaments:
+            return "Tournaments";
         }
         return "Unknown Widget";
     }

@@ -16,7 +16,8 @@ namespace DashboardLayout {
         LobbyRanks = 6,
         DemoTracker = 7,
         PreviousGames = 8,
-        RankProgress = 9
+        RankProgress = 9,
+        Tournaments = 10
     };
 
     enum class Zone : int {
@@ -33,6 +34,7 @@ namespace DashboardLayout {
         int order = 0;
         float height = 0.0f; // 0 means auto
         bool collapsed = false;
+        bool enabled = true;
     };
 
     struct LayoutConfig {
