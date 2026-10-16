@@ -1,11 +1,40 @@
-# Overlay visibility rules
+# Display and reminders
 
-In overlay edit mode (**Settings > Cards > Edit overlay layout**), each overlay container has its own **Visibility** rule:
+## Cards
 
-- **While scoreboard key held**: shows the container while holding the overlay key or controller button.
-- **Always during match**: keeps the container visible throughout an active match.
-- **For N s after event**: shows the container for 1 to 30 seconds after match start, the first kickoff countdown, each kickoff countdown, a goal, match end, or the podium screen.
-- **In menus only**: shows the container only outside matches.
-- **Also while key held** and **Hide during goal replays** toggles per container.
+Open **Settings > Display** and select **In-game overlay** or **Second-monitor dashboard**. Each mode has its own card toggles. Enabling an unplaced card adds it automatically. Turning a card off preserves its position and visibility rule.
 
-New installs default the Lobby Ranks container to **8 s after the first kickoff countdown** (plus while the key is held), the post-match summary to **20 s after the podium**, and all other containers to **While scoreboard key held**. Existing configs keep their previous behavior on upgrade unless changed in edit mode.
+Use **Position** next to an enabled card to move, resize, or dock it. **Done positioning** returns to settings. Layout editing does not contain visibility controls.
+
+Overlay cards have a **Show when** selector in Display settings:
+
+- **Always**: visible in menus and matches.
+- **While key held**: visible while holding the overlay key or controller button.
+- **In matches**: visible throughout an active match.
+- **After an event**: visible for 1 to 30 seconds after the selected match event.
+- **In menus**: visible outside matches.
+
+Docked cards share their container's visibility rule. Expand **Card details** for the additional key-held and goal-replay options, session metrics, playlist columns, and other card details.
+
+Existing placements and visibility rules are preserved. New standalone cards enabled from settings start with **Always** visibility.
+
+## Tournaments
+
+The tournament countdown has the same compact layout in both modes: next tournament name, region, and time remaining. Enable it under **Settings > Display**. It does not show a schedule list, second-chance row, or update timestamp.
+
+Configure region, reminder timing, the standard-only filter, and dashboard sound under **Settings > Reminders**. Reminders work independently of the countdown card. They require an OmniStats account, as does the countdown.
+
+Auto region reads Rocket League's cached datacenter pings, falling back to recent match reservations in `Launch.log`. Manual selection is available because the game's tournament-region preference can differ from its lowest-ping region.
+
+The standard-only reminder filter uses the API's `bUpdateSkill` flag. It does not filter the countdown. Overlay reminders last five seconds outside matches and three seconds during matches. Dashboard mode supports an optional sound cue once per slot. Reminders do not take keyboard focus.
+
+Schedules refresh every 30 minutes. Failed refreshes retry after five minutes while retaining the last successful schedule for that region. Signing out disables schedule access and reminders.
+
+## Settings navigation
+
+- **Display**: mode, card visibility, placement, and card details.
+- **Reminders**: tournament notification preferences and region.
+- **Appearance**: text size and units; fonts and colours under Advanced appearance.
+- **Controls**: keyboard and controller bindings.
+- **Accounts & services**: OmniStats sign-in, integrations, Rocket League identity, and rank details.
+- **Data & support**: history, data tools, sessions, startup preferences, and troubleshooting.

@@ -9,6 +9,7 @@ OmniStats is a local-first Windows companion application for Rocket League. Tele
 | **Startup diagnostics** | `api.omnistats.org` | App version, pseudonymous installation ID, and integration toggle states. No match data or player names. | Required (startup) |
 | **Update checks** | `omnistats.org` | App version. Receives version metadata and announcements. The MSI is checked against its SHA-256 checksum and pinned Authenticode signature before installation. | Always on |
 | **OmniStats rank lookup** | `api.omnistats.org` | Up to 8 player platform and account IDs per batch, sent with the signed-in access token or an API key. | Opt-in |
+| **Tournament schedules** | `api.omnistats.org` | Region code, device ID, and signed-in access token. Local ping-cache and match-log contents are not uploaded. | Enabled while signed in; can be disabled |
 | **Tracker rank lookup** | Tracker Network | Lobby player public display names and platform identifiers. | Opt-in |
 | **Replay uploads** | `ballchasing.com` | Rocket League `.replay` files containing match participant identities and gameplay data. | Opt-in |
 | **Crash reports** | `api.omnistats.org` | Windows minidump, app version, and installation ID. May contain process memory. | Opt-in |
@@ -27,6 +28,8 @@ All match and user data is stored locally in `%APPDATA%\omnistats\omnistats.db` 
 - **Configuration:** Stored in `config.json`. Account signing keys and tokens are encrypted using Windows DPAPI (`CryptProtectData`).
 
 OmniStats does not upload your local database. Settings provides controls to export data (`%APPDATA%\omnistats\exports`), merge external databases, or delete history.
+
+Automatic tournament-region detection reads Rocket League's `RegionCache.cache` and, if necessary, recent reservation-region fields in `Launch.log` locally. Only the selected region code is sent to the schedule API.
 
 ## Diagnostic logs and support bundles
 

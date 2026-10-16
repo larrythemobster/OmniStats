@@ -20,6 +20,7 @@
 - **Player scouting.** Head-to-head records (with and vs) computed from local history, plus private player notes.
 - **Session insights.** Win rates by teammate, time-of-day trends, and session recap cards exportable as PNG.
 - **Account tracking.** Track MMR across all playlists for your main and alts without Rocket League running.
+- **Tournament reminders.** Signed-in users get a compact next-tournament countdown in either display mode, brief in-match reminders, and an optional dashboard sound cue. Card visibility and reminders are configured separately.
 - **Modular layout.** Draggable, dockable cards with per-card visibility rules, or a separate second-monitor window.
 - **Integrations.** Optional automatic replay saving, Ballchasing.com uploads, and Discord Rich Presence.
 
@@ -34,7 +35,7 @@
 | **Packaging** | WiX Toolset v4 (MSI) | Authenticode-signed installer. The updater checks the MSI's SHA-256 checksum and pinned Authenticode signature before installing. |
 | **Test suite** | GoogleTest | Unit and integration tests, including offscreen headless UI tests rendered through DirectX 11 WARP. |
 
-Existing installations receive a one-time device-link prompt after upgrading if they are not linked. Saved API keys migrate in the background before the prompt is considered. If migration fails, Settings > Services & API explains how to recover and offers Retry migration without opening a browser. The key stays saved for retry or the next launch. Signing out discards the saved key and prevents an in-flight migration from signing the device back in.
+Existing installations receive a one-time device-link prompt after upgrading if they are not linked. Saved API keys migrate in the background before the prompt is considered. If migration fails, Settings > Accounts & services explains how to recover and offers Retry migration without opening a browser. The key stays saved for retry or the next launch. Signing out discards the saved key and prevents an in-flight migration from signing the device back in.
 
 ## Supported surfaces
 
