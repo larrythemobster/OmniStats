@@ -653,7 +653,7 @@ void RmlUiController::RebuildVisibleUi(bool force, bool configChanged) {
         }
     }
     const bool dashboardEdit = m_state && m_state->ui.dashboardLayoutEditMode.load(std::memory_order_relaxed);
-    const bool editMode = showMenu && dashboardEdit;
+    const bool editMode = dashboardEdit;
     const bool showGraphView = m_state && m_state->ui.showGraphView.load(std::memory_order_relaxed);
     const bool h2hExpanded = m_state && m_state->ui.h2hExpanded.load(std::memory_order_relaxed);
     const OverlayLayout::VisibilityState visState =

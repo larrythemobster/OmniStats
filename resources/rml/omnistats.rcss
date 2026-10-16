@@ -472,7 +472,7 @@ button.version-update .tooltip-bubble {
     margin-top: 5dp;
     margin-bottom: 0;
 }
-.dashboard-topbar .match-status { font-size: 11dp; font-weight: 400; color: #9aa4b2; margin-left: 14dp; }
+.dashboard-topbar .match-status { font-size: 11dp; font-weight: 400; color: #9aa4b2; margin-left: 12dp; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 180dp; }
 .playlist-icon { width: 20dp; height: 20dp; }
 .roster-header { display: block; padding-bottom: 4dp; border-bottom: 1dp #2a2a2a55; }
 .roster-footer { display: flex; flex-direction: row; justify-content: space-between; gap: 7dp; margin-top: 4dp; padding-top: 4dp; border-top: 1dp #2a2a2a55; color: #9aa4b2; font-size: 11dp; }
@@ -580,6 +580,7 @@ button, .button {
     color: #eef1f5;
     cursor: pointer;
     text-align: center;
+    white-space: nowrap;
 }
 button:hover, .button:hover { background-color: #303030; border-color: #505050; }
 button:active, .button:active { background-color: #1c1c1c; }
@@ -594,6 +595,8 @@ button.compact {
     font-size: 11dp;
     text-align: center;
     vertical-align: middle;
+    white-space: nowrap;
+    flex-shrink: 0;
 }
 button.window-control {
     width: 26dp;
@@ -627,6 +630,12 @@ button.window-control.danger:hover {
     flex-direction: row;
     align-items: center;
     margin-left: auto;
+    flex-shrink: 0;
+    gap: 4dp;
+}
+.topbar-actions button {
+    white-space: nowrap;
+    flex-shrink: 0;
 }
 .win-icon-min {
     display: inline-block;
@@ -1818,3 +1827,10 @@ body.view-document { pointer-events: none; }
 .display-card-options .setting-row { border: 0; }
 .layout-position-toolbar { position: absolute; right: 16dp; bottom: 16dp; gap: 16dp; pointer-events: auto; }
 .toast.tournament-compact { font-size: 12dp; padding: 5dp 10dp; max-width: 300dp; border-radius: 6dp; }
+
+#tournament-topbar-root { flex-shrink: 0; margin-left: 8dp; margin-right: 8dp; }
+.tournament-topbar { display: flex; flex-direction: row; align-items: center; gap: 6dp; height: 22dp; line-height: 20dp; padding: 0 8dp; border: 1dp #eef1f526; border-radius: 5dp; background-color: #141414cc; font-size: 11dp; white-space: nowrap; }
+.tournament-topbar-title { color: #eef1f5; font-weight: 600; }
+.tournament-topbar.starting-soon { border-color: #ff0021; }
+.tournament-topbar.starting-soon .tournament-remaining { color: #ff304b; }
+.tournament-topbar .tooltip-bubble { right: 0; left: auto; top: 100%; bottom: auto; margin: 6dp 0 0; min-width: 240dp; text-align: left; line-height: 1.5; }

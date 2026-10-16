@@ -54,9 +54,9 @@ namespace TournamentUi {
         if (!next) return {};
         const bool soon = reminderMinutes > 0 && next->startUnix - now <= static_cast<int64_t>(reminderMinutes) * 60;
         std::ostringstream out;
-        out << "<div class='tournament-topbar tooltip-host" << (soon ? " starting-soon" : "") << "'><span class='tournament-topbar-label'>"
-            << (soon ? "Starting soon" : "Next tournament") << "</span><span class='tournament-topbar-title'>" << Escape(next->title)
-            << "</span><span class='mono accent'>" << Countdown(next->startUnix - now) << "</span><span class='tooltip-bubble'>";
+        out << "<div class='tournament-topbar tooltip-host" << (soon ? " starting-soon" : "") << "'>"
+            << "<span class='tournament-topbar-title'>" << Escape(next->title) << "</span>"
+            << "<span class='mono accent tournament-remaining'>" << Countdown(next->startUnix - now) << "</span><span class='tooltip-bubble'>";
         size_t count = 0;
         for (const auto& slot : snapshot.slots) {
             if (slot.startUnix <= now) continue;

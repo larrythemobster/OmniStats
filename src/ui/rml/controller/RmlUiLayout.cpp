@@ -333,14 +333,16 @@ void RmlUiController::RebuildOverlay() {
     if (m_state && m_state->ui.showSessionView.load())
         out << "<div class='live-special' data-live-special='session-view'>" << RenderSessionView() << "</div>";
 
-    const bool editMode = m_state && m_state->ui.showMenu.load() && m_state->ui.dashboardLayoutEditMode.load();
+    const bool editMode = m_state && m_state->ui.dashboardLayoutEditMode.load();
     for (const auto& container : m_config.overlay_layout.containers)
         out << RenderOverlayContainer(container, editMode);
     out << RenderOverlayToolbox(editMode);
     if (editMode) {
         out << "<div id='overlay-snap-x' class='overlay-snap-guide vertical'></div>"
             << "<div id='overlay-snap-y' class='overlay-snap-guide horizontal'></div>"
-            << "<div id='overlay-dock-indicator' class='overlay-dock-guide'></div>";
+            << "<div id='overlay-dock-indicator' class='overlay-dock-guide'></div>"
+            << "<div class='layout-position-toolbar card row'><span class='label'>Move or resize cards. Visibility stays in Display settings.</span>"
+            << Button("finish-position", "Done positioning", "primary compact") << "</div>";
     }
     SetRootRml("overlay-root", out.str());
     m_liveDomNeedsPrime = true;
