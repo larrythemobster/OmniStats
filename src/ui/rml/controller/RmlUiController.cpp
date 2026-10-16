@@ -134,6 +134,7 @@ bool RmlUiController::Initialize(HWND hwnd, ID3D11Device* device, ID3D11DeviceCo
         ShowOnboarding();
     } else {
         CheckAccountLinkPrompt();
+        OpenStatsApiFixIfNeeded();
     }
     RebuildVisibleUi(true);
     return true;
@@ -684,6 +685,7 @@ void RmlUiController::RebuildVisibleUi(bool force, bool configChanged) {
     HashAppend(runtimeStructuralHash, static_cast<uint64_t>(h2hExpanded));
     HashAppend(runtimeStructuralHash, static_cast<uint64_t>(m_snap.inMatch));
     HashAppend(runtimeStructuralHash, static_cast<uint64_t>(m_config.second_monitor_mode));
+    HashAppend(runtimeStructuralHash, static_cast<uint64_t>(RankSourceAvailable()));
     if (!m_config.second_monitor_mode) {
         for (const auto& container : m_config.overlay_layout.containers) {
             const bool cVis = OverlayLayout::ContainerVisible(container, visState, nowMs);
@@ -816,6 +818,7 @@ void RmlUiController::RebuildVisibleUi(bool force, bool configChanged) {
         HashAppend(settingsHash, static_cast<uint64_t>(m_bindCaptureTarget));
         HashAppend(settingsHash, static_cast<uint64_t>(m_showBallchasingToken));
         HashAppend(settingsHash, AccountClient::Instance().GetStatus().version);
+        HashAppend(settingsHash, static_cast<uint64_t>(m_onboarding.ShowFallback()));
         HashAppend(settingsHash, static_cast<uint64_t>(m_confirmReplayUploads));
         HashAppend(settingsHash, RemoteConfig::Instance().Version());
         HashAppend(settingsHash, static_cast<uint64_t>(m_confirmDeleteHistory));
@@ -1321,14 +1324,17 @@ bool RmlUiController::EventChecked(Rml::Event& event, Rml::Element* target) cons
 
 void RmlUiController::FinishDatabaseMerge(const DbMergeResult& result) {
     if (!result.success) {
-        ShowToast("Merge failed: " + (result.error.empty() ? std::string("unknown error.") : result.error), true);
+        ShowToast("Couldn't merge the database: " + (result.error.empty() ? std::string("unknown error.") : result.error), true);
         return;
     }
+    const std::string alreadyThere = result.matchesSkipped > 0
+                                         ? " " + std::to_string(result.matchesSkipped) + " were already in your history."
+                                         : std::string();
     if (result.matchesImported > 0) {
-        ShowToast("Merged " + std::to_string(result.matchesImported) + " matches (" +
-                  std::to_string(result.matchesSkipped) + " duplicates skipped).");
+        ShowToast("Merged " + std::to_string(result.matchesImported) +
+                  (result.matchesImported == 1 ? " match." : " matches.") + alreadyThere);
     } else {
-        ShowToast("Merge complete: 0 new matches (" + std::to_string(result.matchesSkipped) + " duplicates skipped).");
+        ShowToast("No new matches to merge." + alreadyThere);
     }
     if (m_state) {
         {
@@ -1395,8 +1401,8 @@ void RmlUiController::DeleteLocalHistory() {
     ShowToast("Deleted local history and identity.");
 }
 
-void RmlUiController::CheckStatsApi(bool repair, bool showToast) {
-    if (!m_state) return;
+bool RmlUiController::CheckStatsApi(bool repair, bool showToast) {
+    if (!m_state) return false;
     StatsApiConfig::CheckResult oldResult;
     {
         std::lock_guard lock(m_state->ui.statsApiMutex);
@@ -1424,13 +1430,17 @@ void RmlUiController::CheckStatsApi(bool repair, bool showToast) {
                 if (showToast) ShowToast(StatsApiConfig::GetStatusMessage(result.status), result.status != StatsApiConfig::Status::Valid);
                 if (m_state->ui.showMenu.load()) RebuildSettings();
                 if (m_onboardingVisible) RefreshOnboarding();
+                if (m_statsApiPrompt == StatsApiPrompt::Repairing) {
+                    SetStatsApiPrompt(result.status == StatsApiConfig::Status::Valid ? StatsApiPrompt::Repaired
+                                                                                     : StatsApiPrompt::Failed);
+                }
             };
         });
         if (started) {
             std::lock_guard lock(m_state->ui.statsApiMutex);
             m_state->ui.statsApiResult.message = "Repairing the Stats API config. Approve the Windows prompt if it appears.";
         }
-        return;
+        return started;
     }
     auto result = StatsApiConfig::VerifyConfig(path, m_config.port);
     {
@@ -1441,6 +1451,7 @@ void RmlUiController::CheckStatsApi(bool repair, bool showToast) {
     if (showToast) {
         ShowToast(StatsApiConfig::GetStatusMessage(result.status), result.status != StatsApiConfig::Status::Valid);
     }
+    return true;
 }
 
 bool RmlUiController::StartBackgroundTask(std::string startedToast, std::function<std::function<void()>(std::stop_token)> work) {

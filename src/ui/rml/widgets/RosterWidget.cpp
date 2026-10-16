@@ -145,7 +145,9 @@ std::string RmlUiController::RenderPlayerRoster(int team, const char* label) {
     out << "<div class='team-block'><div class='team-header'><div class='team-line " << cls << "'></div><div class='grow value'>" << label
         << "</div></div>";
     if (players.empty()) out << "<div class='muted'>Waiting for players...</div>";
+    const bool ranksOn = RankSourceAvailable();
     for (const auto* p : players) {
+        const bool settled = p->fetched || !ranksOn;
         const bool self = !m_snap.myPrimaryId.empty() && p->primaryId == m_snap.myPrimaryId;
         const int mmr = mmrFor(*p);
         std::string tier = p->rankTier;
@@ -174,8 +176,10 @@ std::string RmlUiController::RenderPlayerRoster(int team, const char* label) {
 
         out << "<div class='player-row" << (self ? " self" : "") << "'>";
         if (m_config.use_rank_icons) {
-            const std::string rankTooltip = p->fetched || mmr > 0 ? Format::RankTier(tier, m_config.use_roman_numerals) : "Fetching rank...";
-            out << "<div class='player-crest'>" << RenderRankBadge(tier, p->fetched || mmr > 0, rankTooltip) << "</div>";
+            const std::string rankTooltip = mmr > 0 || p->fetched ? Format::RankTier(tier, m_config.use_roman_numerals)
+                                            : ranksOn             ? "Fetching rank..."
+                                                                  : "Ranks are off";
+            out << "<div class='player-crest'>" << RenderRankBadge(tier, settled || mmr > 0, rankTooltip) << "</div>";
         }
 
         const std::string trackerUrl = TrackerUrlForPlayer(*p);
@@ -196,10 +200,12 @@ std::string RmlUiController::RenderPlayerRoster(int team, const char* label) {
         // produced it.
         out << "<span class='chip chip-mmr' style='color:" << CssColor(color) << "'>";
         if (!m_config.use_rank_icons)
-            out << Escape(mmr > 0 ? Format::RankTier(tier, m_config.use_roman_numerals) : (p->fetched ? "Unranked" : "Fetching")) << ' ';
+            out << Escape(mmr > 0 ? Format::RankTier(tier, m_config.use_roman_numerals) : (p->fetched ? "Unranked" : ranksOn ? "Fetching"
+                                                                                                                             : "No rank"))
+                << ' ';
         else if (category == "best" && rankSource != "best")
             out << Escape(MmrLabel(StringToMmrCategory(rankSource))) << ' ';
-        out << (mmr > 0 ? std::to_string(mmr) : (p->fetched ? "-" : "...")) << "</span>";
+        out << (mmr > 0 ? std::to_string(mmr) : (settled ? "-" : "...")) << "</span>";
 
         if (mmr > 0 && matchCount > 0) out << "<span class='chip'>" << matchCount << (matchCount == 1 ? " match" : " matches") << "</span>";
         if (m_config.show_account_wins_overlay && p->totalWins >= 0) out << "<span class='chip'>" << p->totalWins << " wins</span>";

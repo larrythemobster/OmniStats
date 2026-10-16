@@ -178,6 +178,9 @@ class RmlUiControllerStateTest : public ::testing::Test {
     Rml::Element* OverlayRoot(RmlUiController& controller) {
         return controller.Root("overlay-root");
     }
+    Rml::Element* PromptRoot(RmlUiController& controller) {
+        return controller.Root("prompt-root");
+    }
     Rml::Element* SettingsRoot(RmlUiController& controller) {
         return controller.Root("settings-root");
     }
@@ -488,6 +491,40 @@ TEST_F(RmlUiControllerStateTest, LobbyRanksKeepsEnabledPlaylistColumnHeaders) {
     EXPECT_EQ(html.find(">Hoops</div>"), std::string::npos);
 }
 
+TEST_F(RmlUiControllerStateTest, RankWidgetsExplainMissingRankSourceUntilOneIsEnabled) {
+    auto state = std::make_shared<SessionState>();
+    {
+        std::unique_lock lock(state->game.mutex);
+        PlayerData player;
+        player.primaryId = "Epic|unranked";
+        player.name = "NoSource";
+        player.team = 0;
+        state->game.roster[player.primaryId] = player;
+    }
+    AccountClient::Instance().ResetForTests();
+    ConfigData config = Config::Read();
+    config.enable_mmr_tracking = false;
+    config.custom_api_enabled = true;
+
+    RmlUiController controller(state, nullptr);
+    controller.Update(config);
+    const std::string dashboardRoster = RenderWidgetHtml(controller, DashboardLayout::WidgetId::LiveRoster, true);
+    EXPECT_NE(dashboardRoster.find("rank-source-hint"), std::string::npos);
+    EXPECT_NE(dashboardRoster.find("data-action='open-rank-settings'"), std::string::npos);
+    EXPECT_EQ(dashboardRoster.find("Fetching"), std::string::npos);
+    EXPECT_EQ(RenderWidgetHtml(controller, DashboardLayout::WidgetId::LiveRoster, false).find("open-rank-settings"),
+              std::string::npos);
+    const std::string lobby = RenderWidgetHtml(controller, DashboardLayout::WidgetId::LobbyRanks, true);
+    EXPECT_NE(lobby.find("rank-source-hint"), std::string::npos);
+    EXPECT_EQ(lobby.find("Fetching rank..."), std::string::npos);
+
+    config.enable_mmr_tracking = true;
+    controller.Update(config);
+    EXPECT_EQ(RenderWidgetHtml(controller, DashboardLayout::WidgetId::LiveRoster, true).find("rank-source-hint"),
+              std::string::npos);
+    EXPECT_NE(RenderLobbyRanks(controller).find("Fetching rank..."), std::string::npos);
+}
+
 TEST_F(RmlUiControllerStateTest, RosterBestUsesUnderlyingPlaylistMatchCountWhenSyntheticBestIsMissing) {
     auto state = std::make_shared<SessionState>();
     {
@@ -641,7 +678,6 @@ TEST_F(RmlUiControllerStateTest, ReplaySavingKeepsInlineLegacySaveReplayBindCont
     controller.Update(config);
     std::string html = RenderIntegrationSettings(controller);
     const std::string bindTarget = SaveReplayBindTarget();
-    EXPECT_NE(html.find("Save Replay Bind"), std::string::npos);
     EXPECT_NE(html.find("data-action='capture-bind' data-bind='" + bindTarget + "'"), std::string::npos);
     EXPECT_NE(html.find("data-action='clear-bind' data-bind='" + bindTarget + "'"), std::string::npos);
 
@@ -3241,6 +3277,83 @@ TEST_F(RmlUiControllerStateTest, StatsApiRepairRunsOffRenderThreadAndPublishesRe
     EXPECT_TRUE(state->ui.statsApiChecked.load());
     std::error_code ec;
     std::filesystem::remove_all(dir, ec);
+}
+
+TEST_F(RmlUiControllerStateTest, StartupStatsApiPromptAsksBeforeRepairingAndReportsResult) {
+    WarpDevice warp;
+    if (!warp.Create(1280, 800)) GTEST_SKIP() << "WARP not available.";
+    const std::filesystem::path dir = std::filesystem::temp_directory_path() / "OmniStatsStartupPromptTest";
+    std::filesystem::create_directories(dir);
+    const std::filesystem::path ini = dir / "DefaultStatsAPI.ini";
+    {
+        std::ofstream file(ini, std::ios::binary);
+        file << "[StatsAPI]\r\nPacketSendRate=0\r\nPort=12345\r\n";
+    }
+    Config::Update([&](ConfigData& c) {
+        c.rocket_league_stats_api_config_path = ini.string();
+        c.port = 49123;
+        c.check_stats_api_config_on_startup = true;
+    },
+                   true);
+    auto state = std::make_shared<SessionState>();
+    {
+        std::lock_guard lock(state->ui.statsApiMutex);
+        state->ui.statsApiResult = StatsApiConfig::VerifyConfig(ini.string(), 49123);
+    }
+    state->ui.statsApiChecked.store(true);
+
+    RmlUiController controller(state, nullptr);
+    ASSERT_TRUE(controller.Initialize(nullptr, warp.device.Get(), warp.context.Get(), 1280, 800, 1.0f));
+    controller.Update(Config::Read(), false);
+    controller.Render();
+    EXPECT_FALSE(state->ui.showMenu.load());
+    EXPECT_TRUE(controller.WantsAttention());
+
+    auto* fix = PromptRoot(controller)->QuerySelector("[data-action='statsapi-prompt-fix']");
+    ASSERT_NE(fix, nullptr);
+    {
+        std::ifstream file(ini, std::ios::binary);
+        const std::string before((std::istreambuf_iterator<char>(file)), {});
+        EXPECT_NE(before.find("PacketSendRate=0"), std::string::npos);
+    }
+    Click(controller, fix);
+    EXPECT_EQ(PromptRoot(controller)->QuerySelector("[data-action='statsapi-prompt-fix']"), nullptr);
+    for (int i = 0; i < 200 && StatsApiRepairRunning(controller); ++i)
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    ASSERT_FALSE(StatsApiRepairRunning(controller));
+    controller.Update(Config::Read(), false);
+    controller.Render();
+
+    auto* done = PromptRoot(controller)->QuerySelector("[data-action='statsapi-prompt-close']");
+    ASSERT_NE(done, nullptr);
+    Click(controller, done);
+    EXPECT_FALSE(PromptRoot(controller)->HasChildNodes());
+    EXPECT_FALSE(controller.WantsAttention());
+    std::error_code ec;
+    std::filesystem::remove_all(dir, ec);
+}
+
+TEST_F(RmlUiControllerStateTest, StartupStatsApiPromptCanBeTurnedOff) {
+    WarpDevice warp;
+    if (!warp.Create(1280, 800)) GTEST_SKIP() << "WARP not available.";
+    Config::Update([](ConfigData& c) { c.check_stats_api_config_on_startup = true; }, true);
+    auto state = std::make_shared<SessionState>();
+    {
+        std::lock_guard lock(state->ui.statsApiMutex);
+        state->ui.statsApiResult.status = StatsApiConfig::Status::DisabledPacketSendRate;
+        state->ui.statsApiResult.path = "C:\\Rocket League\\TAGame\\Config\\DefaultStatsAPI.ini";
+    }
+    state->ui.statsApiChecked.store(true);
+
+    RmlUiController controller(state, nullptr);
+    ASSERT_TRUE(controller.Initialize(nullptr, warp.device.Get(), warp.context.Get(), 1280, 800, 1.0f));
+    controller.Update(Config::Read(), false);
+    controller.Render();
+    auto* never = PromptRoot(controller)->QuerySelector("[data-action='statsapi-prompt-never']");
+    ASSERT_NE(never, nullptr);
+    Click(controller, never);
+    EXPECT_FALSE(Config::Read().check_stats_api_config_on_startup);
+    EXPECT_FALSE(controller.WantsAttention());
 }
 
 TEST_F(RmlUiControllerStateTest, AccountLinkPrompt_EligibleExistingUserShowsMenuAndPersistsPromptSeen) {

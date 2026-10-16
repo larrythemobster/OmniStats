@@ -248,6 +248,17 @@ class RmlUiController final : public Rml::EventListener {
     std::string RenderDemoTracker();
     std::string RenderPreviousGames(bool includeHeading = true);
     std::string RenderLobbyRanks();
+    bool RankSourceAvailable() const;
+    std::string RenderRankSourceHint(bool interactive) const;
+    void OpenStatsApiFixIfNeeded();
+    void RebuildStatsApiPrompt();
+    enum class StatsApiPrompt { Hidden,
+                                Asking,
+                                Repairing,
+                                Repaired,
+                                Failed,
+                                NotFound };
+    void SetStatsApiPrompt(StatsApiPrompt state);
     std::string RenderMatchSummary();
     std::string RenderSessionView();
     std::string FloatingCardClass() const;
@@ -285,7 +296,7 @@ class RmlUiController final : public Rml::EventListener {
     void MoveDashboardWidget(DashboardLayout::WidgetId widget, DashboardLayout::Zone zone, int order = -1);
     void DeleteLocalHistory();
     void FinishDatabaseMerge(const DbMergeResult& result);
-    void CheckStatsApi(bool repair, bool showToast = true);
+    bool CheckStatsApi(bool repair, bool showToast = true);
     // Runs `work` off the render thread; the returned callback runs on the render thread during Update().
     bool StartBackgroundTask(std::string startedToast, std::function<std::function<void()>(std::stop_token)> work);
     void PublishBackgroundTaskCompletion();
@@ -469,6 +480,7 @@ class RmlUiController final : public Rml::EventListener {
     bool m_confirmDeleteHistory = false;
     bool m_showUpdatePrompt = false;
     bool m_accountPromptPending = false;
+    StatsApiPrompt m_statsApiPrompt = StatsApiPrompt::Hidden;
     DragState m_drag;
     bool m_pointerPressed = false;
     std::string m_pendingBallchasingToken;

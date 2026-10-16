@@ -73,6 +73,7 @@ std::string RmlUiController::RenderLobbyRanks() {
         out << "<div class='lobby-rank-cell'><div class='lobby-rank-heading'>" << Escape(pl.label) << "</div></div>";
     }
     out << "</div>";
+    const bool rankSource = RankSourceAvailable();
     for (const auto* p : players) {
         std::string platform;
         if (const auto pos = p->primaryId.find('|'); pos != std::string::npos) platform = p->primaryId.substr(0, pos);
@@ -117,8 +118,9 @@ std::string RmlUiController::RenderLobbyRanks() {
                 if (matches > 0) out << " · " << matches << " games this season";
                 out << "</span>";
             } else {
-                out << "<div class='lobby-rank-value'><div>" << (p->fetched ? "-" : "...") << "</div></div>";
-                if (!p->fetched) out << "<span class='tooltip-bubble'>Fetching rank...</span>";
+                const bool pending = rankSource && !p->fetched;
+                out << "<div class='lobby-rank-value'><div>" << (pending ? "..." : "-") << "</div></div>";
+                if (pending) out << "<span class='tooltip-bubble'>Fetching rank...</span>";
             }
             out << "</div>";
         }

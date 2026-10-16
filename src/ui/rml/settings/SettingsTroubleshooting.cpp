@@ -56,14 +56,14 @@ std::string RmlUiController::RenderSettingsTroubleshooting() {
     std::ostringstream out;
     out << SectionStart("Rocket League Connection")
         << "<div class='setting-help'>OmniStats reads live stats through Rocket League's local Stats API.</div>"
-        << ToggleControl("check_stats_api_config_on_startup", "Check Stats API config on startup", "", m_config.check_stats_api_config_on_startup)
+        << ToggleControl("check_stats_api_config_on_startup", "Check Stats API config on startup", "Offers to turn the Stats API on at launch when it's off.", m_config.check_stats_api_config_on_startup)
         << "<div class='setting-row'><div class='setting-info'><div class='setting-name'>Detected path</div><div class='setting-help mono'>" << Escape(result.path.empty() ? "(none)" : result.path) << "</div></div></div>"
         << "<div class='setting-row'><div class='setting-info'><div class='setting-name'>Status</div><div class='setting-help'>" << Escape(StatsApiConfig::GetStatusMessage(result.status)) << "</div></div></div>";
     if (!result.message.empty() && result.status != StatsApiConfig::Status::Valid) out << "<div class='setting-help loss'>" << Escape(result.message) << "</div>";
     if (result.status != StatsApiConfig::Status::Valid && result.rlRunning) {
         out << "<div class='setting-help' style='color:" << CssColor(m_config.themeAccent) << "'>Restart Rocket League after fixing for changes to take effect.</div>";
     }
-    out << "<div class='row gap-sm' style='margin-top:8dp'>" << Button("statsapi-check", "Check Again") << (result.status != StatsApiConfig::Status::Valid && !result.path.empty() ? Button("statsapi-fix", "Fix Config", "primary") : "") << "</div>"
+    out << "<div class='row gap-sm' style='margin-top:8dp'>" << Button("statsapi-check", "Check again") << (result.status != StatsApiConfig::Status::Valid && !result.path.empty() ? Button("statsapi-fix", "Fix config", "primary") : "") << "</div>"
         << "<div class='setting-row'><div class='setting-info'><div class='setting-name'>Manual config path</div><div class='setting-help'>TAStatsAPI.ini, or DefaultStatsAPI.ini when TAStatsAPI.ini does not exist</div></div><input class='text' style='width:300dp' data-setting='statsapi_path' value='" << Escape(m_config.rocket_league_stats_api_config_path) << "'/></div>";
     if (!m_statsApiPathError.empty()) out << "<div class='setting-help loss'>" << Escape(m_statsApiPathError) << "</div>";
     out << SectionEnd();
@@ -71,9 +71,9 @@ std::string RmlUiController::RenderSettingsTroubleshooting() {
         << ToggleControl("debug_logging", "Verbose debug logging", "Off by default; sensitive identifiers are redacted when disabled.", m_config.debug_logging)
         << "<div class='setting-help' style='margin-top:6dp'>Create a redacted ZIP archive with recent logs and system diagnostics for support, or copy a quick text summary.</div>"
         << "<div class='row gap-sm' style='margin-top:8dp'>"
-        << Button("create-support-bundle", "Create Support Bundle", "primary")
-        << Button("copy-diagnostics-summary", "Copy Diagnostics Summary")
-        << Button("show-log", "Show Log File")
+        << Button("create-support-bundle", "Create support bundle", "primary")
+        << Button("copy-diagnostics-summary", "Copy diagnostics summary")
+        << Button("show-log", "Show log file")
         << "</div>" << SectionEnd();
     return out.str();
 }

@@ -37,6 +37,7 @@
 #include "core/config/StatsApiConfig.hpp"
 #include "database/DatabaseManager.hpp"
 #include "network/ExternalUpdaterLauncher.hpp"
+#include "network/api/AccountClient.hpp"
 #include "network/mmr/MMRFetcher.hpp"
 #include "network/api/RemoteConfig.hpp"
 #include "ui/Formatting.hpp"
@@ -47,6 +48,17 @@
 #include "ui/rml/controller/RmlUiHelpers.hpp"
 
 using namespace RmlUiDetail;
+
+bool RmlUiController::RankSourceAvailable() const {
+    return m_config.enable_mmr_tracking || (m_config.custom_api_enabled && AccountClient::Instance().IsSignedIn());
+}
+
+std::string RmlUiController::RenderRankSourceHint(bool interactive) const {
+    if (RankSourceAvailable()) return {};
+    std::string html = "<div class='rank-source-hint row'><div class='grow'>Ranks are off. Connect live ranks in Settings &#x203A; Services &amp; API.</div>";
+    if (interactive) html += "<button class='primary compact' data-action='open-rank-settings'>Connect</button>";
+    return html + "</div>";
+}
 
 std::string RmlUiController::RenderWidget(DashboardLayout::WidgetId id, bool dashboard) {
     const auto controlRow = [](const char* label, const std::string& select) {
@@ -67,7 +79,7 @@ std::string RmlUiController::RenderWidget(DashboardLayout::WidgetId id, bool das
             html << "<span class='badge'>MMR · " << Escape(categoryName) << "</span></div></div>"
                  << "<div class='label'>{{roster_arena}}</div></div>";
         }
-        html << RenderPlayerRoster(0, "BLUE") << RenderPlayerRoster(1, "ORANGE");
+        html << RenderRankSourceHint(dashboard) << RenderPlayerRoster(0, "BLUE") << RenderPlayerRoster(1, "ORANGE");
         return html.str();
     }
     case DashboardLayout::WidgetId::LiveMatchStats:
@@ -95,7 +107,7 @@ std::string RmlUiController::RenderWidget(DashboardLayout::WidgetId id, bool das
         return controls + RenderGamemodeBreakdown(ScopeFromConfigString(m_config.gamemode_breakdown_scope));
     }
     case DashboardLayout::WidgetId::LobbyRanks:
-        return RenderLobbyRanks();
+        return RenderRankSourceHint(dashboard) + RenderLobbyRanks();
     case DashboardLayout::WidgetId::DemoTracker:
         return RenderDemoTracker();
     case DashboardLayout::WidgetId::PreviousGames:
@@ -313,7 +325,7 @@ std::string RmlUiController::RenderOverlayToolbox(bool editMode) {
     for (const auto& c : m_config.overlay_layout.containers)
         for (auto w : c.widgets)
             present.insert(w);
-    out << "<div class='card overlay-toolbox'><div class='row'><div class='card-title grow'>Overlay Layout</div>"
+    out << "<div class='card overlay-toolbox'><div class='row'><div class='card-title grow'>Overlay layout</div>"
         << "<button class='window-control' data-action='overlay-close-toolbox'>×</button></div>"
         << "<div class='label'>Click to add to the center, or drag onto the overlay to place it.</div>"
         << "<div class='row gap-sm' style='margin-top:8dp'>" << Button("reset-overlay", "Reset", "ghost") << "</div>"
@@ -383,11 +395,11 @@ std::string RmlUiController::RenderReleaseBanners() const {
                                     ? ("OmniStats v" + remoteSnap.min_supported_version + " or newer is recommended.")
                                     : remoteSnap.min_version_message;
         const std::string updateLabel = updateDownloading ? "Starting updater..."
-                                        : updateFailed    ? "Retry Update"
-                                                          : "Update Now";
+                                        : updateFailed    ? "Retry update"
+                                                          : "Update now";
         out << "<div class='release-banner severity-warning min-version-banner'>"
             << "<div class='release-banner-body'>"
-            << "<div class='release-banner-title'>Update Recommended · v" << Escape(remoteSnap.min_supported_version) << "+</div>"
+            << "<div class='release-banner-title'>Update recommended · v" << Escape(remoteSnap.min_supported_version) << "+</div>"
             << "<div class='release-banner-text'>" << Escape(msg) << "</div>"
             << "</div><div class='release-banner-actions'>"
             << Button("update-app", updateLabel, "primary compact")
@@ -405,7 +417,7 @@ std::string RmlUiController::RenderReleaseBanners() const {
         out << "</div><div class='release-banner-actions'>";
         if (!ann.link_url.empty() && RemoteConfig::IsAllowedAnnouncementLinkUrl(ann.link_url)) {
             out << "<button class='ghost compact' data-action='open-announcement-link' data-url='"
-                << Escape(ann.link_url) << "'>Learn More</button>";
+                << Escape(ann.link_url) << "'>Learn more</button>";
         }
         if (ann.dismissible) {
             out << "<button class='ghost compact' data-action='dismiss-announcement' data-announcement-id='"
@@ -514,7 +526,7 @@ void RmlUiController::RebuildDashboard() {
         << Button("history-open", "History", "ghost compact")
         << Button("accounts-open", "Accounts", "ghost compact")
         << Button("insights-open", "Insights", "ghost compact")
-        << Button("dashboard-edit", editMode ? "Done Editing" : "Edit Layout", editMode ? "primary compact" : "ghost compact")
+        << Button("dashboard-edit", editMode ? "Done editing" : "Edit layout", editMode ? "primary compact" : "ghost compact")
         << Button("open-settings", "Settings", "ghost compact")
         << "<button class='window-control' data-action='window-minimize'><span class='win-icon-min'></span></button>"
         << "<button class='window-control' data-action='window-maximize'>"
@@ -528,18 +540,18 @@ void RmlUiController::RebuildDashboard() {
     out << RenderReleaseBanners();
     if (!editMode && !dashboardHasVisibleWidgets) {
         out << "<div class='card empty-dashboard'><div class='card-title'>Dashboard panels are hidden</div>"
-            << "<div class='setting-help'>Open Settings or Edit Layout to re-enable dashboard widgets.</div></div>";
+            << "<div class='setting-help'>Open Settings or Edit layout to show dashboard widgets again.</div></div>";
     }
     out << renderZone(DashboardLayout::Zone::Top, "dashboard-zone-top")
         << "<div class='dashboard-columns'><div class='dashboard-column' style='flex-grow:" << std::max(layout.leftColumnWeight, 0.2f) << "'>" << renderZone(DashboardLayout::Zone::Left, "dashboard-zone-left") << "</div>"
         << "<div class='dashboard-column' style='flex-grow:" << std::max(1.0f - layout.leftColumnWeight, 0.2f) << "'>" << renderZone(DashboardLayout::Zone::Right, "dashboard-zone-right") << "</div></div>"
         << renderZone(DashboardLayout::Zone::Bottom, "dashboard-zone-bottom");
-    if (editMode) out << "<div class='dashboard-hidden'><div class='card-title'>Hidden Widgets</div>" << renderZone(DashboardLayout::Zone::Hidden, "dashboard-zone-hidden") << Button("reset-dashboard", "Reset Dashboard Layout", "ghost") << "</div>";
+    if (editMode) out << "<div class='dashboard-hidden'><div class='card-title'>Hidden widgets</div>" << renderZone(DashboardLayout::Zone::Hidden, "dashboard-zone-hidden") << Button("reset-dashboard", "Reset dashboard layout", "ghost") << "</div>";
     out << "</div>";
     if (m_showUpdatePrompt && updateAvailable) {
-        out << "<div class='dashboard-modal'><div class='card update-dialog'><div class='card-title'>Update Available</div><div class='setting-help'>A new version of OmniStats is available";
+        out << "<div class='dashboard-modal'><div class='card update-dialog'><div class='card-title'>Update available</div><div class='setting-help'>A new version of OmniStats is available";
         if (!updateVersion.empty()) out << ": v" << Escape(updateVersion);
-        out << ". Would you like to update and restart the application now?</div><div class='row gap-sm' style='margin-top:12dp'>" << Button("update-app", "Yes, Update Now", "primary") << Button("dismiss-update", "Remind Me Later", "ghost") << "</div></div></div>";
+        out << ". OmniStats restarts to finish updating.</div><div class='row gap-sm' style='margin-top:12dp'>" << Button("update-app", "Update and restart", "primary") << Button("dismiss-update", "Later", "ghost") << "</div></div></div>";
     }
     out << "</div>";
     SetRootRml("dashboard-root", out.str());

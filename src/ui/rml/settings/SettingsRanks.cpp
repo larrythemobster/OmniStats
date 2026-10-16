@@ -82,7 +82,8 @@ std::string RmlUiController::RenderSettingsRanks() {
         }
         out << "</div>";
     } else {
-        out << "<div class='setting-help'>Join a match to see your ranks. If your account is not detected, select it in General. Rank lookup can be enabled in Services &amp; API.</div>";
+        out << "<div class='setting-help'>Join a match to see your ranks. If your account isn't detected, pick it in General.</div>";
+        if (!RankSourceAvailable()) out << "<div class='row gap-sm' style='margin-top:8dp'>" << Button("open-rank-settings", "Connect live ranks", "primary") << "</div>";
     }
     out << SectionEnd();
     return out.str();

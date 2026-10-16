@@ -508,7 +508,7 @@ TEST_F(AccountsViewTest, NoApiBannerWhenProviderUnavailable) {
     auto* banner = AccountsDocument(controller)->QuerySelector(".accounts-provider-banner");
     ASSERT_NE(banner, nullptr);
 
-    auto* openSettingsBtn = AccountsDocument(controller)->QuerySelector("[data-action='accounts-open-settings']");
+    auto* openSettingsBtn = AccountsDocument(controller)->QuerySelector("[data-action='open-rank-settings']");
     ASSERT_NE(openSettingsBtn, nullptr);
     Click(controller, openSettingsBtn);
 

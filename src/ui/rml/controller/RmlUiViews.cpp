@@ -34,8 +34,8 @@ bool RmlUiController::WantsAttention() const {
     // and the host skips Update() while the window is hidden, so the pending
     // flag itself has to keep the window drawn.
     return m_insightsVisible || m_historyVisible || m_accountsVisible || m_playerNoteVisible || m_onboardingVisible ||
-           m_accountPromptPending || (m_state && m_state->ui.showSessionRecap.load()) ||
-           (m_state && m_state->ui.showMenu.load());
+           m_accountPromptPending || m_statsApiPrompt != StatsApiPrompt::Hidden ||
+           (m_state && m_state->ui.showSessionRecap.load()) || (m_state && m_state->ui.showMenu.load());
 }
 
 void RmlUiController::OpenInsights() {
@@ -394,13 +394,13 @@ void RmlUiController::RefreshAccountRow(const std::string& primaryId) {
         ShowToast("Refreshed recently; try again in a minute.");
         break;
     case AccountManagerService::RefreshRequest::ProviderUnavailable:
-        ShowToast("No rank source is configured.");
+        ShowToast("Connect live ranks in Settings > Services & API to refresh ranks.");
         break;
     case AccountManagerService::RefreshRequest::Unsupported:
-        ShowToast("Rank refresh is unsupported for this account.");
+        ShowToast("Ranks can't be refreshed for this account.");
         break;
     case AccountManagerService::RefreshRequest::UnknownAccount:
-        ShowToast("Account not found.", true);
+        ShowToast("This account is no longer tracked.", true);
         break;
     }
     RefreshAccounts(true);
@@ -534,6 +534,82 @@ void RmlUiController::RefreshOnboarding() {
     }
     m_renderDirty = true;
 }
+void RmlUiController::OpenStatsApiFixIfNeeded() {
+    if (!m_state || !m_config.check_stats_api_config_on_startup) return;
+    bool needsFix = false;
+    bool hasPath = false;
+    {
+        std::lock_guard lock(m_state->ui.statsApiMutex);
+        needsFix = m_state->ui.statsApiChecked.load() && m_state->ui.statsApiResult.status != StatsApiConfig::Status::Valid;
+        hasPath = !m_state->ui.statsApiResult.path.empty();
+    }
+    if (needsFix) SetStatsApiPrompt(hasPath ? StatsApiPrompt::Asking : StatsApiPrompt::NotFound);
+}
+
+void RmlUiController::SetStatsApiPrompt(StatsApiPrompt state) {
+    m_statsApiPrompt = state;
+    RebuildStatsApiPrompt();
+    m_renderDirty = true;
+}
+
+void RmlUiController::RebuildStatsApiPrompt() {
+    if (m_statsApiPrompt == StatsApiPrompt::Hidden) {
+        SetRootRml("prompt-root", "");
+        return;
+    }
+    StatsApiConfig::CheckResult result;
+    if (m_state) {
+        std::lock_guard lock(m_state->ui.statsApiMutex);
+        result = m_state->ui.statsApiResult;
+    }
+    std::string title;
+    std::string body;
+    std::string detail;
+    std::string actions;
+    switch (m_statsApiPrompt) {
+    case StatsApiPrompt::Asking:
+        title = "Turn on live match data?";
+        body = "Rocket League's Stats API is switched off, so OmniStats can't see your matches. OmniStats can turn it on by editing one Rocket League config file.";
+        detail = "Windows will ask for permission because the file is in Rocket League's install folder.";
+        if (result.rlRunning) detail += " Restart Rocket League afterwards.";
+        actions = Button("statsapi-prompt-never", "Don't ask again", "ghost") + "<div class='grow'></div>" +
+                  Button("statsapi-prompt-close", "Not now", "ghost") + Button("statsapi-prompt-fix", "Turn it on", "primary");
+        break;
+    case StatsApiPrompt::Repairing:
+        title = "Turning on the Stats API...";
+        body = "Approve the Windows permission prompt to continue. It may be behind other windows.";
+        break;
+    case StatsApiPrompt::Repaired:
+        title = "Live match data is on";
+        body = result.rlRunning ? "Restart Rocket League so it picks up the change." : "OmniStats will see your next match.";
+        actions = "<div class='grow'></div>" + Button("statsapi-prompt-close", "Done", "primary");
+        break;
+    case StatsApiPrompt::Failed:
+        title = "Couldn't turn on the Stats API";
+        body = result.message.empty() ? "The config file wasn't changed." : result.message;
+        actions = Button("statsapi-prompt-troubleshoot", "Troubleshooting", "ghost") + "<div class='grow'></div>" +
+                  Button("statsapi-prompt-close", "Close", "ghost") + Button("statsapi-prompt-fix", "Try again", "primary");
+        break;
+    case StatsApiPrompt::NotFound:
+        title = "Couldn't find Rocket League's Stats API config";
+        body = "Set the file location in Settings › Troubleshooting, then try again.";
+        actions = "<div class='grow'></div>" + Button("statsapi-prompt-close", "Close", "ghost") +
+                  Button("statsapi-prompt-troubleshoot", "Open troubleshooting", "primary");
+        break;
+    case StatsApiPrompt::Hidden:
+        break;
+    }
+    std::string html = "<div class='prompt-backdrop'><div class='card prompt-card'>"
+                       "<div class='row prompt-head'><img class='brand-logo' src='res://images/Logo.png'/><div class='prompt-title grow'>" +
+                       Escape(title) + "</div></div><div class='prompt-body'>" + Escape(body) + "</div>";
+    if (!detail.empty()) html += "<div class='prompt-detail'>" + Escape(detail) + "</div>";
+    if (m_statsApiPrompt == StatsApiPrompt::Asking && !result.path.empty()) {
+        html += "<div class='prompt-path mono'>" + Escape(result.path) + "</div>";
+    }
+    if (!actions.empty()) html += "<div class='row gap-sm prompt-actions'>" + actions + "</div>";
+    SetRootRml("prompt-root", html + "</div></div>");
+}
+
 void RmlUiController::CheckAccountLinkPrompt() {
     if (!m_config.onboarding_completed || m_config.account_link_prompt_shown) {
         m_accountPromptPending = false;
@@ -879,7 +955,25 @@ bool RmlUiController::HandleViewAction(const std::string& action, Rml::Element* 
             RefreshAccounts(true);
         }
         return true;
-    } else if (action == "accounts-open-settings") {
+    } else if (action == "statsapi-prompt-fix") {
+        if (CheckStatsApi(true, false)) SetStatsApiPrompt(StatsApiPrompt::Repairing);
+        return true;
+    } else if (action == "statsapi-prompt-close") {
+        SetStatsApiPrompt(StatsApiPrompt::Hidden);
+        return true;
+    } else if (action == "statsapi-prompt-never") {
+        Config::Update([](ConfigData& c) { c.check_stats_api_config_on_startup = false; });
+        m_config = Config::Read();
+        SetStatsApiPrompt(StatsApiPrompt::Hidden);
+        ShowToast("You can fix the Stats API later in Settings > Troubleshooting.");
+        return true;
+    } else if (action == "statsapi-prompt-troubleshoot") {
+        SetStatsApiPrompt(StatsApiPrompt::Hidden);
+        m_settingsPage = SettingsPage::Troubleshooting;
+        if (m_state) m_state->ui.showMenu.store(true);
+        m_renderDirty = true;
+        return true;
+    } else if (action == "open-rank-settings") {
         m_settingsPage = SettingsPage::Integrations;
         if (m_state) m_state->ui.showMenu.store(true);
         m_renderDirty = true;
@@ -960,7 +1054,8 @@ bool RmlUiController::HandleViewAction(const std::string& action, Rml::Element* 
         }
     } else if (action == "account-toggle-fallback") {
         m_onboarding.ToggleFallback();
-        RefreshOnboarding();
+        if (m_onboardingVisible) RefreshOnboarding();
+        if (m_state && m_state->ui.showMenu.load()) RebuildSettings();
     } else if (action == "account-manage-devices") {
         AccountClient::Instance().OpenManageDevicesBrowser();
     } else {
