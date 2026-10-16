@@ -773,6 +773,7 @@ button:disabled { color: #686868; background-color: #191919; border-color: #2929
     padding: 11dp 16dp;
     background-color: #151515;
     border-bottom: 1dp #2d2d2d;
+    border-radius: 11dp 11dp 0 0;
     cursor: move;
 }
 .settings-header button { cursor: pointer; }
@@ -815,10 +816,10 @@ button:disabled { color: #686868; background-color: #191919; border-color: #2929
     background-color: #0d0d0d;
 }
 .settings-footer {
-    height: 48dp;
-    min-height: 48dp;
+    height: 42dp;
+    min-height: 42dp;
     flex-shrink: 0;
-    padding: 8dp 13dp;
+    padding: 0 13dp;
     border-top: 1dp #2d2d2d;
     background-color: #141414;
     display: flex;
@@ -826,9 +827,10 @@ button:disabled { color: #686868; background-color: #191919; border-color: #2929
     justify-content: flex-end;
     align-items: center;
     gap: 6dp;
+    border-radius: 0 0 11dp 11dp;
 }
-.settings-footer button { font-size: 12dp; min-height: 28dp; padding: 4dp 11dp; }
-.settings-footer button.primary { min-width: 72dp; }
+.settings-footer button { min-height: 24dp; height: 24dp; line-height: 22dp; padding: 0 10dp; font-size: 12dp; }
+.settings-footer button.primary { min-width: 64dp; }
 .setting-section {
     display: block;
     margin-bottom: 20dp;
