@@ -63,6 +63,37 @@ namespace StatsApiConfig {
         }
         return "";
     }
+
+    static std::string EnvVar(const char* name) {
+        std::string value;
+        char* buf = nullptr;
+        size_t len = 0;
+        if (_dupenv_s(&buf, &len, name) == 0 && buf != nullptr) {
+            value = buf;
+            free(buf);
+        }
+        return value;
+    }
+
+    std::string FindConfigPathInLegendaryInstalled(const std::filesystem::path& installedJson) {
+        std::ifstream file(installedJson);
+        if (!file.is_open()) return "";
+        try {
+            const nlohmann::json installed = nlohmann::json::parse(file);
+            if (!installed.is_object()) return "";
+            for (const auto& [appName, game] : installed.items()) {
+                if (appName != "Sugar" || !game.is_object()) continue;
+                const auto installPath = game.find("install_path");
+                if (installPath == game.end() || !installPath->is_string()) continue;
+                const std::string utf8 = installPath->get<std::string>();
+                const std::filesystem::path iniPath = std::filesystem::path(std::u8string(utf8.begin(), utf8.end())) / "TAGame" / "Config" / "DefaultStatsAPI.ini";
+                if (PathExists(iniPath)) return iniPath.string();
+            }
+        } catch (...) {
+        }
+        return "";
+    }
+
     static HWND FindRocketLeagueWindow() {
         HWND rlHwnd = ::FindWindowW(L"LaunchUnrealUWindowsClient", nullptr);
         if (!rlHwnd) rlHwnd = ::FindWindowW(nullptr, L"Rocket League (64-bit, DX11)");
@@ -295,16 +326,8 @@ namespace StatsApiConfig {
         }
 
         // 3. Try Epic Launcher Manifests
-        std::string programData = "";
-        char* pBuf = nullptr;
-        size_t len = 0;
-        if (_dupenv_s(&pBuf, &len, "ProgramData") == 0 && pBuf != nullptr) {
-            programData = pBuf;
-            free(pBuf);
-        }
-        if (programData.empty()) {
-            programData = "C:\\ProgramData";
-        }
+        std::string programData = EnvVar("ProgramData");
+        if (programData.empty()) programData = "C:\\ProgramData";
         std::string manifestsPath = programData + "\\Epic\\EpicGamesLauncher\\Data\\Manifests";
         if (PathExists(manifestsPath)) {
             for (auto it = std::filesystem::directory_iterator(manifestsPath, error);
@@ -334,7 +357,18 @@ namespace StatsApiConfig {
             }
         }
 
-        // 4. Fallbacks
+        // 4. Heroic Games Launcher and standalone Legendary
+        const std::string appData = EnvVar("APPDATA");
+        const std::string userProfile = EnvVar("USERPROFILE");
+        std::vector<std::filesystem::path> legendaryManifests;
+        if (!appData.empty()) legendaryManifests.push_back(std::filesystem::path(appData) / "heroic" / "legendaryConfig" / "legendary" / "installed.json");
+        if (!userProfile.empty()) legendaryManifests.push_back(std::filesystem::path(userProfile) / ".config" / "legendary" / "installed.json");
+        for (const auto& manifest : legendaryManifests) {
+            std::string found = FindConfigPathInLegendaryInstalled(manifest);
+            if (!found.empty()) return found;
+        }
+
+        // 5. Fallbacks
         std::vector<std::string> fallbacks = {
             "C:\\Program Files (x86)\\Steam\\steamapps\\common\\rocketleague\\TAGame\\Config\\DefaultStatsAPI.ini",
             "C:\\Program Files\\Epic Games\\rocketleague\\TAGame\\Config\\DefaultStatsAPI.ini",
@@ -343,6 +377,7 @@ namespace StatsApiConfig {
             "E:\\SteamLibrary\\steamapps\\common\\rocketleague\\TAGame\\Config\\DefaultStatsAPI.ini",
             "D:\\Games\\Epic Games\\rocketleague\\TAGame\\Config\\DefaultStatsAPI.ini",
             "E:\\Games\\Epic Games\\rocketleague\\TAGame\\Config\\DefaultStatsAPI.ini"};
+        if (!userProfile.empty()) fallbacks.push_back(userProfile + "\\Games\\Heroic\\rocketleague\\TAGame\\Config\\DefaultStatsAPI.ini");
 
         for (const auto& path : fallbacks) {
             if (PathExists(path)) {

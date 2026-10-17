@@ -65,7 +65,7 @@ std::string RmlUiController::RenderSettingsTroubleshooting() {
     if (result.status != StatsApiConfig::Status::Valid && result.rlRunning) {
         out << "<div class='setting-notice'>Restart Rocket League after fixing for changes to take effect.</div>";
     }
-    out << "<div class='setting-row'><div class='setting-info'><div class='setting-name'>Manual config path</div><div class='setting-help'>TAStatsAPI.ini, or DefaultStatsAPI.ini when TAStatsAPI.ini does not exist.</div></div><input class='text' style='width:300dp' data-setting='statsapi_path' value='" << Escape(m_config.rocket_league_stats_api_config_path) << "'/></div>";
+    out << "<div class='setting-row'><div class='setting-info'><div class='setting-name'>Manual config path</div><div class='setting-help'>TAStatsAPI.ini, or DefaultStatsAPI.ini when TAStatsAPI.ini does not exist.</div></div><div class='row gap-xs'><input class='text' style='width:300dp' data-setting='statsapi_path' value='" << Escape(m_config.rocket_league_stats_api_config_path) << "'/>" << Button("statsapi-browse", "Browse...", "ghost") << "</div></div>";
     if (!m_statsApiPathError.empty()) out << "<div class='setting-help loss'>" << Escape(m_statsApiPathError) << "</div>";
     out << SectionEnd();
     out << SectionStart("Diagnostics and logs")

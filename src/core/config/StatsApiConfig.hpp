@@ -29,6 +29,7 @@ namespace StatsApiConfig {
     std::string DetectConfigPath();
     std::string DetectConfigPathFromRunningProcess();
     std::string FindConfigPathFromExecutable(const std::filesystem::path& exePath);
+    std::string FindConfigPathInLegendaryInstalled(const std::filesystem::path& installedJson);
     bool IsRocketLeagueRunning();
     CheckResult VerifyConfig(const std::string& filePath, int expectedPort);
 

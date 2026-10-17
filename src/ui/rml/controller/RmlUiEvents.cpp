@@ -368,7 +368,7 @@ void RmlUiController::HandleClick(Rml::Element* target) {
         if (!m_dbManager) {
             ShowToast("Merge failed: database is unavailable.", true);
         } else {
-            const std::string selectedPath = PromptForDatabaseFile(m_hwnd);
+            const std::string selectedPath = PromptForFile(m_hwnd, L"Select OmniStats Database to Merge", L"SQLite Database (*.db)", L"*.db");
             if (!selectedPath.empty()) {
                 StartBackgroundTask("Merging database...", [this, db = m_dbManager, selectedPath](std::stop_token) -> std::function<void()> {
                     auto result = db->MergeDatabase(selectedPath);
@@ -416,6 +416,9 @@ void RmlUiController::HandleClick(Rml::Element* target) {
         RebuildSettings();
     } else if (action == "statsapi-fix") {
         CheckStatsApi(true);
+        RebuildSettings();
+    } else if (action == "statsapi-browse") {
+        BrowseStatsApiPath();
         RebuildSettings();
     }
 }
@@ -847,9 +850,8 @@ void RmlUiController::HandleChange(Rml::Element* target, Rml::Event& event) {
         if (IsExtraMmrCategory(m_state->ui.rosterMmrCategory.load())) m_state->ui.rosterMmrCategory.store(MmrCategory::Best);
         if (IsExtraMmrCategory(m_state->ui.graphMmrCategory.load())) m_state->ui.graphMmrCategory.store(MmrCategory::TwoVTwo);
     }
-    if (key == "statsapi_path") CheckStatsApi(false);
-
     m_config = Config::Read();
+    if (key == "statsapi_path") CheckStatsApi(false);
     if (target && target->GetTagName() == "select") {
         // Changing a <select> in settings dispatches a synchronous `change`
         // event from inside WidgetDropDown::ProcessEvent. Rebuilding the DOM

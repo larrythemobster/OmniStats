@@ -43,6 +43,26 @@ TEST_F(StatsApiConfigTest, VerifyValidConfig) {
     EXPECT_EQ(res.actualPort, 49123);
 }
 
+TEST_F(StatsApiConfigTest, LegendaryInstalledResolvesRocketLeagueOnly) {
+    const auto rlRoot = tempDir / "Heroic" / "rocketleague";
+    const auto otherRoot = tempDir / "Heroic" / "other";
+    std::filesystem::create_directories(rlRoot / "TAGame" / "Config");
+    std::filesystem::create_directories(otherRoot / "TAGame" / "Config");
+    std::ofstream(rlRoot / "TAGame" / "Config" / "DefaultStatsAPI.ini") << "[TAGame.MatchStatsExporter_TA]\n";
+    std::ofstream(otherRoot / "TAGame" / "Config" / "DefaultStatsAPI.ini") << "[TAGame.MatchStatsExporter_TA]\n";
+
+    const auto manifest = tempDir / "installed.json";
+    std::ofstream(manifest) << R"({"Fortnite":{"app_name":"Fortnite","install_path":")" << otherRoot.generic_string()
+                            << R"("},"Sugar":{"app_name":"Sugar","install_path":")" << rlRoot.generic_string() << R"("}})";
+
+    const std::filesystem::path found = StatsApiConfig::FindConfigPathInLegendaryInstalled(manifest);
+    EXPECT_TRUE(std::filesystem::equivalent(found, rlRoot / "TAGame" / "Config" / "DefaultStatsAPI.ini"));
+
+    std::filesystem::remove(rlRoot / "TAGame" / "Config" / "DefaultStatsAPI.ini");
+    EXPECT_EQ(StatsApiConfig::FindConfigPathInLegendaryInstalled(manifest), "");
+    EXPECT_EQ(StatsApiConfig::FindConfigPathInLegendaryInstalled(tempDir / "missing.json"), "");
+}
+
 TEST_F(StatsApiConfigTest, VerifyDisabledPacketSendRate) {
     std::string content =
         "[TAGame.MatchStatsExporter_TA]\r\n"

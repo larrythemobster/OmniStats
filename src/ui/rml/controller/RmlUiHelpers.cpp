@@ -45,7 +45,7 @@
 #include "ui/rml/widgets/RmlMmrGraphLines.hpp"
 
 namespace RmlUiDetail {
-    std::string PromptForDatabaseFile(HWND parentHwnd) {
+    std::string PromptForFile(HWND parentHwnd, const wchar_t* title, const wchar_t* filterName, const wchar_t* filterSpec) {
         std::string result;
         HRESULT hr = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
         const bool mustUninit = (hr == S_OK || hr == S_FALSE);
@@ -54,11 +54,10 @@ namespace RmlUiDetail {
         hr = CoCreateInstance(CLSID_FileOpenDialog, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(fileOpen.GetAddressOf()));
         if (SUCCEEDED(hr) && fileOpen) {
             COMDLG_FILTERSPEC filters[] = {
-                {L"SQLite Database (*.db)", L"*.db"},
+                {filterName, filterSpec},
                 {L"All Files (*.*)", L"*.*"}};
             fileOpen->SetFileTypes(static_cast<UINT>(std::size(filters)), filters);
-            fileOpen->SetDefaultExtension(L"db");
-            fileOpen->SetTitle(L"Select OmniStats Database to Merge");
+            fileOpen->SetTitle(title);
 
             FILEOPENDIALOGOPTIONS options{};
             if (SUCCEEDED(fileOpen->GetOptions(&options))) {
@@ -83,14 +82,15 @@ namespace RmlUiDetail {
             fileOpen.Reset();
         } else {
             wchar_t szFile[MAX_PATH] = {0};
+            std::wstring filter = std::wstring(filterName) + L'\0' + filterSpec + L'\0' + L"All Files (*.*)" + L'\0' + L"*.*" + L'\0';
             OPENFILENAMEW ofn{};
             ofn.lStructSize = sizeof(ofn);
             ofn.hwndOwner = parentHwnd;
             ofn.lpstrFile = szFile;
             ofn.nMaxFile = sizeof(szFile) / sizeof(wchar_t);
-            ofn.lpstrFilter = L"SQLite Database (*.db)\0*.db\0All Files (*.*)\0*.*\0";
+            ofn.lpstrFilter = filter.c_str();
             ofn.nFilterIndex = 1;
-            ofn.lpstrTitle = L"Select OmniStats Database to Merge";
+            ofn.lpstrTitle = title;
             ofn.Flags = OFN_PATHMUSTEXIST | OFN_FILEMUSTEXIST | OFN_NOCHANGEDIR;
             if (GetOpenFileNameW(&ofn)) {
                 int len = WideCharToMultiByte(CP_UTF8, 0, szFile, -1, nullptr, 0, nullptr, nullptr);

@@ -1504,6 +1504,21 @@ bool RmlUiController::CheckStatsApi(bool repair, bool showToast) {
     return true;
 }
 
+void RmlUiController::BrowseStatsApiPath() {
+    const std::string selected = PromptForFile(m_hwnd, L"Select Rocket League's DefaultStatsAPI.ini (in TAGame\\Config)",
+                                               L"Stats API config (*StatsAPI.ini)", L"*StatsAPI.ini");
+    if (selected.empty()) return;
+    std::string normalized;
+    if (!ValidateStatsApiPath(selected, normalized, m_statsApiPathError)) {
+        ShowToast(m_statsApiPathError, true);
+        return;
+    }
+    m_statsApiPathError.clear();
+    Config::Update([&](ConfigData& c) { c.rocket_league_stats_api_config_path = normalized; });
+    m_config = Config::Read();
+    CheckStatsApi(false);
+}
+
 bool RmlUiController::StartBackgroundTask(std::string startedToast, std::function<std::function<void()>(std::stop_token)> work) {
     if (m_backgroundTaskRunning.load()) {
         ShowToast("Another data task is still running. Try again when it finishes.");

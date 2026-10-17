@@ -51,7 +51,7 @@ namespace RmlUiDetail {
         float v = 0.0f;
     };
 
-    std::string PromptForDatabaseFile(HWND parentHwnd);
+    std::string PromptForFile(HWND parentHwnd, const wchar_t* title, const wchar_t* filterName, const wchar_t* filterSpec);
     int64_t SteadyNowMs();
     float SanitizedScale(float value, float fallback = 1.0f);
     float SanitizedUiScale(float value);

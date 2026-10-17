@@ -63,6 +63,7 @@
                 <div class="row gap-sm view-actions">
                     <button class="primary" data-if="stats_can_fix" data-action="onboarding-statsapi-fix">Fix it for me</button>
                     <button data-action="onboarding-statsapi-check">Check again</button>
+                    <button data-if="!stats_ok" data-action="onboarding-statsapi-browse">Choose file...</button>
                 </div>
             </div>
 

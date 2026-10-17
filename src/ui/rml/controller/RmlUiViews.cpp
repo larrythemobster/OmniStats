@@ -1021,6 +1021,9 @@ bool RmlUiController::HandleViewAction(const std::string& action, Rml::Element* 
     } else if (action == "onboarding-statsapi-check" || action == "onboarding-statsapi-fix") {
         CheckStatsApi(action == "onboarding-statsapi-fix", false);
         RefreshOnboarding();
+    } else if (action == "onboarding-statsapi-browse") {
+        BrowseStatsApiPath();
+        RefreshOnboarding();
     } else if (action == "account-sign-in") {
         AccountClient::Instance().BeginSignInAsync(true);
         if (m_state && m_state->ui.showMenu.load()) RebuildSettings();

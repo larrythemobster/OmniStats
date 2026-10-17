@@ -303,6 +303,7 @@ class RmlUiController final : public Rml::EventListener {
     void DeleteLocalHistory();
     void FinishDatabaseMerge(const DbMergeResult& result);
     bool CheckStatsApi(bool repair, bool showToast = true);
+    void BrowseStatsApiPath();
     // Runs `work` off the render thread; the returned callback runs on the render thread during Update().
     bool StartBackgroundTask(std::string startedToast, std::function<std::function<void()>(std::stop_token)> work);
     void PublishBackgroundTaskCompletion();

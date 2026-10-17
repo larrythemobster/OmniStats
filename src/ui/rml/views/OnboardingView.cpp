@@ -96,7 +96,10 @@ void OnboardingView::Refresh(const ConfigData& config, const StatsApiConfig::Che
                                                                                               : StatsApiConfig::GetStatusMessage(statsApi.status)),
         "stats_status");
     Set(m_statsPath, Rml::String(statsApi.path.empty() ? "Stats API config file not found" : statsApi.path), "stats_path");
-    Set(m_statsMessage, Rml::String(ok ? "" : statsApi.message), "stats_message");
+    const char* notFoundHelp = "Couldn't find Rocket League automatically. Start the game and click Check again, or choose DefaultStatsAPI.ini from your Rocket League folder under TAGame\\Config.";
+    Set(m_statsMessage, Rml::String(ok ? "" : statsApi.path.empty() ? notFoundHelp
+                                                                    : statsApi.message),
+        "stats_message");
     Set(m_statsCanFix, !ok && !statsApi.path.empty(), "stats_can_fix");
     Set(m_showRestartHint, !ok && statsApi.rlRunning, "show_restart_hint");
 
