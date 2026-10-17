@@ -2,6 +2,8 @@
 
 OmniStats targets Windows 10 or newer and requires Visual Studio 2022 with the Desktop development with C++ workload, a Windows SDK, CMake 3.22 or newer, Git, and vcpkg.
 
+There's no native Linux build. To run OmniStats on Linux, see [LINUX.md](LINUX.md).
+
 ## Set up vcpkg
 
 Use a current bootstrapped vcpkg checkout. Local builds intentionally do not force the repository to contain a particular historical vcpkg commit, so existing developer installations continue to work.

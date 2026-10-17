@@ -3,6 +3,7 @@
 [![Build](https://img.shields.io/github/actions/workflow/status/larrythemobster/OmniStats/build.yml?branch=main&label=build)](https://github.com/larrythemobster/OmniStats/actions/workflows/build.yml)
 [![C++20](https://img.shields.io/badge/C%2B%2B-20-00599C?logo=cplusplus&logoColor=white)](CMakeLists.txt)
 [![Platform](https://img.shields.io/badge/platform-Windows%2010%2B-0078D6)](docs/BUILDING.md)
+[![Linux](https://img.shields.io/badge/Linux-Proton%20experimental-yellow)](docs/LINUX.md)
 [![License](https://img.shields.io/badge/license-PolyForm%20Internal%20Use-555)](LICENSE)
 [![Discord](https://img.shields.io/badge/Discord-join-5865F2?logo=discord&logoColor=white)](https://discord.gg/4KBW35ApvF)
 
@@ -57,6 +58,10 @@ ctest --preset windows-release
 
 First-run setup checks Rocket League's Stats API configuration, prompts for display mode, and offers a dedicated **Connect live ranks** step. **Continue in browser** opens OmniStats sign-in and PC approval; **Set up later** continues without an account. The browser fallback can copy the sign-in link or verification code. After connecting, choose **Continue** to reach optional integrations and your detected Rocket League account. See [docs/BUILDING.md](docs/BUILDING.md) for full prerequisites and toolchain requirements.
 
+### Linux
+
+OmniStats runs on Linux through Proton in second-monitor mode. Linux support is experimental, and the in-game overlay doesn't work yet. See [docs/LINUX.md](docs/LINUX.md).
+
 ## Screenshots
 
 | In-game overlay | Match history | Accounts |
@@ -69,6 +74,7 @@ First-run setup checks Rocket League's Stats API configuration, prompts for disp
 |---|---|
 | [Architecture](docs/ARCHITECTURE.md) | Data pipeline, reducer state machine, and RmlUi DOM update model |
 | [Building](docs/BUILDING.md) | Visual Studio 2022, MSVC, vcpkg, and CMake configuration |
+| [Linux](docs/LINUX.md) | Running the Windows build through Proton |
 | [Overlay rules](docs/OVERLAY.md) | Container visibility rules, event timers, and layout editing |
 | [Privacy](docs/PRIVACY.md) | Network data flows, local storage, diagnostic pings, and retention |
 | [Contributing](CONTRIBUTING.md) | Code style, commit conventions, and testing requirements |
