@@ -184,6 +184,13 @@
                     </div>
                     <div class="toggle-switch"><input type="checkbox" class="checkbox" data-setting="crash_reports_enabled" data-checked="crash_reports" /><span class="toggle-thumb"></span></div>
                 </div>
+                <div class="setting-row">
+                    <div class="setting-info">
+                        <div class="setting-name">Automatically install updates</div>
+                        <div class="setting-help">Installs updates the next time OmniStats starts.</div>
+                    </div>
+                    <div class="toggle-switch"><input type="checkbox" class="checkbox" data-setting="enable_auto_updates" data-checked="auto_updates" /><span class="toggle-thumb"></span></div>
+                </div>
             </div>
 
             <div class="view-body" data-if="(omninet_available && step == 4) || (!omninet_available && step == 3)">

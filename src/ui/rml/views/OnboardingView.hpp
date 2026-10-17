@@ -56,6 +56,7 @@ class OnboardingView {
     bool m_mmrTracking = false;
     bool m_discord = false;
     bool m_crashReports = false;
+    bool m_autoUpdates = false;
     bool m_omninetAvailable = true;
     int m_totalSteps = 5;
     Rml::String m_identityHint;

@@ -59,6 +59,7 @@ bool OnboardingView::Create(Rml::Context* context) {
     constructor.Bind("mmr_tracking", &m_mmrTracking);
     constructor.Bind("discord", &m_discord);
     constructor.Bind("crash_reports", &m_crashReports);
+    constructor.Bind("auto_updates", &m_autoUpdates);
     constructor.Bind("identity_hint", &m_identityHint);
     constructor.Bind("account_signed_in", &m_accountSignedIn);
     constructor.Bind("account_awaiting", &m_accountAwaiting);
@@ -129,6 +130,7 @@ void OnboardingView::Refresh(const ConfigData& config, const StatsApiConfig::Che
     Set(m_mmrTracking, config.enable_mmr_tracking, "mmr_tracking");
     Set(m_discord, config.discord_rpc_enabled, "discord");
     Set(m_crashReports, config.crash_reports_enabled, "crash_reports");
+    Set(m_autoUpdates, config.enable_auto_updates, "auto_updates");
     const bool omninetAvail = OmniNet::Available();
     Set(m_omninetAvailable, omninetAvail, "omninet_available");
     Set(m_totalSteps, omninetAvail ? 5 : 4, "total_steps");
