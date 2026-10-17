@@ -13,6 +13,7 @@
 #include "network/api/AccountClient.hpp"
 #include "network/mmr/MMRFetcher.hpp"
 #include "network/api/RemoteConfig.hpp"
+#include "network/omninet/OmniNet.hpp"
 #include "ui/Formatting.hpp"
 #include "ui/window/KeyNames.hpp"
 #include "ui/rml/backend/RmlInputWin32.hpp"
@@ -303,8 +304,9 @@ void RmlUiController::RebuildOverlay() {
 std::string RmlUiController::RenderReleaseBanners() const {
     const RemoteConfigData remoteSnap = RemoteConfig::Instance().GetSnapshot();
     const bool belowMin = RemoteConfig::IsVersionBelowMinimum(AppVersion::Current, remoteSnap.min_supported_version);
+    const bool wireUpdateRequired = OmniNet::UpdateRequired();
     const auto announcements = RemoteConfig::Instance().ActiveAnnouncements();
-    if (!belowMin && announcements.empty()) {
+    if (!belowMin && !wireUpdateRequired && announcements.empty()) {
         return {};
     }
 
@@ -317,16 +319,21 @@ std::string RmlUiController::RenderReleaseBanners() const {
 
     std::ostringstream out;
     out << "<div class='release-banners'>";
-    if (belowMin) {
-        const std::string msg = remoteSnap.min_version_message.empty()
-                                    ? ("OmniStats v" + remoteSnap.min_supported_version + " or newer is recommended.")
-                                    : remoteSnap.min_version_message;
+    if (wireUpdateRequired || belowMin) {
+        const std::string title = wireUpdateRequired
+                                      ? "Update required"
+                                      : ("Update recommended · v" + Escape(remoteSnap.min_supported_version) + "+");
+        const std::string msg = wireUpdateRequired
+                                    ? "Update OmniStats to keep using online features."
+                                    : (remoteSnap.min_version_message.empty()
+                                           ? ("OmniStats v" + remoteSnap.min_supported_version + " or newer is recommended.")
+                                           : remoteSnap.min_version_message);
         const std::string updateLabel = updateDownloading ? "Starting updater..."
                                         : updateFailed    ? "Retry update"
                                                           : "Update now";
         out << "<div class='release-banner severity-warning min-version-banner'>"
             << "<div class='release-banner-body'>"
-            << "<div class='release-banner-title'>Update recommended · v" << Escape(remoteSnap.min_supported_version) << "+</div>"
+            << "<div class='release-banner-title'>" << Escape(title) << "</div>"
             << "<div class='release-banner-text'>" << Escape(msg) << "</div>"
             << "</div><div class='release-banner-actions'>"
             << Button("update-app", updateLabel, "primary compact")
