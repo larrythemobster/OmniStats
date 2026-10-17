@@ -316,7 +316,9 @@ div.value { display: block; }
     background-color: #101010f8;
 }
 .overlay-drag { cursor: move; }
-.overlay-widget-handle { cursor: move; min-height: 24dp; padding: 2dp 0; }
+.overlay-widget-handle { cursor: move; min-height: 0; padding: 2dp 5dp; margin-left: -5dp; margin-right: -5dp; border: 1dp #ffffff1f; border-radius: 4dp; background-color: #ffffff0a; align-items: center; }
+.overlay-widget-handle:hover { border-color: #ffffff47; background-color: #ffffff14; }
+.undock-hint { color: #8f99a8; font-size: 9dp; font-weight: 400; letter-spacing: 0; white-space: nowrap; margin-left: 8dp; }
 .widget-close { min-width: 24dp; width: 24dp; min-height: 22dp; height: 22dp; padding: 0; margin-left: 6dp; background-color: #35171a; border-color: #743238; color: #ffb2b7; }
 .overlay-card.dock-hover-target {
     border: 2dp solid #ff0021 !important;

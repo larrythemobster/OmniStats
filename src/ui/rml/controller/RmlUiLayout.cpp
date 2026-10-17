@@ -231,7 +231,12 @@ std::string RmlUiController::RenderOverlayContainer(const OverlayLayout::Contain
     out << " style='left:" << toDp(x) << "dp;top:" << toDp(y) << "dp;width:" << toDp(w) << "dp;'>";
     for (size_t i = 0; i < widgets.size(); ++i) {
         const auto widget = widgets[i];
-        if (widgets.size() > 1 && widget != DashboardLayout::WidgetId::PreviousGames && widget != DashboardLayout::WidgetId::RankProgress && widget != DashboardLayout::WidgetId::Tournaments) {
+        if (editMode && widgets.size() > 1) {
+            out << "<div class='row overlay-widget-title overlay-widget-handle' data-action='overlay-widget-drag' data-container='" << Escape(container.id)
+                << "' data-widget='" << WidgetDomId(widget) << "' style='margin-top:" << (i ? 8 : 2) << "dp'>"
+                << "<span class='grow'>" << Escape(DashboardLayout::GetWidgetDisplayName(widget)) << "</span>"
+                << "<span class='undock-hint'>Drag to undock</span></div>";
+        } else if (widgets.size() > 1 && widget != DashboardLayout::WidgetId::PreviousGames && widget != DashboardLayout::WidgetId::RankProgress && widget != DashboardLayout::WidgetId::Tournaments) {
             out << "<div class='overlay-widget-title' style='margin-top:" << (i ? 8 : 2) << "dp'>" << Escape(DashboardLayout::GetWidgetDisplayName(widget)) << "</div>";
         }
         out << "<div class='live-widget' data-live-widget='" << WidgetDomId(widget)

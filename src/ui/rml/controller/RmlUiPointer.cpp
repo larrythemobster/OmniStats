@@ -101,6 +101,7 @@ void RmlUiController::HandleMouseDown(Rml::Element* target, Rml::Event& event) {
         m_drag.sourceContainerId = Attribute(actionElement, "data-container");
         m_drag.startMouseX = event.GetParameter<float>("mouse_x", 0.0f);
         m_drag.startMouseY = event.GetParameter<float>("mouse_y", 0.0f);
+        m_drag.dockGuide = m_document ? m_document->GetElementById("overlay-dock-indicator") : nullptr;
         m_systemInterface.LockCursor("move");
     } else if (action == "settings-drag") {
         const float rmlScale = SanitizedScale(m_dpiScale) * SanitizedUiScale(m_config.ui_scale);
@@ -269,6 +270,10 @@ void RmlUiController::HandleMouseMove(Rml::Event& event) {
         }
         return;
     }
+    if (m_drag.kind == DragKind::OverlayWidget) {
+        UpdateOverlayDockHover(event.GetParameter<float>("mouse_x", 0.0f), event.GetParameter<float>("mouse_y", 0.0f), m_drag.sourceContainerId);
+        return;
+    }
     if (m_drag.kind != DragKind::OverlayMove && m_drag.kind != DragKind::OverlayResize) return;
     const float dpi = SanitizedScale(m_dpiScale);
     const float rmlScale = dpi * SanitizedUiScale(m_config.ui_scale);
@@ -384,22 +389,28 @@ void RmlUiController::HandleMouseMove(Rml::Event& event) {
         m_drag.guideY->SetProperty("display", ySnap.snapped ? "block" : "none");
         if (ySnap.snapped) m_drag.guideY->SetProperty("top", std::to_string(toDp(ySnap.guide)) + "dp");
     }
+    if (m_drag.kind == DragKind::OverlayMove && m_drag.allowDock)
+        UpdateOverlayDockHover(mouseX, mouseY, m_drag.containerId);
+}
+
+void RmlUiController::UpdateOverlayDockHover(float mouseX, float mouseY, const std::string& excludeId) {
+    const float dpi = SanitizedScale(m_dpiScale);
+    const float rmlScale = dpi * SanitizedUiScale(m_config.ui_scale);
+    const auto toDp = [rmlScale](float pixels) { return pixels / std::max(rmlScale, 0.5f); };
     std::string hoverTargetId;
     bool dockAtTop = false;
     float dockX = 0.0f, dockY = 0.0f, dockW = 0.0f, dockH = 0.0f;
-    if (m_drag.kind == DragKind::OverlayMove && m_drag.allowDock) {
-        for (const auto& other : m_config.overlay_layout.containers) {
-            if (other.id == m_drag.containerId) continue;
-            const auto [width, height] = OverlayContainerSize(other, m_dpiScale, &m_config);
-            if (mouseX >= other.x && mouseX <= other.x + width && mouseY >= other.y && mouseY <= other.y + height) {
-                hoverTargetId = other.id;
-                dockAtTop = mouseY < other.y + height * 0.25f;
-                dockX = other.x;
-                dockY = other.y;
-                dockW = width;
-                dockH = height;
-                break;
-            }
+    for (const auto& other : m_config.overlay_layout.containers) {
+        if (other.id == excludeId) continue;
+        const auto [width, height] = OverlayContainerSize(other, m_dpiScale, &m_config);
+        if (mouseX >= other.x && mouseX <= other.x + width && mouseY >= other.y && mouseY <= other.y + height) {
+            hoverTargetId = other.id;
+            dockAtTop = mouseY < other.y + height * 0.25f;
+            dockX = other.x;
+            dockY = other.y;
+            dockW = width;
+            dockH = height;
+            break;
         }
     }
     auto* overlayRoot = Root("overlay-root");
@@ -546,14 +557,23 @@ void RmlUiController::HandleMouseUp(Rml::Event& event) {
     } else if (m_drag.kind == DragKind::OverlayWidget) {
         std::string targetId;
         bool insertAtTop = false;
+        bool overSource = false;
         for (const auto& container : m_config.overlay_layout.containers) {
-            if (container.id == m_drag.sourceContainerId) continue;
             const auto [width, height] = OverlayContainerSize(container, m_dpiScale, &m_config);
-            if (mouseX >= container.x && mouseX <= container.x + width && mouseY >= container.y && mouseY <= container.y + height) {
-                targetId = container.id;
-                insertAtTop = mouseY < container.y + height * 0.5f;
-                break;
+            const bool inside = mouseX >= container.x && mouseX <= container.x + width && mouseY >= container.y && mouseY <= container.y + height;
+            if (!inside) continue;
+            if (container.id == m_drag.sourceContainerId) {
+                overSource = true;
+                continue;
             }
+            targetId = container.id;
+            insertAtTop = mouseY < container.y + height * 0.25f;
+            break;
+        }
+        if (targetId.empty() && overSource) {
+            m_drag = {};
+            m_pointerPressed = false;
+            return;
         }
 
         const auto widget = m_drag.widget;

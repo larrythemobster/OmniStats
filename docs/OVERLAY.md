@@ -4,7 +4,7 @@
 
 Open **Settings > Display** and select **In-game overlay** or **Second-monitor dashboard**. Each mode has its own card toggles. Enabling an unplaced card adds it automatically. Turning a card off preserves its position and visibility rule.
 
-Use **Position cards** at the top of the card list to move, resize, or dock cards. **Done positioning** returns to normal play. Layout editing does not contain visibility controls.
+Use **Position cards** at the top of the card list to move, resize, or dock cards. Docked cards show a title bar while positioning; drag it off the group to undock that card, or onto another card to move it there. **Done positioning** returns to normal play. Layout editing does not contain visibility controls.
 
 Each enabled overlay card has its own **Show when** selector in the card list:
 

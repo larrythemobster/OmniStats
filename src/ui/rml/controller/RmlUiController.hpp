@@ -293,6 +293,7 @@ class RmlUiController final : public Rml::EventListener {
     void RefreshThemeEditorControls(std::string_view preserveHexKey = {});
     void CommitColorPick();
     void HandleMouseMove(Rml::Event& event);
+    void UpdateOverlayDockHover(float mouseX, float mouseY, const std::string& excludeId);
     void HandleMouseUp(Rml::Event& event);
     void PanGraph(int direction);
     void BeginBindCapture(BindCaptureTarget target);

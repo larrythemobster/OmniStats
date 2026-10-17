@@ -1715,6 +1715,70 @@ TEST_F(RmlUiControllerStateTest, ShortOverlayCardCanBeDraggedToTheBottomOfTheScr
     DestroyWindow(hwnd);
 }
 
+TEST_F(RmlUiControllerStateTest, DockedOverlayWidgetCanBeDraggedOutInEditMode) {
+    Microsoft::WRL::ComPtr<ID3D11Device> device;
+    Microsoft::WRL::ComPtr<ID3D11DeviceContext> context;
+    D3D_FEATURE_LEVEL featureLevel;
+    if (FAILED(D3D11CreateDevice(nullptr, D3D_DRIVER_TYPE_WARP, nullptr, 0, nullptr, 0, D3D11_SDK_VERSION,
+                                 &device, &featureLevel, &context))) {
+        GTEST_SKIP() << "WARP device creation not available in this environment.";
+    }
+    HWND hwnd = CreateWindowExA(0, "STATIC", "test", WS_POPUP, 0, 0, 1920, 1080, nullptr, nullptr,
+                                GetModuleHandle(nullptr), nullptr);
+    ASSERT_NE(hwnd, nullptr);
+
+    Config::Update([](ConfigData& c) {
+        c.overlay_layout.containers.clear();
+        OverlayLayout::ContainerConfig stack;
+        stack.id = "stack";
+        stack.x = 40.0f;
+        stack.y = 60.0f;
+        stack.widgets = {DashboardLayout::WidgetId::LiveRoster, DashboardLayout::WidgetId::SessionStats};
+        c.overlay_layout.containers.push_back(stack);
+    },
+                   true);
+
+    auto state = std::make_shared<SessionState>();
+    state->ui.dashboardLayoutEditMode.store(true);
+    RmlUiController controller(state, nullptr);
+    ASSERT_TRUE(controller.Initialize(hwnd, device.Get(), context.Get(), 1920, 1080, 1.0f));
+    controller.Update(Config::Read());
+    controller.Render();
+
+    const auto press = [&](Rml::Element* handle, int toX, int toY) {
+        const Rml::Vector2f grip = handle->GetAbsoluteOffset() + Rml::Vector2f(10.0f, 5.0f);
+        const LPARAM at = MAKELPARAM(static_cast<int>(grip.x), static_cast<int>(grip.y));
+        controller.ProcessWindowMessage(hwnd, WM_MOUSEMOVE, 0, at);
+        controller.Render();
+        controller.ProcessWindowMessage(hwnd, WM_LBUTTONDOWN, MK_LBUTTON, at);
+        controller.ProcessWindowMessage(hwnd, WM_MOUSEMOVE, MK_LBUTTON, MAKELPARAM(toX, toY));
+        controller.ProcessWindowMessage(hwnd, WM_LBUTTONUP, 0, MAKELPARAM(toX, toY));
+        controller.Render();
+    };
+    const auto handleFor = [&] {
+        return OverlayRoot(controller)->QuerySelector("[data-action='overlay-widget-drag'][data-widget='session']");
+    };
+
+    auto* handle = handleFor();
+    ASSERT_NE(handle, nullptr);
+    const Rml::Vector2f grip = handle->GetAbsoluteOffset() + Rml::Vector2f(10.0f, 5.0f);
+    press(handle, static_cast<int>(grip.x), static_cast<int>(grip.y));
+    ASSERT_EQ(Config::Read().overlay_layout.containers.size(), 1u) << "a click on the handle must not undock";
+
+    press(handleFor(), 1400, 700);
+    const auto& containers = Config::Read().overlay_layout.containers;
+    ASSERT_EQ(containers.size(), 2u);
+    const auto source = std::find_if(containers.begin(), containers.end(), [](const auto& c) { return c.id == "stack"; });
+    ASSERT_NE(source, containers.end());
+    EXPECT_EQ(source->widgets, (std::vector<DashboardLayout::WidgetId>{DashboardLayout::WidgetId::LiveRoster}));
+    const auto detached = std::find_if(containers.begin(), containers.end(), [](const auto& c) { return c.id != "stack"; });
+    ASSERT_NE(detached, containers.end());
+    EXPECT_EQ(detached->widgets, (std::vector<DashboardLayout::WidgetId>{DashboardLayout::WidgetId::SessionStats}));
+    EXPECT_GT(detached->x, 1300.0f);
+
+    DestroyWindow(hwnd);
+}
+
 TEST_F(RmlUiControllerStateTest, SettingsWindowStaysInsideClientAreaAfterResize) {
     Microsoft::WRL::ComPtr<ID3D11Device> device;
     Microsoft::WRL::ComPtr<ID3D11DeviceContext> context;
