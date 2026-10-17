@@ -14,7 +14,6 @@
 #include "core/state/SessionState.hpp"
 
 namespace TelemetryReducerDetail {
-    std::string FormatArenaName(const std::string& asset);
     MmrCategory CategoryFromTeamCounts(const std::array<int, 2>& teamCounts, bool roundStarted);
     MmrCategory CategoryFromMode(const std::string& mode);
     std::string InferModeFromMatchState(const GameState& game, MmrCategory rosterCategory);

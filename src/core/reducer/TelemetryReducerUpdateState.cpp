@@ -1,6 +1,7 @@
 #include "core/reducer/TelemetryReducer.hpp"
 #include "core/config/Config.hpp"
 #include "core/config/Constants.hpp"
+#include "core/game/ArenaNames.hpp"
 #include "core/game/GamemodeUtils.hpp"
 #include "core/game/PlaylistMetadata.hpp"
 #include "utils/PrivacyLog.hpp"
@@ -211,7 +212,7 @@ void TelemetryReducer::HandleUpdateState(const nlohmann::json& data, SideEffects
         }
         if (game.contains("Arena") && game["Arena"].is_string()) {
             std::string currentArenaAsset = game["Arena"].get<std::string>();
-            std::string currentArena = FormatArenaName(currentArenaAsset);
+            std::string currentArena = ArenaNames::DisplayName(currentArenaAsset);
             if (!currentArena.empty() &&
                 (currentArena != m_state->game.arenaName ||
                  currentArenaAsset != m_state->game.arenaAsset)) {

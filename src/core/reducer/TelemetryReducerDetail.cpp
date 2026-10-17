@@ -11,37 +11,6 @@
 #include <optional>
 
 namespace TelemetryReducerDetail {
-    std::string FormatArenaName(const std::string& asset) {
-        if (asset.empty()) return "";
-        std::string base = asset;
-        std::transform(base.begin(), base.end(), base.begin(), ::tolower);
-        if (base.length() > 2 && base.substr(base.length() - 2) == "_p") {
-            base = base.substr(0, base.length() - 2);
-        }
-        static const std::unordered_map<std::string, std::string> ARENA_BASE = {
-            {"stadium", "DFH Stadium"}, {"park", "Beckwith Park"}, {"mannfield", "Mannfield"}, {"trainstation", "Urban Central"}, {"haunted_trainstation", "Urban Central (Haunted)"}, {"underwater", "AquaDome"}, {"wasteland", "Wasteland"}, {"neotokyo", "Neo Tokyo"}, {"neotokyo_standard", "Neo Tokyo"}, {"eurostadium", "Champions Field"}, {"beach", "Salty Shores"}, {"beachvolley", "Salty Shores"}, {"chinastadium", "Forbidden Temple"}, {"temple", "Forbidden Temple"}, {"cosmic", "Starbase ARC"}, {"arc_standard", "Starbase ARC"}, {"throwback_stadium", "Throwback Stadium"}, {"hoops_dunkhouse", "DunkHouse"}, {"music", "Estadio Vida"}, {"estadio_vida", "Estadio Vida"}, {"farm", "Farmstead"}, {"outlaw_oasis", "Deadeye Canyon"}, {"canyon", "Deadeye Canyon"}, {"shattershot", "Core 707"}, {"labs_octagon", "Octagon"}, {"labs_pillars", "Pillars"}, {"labs_cosmic", "Cosmic"}, {"labs_double_goal", "Double Goal"}, {"labs_underpass", "Underpass"}, {"labs_utopia", "Utopia Retro"}, {"neoasphalt", "Neon Fields"}, {"neon", "Neon Fields"}, {"utopia", "Utopia Coliseum"}, {"sovereign", "Sovereign Heights"}};
-        static const std::unordered_map<std::string, std::string> ARENA_VARIANT = {
-            {"night", "Night"}, {"day", "Day"}, {"rainy", "Stormy"}, {"stormy", "Stormy"}, {"race_day", "Stormy"}, {"snowy", "Snowy"}, {"snowfall", "Snowy"}, {"dawn", "Dawn"}, {"spring", "Spring"}, {"spooky", "Spooky"}, {"circuit", "Circuit"}};
-        auto baseIt = ARENA_BASE.find(base);
-        if (baseIt != ARENA_BASE.end()) return baseIt->second;
-        size_t lastUnderscore = base.find_last_of('_');
-        if (lastUnderscore != std::string::npos) {
-            std::string candidate = base.substr(0, lastUnderscore);
-            std::string variant = base.substr(lastUnderscore + 1);
-            auto candIt = ARENA_BASE.find(candidate);
-            if (candIt != ARENA_BASE.end()) {
-                auto varIt = ARENA_VARIANT.find(variant);
-                if (varIt != ARENA_VARIANT.end()) return candIt->second + " (" + varIt->second + ")";
-                if (!variant.empty()) {
-                    variant[0] = static_cast<char>(std::toupper(static_cast<unsigned char>(variant[0])));
-                    return candIt->second + " (" + variant + ")";
-                }
-                return candIt->second;
-            }
-        }
-        return asset;
-    }
-
     // Game.PlaylistId is authoritative when Rocket League provides it. Playlist
     // metadata is centralized in PlaylistMetadata so gameplay, persistence, and
     // Tracker parsing cannot silently drift apart.

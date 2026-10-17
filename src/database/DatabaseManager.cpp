@@ -1,5 +1,6 @@
 #include "DatabaseManager.hpp"
 #include "core/config/Config.hpp"
+#include "core/game/ArenaNames.hpp"
 #include "core/game/GamemodeUtils.hpp"
 #include "core/game/PlaylistMetadata.hpp"
 #include "utils/Storage.hpp"
@@ -365,6 +366,40 @@ static constexpr const char* kMigrationV10Sql = R"(
     CREATE INDEX IF NOT EXISTS idx_player_tags_identity ON PlayerTags(platform, account_id, splitscreen);
 )";
 
+static bool ApplyMigrationV11(sqlite3* db, std::string& error) {
+    sqlite3_stmt* select = nullptr;
+    if (sqlite3_prepare_v2(db, "SELECT DISTINCT arena FROM Matches WHERE arena IS NOT NULL;", -1, &select, nullptr) != SQLITE_OK) {
+        error = sqlite3_errmsg(db);
+        return false;
+    }
+    std::vector<std::pair<std::string, std::string>> renames;
+    while (sqlite3_step(select) == SQLITE_ROW) {
+        std::string stored = SqlColumnText(select, 0);
+        std::string repaired = ArenaNames::RepairStoredName(stored);
+        if (repaired != stored) renames.emplace_back(std::move(stored), std::move(repaired));
+    }
+    sqlite3_finalize(select);
+
+    sqlite3_stmt* update = nullptr;
+    if (sqlite3_prepare_v2(db, "UPDATE Matches SET arena = ?1 WHERE arena = ?2;", -1, &update, nullptr) != SQLITE_OK) {
+        error = sqlite3_errmsg(db);
+        return false;
+    }
+    for (const auto& [stored, repaired] : renames) {
+        sqlite3_bind_text(update, 1, repaired.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_text(update, 2, stored.c_str(), -1, SQLITE_TRANSIENT);
+        if (sqlite3_step(update) != SQLITE_DONE) {
+            error = sqlite3_errmsg(db);
+            sqlite3_finalize(update);
+            return false;
+        }
+        sqlite3_reset(update);
+        sqlite3_clear_bindings(update);
+    }
+    sqlite3_finalize(update);
+    return true;
+}
+
 // Append new migrations in ascending version order; each runs in its own BEGIN IMMEDIATE transaction.
 static const std::vector<Migration> kMigrations = {
     {1, kMigrationV1Sql, ApplyMigrationV1},
@@ -377,6 +412,7 @@ static const std::vector<Migration> kMigrations = {
     {8, kMigrationV8Sql},
     {9, kMigrationV9Sql},
     {10, kMigrationV10Sql},
+    {11, nullptr, ApplyMigrationV11},
 };
 
 static std::string CsvEscape(const std::string& value) {
