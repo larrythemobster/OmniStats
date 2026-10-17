@@ -1062,7 +1062,7 @@ TEST_F(DatabaseManagerTest, MigratesAllHistoricalSchemasToV2WithBackupsAndIdempo
         {
             auto db = std::make_shared<DatabaseManager>(sessionState);
             ASSERT_TRUE(db->Initialize(path)) << tc.label;
-            EXPECT_EQ(db->GetSchemaVersion(), 11) << tc.label;
+            EXPECT_EQ(db->GetSchemaVersion(), 10) << tc.label;
             EXPECT_EQ(QueryIntScalar(db->GetRawDb(), "SELECT COUNT(*) FROM sqlite_master WHERE type='index' AND name='idx_matches_match_guid';"), 1)
                 << tc.label;
             EXPECT_EQ(QueryIntScalar(db->GetRawDb(), "SELECT COUNT(*) FROM Matches;"), 2) << tc.label;
@@ -1082,7 +1082,7 @@ TEST_F(DatabaseManagerTest, MigratesAllHistoricalSchemasToV2WithBackupsAndIdempo
         {
             auto db = std::make_shared<DatabaseManager>(sessionState);
             ASSERT_TRUE(db->Initialize(path)) << tc.label;
-            EXPECT_EQ(db->GetSchemaVersion(), 11) << tc.label;
+            EXPECT_EQ(db->GetSchemaVersion(), 10) << tc.label;
             EXPECT_EQ(QueryIntScalar(db->GetRawDb(), "SELECT COUNT(*) FROM Matches;"), 2) << tc.label;
             EXPECT_EQ(QueryIntScalar(db->GetRawDb(), "SELECT COUNT(*) FROM MatchPlayers;"), 3) << tc.label;
         }
@@ -1092,8 +1092,8 @@ TEST_F(DatabaseManagerTest, MigratesAllHistoricalSchemasToV2WithBackupsAndIdempo
     }
 }
 
-TEST_F(DatabaseManagerTest, MigrationRepairsLegacyArenaNamesOnly) {
-    const std::string path = "test_mig_arena_names.db";
+TEST_F(DatabaseManagerTest, LegacyArenaNamesAreRepairedOnceWithoutCascading) {
+    const std::string path = "test_arena_names.db";
     RemoveTestDbFiles(path);
     {
         auto db = std::make_shared<DatabaseManager>(sessionState);
@@ -1101,34 +1101,33 @@ TEST_F(DatabaseManagerTest, MigrationRepairsLegacyArenaNamesOnly) {
         ASSERT_EQ(sqlite3_exec(db->GetRawDb(),
                                "INSERT INTO Matches (arena, our_score, their_score, win, match_guid) VALUES "
                                "('Champions Field (Stormy)', 1, 0, 1, 'a'), ('cs_p', 1, 0, 1, 'b'), ('UF_Day_P', 1, 0, 1, 'c'), "
-                               "('Farmstead (Grs)', 1, 0, 1, 'd'), ('Neo Tokyo', 1, 0, 1, 'e'), ('Urban Central (Night)', 1, 0, 1, 'f');"
-                               "PRAGMA user_version = 10;",
+                               "('Farmstead (Grs)', 1, 0, 1, 'd'), ('Neo Tokyo', 1, 0, 1, 'e'), ('Champions Field', 1, 0, 1, 'f');"
+                               "DELETE FROM Settings WHERE key = 'arena_names_repaired_v1';",
                                nullptr, nullptr, nullptr),
                   SQLITE_OK);
     }
-    {
+    const auto arenaFor = [](sqlite3* raw, const char* guid) {
+        sqlite3_stmt* stmt = nullptr;
+        std::string arena;
+        if (sqlite3_prepare_v2(raw, "SELECT arena FROM Matches WHERE match_guid = ?1;", -1, &stmt, nullptr) == SQLITE_OK) {
+            sqlite3_bind_text(stmt, 1, guid, -1, SQLITE_STATIC);
+            if (sqlite3_step(stmt) == SQLITE_ROW) arena = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 0));
+        }
+        sqlite3_finalize(stmt);
+        return arena;
+    };
+    for (int open = 0; open < 2; ++open) {
         auto db = std::make_shared<DatabaseManager>(sessionState);
         ASSERT_TRUE(db->Initialize(path));
-        EXPECT_EQ(db->GetSchemaVersion(), 11);
-        const auto arenaFor = [&](const char* guid) {
-            sqlite3_stmt* stmt = nullptr;
-            std::string arena;
-            if (sqlite3_prepare_v2(db->GetRawDb(), "SELECT arena FROM Matches WHERE match_guid = ?1;", -1, &stmt, nullptr) == SQLITE_OK) {
-                sqlite3_bind_text(stmt, 1, guid, -1, SQLITE_STATIC);
-                if (sqlite3_step(stmt) == SQLITE_ROW) arena = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 0));
-            }
-            sqlite3_finalize(stmt);
-            return arena;
-        };
-        EXPECT_EQ(arenaFor("a"), "Mannfield (Stormy)");
-        EXPECT_EQ(arenaFor("b"), "Champions Field");
-        EXPECT_EQ(arenaFor("c"), "Futura Garden");
-        EXPECT_EQ(arenaFor("d"), "Farmstead (Pitched)");
-        EXPECT_EQ(arenaFor("e"), "Neo Tokyo") << "ambiguous legacy names stay untouched";
-        EXPECT_EQ(arenaFor("f"), "Urban Central (Night)");
+        auto* raw = db->GetRawDb();
+        EXPECT_EQ(arenaFor(raw, "a"), "Mannfield (Stormy)") << open;
+        EXPECT_EQ(arenaFor(raw, "b"), "Champions Field") << "a corrected cs_p row must not be renamed again, open " << open;
+        EXPECT_EQ(arenaFor(raw, "c"), "Futura Garden") << open;
+        EXPECT_EQ(arenaFor(raw, "d"), "Farmstead (Pitched)") << open;
+        EXPECT_EQ(arenaFor(raw, "e"), "Neo Tokyo") << "ambiguous legacy names stay untouched, open " << open;
+        EXPECT_EQ(arenaFor(raw, "f"), "Mannfield") << open;
     }
     RemoveTestDbFiles(path);
-    std::filesystem::remove(path + ".bak-v10");
 }
 
 TEST_F(DatabaseManagerTest, MigrationV2FailureRollsBackAndKeepsRunningOnV1Tables) {
@@ -1691,7 +1690,7 @@ TEST_F(DatabaseManagerTest, MigrationV2ToV3CreatesSessionsTableAndMatchSessionIn
     {
         auto db = std::make_shared<DatabaseManager>(sessionState);
         ASSERT_TRUE(db->Initialize(path));
-        EXPECT_EQ(db->GetSchemaVersion(), 11);
+        EXPECT_EQ(db->GetSchemaVersion(), 10);
         EXPECT_TRUE(std::filesystem::exists(backupPath));
         EXPECT_EQ(QueryIntScalar(db->GetRawDb(), "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='Sessions';"), 1);
         EXPECT_EQ(QueryIntScalar(db->GetRawDb(), "SELECT COUNT(*) FROM sqlite_master WHERE type='index' AND name='idx_matches_session';"), 1);
@@ -2483,7 +2482,7 @@ TEST_F(DatabaseManagerTest, MigrationV3ToV4CreatesReplayUploadsTable) {
     {
         auto db = std::make_shared<DatabaseManager>(sessionState);
         ASSERT_TRUE(db->Initialize(path));
-        EXPECT_EQ(db->GetSchemaVersion(), 11);
+        EXPECT_EQ(db->GetSchemaVersion(), 10);
         EXPECT_TRUE(std::filesystem::exists(backupPath));
         EXPECT_EQ(QueryIntScalar(db->GetRawDb(), "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='ReplayUploads';"), 1);
         EXPECT_EQ(QueryIntScalar(db->GetRawDb(), "SELECT COUNT(*) FROM sqlite_master WHERE type='index' AND name='idx_replay_uploads_match_guid';"), 1);

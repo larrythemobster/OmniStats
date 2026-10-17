@@ -366,38 +366,61 @@ static constexpr const char* kMigrationV10Sql = R"(
     CREATE INDEX IF NOT EXISTS idx_player_tags_identity ON PlayerTags(platform, account_id, splitscreen);
 )";
 
-static bool ApplyMigrationV11(sqlite3* db, std::string& error) {
-    sqlite3_stmt* select = nullptr;
-    if (sqlite3_prepare_v2(db, "SELECT DISTINCT arena FROM Matches WHERE arena IS NOT NULL;", -1, &select, nullptr) != SQLITE_OK) {
-        error = sqlite3_errmsg(db);
-        return false;
+// Runs once per database, tracked in Settings rather than user_version: other local builds already use
+// schema versions past 10. Rows are rewritten by id so chained legacy renames cannot cascade.
+static void RepairArenaNamesOnce(sqlite3* db) {
+    static constexpr const char* kFlag = "arena_names_repaired_v1";
+    if (sqlite3_exec(db, "BEGIN IMMEDIATE;", nullptr, nullptr, nullptr) != SQLITE_OK) return;
+    bool ok = true;
+    bool done = false;
+    sqlite3_stmt* stmt = nullptr;
+    if (sqlite3_prepare_v2(db, "SELECT 1 FROM Settings WHERE key = ?1;", -1, &stmt, nullptr) == SQLITE_OK) {
+        sqlite3_bind_text(stmt, 1, kFlag, -1, SQLITE_STATIC);
+        done = sqlite3_step(stmt) == SQLITE_ROW;
+    } else {
+        ok = false;
     }
-    std::vector<std::pair<std::string, std::string>> renames;
-    while (sqlite3_step(select) == SQLITE_ROW) {
-        std::string stored = SqlColumnText(select, 0);
-        std::string repaired = ArenaNames::RepairStoredName(stored);
-        if (repaired != stored) renames.emplace_back(std::move(stored), std::move(repaired));
-    }
-    sqlite3_finalize(select);
+    sqlite3_finalize(stmt);
 
-    sqlite3_stmt* update = nullptr;
-    if (sqlite3_prepare_v2(db, "UPDATE Matches SET arena = ?1 WHERE arena = ?2;", -1, &update, nullptr) != SQLITE_OK) {
-        error = sqlite3_errmsg(db);
-        return false;
-    }
-    for (const auto& [stored, repaired] : renames) {
-        sqlite3_bind_text(update, 1, repaired.c_str(), -1, SQLITE_TRANSIENT);
-        sqlite3_bind_text(update, 2, stored.c_str(), -1, SQLITE_TRANSIENT);
-        if (sqlite3_step(update) != SQLITE_DONE) {
-            error = sqlite3_errmsg(db);
-            sqlite3_finalize(update);
-            return false;
+    std::vector<std::pair<sqlite3_int64, std::string>> updates;
+    if (ok && !done) {
+        if (sqlite3_prepare_v2(db, "SELECT id, arena FROM Matches WHERE arena IS NOT NULL;", -1, &stmt, nullptr) == SQLITE_OK) {
+            while (sqlite3_step(stmt) == SQLITE_ROW) {
+                const std::string stored = SqlColumnText(stmt, 1);
+                std::string repaired = ArenaNames::RepairStoredName(stored);
+                if (repaired != stored) updates.emplace_back(sqlite3_column_int64(stmt, 0), std::move(repaired));
+            }
+        } else {
+            ok = false;
         }
-        sqlite3_reset(update);
-        sqlite3_clear_bindings(update);
+        sqlite3_finalize(stmt);
     }
-    sqlite3_finalize(update);
-    return true;
+    if (ok && !done && sqlite3_prepare_v2(db, "UPDATE Matches SET arena = ?1 WHERE id = ?2;", -1, &stmt, nullptr) == SQLITE_OK) {
+        for (const auto& [id, arena] : updates) {
+            sqlite3_bind_text(stmt, 1, arena.c_str(), -1, SQLITE_TRANSIENT);
+            sqlite3_bind_int64(stmt, 2, id);
+            if (sqlite3_step(stmt) != SQLITE_DONE) {
+                ok = false;
+                break;
+            }
+            sqlite3_reset(stmt);
+        }
+        sqlite3_finalize(stmt);
+    } else if (!done) {
+        ok = false;
+    }
+    if (ok && !done && sqlite3_prepare_v2(db, "INSERT OR REPLACE INTO Settings (key, value) VALUES (?1, '1');", -1, &stmt, nullptr) == SQLITE_OK) {
+        sqlite3_bind_text(stmt, 1, kFlag, -1, SQLITE_STATIC);
+        ok = sqlite3_step(stmt) == SQLITE_DONE;
+        sqlite3_finalize(stmt);
+    }
+    if (ok) {
+        sqlite3_exec(db, "COMMIT;", nullptr, nullptr, nullptr);
+        if (!updates.empty()) std::cout << "[Database] Corrected map names on " << updates.size() << " saved matches.\n";
+    } else {
+        std::cerr << "[Database] Map name repair failed: " << sqlite3_errmsg(db) << "\n";
+        sqlite3_exec(db, "ROLLBACK;", nullptr, nullptr, nullptr);
+    }
 }
 
 // Append new migrations in ascending version order; each runs in its own BEGIN IMMEDIATE transaction.
@@ -412,7 +435,6 @@ static const std::vector<Migration> kMigrations = {
     {8, kMigrationV8Sql},
     {9, kMigrationV9Sql},
     {10, kMigrationV10Sql},
-    {11, nullptr, ApplyMigrationV11},
 };
 
 static std::string CsvEscape(const std::string& value) {
@@ -660,6 +682,7 @@ bool DatabaseManager::CreateTables() {
     const bool hasV1Tables = SqliteTableExists(m_db, "Matches") &&
                              SqliteTableExists(m_db, "MatchPlayers") &&
                              SqliteTableExists(m_db, "Settings");
+    if (hasV1Tables) RepairArenaNamesOnce(m_db);
     m_hasStatsTables = SqliteTableExists(m_db, "MatchPlayerStats") &&
                        SqliteTableExists(m_db, "MatchLocalStats");
     m_hasSessionsTable = SqliteTableExists(m_db, "Sessions") &&
