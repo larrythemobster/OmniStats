@@ -1,6 +1,6 @@
 {
   "name": "omnistats",
-  "version": "2.3.6",
+  "version": "2.4.0",
   "builtin-baseline": "8bfaff200d02125861b1239f2ecb0a671a5945db",
   "dependencies": [
     "asio",
