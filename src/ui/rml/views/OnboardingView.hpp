@@ -15,7 +15,7 @@ namespace Rml {
 
 class OnboardingView {
   public:
-    static constexpr int kStepCount = 5;
+    static int StepCount();
     static constexpr int kRanksStep = 2;
     static constexpr int kAccountStep = 4;
 
@@ -56,6 +56,8 @@ class OnboardingView {
     bool m_mmrTracking = false;
     bool m_discord = false;
     bool m_crashReports = false;
+    bool m_omninetAvailable = true;
+    int m_totalSteps = 5;
     Rml::String m_identityHint;
     bool m_accountSignedIn = false;
     bool m_accountAwaiting = false;

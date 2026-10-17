@@ -24,13 +24,18 @@
 using namespace RmlUiDetail;
 
 bool RmlUiController::RankSourceAvailable() const {
-    return m_config.enable_mmr_tracking || (m_config.custom_api_enabled && AccountClient::Instance().IsSignedIn());
+    return m_config.enable_mmr_tracking || (OmniNet::Available() && m_config.custom_api_enabled && AccountClient::Instance().IsSignedIn());
 }
 
 std::string RmlUiController::RenderRankSourceHint(bool interactive) const {
     if (RankSourceAvailable()) return {};
-    std::string html = "<div class='rank-source-hint row'><div class='grow'>Ranks are off. Connect live ranks in Settings &#x203A; Accounts &amp; services.</div>";
-    if (interactive) html += "<button class='primary compact' data-action='open-rank-settings'>Connect</button>";
+    std::string html = "<div class='rank-source-hint row'>";
+    if (!OmniNet::Available()) {
+        html += "<div class='grow'>Ranks are off. Enable Tracker Network rank lookup in Settings &#x203A; Accounts &amp; services.</div>";
+    } else {
+        html += "<div class='grow'>Ranks are off. Connect live ranks in Settings &#x203A; Accounts &amp; services.</div>";
+    }
+    if (interactive) html += "<button class='primary compact' data-action='open-rank-settings'>" + std::string(OmniNet::Available() ? "Connect" : "Configure") + "</button>";
     return html + "</div>";
 }
 

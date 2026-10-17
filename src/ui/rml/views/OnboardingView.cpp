@@ -1,12 +1,25 @@
 #include "ui/rml/views/OnboardingView.hpp"
 
 #include "network/api/AccountClient.hpp"
+#include "network/omninet/OmniNet.hpp"
 #include <RmlUi/Core/Context.h>
 
 #include <algorithm>
 
 namespace {
-    const char* StepTitle(int step) {
+    const char* StepTitle(int step, bool omninetAvailable) {
+        if (!omninetAvailable) {
+            switch (step) {
+            case 0:
+                return "Connect Rocket League";
+            case 1:
+                return "Choose a layout";
+            case 2:
+                return "Optional services";
+            default:
+                return "Rocket League account";
+            }
+        }
         switch (step) {
         case 0:
             return "Connect Rocket League";
@@ -22,6 +35,10 @@ namespace {
     }
 }
 
+int OnboardingView::StepCount() {
+    return OmniNet::Available() ? 5 : 4;
+}
+
 bool OnboardingView::Create(Rml::Context* context) {
     Reset();
     if (!context) return false;
@@ -29,6 +46,8 @@ bool OnboardingView::Create(Rml::Context* context) {
     if (!constructor) return false;
 
     constructor.Bind("step", &m_step);
+    constructor.Bind("total_steps", &m_totalSteps);
+    constructor.Bind("omninet_available", &m_omninetAvailable);
     constructor.Bind("step_title", &m_stepTitle);
     constructor.Bind("stats_status", &m_statsStatus);
     constructor.Bind("stats_path", &m_statsPath);
@@ -54,7 +73,9 @@ bool OnboardingView::Create(Rml::Context* context) {
 
     m_handle = constructor.GetModelHandle();
     m_bound = true;
-    m_stepTitle = StepTitle(m_step);
+    m_omninetAvailable = OmniNet::Available();
+    m_totalSteps = StepCount();
+    m_stepTitle = StepTitle(m_step, m_omninetAvailable);
     return true;
 }
 
@@ -72,12 +93,12 @@ void OnboardingView::Set(T& field, T value, const char* name) {
 }
 
 void OnboardingView::SetStep(int step) {
-    const int newStep = std::clamp(step, 0, kStepCount - 1);
+    const int newStep = std::clamp(step, 0, StepCount() - 1);
     if (newStep != m_step) {
         Set(m_accountShowFallback, false, "account_show_fallback");
     }
     Set(m_step, newStep, "step");
-    Set(m_stepTitle, Rml::String(StepTitle(m_step)), "step_title");
+    Set(m_stepTitle, Rml::String(StepTitle(m_step, OmniNet::Available())), "step_title");
 }
 
 void OnboardingView::ToggleFallback() {
@@ -108,6 +129,9 @@ void OnboardingView::Refresh(const ConfigData& config, const StatsApiConfig::Che
     Set(m_mmrTracking, config.enable_mmr_tracking, "mmr_tracking");
     Set(m_discord, config.discord_rpc_enabled, "discord");
     Set(m_crashReports, config.crash_reports_enabled, "crash_reports");
+    const bool omninetAvail = OmniNet::Available();
+    Set(m_omninetAvailable, omninetAvail, "omninet_available");
+    Set(m_totalSteps, omninetAvail ? 5 : 4, "total_steps");
     Set(m_identityHint,
         Rml::String(accountDetected ? "Your account was detected from a match. You can change it later in Settings > Accounts & services."
                                     : "Only accounts OmniStats has already seen are listed. Auto-detect works for new installs."),

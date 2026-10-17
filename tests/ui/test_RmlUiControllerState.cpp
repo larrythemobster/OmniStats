@@ -3629,6 +3629,56 @@ TEST_F(RmlUiControllerStateTest, OnboardingWizard_StepsTransitionAndSkip) {
     account.ResetForTests();
 }
 
+TEST_F(RmlUiControllerStateTest, OnboardingWizard_StubBuildHasFourStepsAndSkipsLiveRanks) {
+    WarpDevice warp;
+    if (!warp.Create(1280, 800)) GTEST_SKIP() << "WARP not available.";
+
+    if (OmniNetBackend::Available()) GTEST_SKIP() << "Covers source builds that link the public stub.";
+    OmniNet::SetTransportForTesting({});
+
+    Config::Update([](ConfigData& c) {
+        c.onboarding_completed = false;
+        c.account_refresh_token.clear();
+        c.account_signed_in_name.clear();
+        c.custom_api_key.clear();
+    },
+                   true);
+
+    auto state = std::make_shared<SessionState>();
+    RmlUiController controller(state, nullptr);
+    ASSERT_TRUE(controller.Initialize(nullptr, warp.device.Get(), warp.context.Get(), 1280, 800, 1.0f));
+    controller.Update(Config::Read(), false);
+    controller.Render();
+
+    auto& onboarding = OnboardingModel(controller);
+    EXPECT_EQ(onboarding.Step(), 0);
+    EXPECT_EQ(OnboardingView::StepCount(), 4);
+
+    Rml::ElementList nextButtons;
+    OnboardingDocument(controller)->QuerySelectorAll(nextButtons, "[data-action='onboarding-next']");
+    ASSERT_FALSE(nextButtons.empty());
+    Click(controller, nextButtons.front());
+    EXPECT_EQ(onboarding.Step(), 1);
+
+    nextButtons.clear();
+    OnboardingDocument(controller)->QuerySelectorAll(nextButtons, "[data-action='onboarding-next']");
+    ASSERT_FALSE(nextButtons.empty());
+    Click(controller, nextButtons.front());
+    EXPECT_EQ(onboarding.Step(), 2);
+
+    nextButtons.clear();
+    OnboardingDocument(controller)->QuerySelectorAll(nextButtons, "[data-action='onboarding-next']");
+    ASSERT_FALSE(nextButtons.empty());
+    Click(controller, nextButtons.front());
+    EXPECT_EQ(onboarding.Step(), 3);
+
+    Rml::ElementList finishButtons;
+    OnboardingDocument(controller)->QuerySelectorAll(finishButtons, "[data-action='onboarding-finish']");
+    ASSERT_FALSE(finishButtons.empty());
+    Click(controller, finishButtons.front());
+    EXPECT_TRUE(Config::Read().onboarding_completed);
+}
+
 TEST_F(RmlUiControllerStateTest, OnboardingWizard_ConnectLiveRanks_FlowAndFallback) {
     WarpDevice warp;
     if (!warp.Create(1280, 800)) GTEST_SKIP() << "WARP not available.";

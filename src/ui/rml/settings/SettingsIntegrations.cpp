@@ -10,6 +10,7 @@
 #include "network/ExternalUpdaterLauncher.hpp"
 #include "network/mmr/MMRFetcher.hpp"
 #include "network/api/AccountClient.hpp"
+#include "network/omninet/OmniNet.hpp"
 #include "ui/Formatting.hpp"
 #include "ui/window/KeyNames.hpp"
 #include "ui/rml/backend/RmlInputWin32.hpp"
@@ -25,60 +26,62 @@ std::string RmlUiController::RenderSettingsIntegrations() {
     const AccountStatusSnapshot accountStatus = AccountClient::Instance().GetStatus();
     const bool signedIn = accountStatus.state == AccountAuthState::SignedIn;
     out << SectionStart("Live ranks");
-    if (signedIn) {
-        out << "<div class='setting-row'><div class='setting-info'>"
-            << "<div class='setting-name win'>Connected as " << Escape(accountStatus.displayName) << "</div>"
-            << "<div class='setting-help'>"
-            << (m_config.custom_api_enabled ? "Lobby ranks come from your OmniStats account."
-                                            : "OmniStats ranks are turned off for this PC.")
-            << "</div></div><div class='row gap-xs'>"
-            << "<button class='ghost' data-action='account-manage-devices'>Manage devices</button>"
-            << "<button class='ghost' data-action='account-sign-out'>Sign out</button>"
-            << "</div></div>";
-        out << ToggleControl("custom_api_enabled", "Use OmniStats ranks", "Look up lobby ranks with your OmniStats account.",
-                             m_config.custom_api_enabled);
-    } else if (accountStatus.state == AccountAuthState::Migrating) {
-        out << "<div class='setting-row'><div class='setting-info'>"
-            << "<div class='setting-name'>Upgrading account connection...</div>"
-            << "<div class='setting-help'>Linking this PC using your saved account credentials.</div>"
-            << "</div><div class='row gap-xs'>"
-            << "<button class='ghost' disabled='disabled'>Connecting...</button>"
-            << "</div></div>";
-    } else if (accountStatus.state == AccountAuthState::AwaitingApproval) {
-        out << "<div class='setting-row'><div class='setting-info'>"
-            << "<div class='setting-name'>Finish connecting in your browser</div>"
-            << "<div class='setting-help'>Sign in or create an account, then approve this PC. This page updates automatically.</div>"
-            << "</div><div class='row gap-xs'>"
-            << "<button class='primary' data-action='account-open-verify'>Open browser again</button>"
-            << "<button class='ghost' data-action='account-cancel'>Cancel</button>"
-            << "</div></div>"
-            << "<button class='ghost compact' data-action='account-toggle-fallback'>Browser didn't open?</button>";
-        if (m_onboarding.ShowFallback()) {
-            out << "<div class='account-code-card'>"
-                << "<div class='setting-help'>Paste the sign-in link into your browser. It already includes this code.</div>"
-                << "<div class='label'>Verification code</div>"
-                << "<div class='account-user-code mono'>" << Escape(accountStatus.userCode) << "</div>"
-                << "<div class='row gap-xs center' style='margin-top:8dp'>"
-                << "<button class='ghost compact' data-action='account-copy-code'>Copy code</button>"
-                << "<button class='primary compact' data-action='account-copy-link'>Copy sign-in link</button>"
+    if (OmniNet::Available()) {
+        if (signedIn) {
+            out << "<div class='setting-row'><div class='setting-info'>"
+                << "<div class='setting-name win'>Connected as " << Escape(accountStatus.displayName) << "</div>"
+                << "<div class='setting-help'>"
+                << (m_config.custom_api_enabled ? "Lobby ranks come from your OmniStats account."
+                                                : "OmniStats ranks are turned off for this PC.")
+                << "</div></div><div class='row gap-xs'>"
+                << "<button class='ghost' data-action='account-manage-devices'>Manage devices</button>"
+                << "<button class='ghost' data-action='account-sign-out'>Sign out</button>"
                 << "</div></div>";
+            out << ToggleControl("custom_api_enabled", "Use OmniStats ranks", "Look up lobby ranks with your OmniStats account.",
+                                 m_config.custom_api_enabled);
+        } else if (accountStatus.state == AccountAuthState::Migrating) {
+            out << "<div class='setting-row'><div class='setting-info'>"
+                << "<div class='setting-name'>Upgrading account connection...</div>"
+                << "<div class='setting-help'>Linking this PC using your saved account credentials.</div>"
+                << "</div><div class='row gap-xs'>"
+                << "<button class='ghost' disabled='disabled'>Connecting...</button>"
+                << "</div></div>";
+        } else if (accountStatus.state == AccountAuthState::AwaitingApproval) {
+            out << "<div class='setting-row'><div class='setting-info'>"
+                << "<div class='setting-name'>Finish connecting in your browser</div>"
+                << "<div class='setting-help'>Sign in or create an account, then approve this PC. This page updates automatically.</div>"
+                << "</div><div class='row gap-xs'>"
+                << "<button class='primary' data-action='account-open-verify'>Open browser again</button>"
+                << "<button class='ghost' data-action='account-cancel'>Cancel</button>"
+                << "</div></div>"
+                << "<button class='ghost compact' data-action='account-toggle-fallback'>Browser didn't open?</button>";
+            if (m_onboarding.ShowFallback()) {
+                out << "<div class='account-code-card'>"
+                    << "<div class='setting-help'>Paste the sign-in link into your browser. It already includes this code.</div>"
+                    << "<div class='label'>Verification code</div>"
+                    << "<div class='account-user-code mono'>" << Escape(accountStatus.userCode) << "</div>"
+                    << "<div class='row gap-xs center' style='margin-top:8dp'>"
+                    << "<button class='ghost compact' data-action='account-copy-code'>Copy code</button>"
+                    << "<button class='primary compact' data-action='account-copy-link'>Copy sign-in link</button>"
+                    << "</div></div>";
+            }
+        } else {
+            out << "<div class='setting-row'><div class='setting-info'>"
+                << "<div class='setting-name'>Connect live ranks</div>"
+                << "<div class='setting-help'>Sign in to OmniStats to see player ranks and MMR. Your match history stays on this PC.</div>"
+                << "<div class='setting-help'>Use an OmniStats account, not your Epic Games or Rocket League login.</div>";
+            if (accountStatus.state == AccountAuthState::Error && !accountStatus.errorMessage.empty()) {
+                out << "<div class='setting-help loss'>" << Escape(accountStatus.errorMessage) << "</div>";
+            }
+            out << "</div><div class='row gap-xs'>"
+                << "<button class='primary' data-action='account-sign-in'>Sign in with OmniStats</button>";
+            if (!m_config.custom_api_key.empty()) {
+                out << "<button class='ghost' data-action='account-retry-migration'>Retry migration</button>";
+            }
+            out << "</div></div>";
         }
-    } else {
-        out << "<div class='setting-row'><div class='setting-info'>"
-            << "<div class='setting-name'>Connect live ranks</div>"
-            << "<div class='setting-help'>Sign in to OmniStats to see player ranks and MMR. Your match history stays on this PC.</div>"
-            << "<div class='setting-help'>Use an OmniStats account, not your Epic Games or Rocket League login.</div>";
-        if (accountStatus.state == AccountAuthState::Error && !accountStatus.errorMessage.empty()) {
-            out << "<div class='setting-help loss'>" << Escape(accountStatus.errorMessage) << "</div>";
-        }
-        out << "</div><div class='row gap-xs'>"
-            << "<button class='primary' data-action='account-sign-in'>Sign in with OmniStats</button>";
-        if (!m_config.custom_api_key.empty()) {
-            out << "<button class='ghost' data-action='account-retry-migration'>Retry migration</button>";
-        }
-        out << "</div></div>";
     }
-    const bool omniRanks = signedIn && m_config.custom_api_enabled;
+    const bool omniRanks = OmniNet::Available() && signedIn && m_config.custom_api_enabled;
     out << ToggleControl("enable_mmr_tracking", "Tracker Network rank lookup",
                          omniRanks ? "Fills in players OmniStats can't find. Sends lobby player names and platform IDs to Tracker Network."
                                    : "Sends lobby player names and platform IDs to Tracker Network to look up public ranks.",

@@ -11,7 +11,7 @@
                 <div class="grow">
                     <div class="brand-title">OmniStats <span class="dim">Setup</span></div>
                     <div class="label" data-if="consent_required">Welcome</div>
-                    <div class="label" data-if="!consent_required">Step {{step + 1}} of 5 · {{step_title}}</div>
+                    <div class="label" data-if="!consent_required">Step {{step + 1}} of {{total_steps}} · {{step_title}}</div>
                 </div>
                 <button class="ghost compact" data-if="!consent_required" data-action="onboarding-finish">Skip setup</button>
             </div>
@@ -41,12 +41,18 @@
             </div>
 
             <div class="wizard-main" data-if="!consent_required">
-            <div class="wizard-progress row">
+            <div class="wizard-progress row" data-if="omninet_available">
                 <div class="wizard-step" data-class-done="step >= 0"></div>
                 <div class="wizard-step" data-class-done="step >= 1"></div>
                 <div class="wizard-step" data-class-done="step >= 2"></div>
                 <div class="wizard-step" data-class-done="step >= 3"></div>
                 <div class="wizard-step" data-class-done="step >= 4"></div>
+            </div>
+            <div class="wizard-progress row" data-if="!omninet_available">
+                <div class="wizard-step" data-class-done="step >= 0"></div>
+                <div class="wizard-step" data-class-done="step >= 1"></div>
+                <div class="wizard-step" data-class-done="step >= 2"></div>
+                <div class="wizard-step" data-class-done="step >= 3"></div>
             </div>
 
             <div class="view-body" data-if="step == 0">
@@ -81,7 +87,7 @@
                 </div>
             </div>
 
-            <div class="view-body" data-if="step == 2">
+            <div class="view-body" data-if="omninet_available && step == 2">
                 <div class="wizard-lead" data-if="!account_awaiting && !account_signed_in && !account_migrating">Sign in to OmniStats to see player ranks and MMR. Your match history stays on this PC.</div>
                 <div class="wizard-lead" data-if="account_migrating">Connecting to OmniStats...</div>
                 <div class="wizard-lead" data-if="account_awaiting">Finish connecting in your browser</div>
@@ -155,7 +161,7 @@
                 </div>
             </div>
 
-            <div class="view-body" data-if="step == 3">
+            <div class="view-body" data-if="(omninet_available && step == 3) || (!omninet_available && step == 2)">
                 <div class="wizard-lead">These are optional and off by default. Each one sends data somewhere else, so turn on only what you want.</div>
                 <div class="setting-row">
                     <div class="setting-info">
@@ -180,7 +186,7 @@
                 </div>
             </div>
 
-            <div class="view-body" data-if="step == 4">
+            <div class="view-body" data-if="(omninet_available && step == 4) || (!omninet_available && step == 3)">
                 <div class="wizard-lead">OmniStats tracks match history for your Rocket League account. Leave this on auto-detect and it picks you up in your first match.</div>
                 <div id="onboarding-identity"></div>
                 <div class="setting-help">{{identity_hint}}</div>
@@ -189,9 +195,9 @@
             <div class="wizard-footer row">
                 <button class="ghost" data-if="step > 0" data-action="onboarding-back">Back</button>
                 <div class="grow"></div>
-                <button class="primary" data-if="step != 2 && step != 4" data-action="onboarding-next">Next</button>
-                <button class="primary" data-if="step == 2 && account_signed_in" data-action="onboarding-next">Continue</button>
-                <button class="primary" data-if="step == 4" data-action="onboarding-finish">Finish</button>
+                <button class="primary" data-if="step < total_steps - 1 && (!omninet_available || step != 2)" data-action="onboarding-next">Next</button>
+                <button class="primary" data-if="omninet_available && step == 2 && account_signed_in" data-action="onboarding-next">Continue</button>
+                <button class="primary" data-if="step == total_steps - 1" data-action="onboarding-finish">Finish</button>
             </div>
             </div>
         </div>
