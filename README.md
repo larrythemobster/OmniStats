@@ -32,7 +32,7 @@
 | **Game link** | Loopback TCP (Asio) | Connects to Rocket League's built-in Stats API on `127.0.0.1:49123`. Zero DLL injection, zero game memory reads. |
 | **Renderer** | Direct3D 11 + RmlUi | Hardware-accelerated HTML/CSS-style DOM. Live telemetry updates text nodes directly via data bindings without rebuilding widgets. |
 | **Storage** | SQLite 3 (WAL mode) | Local persistence for matches, player stats, notes, and tracked accounts. Uses versioned schema migrations. |
-| **Rank lookup** | OmniStats API + Tracker Network | Device sign-in proves possession of an Ed25519 device key (libsodium); rank requests carry a device access token. Saved legacy API keys are exchanged into device sessions at startup, then removed locally. Secrets are protected with Windows DPAPI. Optional Tracker Network support. |
+| **Rank lookup** | OmniStats API + Tracker Network | Official builds include the private OmniStats service module for live ranks, device sign-in, and tournament schedules. Open-source builds link a public stub that uses Tracker Network only (no account sign-in or telemetry). Saved DPAPI credentials are used for device sessions. |
 | **Packaging** | WiX Toolset v4 (MSI) | Authenticode-signed installer. The updater checks the MSI's SHA-256 checksum and pinned Authenticode signature before installing. |
 | **Test suite** | GoogleTest | Unit and integration tests, including offscreen headless UI tests rendered through DirectX 11 WARP. |
 
@@ -47,10 +47,9 @@ Existing installations receive a one-time device-link prompt after upgrading if 
 
 ## Quick start
 
-Download the signed installer from [omnistats.org](https://omnistats.org/) or build from source:
+Download the signed installer from [omnistats.org](https://omnistats.org/) or build from source. Official installer builds include the private OmniStats service module. Open-source builds from this repository compile against a public stub (ranks via Tracker Network only; no OmniStats account sign-in, telemetry, or crash uploads).
 
 Source builds also need the pinned Discord Social SDK archive. See [Building](docs/BUILDING.md#discord-social-sdk) for its download and path configuration.
-
 ```powershell
 $env:VCPKG_ROOT = 'C:\src\vcpkg'
 cmake --preset windows-release

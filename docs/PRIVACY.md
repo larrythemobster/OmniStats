@@ -6,13 +6,13 @@ OmniStats is a local-first Windows companion application for Rocket League. Tele
 
 | Feature | Destination | Transmitted data | Default |
 |---|---|---|---|
-| **Startup diagnostics** | `api.omnistats.org` | App version, pseudonymous installation ID, and integration toggle states. No match data or player names. | Required (startup) |
+| **Startup diagnostics** | OmniStats service | App version, pseudonymous installation ID, and integration toggle states. Official builds only. No match data or player names. | Required in official builds (startup); absent in source builds |
 | **Update checks** | `omnistats.org` | App version. Receives version metadata and announcements. The MSI is checked against its SHA-256 checksum and pinned Authenticode signature before installation. | Always on |
-| **OmniStats rank lookup** | `api.omnistats.org` | Up to 8 player platform and account IDs per batch, sent with the signed-in access token or an API key. | Opt-in |
-| **Tournament schedules** | `api.omnistats.org` | Region code, device ID, and signed-in access token. Local ping-cache and match-log contents are not uploaded. | Enabled while signed in; can be disabled |
+| **OmniStats rank lookup** | OmniStats service | Up to 8 player platform and account IDs per batch, sent with the signed-in access token. Official builds only. | Opt-in |
+| **Tournament schedules** | OmniStats service | Region code, device ID, and signed-in access token. Local ping-cache and match-log contents are not uploaded. Official builds only. | Enabled while signed in; can be disabled |
 | **Tracker rank lookup** | Tracker Network | Lobby player public display names and platform identifiers. | Opt-in |
 | **Replay uploads** | `ballchasing.com` | Rocket League `.replay` files containing match participant identities and gameplay data. | Opt-in |
-| **Crash reports** | `api.omnistats.org` | Windows minidump, app version, and installation ID. May contain process memory. | Opt-in |
+| **Crash reports** | OmniStats service | Windows minidump, app version, and installation ID. May contain process memory. Official builds only. | Opt-in in official builds; absent in source builds |
 | **Discord Rich Presence** | Discord (Local IPC) | Current match score and playlist status sent to the local Discord client. | Opt-in |
 
 Discord Rich Presence uses the Social SDK's local desktop IPC mode. OmniStats does not request Discord OAuth authorization or store Discord access tokens for this integration. The setting remains optional; disabling it clears the application's presence.

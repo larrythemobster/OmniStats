@@ -21,7 +21,7 @@ flowchart LR
 | **Telemetry** | `src/network/telemetry/TelemetryParser.*` | Asynchronous TCP client (Asio) connected to `127.0.0.1:49123`. Deserializes JSON event feeds. |
 | **State reduction** | `src/core/reducer/TelemetryReducer*` | Pure state machine. Processes raw match events, handles overtime and disconnects, and emits side effects. |
 | **Storage** | `src/database/` | SQLite 3 in WAL mode. Separate migration, match-write, history-query, session, account, note, replay, and transfer implementation units. |
-| **Rank lookups** | `src/network/mmr/MMRFetcher*` | Bounded worker queue with rate limiting. Requests up to 8 player ratings per batch from the OmniStats API (access token after Ed25519 device sign-in, or an API key) or from Tracker Network. |
+| **Rank lookups** | `src/network/mmr/MMRFetcher*` | Bounded worker queue with rate limiting. Requests up to 8 player ratings per batch via the OmniStats service module in official builds, or from Tracker Network in source builds. |
 | **Window & D3D** | `src/ui/Overlay*`, `src/ui/window/` | Win32 host window, swap chain management, DPI scaling, and borderless click-through overlay behavior. |
 | **UI controller** | `src/ui/rml/controller/RmlUiController*` | Snapshots state, invalidates widgets on version changes, and translates input events. |
 | **Rendering** | `src/ui/rml/backend/RmlRenderInterfaceD3D11.*` | Translates RmlUi 6 geometry, compiled textures, scissor rects, and transforms to D3D11 draws. |
@@ -95,8 +95,7 @@ The Settings and onboarding Stats API repair runs on a background thread. The re
 | Destination | Purpose | Protocol | Trigger |
 |---|---|---|---|
 | `127.0.0.1:49123` | In-game match telemetry | TCP (Loopback) | Active match |
-| `api.omnistats.org` | Device sign-in and rank lookups | HTTPS (Ed25519 sign-in proof; bearer token or API key) | Optional rank lookup |
-| `api.omnistats.org` | Startup diagnostic ping and crash dumps | HTTPS | Startup / On crash (opt-in) |
+| OmniStats service | Device sign-in, rank lookups, tournament schedules, diagnostic ping, and crash dumps | HTTPS (OmniStats service module; official builds only) | Optional rank lookup, tournament check, startup, or crash |
 | `omnistats.org` | Version checks and announcement feed | HTTPS | Startup / Periodic |
 | Tracker Network | Public player rank and MMR lookup | HTTPS | Optional rank lookup |
 | `ballchasing.com` | Replay file uploads | HTTPS | Post-match (opt-in) |

@@ -83,7 +83,7 @@ Separation from live tracking:
 - `FinishRequest` delivers exactly one terminal event per tracked request to the sink set by `SetTrackedAccountSink`. Progress events (`Fetching`, `Retrying`, `RateLimited` with `retryAt`) are sent as they happen.
 - `CancelTrackedAccount` drops queued requests. An in-flight result for a removed account is ignored by the service, and `SaveTrackedAccountRanks` refuses to write ranks for a missing account, so a removed account can't come back.
 
-Batched `/v1/ranks` responses are matched on platform and account ID. A player whose `platform` differs from the request is ignored. An unlabeled player is ignored when two requests in the batch share that account ID.
+Batched rank responses are matched on platform and account ID. A player whose `platform` differs from the request is ignored. An unlabeled player is ignored when two requests in the batch share that account ID.
 
 Service rules (`src/core/accounts/AccountManager.*`):
 
