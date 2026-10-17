@@ -727,7 +727,7 @@ void InsightsView::RebuildTrends() {
         m_subtitle = m_trendsSummary.substr(0, m_trendsSummary.find(','));
     } else {
         m_trendsSummary.clear();
-        m_subtitle = "Your saved match history";
+        m_subtitle = "Sessions, people, and trends";
     }
     m_trendsEmpty = !m_hasAccount      ? "Play a match so OmniStats can identify your account."
                     : !m_historyLoaded ? "Loading your match history..."

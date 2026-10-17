@@ -113,7 +113,9 @@ LiveValues ComputeLiveValues(const RmlRenderSnapshot& snapshot, const ConfigData
     v.demo_session_tone = KdTone(demos.demos, demos.demoed);
 
     v.roster_arena = snapshot.arenaName.empty() ? (snapshot.inMatch ? "Active match" : "No active match connected") : snapshot.arenaName;
-    v.dashboard_status = snapshot.inMatch ? "ACTIVE MATCH · " + snapshot.arenaName : "WAITING IN LOBBY";
+    v.dashboard_status = !snapshot.inMatch            ? "WAITING IN LOBBY"
+                         : snapshot.arenaName.empty() ? "ACTIVE MATCH"
+                                                      : "ACTIVE MATCH · " + snapshot.arenaName;
     return v;
 }
 

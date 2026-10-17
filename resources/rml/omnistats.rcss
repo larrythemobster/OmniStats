@@ -1590,7 +1590,7 @@ body.view-document { pointer-events: none; }
     border-bottom: 1dp #eef1f517;
 }
 .history-filter-row { align-items: center; flex-wrap: wrap; }
-.history-filter-label { margin-left: 6dp; margin-right: 2dp; font-size: 11dp; font-weight: 600; }
+.history-filter-label { margin-left: 14dp; margin-right: 2dp; font-size: 11dp; font-weight: 600; }
 .history-filter-row .history-filter-label:first-child { margin-left: 0; }
 .history-input-group { display: flex; flex-direction: row; align-items: center; gap: 6dp; }
 .history-input { width: 120dp; min-height: 26dp; padding: 3dp 8dp; font-size: 12dp; }

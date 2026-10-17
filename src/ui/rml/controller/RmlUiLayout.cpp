@@ -242,10 +242,11 @@ std::string RmlUiController::RenderOverlayContainer(const OverlayLayout::Contain
         out << "<div class='live-widget' data-live-widget='" << WidgetDomId(widget)
             << "' data-live-surface='overlay'>" << RenderWidget(widget, false) << "</div>";
         // The roster's key hints close the roster block, below a progress bar docked under it.
-        const bool rosterThenProgress = widget == DashboardLayout::WidgetId::LiveRoster && i + 1 < widgets.size() &&
+        // While positioning, each docked card has its own handle, so the hints stay with the roster.
+        const bool rosterThenProgress = !editMode && widget == DashboardLayout::WidgetId::LiveRoster && i + 1 < widgets.size() &&
                                         widgets[i + 1] == DashboardLayout::WidgetId::RankProgress;
-        const bool progressAfterRoster =
-            widget == DashboardLayout::WidgetId::RankProgress && i > 0 && widgets[i - 1] == DashboardLayout::WidgetId::LiveRoster;
+        const bool progressAfterRoster = !editMode && widget == DashboardLayout::WidgetId::RankProgress && i > 0 &&
+                                         widgets[i - 1] == DashboardLayout::WidgetId::LiveRoster;
         if ((widget == DashboardLayout::WidgetId::LiveRoster && !rosterThenProgress) || progressAfterRoster) out << RenderRosterFooter();
     }
     if (editMode) out << "<div class='overlay-resize' data-action='overlay-resize' data-container='" << Escape(container.id) << "'></div>";
@@ -272,21 +273,26 @@ std::string RmlUiController::RenderOverlayToolbox(bool editMode) {
     for (const auto& c : m_config.overlay_layout.containers)
         for (auto w : c.widgets)
             present.insert(w);
-    out << "<div class='card overlay-toolbox'><div class='row'><div class='card-title grow'>Overlay layout</div>"
+    out << "<div class='card overlay-toolbox'><div class='row'><div class='card-title grow'>Add cards</div>"
         << "<button class='window-control' data-action='overlay-close-toolbox'>×</button></div>"
-        << "<div class='label'>Click to add to the center, or drag onto the overlay to place it.</div>"
-        << "<div class='row gap-sm' style='margin-top:8dp'>" << Button("reset-overlay", "Reset", "ghost") << "</div>"
+        << "<div class='label'>Click Add to place a card in the center, or drag it onto the overlay.</div>"
+        << "<div class='row gap-sm' style='margin-top:8dp'>" << Button("reset-overlay", "Reset layout", "ghost") << "</div>"
         << "<div class='col gap-xs' style='margin-top:8dp'>";
     const std::array<DashboardLayout::WidgetId, 11> all = {DashboardLayout::WidgetId::LiveRoster, DashboardLayout::WidgetId::LiveMatchStats, DashboardLayout::WidgetId::SessionStats, DashboardLayout::WidgetId::RankProgress, DashboardLayout::WidgetId::MmrGraph, DashboardLayout::WidgetId::StreaksStats, DashboardLayout::WidgetId::GamemodeBreakdown, DashboardLayout::WidgetId::LobbyRanks, DashboardLayout::WidgetId::DemoTracker, DashboardLayout::WidgetId::PreviousGames, DashboardLayout::WidgetId::Tournaments};
+    const bool signedIn = AccountClient::Instance().IsSignedIn();
     for (auto w : all) {
         const bool active = present.count(w) != 0;
-        out << "<div class='row" << (active ? "" : " toolbox-draggable") << "'";
-        if (!active) out << " data-action='overlay-toolbox-drag' data-widget='" << WidgetDomId(w) << "'";
+        const bool locked = !active && w == DashboardLayout::WidgetId::Tournaments && !signedIn;
+        const bool addable = !active && !locked;
+        out << "<div class='row" << (addable ? " toolbox-draggable" : "") << "'";
+        if (addable) out << " data-action='overlay-toolbox-drag' data-widget='" << WidgetDomId(w) << "'";
         out << "><div class='grow'>" << Escape(DashboardLayout::GetWidgetDisplayName(w)) << "</div>";
         if (active)
-            out << "<span class='badge win'>ACTIVE</span>";
+            out << "<span class='badge'>On overlay</span>";
+        else if (locked)
+            out << "<span class='badge'>Sign in first</span>";
         else
-            out << "<button class='compact ghost' data-action='overlay-add-widget' data-widget='" << WidgetDomId(w) << "'>Add / drag</button>";
+            out << "<button class='compact ghost' data-action='overlay-add-widget' data-widget='" << WidgetDomId(w) << "'>Add</button>";
         out << "</div>";
     }
     out << "</div></div>";
@@ -415,12 +421,12 @@ void RmlUiController::RebuildDashboard() {
             const std::string id = WidgetDomId(placement.id);
             if (editMode && index > 0) {
                 z << "<div class='dashboard-drop-slot' data-zone='" << ZoneName(zone)
-                  << "' data-drop-index='" << index << "'><span class='drop-hint'>── Drop Here ──</span></div>";
+                  << "' data-drop-index='" << index << "'><span class='drop-hint'>── Drop here ──</span></div>";
             }
             z << "<div class='dashboard-widget' data-widget='" << id << "' data-zone='" << ZoneName(zone)
               << "' data-order='" << index << "'>"
               << "<div class='dashboard-widget-title' data-action='dashboard-drag' data-widget='" << id << "'><span class='name'>" << Escape(DashboardLayout::GetWidgetDisplayName(placement.id)) << "</span>";
-            if (editMode) z << "<span class='badge accent'>DRAG</span>";
+            if (editMode) z << "<span class='badge'>DRAG</span>";
             z << "</div>";
             if (!placement.collapsed) {
                 z << "<div class='live-widget' data-live-widget='" << id
