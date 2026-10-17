@@ -91,7 +91,6 @@ struct ConfigData {
 
     // Custom API rank lookup settings
     bool custom_api_enabled = true;
-    std::string custom_api_base_url = "https://api.omnistats.org";
     std::string custom_api_key = "";
 
     std::string account_signed_in_name = "";

@@ -456,13 +456,6 @@ namespace Config {
             } else {
                 Current.custom_api_enabled = true;
             }
-            if (j.contains("custom_api_base_url") && j["custom_api_base_url"].is_string() && !j["custom_api_base_url"].get<std::string>().empty()) {
-                Current.custom_api_base_url = j["custom_api_base_url"].get<std::string>();
-            } else if (j.contains("pro_api_base_url") && j["pro_api_base_url"].is_string() && !j["pro_api_base_url"].get<std::string>().empty()) {
-                Current.custom_api_base_url = j["pro_api_base_url"].get<std::string>();
-            } else {
-                Current.custom_api_base_url = "https://api.omnistats.org";
-            }
             bool needsLegacyMigration = false;
             const auto loadSecretField = [&](const std::string& fieldName, std::string& target) {
                 if (j.contains(fieldName) && j[fieldName].is_string()) {
@@ -867,7 +860,6 @@ namespace Config {
         j["check_stats_api_config_on_startup"] = Current.check_stats_api_config_on_startup;
         j["rocket_league_stats_api_config_path"] = Current.rocket_league_stats_api_config_path;
         j["custom_api_enabled"] = Current.custom_api_enabled;
-        j["custom_api_base_url"] = Current.custom_api_base_url;
         const auto saveSecretField = [&](const std::string& fieldName, const std::string& currentVal) {
             if (currentVal.empty()) {
                 if (s_savedCiphertexts.count(fieldName) && !s_savedCiphertexts[fieldName].empty() &&
