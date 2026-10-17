@@ -1,6 +1,6 @@
 # Building
 
-OmniStats targets Windows 10 or newer and requires Visual Studio 2022 with the Desktop development with C++ workload, a Windows SDK, CMake 3.22 or newer, Git, and vcpkg.
+OmniStats targets Windows 10 or newer and requires Visual Studio 2022 with the Desktop development with C++ workload, a Windows SDK, CMake 3.22 or newer, Git, vcpkg, and the standalone Discord Social SDK archive described below.
 
 There's no native Linux build. To run OmniStats on Linux, see [LINUX.md](LINUX.md).
 
@@ -15,6 +15,14 @@ $env:VCPKG_ROOT = "$HOME\src\vcpkg"
 ```
 
 CI checks out the official `2026.03.18` vcpkg release before configuring the project.
+
+## Discord Social SDK
+
+Download `DiscordSocialSdk-1.10.19337.zip` from the Discord Developer Portal. CMake looks in `%USERPROFILE%\Downloads` by default. For another location, set the `OMNISTATS_DISCORD_SDK_ARCHIVE` environment variable or pass `-DOMNISTATS_DISCORD_SDK_ARCHIVE=<path>` when configuring. Keep the official ZIP unchanged; CMake verifies SHA-256 `d784097504685953849cc2842561d8a8013326fe0b8df65a1de63ddefde62045` before extracting the Windows x64 release headers, library, DLL, and notices into the build directory.
+
+The application uses desktop Rich Presence through local Discord IPC without calling `Client::Connect`, requesting OAuth scopes, or handling Discord tokens. The SDK runtime `discord_partner_sdk.dll` is copied beside the application and included in the MSI. Voice libraries and noise-suppression models are not used or packaged.
+
+GitHub Actions requires the repository secret `DISCORD_SOCIAL_SDK_URL`, a private download URL for the exact archive. The workflow downloads it to the runner's temporary directory; CMake applies the same hash check. Do not commit the SDK archive or credentials to the repository.
 
 ## Configure, build, and test
 
@@ -57,6 +65,7 @@ Debug builds read from the source tree automatically. The hotkey reloads the sty
 | `OMNISTATS_BUILD_UPDATER` | `ON` | Builds `OmniStatsUpdater.exe`. |
 | `OMNISTATS_BUILD_INSTALLER` | `OFF` | Deprecated compatibility switch. Enabling it fails with instructions to use the WiX MSI. |
 | `OMNISTATS_ENABLE_LOW_LEVEL_HOOK` | `OFF` | Enables the retired low-level keyboard-hook path for local testing only. |
+| `CMAKE_DISABLE_PRECOMPILE_HEADERS` | `OFF` | Disables the RmlUi PCH. RmlUi sources explicitly include the shared header, so both configurations are supported. |
 | `ENABLE_SANITIZERS` | `OFF` | Enables supported sanitizer instrumentation. |
 | `ENABLE_TSAN` | `OFF` | Enables ThreadSanitizer on supported non-MSVC toolchains. |
 | `ENABLE_COVERAGE` | `OFF` | Enables coverage instrumentation on supported non-MSVC toolchains. |

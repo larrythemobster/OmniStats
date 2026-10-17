@@ -1,0 +1,32 @@
+#pragma once
+
+#include <RmlUi/Core.h>
+#include <RmlUi/Core/Context.h>
+#include <RmlUi/Core/Element.h>
+#include <RmlUi/Core/ElementDocument.h>
+#include <RmlUi/Core/ElementInstancer.h>
+#include <RmlUi/Core/ElementText.h>
+#include <RmlUi/Core/Elements/ElementFormControl.h>
+#include <RmlUi/Core/Event.h>
+#include <RmlUi/Core/Factory.h>
+#include <RmlUi/Core/StyleSheetContainer.h>
+#include <SDL2/SDL_gamecontroller.h>
+
+#include <algorithm>
+#include <array>
+#include <bit>
+#include <chrono>
+#include <cctype>
+#include <cmath>
+#include <cstdio>
+#include <cstdlib>
+#include <ctime>
+#include <filesystem>
+#include <fstream>
+#include <iomanip>
+#include <iostream>
+#include <limits>
+#include <set>
+#include <shared_mutex>
+#include <sstream>
+#include <unordered_set>
