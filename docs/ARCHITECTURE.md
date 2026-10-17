@@ -20,7 +20,7 @@ flowchart LR
 |---|---|---|
 | **Telemetry** | `src/network/telemetry/TelemetryParser.*` | Asynchronous TCP client (Asio) connected to `127.0.0.1:49123`. Deserializes JSON event feeds. |
 | **State reduction** | `src/core/reducer/TelemetryReducer*` | Pure state machine. Processes raw match events, handles overtime and disconnects, and emits side effects. |
-| **Storage** | `src/database/DatabaseManager.*` | SQLite 3 in WAL mode. Manages schema migrations with pre-migration backups, asynchronous batch writes, and encounter queries. |
+| **Storage** | `src/database/` | SQLite 3 in WAL mode. Separate migration, match-write, history-query, session, account, note, replay, and transfer implementation units. |
 | **Rank lookups** | `src/network/mmr/MMRFetcher*` | Bounded worker queue with rate limiting. Requests up to 8 player ratings per batch from the OmniStats API (access token after Ed25519 device sign-in, or an API key) or from Tracker Network. |
 | **Window & D3D** | `src/ui/Overlay*`, `src/ui/window/` | Win32 host window, swap chain management, DPI scaling, and borderless click-through overlay behavior. |
 | **UI controller** | `src/ui/rml/controller/RmlUiController*` | Snapshots state, invalidates widgets on version changes, and translates input events. |
@@ -58,6 +58,8 @@ CSV exports prefix formula-like text cells with an apostrophe before applying CS
 Provisional `result_pending` matches are excluded from W/L records, streaks and Insights outcomes/MMR context until confirmation. Merge preserves the flag. Longest streaks scan all confirmed history with constant application memory. The internal recent-match cache still retains provisional rows for confirmation and MMR reconciliation.
 
 Database startup checks existing foreign-key integrity before enabling enforcement on the connection. Declared cascading deletes remove dependent stats and tracked ranks. An integrity violation stops startup and names the affected table in the application log; existing rows are not deleted or rewritten.
+
+File-backed databases open a separate read-only connection after migrations. History, account, session, note, replay, and settings reads lease that connection under a reader mutex and use a transaction snapshot for multi-query consistency. Writes keep the writer connection and its mutex. In-memory databases and installations where the reader cannot open use the writer connection for reads. Session queries may still run required backfill writes before acquiring their read snapshot.
 
 Schema v7 indexes `Matches.match_guid` for duplicate checks, post-match MMR updates, replay lookups and session linking. The index is not unique; duplicate prevention stays in `SaveMatch` so upgrades never fail on older duplicate rows. Date-range filters still convert stored timestamps, because older rows use more than one text format.
 

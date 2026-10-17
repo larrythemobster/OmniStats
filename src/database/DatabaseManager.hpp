@@ -204,6 +204,18 @@ class DatabaseManager {
         std::string coalesceKey;
     };
 
+    struct ReadLease {
+        ReadLease(sqlite3* connection, std::mutex& mutex);
+        ~ReadLease();
+        ReadLease(const ReadLease&) = delete;
+        ReadLease& operator=(const ReadLease&) = delete;
+
+        std::unique_lock<std::mutex> lock;
+        sqlite3* db = nullptr;
+        bool ownsTransaction = false;
+    };
+    ReadLease AcquireRead();
+
     [[nodiscard]] bool EnqueueDbJob(std::function<void()> job, DbJobPriority priority = DbJobPriority::Normal, std::string coalesceKey = "");
     bool CreateTables();
     void ResolvePendingMatchLocked(sqlite3_int64 matchId, const MatchSaveSnapshot& snapshot);
@@ -212,7 +224,7 @@ class DatabaseManager {
     // Shared by the roster, People, and match detail so the screens cannot
     // disagree. Empty `onlyPlayer` returns everyone; `excludeMatchId` > 0 leaves
     // that match out. nullopt means the query failed.
-    std::optional<std::vector<PersonRecord>> QueryEncounterRecordsLocked(const std::string& account,
+    std::optional<std::vector<PersonRecord>> QueryEncounterRecordsLocked(sqlite3* db, const std::string& account,
                                                                          const std::string& onlyPlayer = {},
                                                                          int64_t excludeMatchId = 0);
     bool HasStatsTablesLocked() const;
@@ -240,8 +252,10 @@ class DatabaseManager {
 
     std::shared_ptr<SessionState> m_state;
     sqlite3* m_db = nullptr;
+    sqlite3* m_readDb = nullptr;
     std::string m_dbPath;
     std::mutex m_dbMutex;
+    std::mutex m_readDbMutex;
 
     std::deque<DbJob> m_jobs;
     std::unordered_set<std::string> m_pendingCoalescedJobs;
