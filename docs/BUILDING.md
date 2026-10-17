@@ -22,7 +22,7 @@ The SDK files can be placed under `Client/third_party/discord-social-sdk/discord
 
 The application uses desktop Rich Presence through local Discord IPC without calling `Client::Connect`, requesting OAuth scopes, or handling Discord tokens. The SDK runtime `discord_partner_sdk.dll` is copied beside the application and included in the MSI. Voice libraries and noise-suppression models are not used or packaged.
 
-GitHub Actions requires the repository secret `DISCORD_SOCIAL_SDK_URL`, a private download URL for the exact archive. The workflow downloads it to the runner's temporary directory; CMake applies the same hash check. Do not commit the SDK archive or credentials to the repository.
+GitHub Actions does not build the client because the SDK cannot be downloaded there. Build and test locally; `deploy.ps1` also runs the full suite before every release. Do not commit the SDK archive or credentials to the repository.
 
 ## Configure, build, and test
 

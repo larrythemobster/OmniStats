@@ -1,6 +1,5 @@
 <h1><img src="resources/Logo.png" alt="" width="36" height="36" align="top"> OmniStats</h1>
 
-[![Build](https://img.shields.io/github/actions/workflow/status/larrythemobster/OmniStats/build.yml?branch=main&label=build)](https://github.com/larrythemobster/OmniStats/actions/workflows/build.yml)
 [![C++20](https://img.shields.io/badge/C%2B%2B-20-00599C?logo=cplusplus&logoColor=white)](CMakeLists.txt)
 [![Platform](https://img.shields.io/badge/platform-Windows%2010%2B-0078D6)](docs/BUILDING.md)
 [![Linux](https://img.shields.io/badge/Linux-Proton%20experimental-yellow)](docs/LINUX.md)
