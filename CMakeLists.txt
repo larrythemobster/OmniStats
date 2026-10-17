@@ -148,6 +148,17 @@ set(OMNISTATS_NON_RMLUI_SOURCES ${ALL_SOURCE_FILES})
 list(FILTER OMNISTATS_NON_RMLUI_SOURCES EXCLUDE REGEX "/src/ui/rml/.*\\.cpp$")
 set_source_files_properties(${OMNISTATS_NON_RMLUI_SOURCES} PROPERTIES SKIP_PRECOMPILE_HEADERS ON)
 
+option(OMNISTATS_USE_PRIVATE_SERVICES "Use private OmniStats service module if present" ON)
+if(OMNISTATS_USE_PRIVATE_SERVICES AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/private/CMakeLists.txt")
+    set(OMNISTATS_PUBLIC_SRC_DIR "${CMAKE_CURRENT_SOURCE_DIR}/src")
+    add_subdirectory(private)
+    message(STATUS "OmniNet backend: private service module")
+else()
+    add_library(omnistats_omninet STATIC "${CMAKE_CURRENT_SOURCE_DIR}/omninet-stub/OmniNetStub.cpp")
+    target_include_directories(omnistats_omninet PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/src")
+    message(STATUS "OmniNet backend: stub (tracker.gg only, no sign-in/telemetry)")
+endif()
+
 # Embed application resources through the configured build-tree script.
 set(RESOURCE_FILE "${OMNISTATS_APP_RESOURCE_FILE}")
 
@@ -172,6 +183,7 @@ target_compile_definitions(${PROJECT_NAME} PRIVATE
 # Application dependencies
 target_link_libraries(${PROJECT_NAME} PRIVATE
     nlohmann_json::nlohmann_json
+    omnistats_omninet
     RmlUi::RmlUi
     CURL::libcurl
     SDL2::SDL2-static
@@ -295,6 +307,7 @@ if(BUILD_TESTING)
         GTest::gtest_main
         GTest::gmock
         nlohmann_json::nlohmann_json
+        omnistats_omninet
         RmlUi::RmlUi
         CURL::libcurl
         SDL2::SDL2-static
@@ -361,6 +374,7 @@ if(BUILD_TESTING)
             benchmark::benchmark_main
             nlohmann_json::nlohmann_json
             RmlUi::RmlUi
+            omnistats_omninet
             CURL::libcurl
             SDL2::SDL2-static
             unofficial::sqlite3::sqlite3
@@ -415,6 +429,7 @@ if(BUILD_TESTING)
         target_link_libraries(OmniStatsFuzzer PRIVATE
             nlohmann_json::nlohmann_json
             RmlUi::RmlUi
+            omnistats_omninet
             CURL::libcurl
             SDL2::SDL2-static
             unofficial::sqlite3::sqlite3
