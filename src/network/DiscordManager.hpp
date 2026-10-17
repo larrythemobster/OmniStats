@@ -10,6 +10,10 @@
 
 #include "core/state/DiscordPresenceSnapshot.hpp"
 
+namespace discordpp {
+    class Client;
+}
+
 class DiscordManager {
   public:
     DiscordManager(std::shared_ptr<SessionState> state);
@@ -26,7 +30,7 @@ class DiscordManager {
     void ApplyPresence(const DiscordPresenceSnapshot& snapshot);
 
     std::shared_ptr<SessionState> m_state;
-    std::atomic<bool> m_initialized{false};
+    std::unique_ptr<discordpp::Client> m_client;
     std::atomic<bool> m_running{false};
     std::atomic<bool> m_dirty{false};
     std::jthread m_worker;

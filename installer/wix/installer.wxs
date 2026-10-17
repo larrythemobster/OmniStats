@@ -41,6 +41,9 @@
           <File Id="ThirdPartyNoticesTxt" Source="$(var.SourceDir)\THIRD_PARTY_NOTICES.txt" KeyPath="yes" />
           <RegistryValue Root="HKCU" Key="Software\OmniStats" Name="notices_installed" Type="integer" Value="1" />
         </Component>
+        <Component Id="DiscordSocialSdk" Guid="6438C7C9-58BA-4D41-9145-26608507C113">
+          <File Id="DiscordSocialSdkDll" Source="$(var.SourceDir)\discord_partner_sdk.dll" KeyPath="yes" />
+        </Component>
       </Directory>
     </StandardDirectory>
 
@@ -74,6 +77,7 @@
     <Feature Id="MainFeature" Title="OmniStats Application" Level="1">
       <ComponentRef Id="ApplicationFiles" />
       <ComponentRef Id="ThirdPartyNotices" />
+      <ComponentRef Id="DiscordSocialSdk" />
       <ComponentRef Id="CurlDll" />
       <ComponentRef Id="ZlibDll" />
     </Feature>

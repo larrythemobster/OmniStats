@@ -18,7 +18,7 @@ CI checks out the official `2026.03.18` vcpkg release before configuring the pro
 
 ## Discord Social SDK
 
-Download `DiscordSocialSdk-1.10.19337.zip` from the Discord Developer Portal. CMake looks in `%USERPROFILE%\Downloads` by default. For another location, set the `OMNISTATS_DISCORD_SDK_ARCHIVE` environment variable or pass `-DOMNISTATS_DISCORD_SDK_ARCHIVE=<path>` when configuring. Keep the official ZIP unchanged; CMake verifies SHA-256 `d784097504685953849cc2842561d8a8013326fe0b8df65a1de63ddefde62045` before extracting the Windows x64 release headers, library, DLL, and notices into the build directory.
+The SDK files can be placed under `Client/third_party/discord-social-sdk/discord_social_sdk`, or provided as `DiscordSocialSdk-1.10.19337.zip`. CMake looks in `third_party/discord-social-sdk` first, then `%USERPROFILE%\Downloads` by default. For another location, set the `OMNISTATS_DISCORD_SDK_ARCHIVE` environment variable or pass `-DOMNISTATS_DISCORD_SDK_ARCHIVE=<path>` when configuring. If using the archive, CMake verifies SHA-256 `d784097504685953849cc2842561d8a8013326fe0b8df65a1de63ddefde62045` before extracting the Windows x64 release headers, library, DLL, and notices.
 
 The application uses desktop Rich Presence through local Discord IPC without calling `Client::Connect`, requesting OAuth scopes, or handling Discord tokens. The SDK runtime `discord_partner_sdk.dll` is copied beside the application and included in the MSI. Voice libraries and noise-suppression models are not used or packaged.
 

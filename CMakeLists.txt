@@ -103,15 +103,7 @@ if(BUILD_TESTING)
         find_package(benchmark CONFIG REQUIRED)
     endif()
 endif()
-# discord-rpc doesn't provide a CMake config, find both debug and release libs
-find_library(DISCORD_RPC_LIB_RELEASE discord-rpc
-    PATHS "${CMAKE_CURRENT_BINARY_DIR}/vcpkg_installed/${VCPKG_TARGET_TRIPLET}/lib"
-    NO_DEFAULT_PATH
-)
-find_library(DISCORD_RPC_LIB_DEBUG discord-rpc
-    PATHS "${CMAKE_CURRENT_BINARY_DIR}/vcpkg_installed/${VCPKG_TARGET_TRIPLET}/debug/lib"
-    NO_DEFAULT_PATH
-)
+include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/DiscordSocialSdk.cmake")
 
 file(GLOB_RECURSE ALL_SOURCE_FILES CONFIGURE_DEPENDS "src/*.cpp" "src/*.h" "src/*.hpp")
 list(REMOVE_DUPLICATES ALL_SOURCE_FILES)
@@ -152,12 +144,24 @@ set(TEST_SUPPORT_SOURCES
     ${UPDATER_ONLY_SOURCES}
 )
 
+set(OMNISTATS_NON_RMLUI_SOURCES ${ALL_SOURCE_FILES})
+list(FILTER OMNISTATS_NON_RMLUI_SOURCES EXCLUDE REGEX "/src/ui/rml/.*\\.cpp$")
+set_source_files_properties(${OMNISTATS_NON_RMLUI_SOURCES} PROPERTIES SKIP_PRECOMPILE_HEADERS ON)
+
 # Embed application resources through the configured build-tree script.
 set(RESOURCE_FILE "${OMNISTATS_APP_RESOURCE_FILE}")
 
 add_executable(${PROJECT_NAME} ${MAIN_APP_SOURCES} ${RESOURCE_FILE})
+omnistats_copy_discord_sdk(${PROJECT_NAME})
+
+function(omnistats_enable_rmlui_pch target)
+    target_precompile_headers(${target} PRIVATE
+        "$<$<COMPILE_LANGUAGE:CXX>:${CMAKE_CURRENT_SOURCE_DIR}/src/ui/rml/RmlUiPch.hpp>"
+    )
+endfunction()
 
 target_include_directories(${PROJECT_NAME} PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
+omnistats_enable_rmlui_pch(${PROJECT_NAME})
 target_compile_definitions(${PROJECT_NAME} PRIVATE
     OMNISTATS_ENABLE_LOW_LEVEL_HOOK=$<BOOL:${OMNISTATS_ENABLE_LOW_LEVEL_HOOK}>
     OMNISTATS_VERSION="${OMNISTATS_VERSION}"
@@ -175,7 +179,7 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
     unofficial-sodium::sodium
     ZLIB::ZLIB
     asio::asio
-    $<IF:$<CONFIG:Debug>,${DISCORD_RPC_LIB_DEBUG},${DISCORD_RPC_LIB_RELEASE}>
+    DiscordSocialSdk
     d3d11.lib
     d3dcompiler.lib
     dxgi.lib
@@ -272,9 +276,13 @@ if(BUILD_TESTING)
     if(FUZZ_SOURCES)
         list(REMOVE_ITEM TEST_SOURCES ${FUZZ_SOURCES})
     endif()
+    set_source_files_properties(${TEST_SOURCES} PROPERTIES SKIP_PRECOMPILE_HEADERS ON)
+
 
     add_executable(OmniStatsTests ${TEST_SOURCES} ${TEST_SUPPORT_SOURCES})
+    omnistats_copy_discord_sdk(OmniStatsTests)
     target_include_directories(OmniStatsTests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
+    omnistats_enable_rmlui_pch(OmniStatsTests)
     target_compile_definitions(OmniStatsTests PRIVATE
         OMNISTATS_TEST_ENVIRONMENT=1
         OMNISTATS_ENABLE_LOW_LEVEL_HOOK=$<BOOL:${OMNISTATS_ENABLE_LOW_LEVEL_HOOK}>
@@ -294,7 +302,7 @@ if(BUILD_TESTING)
         unofficial-sodium::sodium
         ZLIB::ZLIB
         asio::asio
-        $<IF:$<CONFIG:Debug>,${DISCORD_RPC_LIB_DEBUG},${DISCORD_RPC_LIB_RELEASE}>
+        DiscordSocialSdk
         d3d11.lib
         d3dcompiler.lib
         dxgi.lib
@@ -337,9 +345,13 @@ if(BUILD_TESTING)
     # Google Benchmark Target
     # -------------------------------------------------------------
     file(GLOB_RECURSE BENCH_SOURCES "benchmarks/*.cpp")
+    set_source_files_properties(${BENCH_SOURCES} PROPERTIES SKIP_PRECOMPILE_HEADERS ON)
+
     if(BENCH_SOURCES AND OMNISTATS_BUILD_BENCHMARKS)
         add_executable(OmniStatsBenchmarks ${BENCH_SOURCES} ${SHARED_NON_UPDATER_SOURCES})
+        omnistats_copy_discord_sdk(OmniStatsBenchmarks)
         target_include_directories(OmniStatsBenchmarks PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
+        omnistats_enable_rmlui_pch(OmniStatsBenchmarks)
         target_compile_definitions(OmniStatsBenchmarks PRIVATE
             OMNISTATS_TEST_ENVIRONMENT=1
             OMNISTATS_ENABLE_LOW_LEVEL_HOOK=$<BOOL:${OMNISTATS_ENABLE_LOW_LEVEL_HOOK}>
@@ -355,7 +367,7 @@ if(BUILD_TESTING)
             unofficial-sodium::sodium
             ZLIB::ZLIB
             asio::asio
-            $<IF:$<CONFIG:Debug>,${DISCORD_RPC_LIB_DEBUG},${DISCORD_RPC_LIB_RELEASE}>
+            DiscordSocialSdk
             d3d11.lib
             d3dcompiler.lib
             dxgi.lib
@@ -390,8 +402,11 @@ if(BUILD_TESTING)
     # Fuzzer Target
     # -------------------------------------------------------------
     if(FUZZ_SOURCES AND OMNISTATS_BUILD_FUZZER)
+        set_source_files_properties(${FUZZ_SOURCES} PROPERTIES SKIP_PRECOMPILE_HEADERS ON)
         add_executable(OmniStatsFuzzer ${FUZZ_SOURCES} ${SHARED_NON_UPDATER_SOURCES})
+        omnistats_copy_discord_sdk(OmniStatsFuzzer)
         target_include_directories(OmniStatsFuzzer PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
+        omnistats_enable_rmlui_pch(OmniStatsFuzzer)
         target_compile_definitions(OmniStatsFuzzer PRIVATE
             OMNISTATS_TEST_ENVIRONMENT=1
             OMNISTATS_ENABLE_LOW_LEVEL_HOOK=$<BOOL:${OMNISTATS_ENABLE_LOW_LEVEL_HOOK}>
@@ -406,7 +421,7 @@ if(BUILD_TESTING)
             unofficial-sodium::sodium
             ZLIB::ZLIB
             asio::asio
-            $<IF:$<CONFIG:Debug>,${DISCORD_RPC_LIB_DEBUG},${DISCORD_RPC_LIB_RELEASE}>
+            DiscordSocialSdk
             d3d11.lib
             d3dcompiler.lib
             dxgi.lib

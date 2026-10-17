@@ -10,7 +10,6 @@
     "rmlui",
     "sdl2",
     "sqlite3",
-    "discord-rpc",
     "zlib"
   ],
   "features": {

@@ -35,6 +35,18 @@ jobs:
           restore-keys: |
             vcpkg-${{ runner.os }}-
 
+      - name: Download Discord Social SDK
+        shell: pwsh
+        env:
+          DISCORD_SOCIAL_SDK_URL: ${{ secrets.DISCORD_SOCIAL_SDK_URL }}
+        run: |
+          if (-not $env:DISCORD_SOCIAL_SDK_URL) {
+            throw 'Set DISCORD_SOCIAL_SDK_URL to a private download URL for DiscordSocialSdk-1.10.19337.zip.'
+          }
+          $archive = Join-Path $env:RUNNER_TEMP 'DiscordSocialSdk-1.10.19337.zip'
+          Invoke-WebRequest -Uri $env:DISCORD_SOCIAL_SDK_URL -OutFile $archive
+          "OMNISTATS_DISCORD_SDK_ARCHIVE=$archive" | Out-File -FilePath $env:GITHUB_ENV -Append
+
 
       - name: Configure
         shell: pwsh

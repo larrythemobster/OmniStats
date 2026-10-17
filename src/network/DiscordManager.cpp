@@ -1,26 +1,14 @@
 #include "DiscordManager.hpp"
 #include "core/config/Config.hpp"
-#include "utils/PrivacyLog.hpp"
-#include <discord_rpc.h>
-#include <iostream>
-#include <cstring>
+
+#define DISCORDPP_IMPLEMENTATION
+#include <discordpp.h>
+
+#include <chrono>
 #include <ctime>
-#include <map>
+#include <iostream>
 
-static const char* DISCORD_APP_ID = "1501709499168194590";
-
-static void handleReady(const DiscordUser* user) {
-    std::string userTag = std::string(user->username) + "#" + user->discriminator;
-    std::cout << "[Discord] Connected as: " << PrivacyLog::Sensitive(userTag, "Discord user") << "\n";
-}
-
-static void handleDisconnected(int errorCode, const char* message) {
-    std::cout << "[Discord] Disconnected (" << errorCode << "): " << message << "\n";
-}
-
-static void handleError(int errorCode, const char* message) {
-    std::cout << "[Discord] Error (" << errorCode << "): " << message << "\n";
-}
+static constexpr uint64_t DISCORD_APP_ID = 1501709499168194590ULL;
 
 DiscordManager::DiscordManager(std::shared_ptr<SessionState> state)
     : m_state(state) {}
@@ -30,28 +18,8 @@ DiscordManager::~DiscordManager() {
 }
 
 void DiscordManager::Initialize() {
-    DiscordEventHandlers handlers;
-    std::memset(&handlers, 0, sizeof(handlers));
-    handlers.ready = handleReady;
-    handlers.disconnected = handleDisconnected;
-    handlers.errored = handleError;
-
-    // OmniStats only uses Rich Presence. It does not use Discord join/spectate
-    // launch handlers, so automatic discord-<app-id>:// protocol registration
-    // is unnecessary. Keeping autoRegister disabled also avoids writing those
-    // protocol-handler registry keys on startup.
-    Discord_Initialize(DISCORD_APP_ID, &handlers, 0, nullptr);
-    m_initialized = true;
-
-    // Start a background thread to pump Discord callbacks
-    m_running = true;
+    if (m_running.exchange(true)) return;
     m_worker = std::jthread(&DiscordManager::CallbackThread, this);
-
-    std::cout << "[Discord] RPC Initialized.\n";
-
-    // Clear presence until Rocket League telemetry is active.
-    DiscordPresenceSnapshot initial;
-    PushPresenceUpdate(initial);
 }
 
 void DiscordManager::Shutdown() {
@@ -60,26 +28,23 @@ void DiscordManager::Shutdown() {
     if (m_worker.joinable()) {
         m_worker.join();
     }
-    if (m_initialized) {
-        Discord_ClearPresence();
-        Discord_Shutdown();
-        m_initialized = false;
-        std::cout << "[Discord] RPC Shutdown.\n";
-    }
+    m_activityClock.Reset();
 }
 
 void DiscordManager::CallbackThread() {
+    m_client = std::make_unique<discordpp::Client>();
+    // Desktop Rich Presence uses local IPC without OAuth or Client::Connect.
+    m_client->SetApplicationId(DISCORD_APP_ID);
+    std::cout << "[Discord] Social SDK initialized for desktop Rich Presence.\n";
+
     while (m_running) {
-#ifdef DISCORD_DISABLE_IO_THREAD
-        Discord_UpdateConnection();
-#endif
-        Discord_RunCallbacks();
+        discordpp::RunCallbacks();
 
         DiscordPresenceSnapshot snapshot;
         bool doUpdate = false;
         {
             std::unique_lock<std::mutex> lock(m_snapshotMutex);
-            if (m_cv.wait_for(lock, std::chrono::seconds(2), [this]() { return !m_running || m_dirty.load(); })) {
+            if (m_cv.wait_for(lock, std::chrono::milliseconds(50), [this]() { return !m_running || m_dirty.load(); })) {
                 if (!m_running) break;
                 if (m_dirty) {
                     m_dirty = false;
@@ -93,6 +58,10 @@ void DiscordManager::CallbackThread() {
             ApplyPresence(snapshot);
         }
     }
+    m_client->ClearRichPresence();
+    discordpp::RunCallbacks();
+    m_client.reset();
+    std::cout << "[Discord] Social SDK stopped.\n";
 }
 
 void DiscordManager::PushPresenceUpdate(const DiscordPresenceSnapshot& snapshot) {
@@ -105,17 +74,17 @@ void DiscordManager::PushPresenceUpdate(const DiscordPresenceSnapshot& snapshot)
 }
 
 void DiscordManager::ApplyPresence(const DiscordPresenceSnapshot& snapshot) {
-    if (!m_initialized) return;
+    if (!m_client) return;
 
     ConfigData conf = Config::Read();
     if (!conf.discord_rpc_enabled || !snapshot.showPresence) {
         m_activityClock.Reset();
-        Discord_ClearPresence();
+        m_client->ClearRichPresence();
         return;
     }
 
-    DiscordRichPresence presence;
-    std::memset(&presence, 0, sizeof(presence));
+    discordpp::Activity presence;
+    presence.SetType(discordpp::ActivityTypes::Playing);
 
     std::string stateStr;
     std::string detailsStr;
@@ -144,7 +113,6 @@ void DiscordManager::ApplyPresence(const DiscordPresenceSnapshot& snapshot) {
             stateStr += " | Session: " + std::to_string(wins) + "W - " + std::to_string(losses) + "L";
         }
 
-        presence.startTimestamp = timestamp;
     } else {
         // In menus
         detailsStr = "In Menus";
@@ -159,14 +127,21 @@ void DiscordManager::ApplyPresence(const DiscordPresenceSnapshot& snapshot) {
         } else {
             stateStr = "Warming up...";
         }
-
-        presence.startTimestamp = timestamp;
     }
 
-    presence.details = detailsStr.c_str();
-    presence.state = stateStr.c_str();
-    presence.largeImageKey = "omnistats_logo";
-    presence.largeImageText = "OmniStats - Rocket League Stats & Overlay";
-
-    Discord_UpdatePresence(&presence);
+    presence.SetDetails(detailsStr);
+    presence.SetState(stateStr);
+    discordpp::ActivityTimestamps timestamps;
+    timestamps.SetStart(static_cast<uint64_t>(timestamp) * 1000);
+    presence.SetTimestamps(timestamps);
+    discordpp::ActivityAssets assets;
+    assets.SetLargeImage("https://omnistats.org/Logo.png");
+    assets.SetLargeText("OmniStats - Rocket League Stats & Overlay");
+    presence.SetAssets(assets);
+    m_client->UpdateRichPresence(std::move(presence), [](discordpp::ClientResult result) {
+        if (!result.Successful()) {
+            std::cerr << "[Discord] Presence update failed: "
+                      << discordpp::EnumToString(result.Type()) << '\n';
+        }
+    });
 }

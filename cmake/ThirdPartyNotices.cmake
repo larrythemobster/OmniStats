@@ -1,7 +1,7 @@
 # Builds THIRD_PARTY_NOTICES.txt from the licenses of everything shipped in the installer:
-# statically linked vcpkg ports, bundled fonts and the libcurl-impersonate runtime DLLs.
+# statically linked vcpkg ports, bundled fonts, Discord Social SDK and libcurl-impersonate runtimes.
 function(omnistats_generate_third_party_notices output)
-    set(ports asio brotli bzip2 curl discord-rpc freetype libpng libsodium nlohmann-json rapidjson rmlui sdl2 sqlite3 zlib)
+    set(ports asio brotli bzip2 curl freetype libpng libsodium nlohmann-json rmlui sdl2 sqlite3 zlib)
     set(share_dir "${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/share")
 
     set(text "OmniStats third-party notices\n\nOmniStats includes the following third-party software. Each component is provided under the license reproduced below.\n")
@@ -14,6 +14,9 @@ function(omnistats_generate_third_party_notices output)
         file(READ "${license_file}" license)
         string(APPEND text "\n================================================================================\n${port} (statically linked)\n================================================================================\n\n${license}\n")
     endforeach()
+
+    file(READ "${OMNISTATS_DISCORD_SDK_ROOT}/License-Notices.txt" discord_sdk_notices)
+    string(APPEND text "\n================================================================================\nDiscord Social SDK ${OMNISTATS_DISCORD_SDK_VERSION} (runtime DLL)\n================================================================================\n\n${discord_sdk_notices}\n")
 
     file(GLOB font_licenses "${CMAKE_CURRENT_SOURCE_DIR}/resources/fonts/*-LICENSE.txt")
     list(SORT font_licenses)

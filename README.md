@@ -49,6 +49,8 @@ Existing installations receive a one-time device-link prompt after upgrading if 
 
 Download the signed installer from [omnistats.org](https://omnistats.org/) or build from source:
 
+Source builds also need the pinned Discord Social SDK archive. See [Building](docs/BUILDING.md#discord-social-sdk) for its download and path configuration.
+
 ```powershell
 $env:VCPKG_ROOT = 'C:\src\vcpkg'
 cmake --preset windows-release
