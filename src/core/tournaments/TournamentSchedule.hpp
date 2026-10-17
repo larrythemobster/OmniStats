@@ -54,6 +54,11 @@ namespace Tournaments {
         void RequestRefresh();
         std::shared_ptr<const ScheduleSnapshot> Snapshot() const;
 
+#ifdef OMNISTATS_TEST_ENVIRONMENT
+        bool FetchForTests(ScheduleSnapshot& snapshot) {
+            return Fetch(snapshot);
+        }
+#endif
       private:
         void Worker();
         bool Fetch(ScheduleSnapshot& snapshot);

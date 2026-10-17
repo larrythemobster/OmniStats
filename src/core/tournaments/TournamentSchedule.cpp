@@ -3,9 +3,8 @@
 #include "core/tournaments/RegionDetector.hpp"
 #include "core/config/Config.hpp"
 #include "core/config/AppVersion.hpp"
+#include "network/omninet/OmniNet.hpp"
 #include "network/api/AccountClient.hpp"
-#include "network/http/HttpSecurity.hpp"
-#include <curl/curl.h>
 #include <nlohmann/json.hpp>
 #include <algorithm>
 #include <chrono>
@@ -13,16 +12,6 @@
 
 namespace Tournaments {
     namespace {
-        size_t WriteBody(char* data, size_t size, size_t count, void* context) {
-            const size_t bytes = size * count;
-            auto& body = *static_cast<std::string*>(context);
-            if (bytes > 65536 - body.size()) return 0;
-            body.append(data, bytes);
-            return bytes;
-        }
-        int Progress(void* context, curl_off_t, curl_off_t, curl_off_t, curl_off_t) {
-            return static_cast<std::atomic<bool>*>(context)->load() ? 1 : 0;
-        }
         bool ValidTitle(const std::string& title) {
             return !title.empty() && title.size() <= 256 && std::none_of(title.begin(), title.end(), [](unsigned char c) { return c < 32 || c == 127; });
         }
@@ -115,45 +104,31 @@ namespace Tournaments {
     }
 
     bool TournamentScheduleService::Fetch(ScheduleSnapshot& snapshot) {
+        if (!OmniNet::Available()) return false;
         auto& account = AccountClient::Instance();
-        const std::string url = AccountClient::ApiBaseUrl() + "/v1/tournaments/schedule?region=" + snapshot.region;
-        if (!HttpSecurity::IsAllowedSensitiveUrl(HttpSecurity::ParseUrl(url))) return false;
         for (int attempt = 0; attempt < 2 && !m_stop; ++attempt) {
             const std::string token = account.AccessToken();
             const std::string device = account.DevicePublicId();
             if (token.empty() || device.empty()) return false;
-            CURL* curl = curl_easy_init();
-            if (!curl) return false;
-            std::string body;
-            curl_slist* headers = nullptr;
-            headers = curl_slist_append(headers, "Accept: application/json");
-            headers = curl_slist_append(headers, ("Authorization: Bearer " + token).c_str());
-            headers = curl_slist_append(headers, ("X-Omni-Device-Id: " + device).c_str());
-            const std::string agent = std::string("OmniStats-Client/") + AppVersion::Current;
-            curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
-            curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
-            curl_easy_setopt(curl, CURLOPT_USERAGENT, agent.c_str());
-            curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, WriteBody);
-            curl_easy_setopt(curl, CURLOPT_WRITEDATA, &body);
-            curl_easy_setopt(curl, CURLOPT_TIMEOUT, 10L);
-            curl_easy_setopt(curl, CURLOPT_SSL_OPTIONS, CURLSSLOPT_NATIVE_CA);
-            curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 0L);
-            curl_easy_setopt(curl, CURLOPT_PROTOCOLS, CURLPROTO_HTTPS | CURLPROTO_HTTP);
-            curl_easy_setopt(curl, CURLOPT_XFERINFOFUNCTION, Progress);
-            curl_easy_setopt(curl, CURLOPT_XFERINFODATA, &m_stop);
-            curl_easy_setopt(curl, CURLOPT_NOPROGRESS, 0L);
-            const auto result = curl_easy_perform(curl);
-            long status = 0;
-            curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &status);
-            curl_slist_free_all(headers);
-            curl_easy_cleanup(curl);
-            if (result != CURLE_OK) return false;
-            if (status == 401) {
+
+            OmniNet::Request req;
+            req.op = OmniNet::Op::TournamentSchedule;
+            req.accessToken = token;
+            req.devicePublicId = device;
+            req.query["region"] = snapshot.region;
+            req.shouldAbort = [this]() { return m_stop.load(); };
+
+            const auto resp = OmniNet::Send(req);
+            if (resp.updateRequired) {
+                return false;
+            }
+            if (resp.transportError != 0) return false;
+            if (resp.status == 401) {
                 if (attempt == 0 && account.Refresh()) continue;
                 if (attempt != 0) account.MarkSignedOut("Your OmniStats session expired. Sign in again in Settings > Accounts & services.");
                 return false;
             }
-            if (status != 200 || !ParseSchedule(body, snapshot)) return false;
+            if (resp.status != 200 || !ParseSchedule(resp.body, snapshot)) return false;
             snapshot.fetchedAtUnix = static_cast<int64_t>(std::time(nullptr));
             return true;
         }
@@ -162,7 +137,7 @@ namespace Tournaments {
 
     void TournamentScheduleService::Worker() {
         int64_t nextFetch = 0;
-        std::string lastRegion, lastBase;
+        std::string lastRegion;
         bool lastSignedIn = false, lastEnabled = false;
         ConfigData config;
         uint64_t revision = 0;
@@ -184,7 +159,7 @@ namespace Tournaments {
                 m_refresh = false;
             }
             const bool changed = signedIn != lastSignedIn || enabled != lastEnabled ||
-                                 config.tournament_region != lastRegion || config.custom_api_base_url != lastBase;
+                                 config.tournament_region != lastRegion;
             if (changed || requested || now >= nextFetch) {
                 const auto previous = Snapshot();
                 ScheduleSnapshot value;
@@ -234,7 +209,6 @@ namespace Tournaments {
             lastSignedIn = signedIn;
             lastEnabled = enabled;
             lastRegion = config.tournament_region;
-            lastBase = config.custom_api_base_url;
             std::unique_lock lock(m_mutex);
             m_cv.wait_for(lock, std::chrono::seconds(1), [this] { return m_stop.load() || m_refresh; });
         }

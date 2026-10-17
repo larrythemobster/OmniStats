@@ -1,6 +1,7 @@
 #include "network/mmr/MMRFetcher.hpp"
 #include "network/http/CurlImpersonate.hpp"
 #include "network/api/AccountClient.hpp"
+#include "network/omninet/OmniNet.hpp"
 #include "core/config/Config.hpp"
 #include "core/game/GamemodeUtils.hpp"
 #include "core/game/PlaylistMetadata.hpp"
@@ -110,8 +111,7 @@ MMRFetcherDetail::CustomApiBatchResult MMRFetcher::FetchBatchFromCustomApi(const
         return result;
     }
 
-    auto& ci = CurlImpersonate::Instance();
-    if (!ci.IsReady()) {
+    if (!OmniNet::Available()) {
         result.httpResult = CustomApiFetchResult::DisabledOrNotReady;
         return result;
     }
@@ -127,90 +127,17 @@ MMRFetcherDetail::CustomApiBatchResult MMRFetcher::FetchBatchFromCustomApi(const
         return result;
     }
 
-    std::string baseUrl = config.custom_api_base_url;
-    if (baseUrl.empty()) {
-        baseUrl = "https://api.omnistats.org";
-    }
-    while (!baseUrl.empty() && baseUrl.back() == '/') {
-        baseUrl.pop_back();
-    }
-
     nlohmann::json reqBody = BuildCustomApiBatchJson(batch);
     const std::string reqBodyStr = reqBody.dump();
-    const std::string url = baseUrl + "/v1/ranks";
-    const auto parsedUrl = HttpSecurity::ParseUrl(url);
-    std::string urlError;
-    if (!HttpSecurity::IsAllowedSensitiveUrl(parsedUrl, &urlError)) {
-        std::cout << "[MMRFetcher] Custom API URL rejected: " << urlError << "\n";
-        result.httpResult = CustomApiFetchResult::DisabledOrNotReady;
-        return result;
-    }
-    std::string readBuffer;
-    FetchHeaderState headerState;
-    int res = 0;
-    long httpCode = 0;
 
-    const auto performRequest = [&](const std::string& bearerToken, const std::string& deviceId) -> bool {
-        std::string currentUrl = url;
-        constexpr int kMaxRedirects = 5;
-
-        for (int redirectCount = 0; redirectCount <= kMaxRedirects; ++redirectCount) {
-            readBuffer.clear();
-            headerState = {};
-            res = 0;
-            httpCode = 0;
-
-            void* ci_curl = ci.easy_init();
-            if (!ci_curl) return false;
-
-            void* headers = nullptr;
-            headers = ci.slist_append(headers, "Content-Type: application/json");
-            headers = ci.slist_append(headers, "Accept: application/json");
-            headers = ci.slist_append(headers, ("Authorization: Bearer " + bearerToken).c_str());
-            headers = ci.slist_append(headers, ("X-Omni-Device-Id: " + deviceId).c_str());
-
-            ci.easy_setopt(ci_curl, CI_CURLOPT_URL, currentUrl.c_str());
-            ci.easy_setopt(ci_curl, CI_CURLOPT_POST, 1L);
-            ci.easy_setopt(ci_curl, CI_CURLOPT_POSTFIELDS, reqBodyStr.c_str());
-            ci.easy_setopt(ci_curl, CI_CURLOPT_POSTFIELDSIZE, static_cast<long>(reqBodyStr.size()));
-            ci.easy_setopt(ci_curl, CI_CURLOPT_HTTPHEADER, headers);
-            ci.easy_setopt(ci_curl, CI_CURLOPT_WRITEFUNCTION, WriteCallback);
-            ci.easy_setopt(ci_curl, CI_CURLOPT_WRITEDATA, &readBuffer);
-            ci.easy_setopt(ci_curl, CI_CURLOPT_HEADERFUNCTION, HeaderCallback);
-            ci.easy_setopt(ci_curl, CI_CURLOPT_HEADERDATA, &headerState);
-            ci.easy_setopt(ci_curl, CI_CURLOPT_TIMEOUT, 10L);
-            ci.easy_setopt(ci_curl, CI_CURLOPT_SSL_OPTIONS, static_cast<long>(CI_CURLSSLOPT_NATIVE_CA));
-            ci.easy_setopt(ci_curl, CI_CURLOPT_FOLLOWLOCATION, 0L);
-            ci.easy_setopt(ci_curl, CI_CURLOPT_NOPROGRESS, 1L);
-
-            res = ci.easy_perform(ci_curl);
-            ci.easy_getinfo(ci_curl, CI_CURLINFO_RESPONSE_CODE, &httpCode);
-
-            ci.slist_free_all(headers);
-            ci.easy_cleanup(ci_curl);
-
-            if (res != 0) {
-                return true;
-            }
-
-            if (httpCode == 301 || httpCode == 302 || httpCode == 303 || httpCode == 307 || httpCode == 308) {
-                if (redirectCount == kMaxRedirects) {
-                    std::cout << "[MMRFetcher] Custom API exceeded max redirect limit.\n";
-                    res = -1;
-                    return true;
-                }
-                const auto val = HttpSecurity::ValidateRedirect(currentUrl, headerState.location, /*isSensitiveRequest=*/true);
-                if (!val.allowed) {
-                    std::cout << "[MMRFetcher] Custom API redirect rejected: " << val.reason << "\n";
-                    res = -1;
-                    return true;
-                }
-                currentUrl = val.resolvedUrl;
-                continue;
-            }
-            break;
-        }
-        return true;
+    const auto performRequest = [&](const std::string& bearerToken, const std::string& deviceId) -> OmniNet::Response {
+        OmniNet::Request req;
+        req.op = OmniNet::Op::Ranks;
+        req.payload = reqBodyStr;
+        req.accessToken = bearerToken;
+        req.devicePublicId = deviceId;
+        req.shouldAbort = [this]() { return !m_isRunning.load(); };
+        return OmniNet::Send(req);
     };
 
     std::string accessToken = accountClient.AccessToken();
@@ -223,11 +150,16 @@ MMRFetcherDetail::CustomApiBatchResult MMRFetcher::FetchBatchFromCustomApi(const
         result.httpResult = CustomApiFetchResult::TransientError;
         return result;
     }
-    if (!performRequest(accessToken, deviceId)) {
+
+    OmniNet::Response resp = performRequest(accessToken, deviceId);
+    if (resp.updateRequired) {
+        result.updateRequired = true;
+        result.httpCode = resp.status;
         result.httpResult = CustomApiFetchResult::DisabledOrNotReady;
         return result;
     }
-    if (res == 0 && httpCode == 401) {
+
+    if (resp.transportError == 0 && resp.status == 401) {
         if (!accountClient.Refresh()) {
             if (!accountClient.IsSignedIn()) {
                 result.httpResult = CustomApiFetchResult::AuthFailure;
@@ -243,11 +175,14 @@ MMRFetcherDetail::CustomApiBatchResult MMRFetcher::FetchBatchFromCustomApi(const
             result.httpResult = CustomApiFetchResult::AuthFailure;
             return result;
         }
-        if (!performRequest(accessToken, deviceId)) {
+        resp = performRequest(accessToken, deviceId);
+        if (resp.updateRequired) {
+            result.updateRequired = true;
+            result.httpCode = resp.status;
             result.httpResult = CustomApiFetchResult::DisabledOrNotReady;
             return result;
         }
-        if (res == 0 && httpCode == 401) {
+        if (resp.transportError == 0 && resp.status == 401) {
             accountClient.MarkSignedOut("Your OmniStats session expired or this device was revoked. Sign in again in Settings > Accounts & services.");
             std::cout << "[MMRFetcher] Custom API rejected refreshed device token (HTTP 401). Signed out.\n";
             result.httpResult = CustomApiFetchResult::AuthFailure;
@@ -255,55 +190,55 @@ MMRFetcherDetail::CustomApiBatchResult MMRFetcher::FetchBatchFromCustomApi(const
         }
     }
 
-    result.httpCode = httpCode;
+    result.httpCode = resp.status;
 
-    if (res != 0) {
-        std::cout << "[MMRFetcher] Custom API network error: curl error " << res << ".\n";
+    if (resp.transportError != 0) {
+        std::cout << "[MMRFetcher] Custom API network error: " << resp.transportError << ".\n";
         result.httpResult = CustomApiFetchResult::TransientError;
         return result;
     }
-    if (httpCode == 401) {
+    if (resp.status == 401) {
         accountClient.MarkSignedOut("Your OmniStats session expired or this device was revoked. Sign in again in Settings > Accounts & services.");
         std::cout << "[MMRFetcher] Custom API rejected the device token (HTTP 401). Signed out.\n";
         result.httpResult = CustomApiFetchResult::AuthFailure;
         return result;
     }
-    if (httpCode == 403) {
+    if (resp.status == 403) {
         std::cout << "[MMRFetcher] Custom API authentication failed (HTTP 403).\n";
         result.httpResult = CustomApiFetchResult::AuthFailure;
         return result;
     }
-    if (httpCode == 429) {
+    if (resp.status == 429) {
         std::cout << "[MMRFetcher] Custom API rate limited (HTTP 429).\n";
         result.httpResult = CustomApiFetchResult::TransientError;
         std::chrono::steady_clock::duration lockout = kRateLimitLockoutMinimum;
-        if (headerState.retryAfterSeconds > 0) {
+        if (resp.retryAfterSeconds > 0) {
             lockout = (std::max)(lockout,
                                  std::chrono::duration_cast<std::chrono::steady_clock::duration>(
-                                     std::chrono::seconds(headerState.retryAfterSeconds)));
+                                     std::chrono::seconds(resp.retryAfterSeconds)));
         }
         result.rateLimitLockout = lockout;
         return result;
     }
-    if (httpCode == 404) {
+    if (resp.status == 404) {
         std::cout << "[MMRFetcher] Custom API returned HTTP 404 (not found).\n";
         result.httpResult = CustomApiFetchResult::UnusableData;
         return result;
     }
-    if (httpCode >= 500 && httpCode <= 599) {
-        std::cout << "[MMRFetcher] Custom API server error (HTTP " << httpCode << ").\n";
+    if (resp.status >= 500 && resp.status <= 599) {
+        std::cout << "[MMRFetcher] Custom API server error (HTTP " << resp.status << ").\n";
         result.httpResult = CustomApiFetchResult::TransientError;
         return result;
     }
-    if (httpCode != 200) {
-        std::cout << "[MMRFetcher] Custom API returned unexpected HTTP " << httpCode << ".\n";
+    if (resp.status != 200) {
+        std::cout << "[MMRFetcher] Custom API returned unexpected HTTP " << resp.status << ".\n";
         result.httpResult = CustomApiFetchResult::UnusableData;
         return result;
     }
 
     nlohmann::json jsonResp;
     try {
-        jsonResp = nlohmann::json::parse(readBuffer);
+        jsonResp = nlohmann::json::parse(resp.body);
     } catch (...) {
         std::cout << "[MMRFetcher] Custom API returned malformed JSON.\n";
         result.httpResult = CustomApiFetchResult::UnusableData;
@@ -333,6 +268,19 @@ void MMRFetcher::ProcessCustomApiBatch(const AssembledBatch& batch) {
     const auto now = std::chrono::steady_clock::now();
     const auto config = Config::Read();
 
+    if (res.updateRequired) {
+        for (const auto& req : batch.requests) {
+            if (config.enable_mmr_tracking && m_rateLimitedUntil <= now) {
+                const bool requeued = FetchProfileTracker(req);
+                if (!requeued) FinishRequest(req);
+            } else {
+                PublishFetchFailure(req, TrackedAccountFetchStatus::ProviderUnavailable,
+                                    "Update OmniStats to keep live ranks.");
+                FinishRequest(req);
+            }
+        }
+        return;
+    }
     if (res.httpResult == CustomApiFetchResult::AuthFailure) {
         for (const auto& req : batch.requests) {
             if (config.enable_mmr_tracking && m_rateLimitedUntil <= now) {
@@ -396,12 +344,17 @@ void MMRFetcher::ProcessCustomApiBatch(const AssembledBatch& batch) {
                 if (!requeued) FinishRequest(req);
             } else {
                 TrackedAccountFetchStatus status = TrackedAccountFetchStatus::Failed;
-                if (pRes.status == BatchPlayerStatus::NotFound) {
+                if (pRes.errorCode == "update_required") {
+                    status = TrackedAccountFetchStatus::ProviderUnavailable;
+                } else if (pRes.status == BatchPlayerStatus::NotFound) {
                     status = TrackedAccountFetchStatus::NotFound;
                 } else if (pRes.errorCode == "no_ranked_skills") {
                     status = TrackedAccountFetchStatus::NoRankedData;
                 }
-                PublishFetchFailure(req, status, pRes.errorMessage);
+                const std::string msg = (pRes.errorCode == "update_required" && pRes.errorMessage.empty())
+                                            ? "Update OmniStats to keep live ranks."
+                                            : pRes.errorMessage;
+                PublishFetchFailure(req, status, msg);
                 FinishRequest(req);
             }
         }

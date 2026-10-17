@@ -23,6 +23,7 @@
 #include <vector>
 
 #include "core/config/Config.hpp"
+#include "network/omninet/OmniNet.hpp"
 #include "ui/config/WidgetSettings.hpp"
 #include "core/state/SessionState.hpp"
 #include "utils/Storage.hpp"
@@ -63,6 +64,8 @@ class RmlUiControllerStateTest : public ::testing::Test {
   protected:
     void SetUp() override {
         Storage::InitializeEnvironment();
+        OmniNet::ResetUpdateRequiredForTesting();
+        OmniNet::SetTransportForTesting({});
         original = Config::Read();
         Config::Update([](ConfigData& c) {
             c.last_primary_id.clear();
@@ -80,6 +83,8 @@ class RmlUiControllerStateTest : public ::testing::Test {
 
     void TearDown() override {
         Config::Update([this](ConfigData& c) { c = original; }, true);
+        OmniNet::ResetUpdateRequiredForTesting();
+        OmniNet::SetTransportForTesting({});
         ExternalUpdaterLauncher::ShutdownBackgroundTasks();
     }
 
@@ -3429,6 +3434,7 @@ TEST_F(RmlUiControllerStateTest, AccountLinkPrompt_EligibleExistingUserShowsMenu
     },
                    true);
 
+    OmniNet::SetTransportForTesting([](const OmniNet::Request&) { return OmniNet::Response{}; });
     auto state = std::make_shared<SessionState>();
     RmlUiController controller(state, nullptr);
     ASSERT_TRUE(controller.Initialize(nullptr, warp.device.Get(), warp.context.Get(), 1280, 800, 1.0f));
@@ -3500,12 +3506,16 @@ TEST_F(RmlUiControllerStateTest, AccountLinkPromptWaitsForMigrationAndOffersReco
         bool& released;
         ~Cleanup() {
             if (!released) release.set_value();
+            OmniNet::SetTransportForTesting({});
             account.ResetForTests();
         }
     } cleanup{account, release, released};
-    account.SetTransportForTests([gate](const std::string&, const std::string&) {
+    OmniNet::SetTransportForTesting([gate](const OmniNet::Request&) {
         gate.wait();
-        return AccountClient::HttpResponse{0, 503, "{}"};
+        OmniNet::Response res;
+        res.status = 503;
+        res.body = "{}";
+        return res;
     });
     Config::Update([](ConfigData& c) {
         c.onboarding_completed = true;
@@ -3545,6 +3555,7 @@ TEST_F(RmlUiControllerStateTest, OnboardingWizard_StepsTransitionAndSkip) {
     WarpDevice warp;
     if (!warp.Create(1280, 800)) GTEST_SKIP() << "WARP not available.";
 
+    OmniNet::SetTransportForTesting([](const OmniNet::Request&) { return OmniNet::Response{}; });
     bool browserOpened = false;
     auto& account = AccountClient::Instance();
     account.ResetForTests();
@@ -3614,6 +3625,7 @@ TEST_F(RmlUiControllerStateTest, OnboardingWizard_StepsTransitionAndSkip) {
     Click(controller, finishButtons.front());
     EXPECT_TRUE(Config::Read().onboarding_completed);
     EXPECT_FALSE(controller.WantsAttention());
+    OmniNet::SetTransportForTesting({});
     account.ResetForTests();
 }
 
@@ -3624,10 +3636,10 @@ TEST_F(RmlUiControllerStateTest, OnboardingWizard_ConnectLiveRanks_FlowAndFallba
     auto& account = AccountClient::Instance();
     account.ResetForTests();
     account.SetOpenUrlForTests([](const std::string&) {});
-    account.SetTransportForTests([](const std::string& url, const std::string&) {
-        AccountClient::HttpResponse resp;
-        if (url.find("/v1/auth/device/start") != std::string::npos) {
-            resp.statusCode = 200;
+    OmniNet::SetTransportForTesting([](const OmniNet::Request& omniReq) {
+        OmniNet::Response resp;
+        if (omniReq.op == OmniNet::Op::AuthStart) {
+            resp.status = 200;
             resp.body = R"({
                 "device_code": "dev-code-test",
                 "user_code": "FALLBACK-123",
@@ -3637,7 +3649,7 @@ TEST_F(RmlUiControllerStateTest, OnboardingWizard_ConnectLiveRanks_FlowAndFallba
             })";
             return resp;
         }
-        resp.statusCode = 428;
+        resp.status = 428;
         resp.body = R"({"error":{"code":"authorization_pending","message":"Pending"}})";
         return resp;
     });
@@ -3691,6 +3703,7 @@ TEST_F(RmlUiControllerStateTest, OnboardingWizard_ConnectLiveRanks_FlowAndFallba
 
     EXPECT_EQ(account.GetStatus().state, AccountAuthState::SignedOut);
     EXPECT_FALSE(onboarding.ShowFallback());
+    OmniNet::SetTransportForTesting({});
     account.ResetForTests();
 }
 

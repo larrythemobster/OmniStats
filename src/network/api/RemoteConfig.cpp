@@ -2,7 +2,7 @@
 #include "network/api/AccountClient.hpp"
 #include "core/config/AppVersion.hpp"
 #include "utils/Storage.hpp"
-#include <curl/curl.h>
+#include "network/omninet/OmniNet.hpp"
 #include <algorithm>
 #include <cctype>
 #include <chrono>
@@ -17,22 +17,6 @@ namespace fs = std::filesystem;
 namespace {
 
     constexpr size_t kMaxDismissedIds = 256;
-
-    size_t CurlWriteBoundCallback(void* contents, size_t size, size_t nmemb, void* userp) {
-        const size_t total = size * nmemb;
-        if (!userp || !contents) return 0;
-        auto* body = static_cast<std::string*>(userp);
-        if (body->size() + total > RemoteConfig::kMaxConfigPayloadBytes) {
-            return 0;
-        }
-        body->append(static_cast<const char*>(contents), total);
-        return total;
-    }
-
-    int CurlProgressCallback(void* clientp, curl_off_t, curl_off_t, curl_off_t, curl_off_t) {
-        const auto* stop = static_cast<const std::atomic<bool>*>(clientp);
-        return (stop && stop->load(std::memory_order_relaxed)) ? 1 : 0;
-    }
 
     bool ParseFixedDigits(std::string_view sv, size_t pos, size_t count, int& outVal) noexcept {
         if (pos + count > sv.size()) return false;
@@ -396,12 +380,7 @@ void RemoteConfig::Start() {
     }
 
 #ifdef OMNISTATS_TEST_ENVIRONMENT
-    {
-        std::lock_guard<std::mutex> lock(m_mutex);
-        if (!m_transport) {
-            return;
-        }
-    }
+    return;
 #endif
 
     std::lock_guard<std::mutex> workerLock(m_workerMutex);
@@ -439,15 +418,19 @@ void RemoteConfig::WorkerLoop() {
 }
 
 bool RemoteConfig::FetchOnce() {
-    std::string baseUrl = AccountClient::ApiBaseUrl();
-    const std::string url = baseUrl + "/api/v1/client/config";
+    if (!OmniNet::Available()) {
+        return false;
+    }
 
-    const std::string userAgent = std::string("OmniStats-Client/") + AppVersion::Current;
-    const HttpResponse resp = PerformHttpGet(url, userAgent);
+    OmniNet::Request req;
+    req.op = OmniNet::Op::ClientConfig;
+    req.shouldAbort = [this]() { return m_stopRequested.load(std::memory_order_relaxed); };
+
+    const OmniNet::Response resp = OmniNet::Send(req);
     const int64_t now = NowUnix();
 
     RemoteConfigData parsed;
-    if (resp.curlCode == 0 && resp.statusCode == 200 && ParseConfigJson(resp.body, parsed)) {
+    if (resp.transportError == 0 && resp.status == 200 && ParseConfigJson(resp.body, parsed)) {
         std::lock_guard<std::mutex> lock(m_mutex);
         const bool changed = !(m_snapshot == parsed);
         m_snapshot = parsed;
@@ -489,54 +472,6 @@ bool RemoteConfig::FetchOnce() {
         m_version.fetch_add(1, std::memory_order_release);
     }
     return false;
-}
-
-RemoteConfig::HttpResponse RemoteConfig::PerformHttpGet(const std::string& url, const std::string& userAgent) {
-    HttpTransportFn customTransport;
-    {
-        std::lock_guard<std::mutex> lock(m_mutex);
-        customTransport = m_transport;
-    }
-    if (customTransport) {
-        return customTransport(url, userAgent);
-    }
-
-    HttpResponse response;
-    CURL* curl = curl_easy_init();
-    if (!curl) {
-        response.curlCode = CURLE_FAILED_INIT;
-        return response;
-    }
-
-    struct curl_slist* headers = nullptr;
-    headers = curl_slist_append(headers, "Accept: application/json");
-
-    curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
-    curl_easy_setopt(curl, CURLOPT_HTTPGET, 1L);
-    curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
-    curl_easy_setopt(curl, CURLOPT_USERAGENT, userAgent.c_str());
-    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, CurlWriteBoundCallback);
-    curl_easy_setopt(curl, CURLOPT_WRITEDATA, &response.body);
-    curl_easy_setopt(curl, CURLOPT_TIMEOUT, 10L);
-    curl_easy_setopt(curl, CURLOPT_SSL_OPTIONS, CURLSSLOPT_NATIVE_CA);
-    curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 1L);
-    curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 2L);
-    curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 0L);
-    curl_easy_setopt(curl, CURLOPT_PROTOCOLS, CURLPROTO_HTTPS);
-    curl_easy_setopt(curl, CURLOPT_REDIR_PROTOCOLS, CURLPROTO_HTTPS);
-    curl_easy_setopt(curl, CURLOPT_XFERINFOFUNCTION, CurlProgressCallback);
-    curl_easy_setopt(curl, CURLOPT_XFERINFODATA, &m_stopRequested);
-    curl_easy_setopt(curl, CURLOPT_NOPROGRESS, 0L);
-
-    const CURLcode res = curl_easy_perform(curl);
-    response.curlCode = static_cast<int>(res);
-    if (res == CURLE_OK) {
-        curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &response.statusCode);
-    }
-
-    curl_slist_free_all(headers);
-    curl_easy_cleanup(curl);
-    return response;
 }
 
 RemoteConfigData RemoteConfig::GetSnapshot() const {
@@ -710,11 +645,6 @@ void RemoteConfig::SaveDismissedLocked() const {
     }
 }
 
-void RemoteConfig::SetTransportForTests(HttpTransportFn transport) {
-    std::lock_guard<std::mutex> lock(m_mutex);
-    m_transport = std::move(transport);
-}
-
 void RemoteConfig::SetClockForTests(ClockFn clockFn) {
     std::lock_guard<std::mutex> lock(m_mutex);
     m_clock = std::move(clockFn);
@@ -747,7 +677,6 @@ void RemoteConfig::ResetForTests() {
     m_hasCachedSnapshot = false;
     m_dismissedIds.clear();
     m_dismissedLoaded = false;
-    m_transport = nullptr;
     m_clock = nullptr;
     m_cacheFileOverride.clear();
     m_dismissedFileOverride.clear();

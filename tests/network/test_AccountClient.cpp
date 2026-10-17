@@ -3,6 +3,7 @@
 #include "core/config/Config.hpp"
 #include "utils/Storage.hpp"
 #include "network/api/AccountClient.hpp"
+#include "network/omninet/OmniNet.hpp"
 
 #include <nlohmann/json.hpp>
 #include <sodium.h>
@@ -25,7 +26,6 @@ class AccountClientTest : public ::testing::Test {
         m_originalConfig = Config::Read();
         Config::Update([](ConfigData& c) {
             c.custom_api_enabled = true;
-            c.custom_api_base_url = "https://api.omnistats.org";
             c.account_signed_in_name.clear();
             c.account_device_public_id.clear();
             c.account_refresh_token.clear();
@@ -38,6 +38,7 @@ class AccountClientTest : public ::testing::Test {
 
     void TearDown() override {
         AccountClient::Instance().ResetForTests();
+        OmniNet::SetTransportForTesting({});
         Config::Update([this](ConfigData& c) { c = m_originalConfig; });
         Config::Save();
     }
@@ -163,16 +164,16 @@ TEST_F(AccountClientTest, PollStateMachineHandlesPendingSlowDownAndApproval) {
         nowUnix += seconds;
         return true;
     });
-    client.SetTransportForTests([&](const std::string& url, const std::string& body) {
-        AccountClient::HttpResponse resp;
-        const auto req = nlohmann::json::parse(body);
-        if (url.find("/v1/auth/device/start") != std::string::npos) {
+    OmniNet::SetTransportForTesting([&](const OmniNet::Request& omniReq) {
+        OmniNet::Response resp;
+        const auto req = nlohmann::json::parse(omniReq.payload);
+        if (omniReq.op == OmniNet::Op::AuthStart) {
             EXPECT_EQ(req.at("platform"), "windows");
             EXPECT_FALSE(req.at("device_name").get<std::string>().empty());
             EXPECT_FALSE(req.at("public_key").get<std::string>().empty());
             EXPECT_EQ(req.at("device_public_id").get<std::string>(),
                       AccountClient::DerivePublicIdForPublicKey(req.at("public_key").get<std::string>()));
-            resp.statusCode = 200;
+            resp.status = 200;
             resp.body = R"({
                 "device_code": "dev-code-123",
                 "user_code": "K7Q-9MX",
@@ -182,21 +183,21 @@ TEST_F(AccountClientTest, PollStateMachineHandlesPendingSlowDownAndApproval) {
             })";
             return resp;
         }
-        if (url.find("/v1/auth/device/token") != std::string::npos) {
+        if (omniReq.op == OmniNet::Op::AuthToken) {
             ++tokenCalls;
             EXPECT_EQ(req.at("device_code"), "dev-code-123");
             EXPECT_TRUE(req.contains("proof"));
             if (tokenCalls == 1) {
-                resp.statusCode = 428;
+                resp.status = 428;
                 resp.body = R"({"error":{"code":"authorization_pending","message":"Pending"}})";
                 return resp;
             }
             if (tokenCalls == 2) {
-                resp.statusCode = 429;
+                resp.status = 429;
                 resp.body = R"({"error":{"code":"slow_down","message":"Slow down"}})";
                 return resp;
             }
-            resp.statusCode = 200;
+            resp.status = 200;
             resp.body = R"({
                 "access_token": "acc-token-initial",
                 "expires_in": 900,
@@ -219,7 +220,7 @@ TEST_F(AccountClientTest, PollStateMachineHandlesPendingSlowDownAndApproval) {
             })";
             return resp;
         }
-        resp.statusCode = 404;
+        resp.status = 404;
         return resp;
     });
 
@@ -255,10 +256,10 @@ TEST_F(AccountClientTest, PollStateMachineHandlesDeniedAndExpired) {
         nowUnix += seconds;
         return true;
     });
-    client.SetTransportForTests([&](const std::string& url, const std::string&) {
-        AccountClient::HttpResponse resp;
-        if (url.find("/v1/auth/device/start") != std::string::npos) {
-            resp.statusCode = 200;
+    OmniNet::SetTransportForTesting([&](const OmniNet::Request& omniReq) {
+        OmniNet::Response resp;
+        if (omniReq.op == OmniNet::Op::AuthStart) {
+            resp.status = 200;
             resp.body = R"({
                 "device_code": "dev-code-err",
                 "user_code": "DENY1234",
@@ -269,10 +270,10 @@ TEST_F(AccountClientTest, PollStateMachineHandlesDeniedAndExpired) {
             return resp;
         }
         if (mode == "denied") {
-            resp.statusCode = 403;
+            resp.status = 403;
             resp.body = R"({"error":{"code":"access_denied","message":"The device authorization was denied."}})";
         } else {
-            resp.statusCode = 400;
+            resp.status = 400;
             resp.body = R"({"error":{"code":"invalid_device_authorization","message":"Expired"}})";
         }
         return resp;
@@ -312,13 +313,13 @@ TEST_F(AccountClientTest, RefreshRotationPersistsNewTokenAndCachesAccessToken) {
     client.SyncFromConfig();
 
     client.SetClockForTests([&]() { return nowUnix; });
-    client.SetTransportForTests([&](const std::string& url, const std::string& body) {
-        AccountClient::HttpResponse resp;
-        EXPECT_NE(url.find("/v1/auth/device/refresh"), std::string::npos);
-        const auto req = nlohmann::json::parse(body);
+    OmniNet::SetTransportForTesting([&](const OmniNet::Request& omniReq) {
+        OmniNet::Response resp;
+        EXPECT_EQ(omniReq.op, OmniNet::Op::AuthRefresh);
+        const auto req = nlohmann::json::parse(omniReq.payload);
         ++refreshCount;
         EXPECT_EQ(req.at("refresh_token"), refreshCount == 1 ? "refresh-token-v1" : "refresh-token-v2");
-        resp.statusCode = 200;
+        resp.status = 200;
         resp.body = nlohmann::json{
             {"access_token", "access-token-v" + std::to_string(refreshCount)},
             {"expires_in", 900},
@@ -362,11 +363,12 @@ TEST_F(AccountClientTest, ConcurrentAccessTokenCallsShareSingleFlightRefresh) {
     Config::Save();
     client.SyncFromConfig();
     client.SetClockForTests([&]() { return nowUnix; });
-    client.SetTransportForTests([&](const std::string&, const std::string&) {
+    OmniNet::SetTransportForTesting([&](const OmniNet::Request& omniReq) {
+        EXPECT_EQ(omniReq.op, OmniNet::Op::AuthRefresh);
         std::this_thread::sleep_for(std::chrono::milliseconds(30));
         const int n = ++refreshCount;
-        AccountClient::HttpResponse resp;
-        resp.statusCode = 200;
+        OmniNet::Response resp;
+        resp.status = 200;
         resp.body = nlohmann::json{
             {"access_token", "shared-access-token-" + std::to_string(n)},
             {"expires_in", 900},
@@ -403,15 +405,15 @@ TEST_F(AccountClientTest, LogoutSendsSignedLogoutProofAndClearsRefreshToken) {
 
     bool logoutCalled = false;
     client.SetClockForTests([]() { return 1700000000; });
-    client.SetTransportForTests([&](const std::string& url, const std::string& body) {
-        EXPECT_NE(url.find("/v1/auth/device/logout"), std::string::npos);
-        const auto req = nlohmann::json::parse(body);
+    OmniNet::SetTransportForTesting([&](const OmniNet::Request& omniReq) {
+        EXPECT_EQ(omniReq.op, OmniNet::Op::AuthLogout);
+        const auto req = nlohmann::json::parse(omniReq.payload);
         EXPECT_EQ(req.at("refresh_token"), "logout-refresh-token-1");
         EXPECT_EQ(req.at("device_public_id"), keyPair.publicId);
         EXPECT_TRUE(req.contains("proof"));
         logoutCalled = true;
-        AccountClient::HttpResponse resp;
-        resp.statusCode = 200;
+        OmniNet::Response resp;
+        resp.status = 200;
         resp.body = R"({"message":"Device signed out."})";
         return resp;
     });
@@ -441,12 +443,12 @@ TEST_F(AccountClientTest, RefreshCompletingAfterLogoutStaysSignedOutAndRevokesRo
     bool refreshEntered = false;
     bool releaseRefresh = false;
     std::vector<std::string> logoutTokens;
-    client.SetTransportForTests([&](const std::string& url, const std::string& body) {
-        AccountClient::HttpResponse resp;
-        resp.statusCode = 200;
-        const auto req = nlohmann::json::parse(body);
+    OmniNet::SetTransportForTesting([&](const OmniNet::Request& omniReq) {
+        OmniNet::Response resp;
+        resp.status = 200;
+        const auto req = nlohmann::json::parse(omniReq.payload);
         std::unique_lock lock(m);
-        if (url.find("/v1/auth/device/logout") != std::string::npos) {
+        if (omniReq.op == OmniNet::Op::AuthLogout) {
             logoutTokens.push_back(req.at("refresh_token").get<std::string>());
             cv.notify_all();
             resp.body = R"({"message":"Device signed out."})";
@@ -491,10 +493,10 @@ TEST_F(AccountClientTest, StartupExchangesLegacyKeyAndPersistsDeviceSession) {
     Config::Update([](ConfigData& c) { c.custom_api_key = "oms_saved_key"; });
     std::atomic<int> exchanges{0};
     client.SetClockForTests([] { return 1700000000; });
-    client.SetTransportForTests([&](const std::string& url, const std::string& body) {
-        EXPECT_NE(url.find("/v1/auth/device/exchange-key"), std::string::npos);
+    OmniNet::SetTransportForTesting([&](const OmniNet::Request& omniReq) {
+        EXPECT_EQ(omniReq.op, OmniNet::Op::AuthExchangeKey);
         ++exchanges;
-        const auto request = nlohmann::json::parse(body);
+        const auto request = nlohmann::json::parse(omniReq.payload);
         const auto proof = request.at("proof");
         std::vector<uint8_t> publicKey, signature;
         EXPECT_TRUE(AccountClient::Base64UrlDecode(request.at("public_key").get<std::string>(), publicKey));
@@ -509,7 +511,10 @@ TEST_F(AccountClientTest, StartupExchangesLegacyKeyAndPersistsDeviceSession) {
         } else {
             ADD_FAILURE() << "Invalid device proof";
         }
-        return AccountClient::HttpResponse{0, 200, R"({"access_token":"access","refresh_token":"refresh","expires_in":900,"account":{"display_name":"Linked"}})"};
+        OmniNet::Response resp;
+        resp.status = 200;
+        resp.body = R"({"access_token":"access","refresh_token":"refresh","expires_in":900,"account":{"display_name":"Linked"}})";
+        return resp;
     });
     client.SyncFromConfig();
     for (int i = 0; i < 500 && !client.IsSignedIn(); ++i)
@@ -542,9 +547,13 @@ TEST_F(AccountClientTest, FailedStartupExchangeKeepsKeyAndExplainsRecovery) {
              Failure{200, "", "incomplete device session"}}) {
         AccountClient client;
         Config::Update([](ConfigData& c) { c.custom_api_key = "oms_saved_key"; });
-        client.SetTransportForTests([&](const std::string&, const std::string&) {
-            return AccountClient::HttpResponse{failure.status == 0 ? 7 : 0, failure.status,
-                                               nlohmann::json{{"error", {{"code", failure.code}}}}.dump()};
+        OmniNet::SetTransportForTesting([&](const OmniNet::Request& omniReq) {
+            EXPECT_EQ(omniReq.op, OmniNet::Op::AuthExchangeKey);
+            OmniNet::Response resp;
+            resp.transportError = failure.status == 0 ? 7 : 0;
+            resp.status = failure.status;
+            resp.body = nlohmann::json{{"error", {{"code", failure.code}}}}.dump();
+            return resp;
         });
         client.SyncFromConfig();
         for (int i = 0; i < 500 && client.GetStatus().state == AccountAuthState::Migrating; ++i)
@@ -563,18 +572,24 @@ TEST_F(AccountClientTest, StartupExchangeCompletingAfterLogoutRevokesReturnedSes
     std::mutex mutex;
     std::condition_variable cv;
     bool entered = false, release = false, revoked = false;
-    client.SetTransportForTests([&](const std::string& url, const std::string& body) {
+    OmniNet::SetTransportForTesting([&](const OmniNet::Request& omniReq) {
         std::unique_lock lock(mutex);
-        if (url.ends_with("/logout")) {
-            EXPECT_EQ(nlohmann::json::parse(body).at("refresh_token"), "cancelled-refresh");
+        if (omniReq.op == OmniNet::Op::AuthLogout) {
+            EXPECT_EQ(nlohmann::json::parse(omniReq.payload).at("refresh_token"), "cancelled-refresh");
             revoked = true;
             cv.notify_all();
-            return AccountClient::HttpResponse{0, 200, "{}"};
+            OmniNet::Response resp;
+            resp.status = 200;
+            resp.body = "{}";
+            return resp;
         }
         entered = true;
         cv.notify_all();
         cv.wait(lock, [&] { return release; });
-        return AccountClient::HttpResponse{0, 200, R"({"access_token":"cancelled-access","refresh_token":"cancelled-refresh","expires_in":900})"};
+        OmniNet::Response resp;
+        resp.status = 200;
+        resp.body = R"({"access_token":"cancelled-access","refresh_token":"cancelled-refresh","expires_in":900})";
+        return resp;
     });
     client.SyncFromConfig();
     {
@@ -604,9 +619,16 @@ TEST_F(AccountClientTest, ExplicitRetryMigratesPreservedKeyWithoutOpeningBrowser
     std::atomic<int> requests{0};
     std::atomic<int> browserOpens{0};
     client.SetOpenUrlForTests([&](const std::string&) { ++browserOpens; });
-    client.SetTransportForTests([&](const std::string&, const std::string&) {
-        if (++requests == 1) return AccountClient::HttpResponse{7, 0, ""};
-        return AccountClient::HttpResponse{0, 200, R"({"access_token":"retry-access","refresh_token":"retry-refresh","expires_in":900})"};
+    OmniNet::SetTransportForTesting([&](const OmniNet::Request& omniReq) {
+        EXPECT_EQ(omniReq.op, OmniNet::Op::AuthExchangeKey);
+        OmniNet::Response resp;
+        if (++requests == 1) {
+            resp.transportError = 7;
+            return resp;
+        }
+        resp.status = 200;
+        resp.body = R"({"access_token":"retry-access","refresh_token":"retry-refresh","expires_in":900})";
+        return resp;
     });
     client.SyncFromConfig();
     for (int i = 0; i < 500 && client.GetStatus().state == AccountAuthState::Migrating; ++i)
@@ -623,4 +645,70 @@ TEST_F(AccountClientTest, ExplicitRetryMigratesPreservedKeyWithoutOpeningBrowser
     EXPECT_EQ(browserOpens.load(), 0);
     EXPECT_EQ(Config::Read().account_refresh_token, "retry-refresh");
     EXPECT_TRUE(Config::Read().custom_api_key.empty());
+}
+
+TEST_F(AccountClientTest, AuthStartUpdateRequiredMessage) {
+    AccountClient client;
+    OmniNet::SetTransportForTesting([](const OmniNet::Request& req) {
+        EXPECT_EQ(req.op, OmniNet::Op::AuthStart);
+        OmniNet::Response resp;
+        resp.status = 426;
+        resp.updateRequired = true;
+        return resp;
+    });
+    const auto start = client.StartAuthorization();
+    EXPECT_FALSE(start.ok);
+    EXPECT_EQ(start.errorCode, "update_required");
+    EXPECT_EQ(start.errorMessage, "This version of OmniStats is out of date. Update to sign in.");
+    EXPECT_EQ(client.GetStatus().state, AccountAuthState::Error);
+    EXPECT_EQ(client.GetStatus().errorMessage, "This version of OmniStats is out of date. Update to sign in.");
+}
+
+TEST_F(AccountClientTest, VerificationUriHostRestriction) {
+    EXPECT_EQ(AccountClient::ResolveVerificationUri("https://omnistats.org/device?user_code=XYZ"),
+              "https://omnistats.org/device?user_code=XYZ");
+    EXPECT_EQ(AccountClient::ResolveVerificationUri("https://OMNISTATS.ORG/device?user_code=XYZ"),
+              "https://OMNISTATS.ORG/device?user_code=XYZ");
+    EXPECT_EQ(AccountClient::ResolveVerificationUri("/device?user_code=XYZ"),
+              "https://omnistats.org/device?user_code=XYZ");
+
+    EXPECT_EQ(AccountClient::ResolveVerificationUri("https://evil.org/phish"),
+              "https://omnistats.org/device");
+    EXPECT_EQ(AccountClient::ResolveVerificationUri("http://omnistats.org/device"),
+              "https://omnistats.org/device");
+    EXPECT_EQ(AccountClient::ResolveVerificationUri("https://evil.omnistats.org/phish"),
+              "https://omnistats.org/device");
+    EXPECT_EQ(AccountClient::ResolveVerificationUri(""),
+              "https://omnistats.org/device");
+}
+
+TEST_F(AccountClientTest, OmniNetStickyLatch) {
+    OmniNet::ResetUpdateRequiredForTesting();
+    EXPECT_FALSE(OmniNet::UpdateRequired());
+
+    OmniNet::SetTransportForTesting([](const OmniNet::Request&) {
+        OmniNet::Response resp;
+        resp.status = 426;
+        resp.updateRequired = true;
+        return resp;
+    });
+
+    OmniNet::Request req;
+    req.op = OmniNet::Op::ClientConfig;
+    const auto r1 = OmniNet::Send(req);
+    EXPECT_TRUE(r1.updateRequired);
+    EXPECT_TRUE(OmniNet::UpdateRequired());
+
+    OmniNet::SetTransportForTesting([](const OmniNet::Request&) {
+        OmniNet::Response resp;
+        resp.status = 200;
+        resp.body = "{}";
+        return resp;
+    });
+
+    const auto r2 = OmniNet::Send(req);
+    EXPECT_FALSE(r2.updateRequired);
+    EXPECT_TRUE(OmniNet::UpdateRequired());
+
+    OmniNet::ResetUpdateRequiredForTesting();
 }

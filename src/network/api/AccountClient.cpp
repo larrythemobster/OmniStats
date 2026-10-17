@@ -5,7 +5,7 @@
 #include "utils/PrivacyLog.hpp"
 #include "network/http/HttpSecurity.hpp"
 
-#include <curl/curl.h>
+#include "network/omninet/OmniNet.hpp"
 #include <nlohmann/json.hpp>
 #include <sodium.h>
 #include <windows.h>
@@ -21,77 +21,6 @@
 #include <string_view>
 
 namespace {
-    struct CurlHeaderState {
-        long retryAfterSeconds = 0;
-        std::string location;
-    };
-
-    size_t CurlWriteCallback(void* contents, size_t size, size_t nmemb, void* userp) {
-        const size_t total = size * nmemb;
-        if (userp && contents && total > 0) {
-            static_cast<std::string*>(userp)->append(static_cast<const char*>(contents), total);
-        }
-        return total;
-    }
-
-    size_t CurlHeaderCallback(char* buffer, size_t size, size_t nitems, void* userdata) {
-        const size_t total = size * nitems;
-        if (!userdata || !buffer) return total;
-        auto* state = static_cast<CurlHeaderState*>(userdata);
-
-        std::string_view line(buffer, total);
-        while (!line.empty() && (line.back() == '\r' || line.back() == '\n')) {
-            line.remove_suffix(1);
-        }
-
-        constexpr std::string_view kRetryAfter = "retry-after:";
-        if (line.size() >= kRetryAfter.size()) {
-            bool match = true;
-            for (size_t i = 0; i < kRetryAfter.size(); ++i) {
-                if (std::tolower(static_cast<unsigned char>(line[i])) != kRetryAfter[i]) {
-                    match = false;
-                    break;
-                }
-            }
-            if (match) {
-                std::string_view val = line.substr(kRetryAfter.size());
-                while (!val.empty() && (val.front() == ' ' || val.front() == '\t')) {
-                    val.remove_prefix(1);
-                }
-                try {
-                    const long parsed = std::stol(std::string(val));
-                    if (parsed > 0) state->retryAfterSeconds = parsed;
-                } catch (...) {
-                }
-            }
-        }
-        constexpr std::string_view kLocation = "location:";
-        if (line.size() >= kLocation.size()) {
-            bool match = true;
-            for (size_t i = 0; i < kLocation.size(); ++i) {
-                if (std::tolower(static_cast<unsigned char>(line[i])) != kLocation[i]) {
-                    match = false;
-                    break;
-                }
-            }
-            if (match) {
-                std::string_view val = line.substr(kLocation.size());
-                while (!val.empty() && (val.front() == ' ' || val.front() == '\t')) {
-                    val.remove_prefix(1);
-                }
-                state->location = std::string(val);
-            }
-        }
-        return total;
-    }
-
-    int CurlProgressCallback(void* clientp, curl_off_t, curl_off_t, curl_off_t, curl_off_t) {
-        auto* stopFlag = static_cast<std::atomic<bool>*>(clientp);
-        if (stopFlag && stopFlag->load(std::memory_order_relaxed)) {
-            return 1;
-        }
-        return 0;
-    }
 
     std::string TrimWhitespace(std::string_view value) {
         while (!value.empty() && std::isspace(static_cast<unsigned char>(value.front()))) {
@@ -336,47 +265,29 @@ AccountClient::DeviceProof AccountClient::CreateProof(std::string_view secretKey
     return SignProofDeterministic(secretKeyBase64Url, operation, publicId, timestamp, nonceEncoded, credential);
 }
 
-std::string AccountClient::ApiBaseUrl() {
-    std::string url = TrimWhitespace(Config::Read().custom_api_base_url);
-    if (url.empty()) {
-        url = "https://api.omnistats.org";
-    }
-    while (!url.empty() && url.back() == '/') {
-        url.pop_back();
-    }
-    return url;
-}
-
-std::string AccountClient::SiteBaseUrl(std::string_view apiBaseUrl) {
-    std::string url = apiBaseUrl.empty() ? ApiBaseUrl() : TrimWhitespace(apiBaseUrl);
-    while (!url.empty() && url.back() == '/') {
-        url.pop_back();
-    }
-    if (url.empty()) {
-        return "https://omnistats.org";
-    }
-    constexpr std::string_view kHttpsApi = "https://api.";
-    constexpr std::string_view kHttpApi = "http://api.";
-    if (url.rfind(kHttpsApi, 0) == 0 && url.size() > kHttpsApi.size()) {
-        return "https://" + url.substr(kHttpsApi.size());
-    }
-    if (url.rfind(kHttpApi, 0) == 0 && url.size() > kHttpApi.size()) {
-        return "http://" + url.substr(kHttpApi.size());
-    }
-    return url;
+std::string AccountClient::SiteBaseUrl() {
+    return "https://omnistats.org";
 }
 
 std::string AccountClient::ManageDevicesUrl() {
     return SiteBaseUrl() + "/account/devices";
 }
 
-std::string AccountClient::ResolveVerificationUri(std::string_view rawUri, std::string_view apiBaseUrl) {
+std::string AccountClient::ResolveVerificationUri(std::string_view rawUri) {
     std::string uri = TrimWhitespace(rawUri);
     if (uri.empty()) {
-        return SiteBaseUrl(apiBaseUrl) + "/device";
+        return SiteBaseUrl() + "/device";
     }
     if (uri.rfind("https://", 0) == 0 || uri.rfind("http://", 0) == 0) {
-        return uri;
+        const auto parsed = HttpSecurity::ParseUrl(uri);
+        std::string hostLower = parsed.host;
+        for (char& c : hostLower) {
+            c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+        }
+        if (parsed.valid && parsed.scheme == "https" && hostLower == "omnistats.org") {
+            return uri;
+        }
+        return SiteBaseUrl() + "/device";
     }
     if (uri.rfind("/device/device?", 0) == 0) {
         uri.erase(0, 7);
@@ -384,7 +295,7 @@ std::string AccountClient::ResolveVerificationUri(std::string_view rawUri, std::
     if (uri.front() != '/') {
         uri.insert(uri.begin(), '/');
     }
-    return SiteBaseUrl(apiBaseUrl) + uri;
+    return SiteBaseUrl() + uri;
 }
 
 std::string AccountClient::LocalDeviceName() {
@@ -458,7 +369,6 @@ AccountClient::StartAuthResult AccountClient::StartAuthorization() {
         return result;
     }
 
-    const std::string baseUrl = ApiBaseUrl();
     const nlohmann::json reqJson = {
         {"device_public_id", keyPair.publicId},
         {"device_name", LocalDeviceName()},
@@ -466,8 +376,22 @@ AccountClient::StartAuthResult AccountClient::StartAuthorization() {
         {"app_version", AppVersion::Current},
         {"public_key", keyPair.publicKeyBase64Url}};
 
-    const HttpResponse resp = PerformHttpPost(baseUrl + "/v1/auth/device/start", reqJson.dump());
-    if (resp.curlCode != 0) {
+    OmniNet::Request omniReq;
+    omniReq.op = OmniNet::Op::AuthStart;
+    omniReq.payload = reqJson.dump();
+    omniReq.shouldAbort = [this]() { return m_stopWorker.load(std::memory_order_relaxed); };
+
+    const OmniNet::Response resp = OmniNet::Send(omniReq);
+    if (resp.updateRequired) {
+        result.errorCode = "update_required";
+        result.errorMessage = "This version of OmniStats is out of date. Update to sign in.";
+        std::lock_guard<std::mutex> lock(m_mutex);
+        m_state = AccountAuthState::Error;
+        m_errorMessage = result.errorMessage;
+        ++m_statusVersion;
+        return result;
+    }
+    if (resp.transportError != 0) {
         result.errorCode = "network_error";
         result.errorMessage = "Unable to reach OmniStats to start sign-in.";
         std::lock_guard<std::mutex> lock(m_mutex);
@@ -477,11 +401,11 @@ AccountClient::StartAuthResult AccountClient::StartAuthorization() {
         return result;
     }
 
-    if (resp.statusCode != 200) {
+    if (resp.status != 200) {
         const ParsedApiError apiErr = ParseApiError(resp.body);
-        result.errorCode = apiErr.code.empty() ? "http_" + std::to_string(resp.statusCode) : apiErr.code;
+        result.errorCode = apiErr.code.empty() ? "http_" + std::to_string(resp.status) : apiErr.code;
         result.errorMessage = apiErr.message.empty()
-                                  ? "Unable to start sign-in (HTTP " + std::to_string(resp.statusCode) + ")."
+                                  ? "Unable to start sign-in (HTTP " + std::to_string(resp.status) + ")."
                                   : apiErr.message;
         std::lock_guard<std::mutex> lock(m_mutex);
         m_state = AccountAuthState::Error;
@@ -494,7 +418,7 @@ AccountClient::StartAuthResult AccountClient::StartAuthorization() {
         const auto j = nlohmann::json::parse(resp.body);
         result.deviceCode = j.value("device_code", "");
         result.userCode = j.value("user_code", "");
-        result.verificationUri = ResolveVerificationUri(j.value("verification_uri", ""), baseUrl);
+        result.verificationUri = ResolveVerificationUri(j.value("verification_uri", ""));
         result.expiresIn = std::max(1, j.value("expires_in", 900));
         result.pollInterval = std::max(1, j.value("poll_interval", 5));
     } catch (...) {
@@ -595,18 +519,37 @@ AccountClient::PollResult AccountClient::PollTokenOnce() {
         {"device_public_id", keyPair.publicId},
         {"proof", {{"timestamp", proof.timestamp}, {"nonce", proof.nonce}, {"signature", proof.signature}}}};
 
-    const HttpResponse resp = PerformHttpPost(ApiBaseUrl() + "/v1/auth/device/token", reqJson.dump());
+    OmniNet::Request omniReq;
+    omniReq.op = OmniNet::Op::AuthToken;
+    omniReq.payload = reqJson.dump();
+    omniReq.shouldAbort = [this]() {
+        return m_cancelPolling.load(std::memory_order_relaxed) || m_stopWorker.load(std::memory_order_relaxed);
+    };
+
+    const OmniNet::Response resp = OmniNet::Send(omniReq);
     if (m_cancelPolling.load(std::memory_order_relaxed) || m_stopWorker.load(std::memory_order_relaxed)) {
         result.outcome = PollOutcome::Cancelled;
         return result;
     }
 
-    if (resp.curlCode != 0 || (resp.statusCode >= 500 && resp.statusCode <= 599)) {
+    if (resp.updateRequired) {
+        result.outcome = PollOutcome::Error;
+        result.errorCode = "update_required";
+        result.errorMessage = "This version of OmniStats is out of date. Update to sign in.";
+        std::lock_guard<std::mutex> lock(m_mutex);
+        m_deviceCode.clear();
+        m_errorMessage = result.errorMessage;
+        m_state = AccountAuthState::Error;
+        ++m_statusVersion;
+        return result;
+    }
+
+    if (resp.transportError != 0 || (resp.status >= 500 && resp.status <= 599)) {
         result.outcome = PollOutcome::Pending;
         return result;
     }
 
-    if (resp.statusCode == 200) {
+    if (resp.status == 200) {
         try {
             const auto j = nlohmann::json::parse(resp.body);
             const std::string accessToken = j.value("access_token", "");
@@ -660,12 +603,12 @@ AccountClient::PollResult AccountClient::PollTokenOnce() {
     result.errorCode = apiErr.code;
     result.errorMessage = apiErr.message;
 
-    if (apiErr.code == "authorization_pending" || resp.statusCode == 428) {
+    if (apiErr.code == "authorization_pending" || resp.status == 428) {
         result.outcome = PollOutcome::Pending;
         return result;
     }
 
-    if (apiErr.code == "slow_down" || resp.statusCode == 429 || apiErr.code == "rate_limited") {
+    if (apiErr.code == "slow_down" || resp.status == 429 || apiErr.code == "rate_limited") {
         int newInterval = pollInterval + 5;
         if (apiErr.retryAfterSeconds > newInterval) {
             newInterval = apiErr.retryAfterSeconds;
@@ -714,7 +657,7 @@ AccountClient::PollResult AccountClient::PollTokenOnce() {
 
     result.outcome = PollOutcome::Error;
     if (result.errorMessage.empty()) {
-        result.errorMessage = "Device sign-in failed (HTTP " + std::to_string(resp.statusCode) + ").";
+        result.errorMessage = "Device sign-in failed (HTTP " + std::to_string(resp.status) + ").";
     }
     {
         std::lock_guard<std::mutex> lock(m_mutex);
@@ -784,11 +727,19 @@ bool AccountClient::ExchangeAPIKey(uint64_t generation) {
         {"app_version", AppVersion::Current},
         {"public_key", keyPair.publicKeyBase64Url},
         {"proof", {{"timestamp", proof.timestamp}, {"nonce", proof.nonce}, {"signature", proof.signature}}}};
-    const HttpResponse resp = PerformHttpPost(ApiBaseUrl() + "/v1/auth/device/exchange-key", reqJson.dump());
-    if (resp.curlCode != 0 || resp.statusCode >= 500 || resp.statusCode == 429) {
+    OmniNet::Request omniReq;
+    omniReq.op = OmniNet::Op::AuthExchangeKey;
+    omniReq.payload = reqJson.dump();
+    omniReq.shouldAbort = [this]() { return m_stopWorker.load(std::memory_order_relaxed); };
+
+    const OmniNet::Response resp = OmniNet::Send(omniReq);
+    if (resp.updateRequired) {
+        return fail("This version of OmniStats is out of date. Update from omnistats.org to sign in.");
+    }
+    if (resp.transportError != 0 || resp.status >= 500 || resp.status == 429) {
         return fail("Unable to link your saved API key right now. It is still saved. Restart OmniStats to retry, or sign in in Settings > Accounts & services.");
     }
-    if (resp.statusCode != 200) {
+    if (resp.status != 200) {
         const ParsedApiError error = ParseApiError(resp.body);
         if (error.code == "device_limit_reached") {
             return fail("Your account's device limit was reached. Remove an unused device with Manage devices, then restart OmniStats or sign in again.");
@@ -880,17 +831,25 @@ bool AccountClient::Refresh() {
         {"device_public_id", keyPair.publicId},
         {"proof", {{"timestamp", proof.timestamp}, {"nonce", proof.nonce}, {"signature", proof.signature}}}};
 
-    const HttpResponse resp = PerformHttpPost(ApiBaseUrl() + "/v1/auth/device/refresh", reqJson.dump());
-    if (resp.curlCode != 0 || (resp.statusCode >= 500 && resp.statusCode <= 599) || resp.statusCode == 429) {
+    OmniNet::Request omniReq;
+    omniReq.op = OmniNet::Op::AuthRefresh;
+    omniReq.payload = reqJson.dump();
+    omniReq.shouldAbort = [this]() { return m_stopWorker.load(std::memory_order_relaxed); };
+
+    const OmniNet::Response resp = OmniNet::Send(omniReq);
+    if (resp.updateRequired) {
+        return finish(false);
+    }
+    if (resp.transportError != 0 || (resp.status >= 500 && resp.status <= 599) || resp.status == 429) {
         return finish(false);
     }
 
-    if (resp.statusCode == 401 || resp.statusCode == 403) {
+    if (resp.status == 401 || resp.status == 403) {
         MarkSignedOut("Your OmniStats session expired or this device was revoked. Sign in again in Settings > Accounts & services.");
         return finish(false);
     }
 
-    if (resp.statusCode != 200) {
+    if (resp.status != 200) {
         return finish(false);
     }
 
@@ -1024,8 +983,13 @@ bool AccountClient::SendLogoutRequest(const std::string& refreshToken) {
         {"device_public_id", keyPair.publicId},
         {"proof", {{"timestamp", proof.timestamp}, {"nonce", proof.nonce}, {"signature", proof.signature}}}};
 
-    const HttpResponse resp = PerformHttpPost(ApiBaseUrl() + "/v1/auth/device/logout", reqJson.dump());
-    return resp.curlCode == 0 && resp.statusCode == 200;
+    OmniNet::Request omniReq;
+    omniReq.op = OmniNet::Op::AuthLogout;
+    omniReq.payload = reqJson.dump();
+    omniReq.shouldAbort = [this]() { return m_stopWorker.load(std::memory_order_relaxed); };
+
+    const OmniNet::Response resp = OmniNet::Send(omniReq);
+    return resp.transportError == 0 && resp.status == 200;
 }
 
 void AccountClient::BeginSignInAsync(bool openBrowser) {
@@ -1302,109 +1266,6 @@ void AccountClient::WorkerLoop() {
     }
 }
 
-AccountClient::HttpResponse AccountClient::PerformHttpPost(const std::string& url, const std::string& jsonBody) {
-    HttpTransportFn customTransport;
-    {
-        std::lock_guard<std::mutex> lock(m_mutex);
-        customTransport = m_transport;
-    }
-    if (customTransport) {
-        return customTransport(url, jsonBody);
-    }
-
-    HttpResponse response;
-    const auto parsedUrl = HttpSecurity::ParseUrl(url);
-    std::string urlError;
-    if (!HttpSecurity::IsAllowedSensitiveUrl(parsedUrl, &urlError)) {
-        response.curlCode = CURLE_FAILED_INIT;
-        response.statusCode = 0;
-        response.body = ErrorBody("insecure_url", urlError);
-        return response;
-    }
-
-    std::string currentUrl = url;
-    constexpr int kMaxRedirects = 5;
-    const std::string userAgent = std::string("OmniStats-Client/") + AppVersion::Current;
-
-    for (int redirectCount = 0; redirectCount <= kMaxRedirects; ++redirectCount) {
-        response.body.clear();
-        response.curlCode = 0;
-        response.statusCode = 0;
-        response.retryAfterSeconds = 0;
-
-        CURL* curl = curl_easy_init();
-        if (!curl) {
-            response.curlCode = CURLE_FAILED_INIT;
-            return response;
-        }
-
-        struct curl_slist* headers = nullptr;
-        headers = curl_slist_append(headers, "Content-Type: application/json");
-        headers = curl_slist_append(headers, "Accept: application/json");
-
-        CurlHeaderState headerState;
-        curl_easy_setopt(curl, CURLOPT_URL, currentUrl.c_str());
-        curl_easy_setopt(curl, CURLOPT_POST, 1L);
-        curl_easy_setopt(curl, CURLOPT_POSTFIELDS, jsonBody.c_str());
-        curl_easy_setopt(curl, CURLOPT_POSTFIELDSIZE, static_cast<long>(jsonBody.size()));
-        curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
-        curl_easy_setopt(curl, CURLOPT_USERAGENT, userAgent.c_str());
-        curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, CurlWriteCallback);
-        curl_easy_setopt(curl, CURLOPT_WRITEDATA, &response.body);
-        curl_easy_setopt(curl, CURLOPT_HEADERFUNCTION, CurlHeaderCallback);
-        curl_easy_setopt(curl, CURLOPT_HEADERDATA, &headerState);
-        curl_easy_setopt(curl, CURLOPT_TIMEOUT, 10L);
-        curl_easy_setopt(curl, CURLOPT_SSL_OPTIONS, CURLSSLOPT_NATIVE_CA);
-        curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 1L);
-        curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 2L);
-        curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 0L);
-        curl_easy_setopt(curl, CURLOPT_PROTOCOLS, CURLPROTO_HTTPS | CURLPROTO_HTTP);
-        curl_easy_setopt(curl, CURLOPT_REDIR_PROTOCOLS, CURLPROTO_HTTPS);
-        curl_easy_setopt(curl, CURLOPT_XFERINFOFUNCTION, CurlProgressCallback);
-        curl_easy_setopt(curl, CURLOPT_XFERINFODATA, &m_stopWorker);
-        curl_easy_setopt(curl, CURLOPT_NOPROGRESS, 0L);
-
-        const CURLcode res = curl_easy_perform(curl);
-        response.curlCode = static_cast<int>(res);
-        if (res == CURLE_OK) {
-            curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &response.statusCode);
-        }
-        response.retryAfterSeconds = headerState.retryAfterSeconds;
-
-        curl_slist_free_all(headers);
-        curl_easy_cleanup(curl);
-
-        if (res != CURLE_OK) {
-            return response;
-        }
-
-        if (response.statusCode == 301 || response.statusCode == 302 ||
-            response.statusCode == 303 || response.statusCode == 307 ||
-            response.statusCode == 308) {
-            if (redirectCount == kMaxRedirects) {
-                response.curlCode = CURLE_TOO_MANY_REDIRECTS;
-                response.body = "{\"error\":{\"code\":\"too_many_redirects\",\"message\":\"Maximum redirect limit exceeded\"}}";
-                return response;
-            }
-            const auto val = HttpSecurity::ValidateRedirect(currentUrl, headerState.location, /*isSensitiveRequest=*/true);
-            if (!val.allowed) {
-                response.curlCode = CURLE_PEER_FAILED_VERIFICATION;
-                response.body = ErrorBody("unsafe_redirect", val.reason);
-                return response;
-            }
-            if (response.statusCode == 303) {
-                response.curlCode = CURLE_HTTP_RETURNED_ERROR;
-                response.body = "{\"error\":{\"code\":\"unsupported_redirect\",\"message\":\"HTTP 303 is not supported for credential POST endpoints\"}}";
-                return response;
-            }
-            currentUrl = val.resolvedUrl;
-            continue;
-        }
-        break;
-    }
-    return response;
-}
-
 int64_t AccountClient::NowUnix() const {
     ClockFn customClock;
     {
@@ -1452,11 +1313,6 @@ void AccountClient::OpenUrl(const std::string& url) {
     ShellExecuteA(nullptr, "open", url.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
 }
 
-void AccountClient::SetTransportForTests(HttpTransportFn transport) {
-    std::lock_guard<std::mutex> lock(m_mutex);
-    m_transport = std::move(transport);
-}
-
 void AccountClient::SetClockForTests(ClockFn clockFn) {
     std::lock_guard<std::mutex> lock(m_mutex);
     m_clock = std::move(clockFn);
@@ -1481,7 +1337,6 @@ void AccountClient::SetCachedAccessTokenForTests(std::string token, int64_t expi
 void AccountClient::ResetForTests() {
     Shutdown();
     std::lock_guard<std::mutex> lock(m_mutex);
-    m_transport = nullptr;
     m_clock = nullptr;
     m_sleep = nullptr;
     m_openUrl = nullptr;

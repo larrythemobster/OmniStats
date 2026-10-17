@@ -49,13 +49,6 @@ class AccountClient {
         std::string canonical;
     };
 
-    struct HttpResponse {
-        int curlCode = 0;
-        long statusCode = 0;
-        std::string body;
-        long retryAfterSeconds = 0;
-    };
-
     struct StartAuthResult {
         bool ok = false;
         std::string deviceCode;
@@ -85,7 +78,6 @@ class AccountClient {
         std::string errorMessage;
     };
 
-    using HttpTransportFn = std::function<HttpResponse(const std::string& url, const std::string& jsonBody)>;
     using ClockFn = std::function<int64_t()>;
     using SleepFn = std::function<bool(int seconds)>;
     using OpenUrlFn = std::function<void(const std::string& url)>;
@@ -122,10 +114,9 @@ class AccountClient {
                                    std::string_view credential,
                                    int64_t timestamp);
 
-    static std::string ApiBaseUrl();
-    static std::string SiteBaseUrl(std::string_view apiBaseUrl = {});
+    static std::string SiteBaseUrl();
     static std::string ManageDevicesUrl();
-    static std::string ResolveVerificationUri(std::string_view rawUri, std::string_view apiBaseUrl = {});
+    static std::string ResolveVerificationUri(std::string_view rawUri);
     static std::string LocalDeviceName();
 
     bool EnsureDeviceKey(DeviceKeyPair* outKey = nullptr);
@@ -152,17 +143,11 @@ class AccountClient {
     void RetryKeyMigrationAsync();
     void Shutdown();
 
-    void SetTransportForTests(HttpTransportFn transport);
     void SetClockForTests(ClockFn clockFn);
     void SetSleepForTests(SleepFn sleepFn);
     void SetOpenUrlForTests(OpenUrlFn openUrlFn);
     void SetCachedAccessTokenForTests(std::string token, int64_t expiresAtUnix);
     void ResetForTests();
-#ifdef OMNISTATS_TEST_ENVIRONMENT
-    HttpResponse PerformHttpPostForTests(const std::string& url, const std::string& jsonBody) {
-        return PerformHttpPost(url, jsonBody);
-    }
-#endif
 
   private:
     enum class WorkerCommand {
@@ -183,7 +168,6 @@ class AccountClient {
     void QueueLogoutForRotatedToken(const std::string& previousToken, std::string rotatedToken);
     void EnsureWorkerRunningLocked();
     void WorkerLoop();
-    HttpResponse PerformHttpPost(const std::string& url, const std::string& jsonBody);
     int64_t NowUnix() const;
     bool SleepInterruptible(int seconds);
     void OpenUrl(const std::string& url);
@@ -211,7 +195,6 @@ class AccountClient {
     std::string m_accessToken;
     int64_t m_accessTokenExpiresAt = 0;
 
-    HttpTransportFn m_transport;
     ClockFn m_clock;
     SleepFn m_sleep;
     OpenUrlFn m_openUrl;

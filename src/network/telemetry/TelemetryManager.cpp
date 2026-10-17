@@ -3,7 +3,8 @@
 #include "utils/PrivacyLog.hpp"
 #include "utils/Storage.hpp"
 #include "core/config/AppVersion.hpp"
-#include <curl/curl.h>
+#include "network/omninet/OmniNet.hpp"
+#include <fstream>
 #include <windows.h>
 #include <atomic>
 #include <filesystem>
@@ -21,46 +22,6 @@ namespace TelemetryManager {
     static bool g_isTestMode = false;
     static std::unique_ptr<std::jthread> g_workerThread;
     static std::atomic<bool> g_isRunning{true};
-
-    namespace {
-        struct CurlEasyDeleter {
-            void operator()(CURL* curl) const noexcept {
-                curl_easy_cleanup(curl);
-            }
-        };
-        struct CurlSlistDeleter {
-            void operator()(curl_slist* list) const noexcept {
-                curl_slist_free_all(list);
-            }
-        };
-        struct CurlMimeDeleter {
-            void operator()(curl_mime* mime) const noexcept {
-                curl_mime_free(mime);
-            }
-        };
-        using UniqueCurl = std::unique_ptr<CURL, CurlEasyDeleter>;
-        using UniqueSlist = std::unique_ptr<curl_slist, CurlSlistDeleter>;
-        using UniqueMime = std::unique_ptr<curl_mime, CurlMimeDeleter>;
-
-        void ApplyCommonOptions(CURL* curl, const std::string& userAgent, long timeoutSeconds) {
-            curl_easy_setopt(curl, CURLOPT_USERAGENT, userAgent.c_str());
-            curl_easy_setopt(curl, CURLOPT_TIMEOUT, timeoutSeconds);
-            curl_easy_setopt(curl, CURLOPT_SSL_OPTIONS, CURLSSLOPT_NATIVE_CA);
-            curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 1L);
-            curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 2L);
-            curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 0L);
-            curl_easy_setopt(curl, CURLOPT_PROTOCOLS_STR, "https");
-            curl_easy_setopt(curl, CURLOPT_REDIR_PROTOCOLS_STR, "https");
-        }
-    } // namespace
-
-    static int TelemetryProgressCallback(void* clientp, curl_off_t, curl_off_t, curl_off_t, curl_off_t) {
-        const auto* running = static_cast<std::atomic<bool>*>(clientp);
-        if (running && !running->load()) {
-            return 1; // Abort transfer
-        }
-        return 0;
-    }
 
     std::string GenerateUUIDv4() {
         std::random_device rd;
@@ -160,8 +121,7 @@ namespace TelemetryManager {
     }
 
     void SendTelemetryAsync() {
-        if (g_isTestMode) {
-            std::cout << "[Telemetry] Test environment detected. Skipping live telemetry ping.\n";
+        if (g_isTestMode || !OmniNet::Available()) {
             return;
         }
 
@@ -175,34 +135,21 @@ namespace TelemetryManager {
         j["update_checks_enabled"] = true;
         j["auto_updater_enabled"] = conf.enable_auto_updates;
 
-        const std::string payload = j.dump();
-        const std::string userAgent = std::string("OmniStats-Client/") + AppVersion::Current;
+        OmniNet::Request req;
+        req.op = OmniNet::Op::Telemetry;
+        req.payload = j.dump();
+        req.shouldAbort = []() { return !g_isRunning.load(); };
 
-        UniqueCurl curl(curl_easy_init());
-        if (!curl) return;
-        UniqueSlist headers(curl_slist_append(nullptr, "Content-Type: application/json"));
-
-        curl_easy_setopt(curl.get(), CURLOPT_URL, "https://api.omnistats.org/api/v1/telemetry");
-        curl_easy_setopt(curl.get(), CURLOPT_POSTFIELDS, payload.c_str());
-        curl_easy_setopt(curl.get(), CURLOPT_HTTPHEADER, headers.get());
-        ApplyCommonOptions(curl.get(), userAgent, 10L);
-        curl_easy_setopt(curl.get(), CURLOPT_XFERINFOFUNCTION, TelemetryProgressCallback);
-        curl_easy_setopt(curl.get(), CURLOPT_XFERINFODATA, &g_isRunning);
-        curl_easy_setopt(curl.get(), CURLOPT_NOPROGRESS, 0L);
-
-        const CURLcode res = curl_easy_perform(curl.get());
-        if (res == CURLE_OK) {
-            long code = 0;
-            curl_easy_getinfo(curl.get(), CURLINFO_RESPONSE_CODE, &code);
-            std::cout << "[Telemetry] Telemetry ping sent (HTTP " << code << ")\n";
+        const auto resp = OmniNet::Send(req);
+        if (resp.transportError == 0) {
+            std::cout << "[Telemetry] Telemetry ping sent (HTTP " << resp.status << ")\n";
         } else {
-            std::cerr << "[Telemetry] Telemetry ping failed: " << curl_easy_strerror(res) << "\n";
+            std::cerr << "[Telemetry] Telemetry ping failed (error " << resp.transportError << ")\n";
         }
     }
 
     void SendCrashAsync(const std::string& crashFilePath) {
-        if (g_isTestMode) {
-            std::cout << "[Telemetry] Test environment detected. Skipping live crash report upload.\n";
+        if (g_isTestMode || !OmniNet::Available()) {
             return;
         }
 
@@ -212,42 +159,28 @@ namespace TelemetryManager {
             return;
         }
 
-        const std::string userAgent = std::string("OmniStats-Client/") + AppVersion::Current;
-
-        UniqueCurl curl(curl_easy_init());
-        if (!curl) return;
-        UniqueMime mime(curl_mime_init(curl.get()));
-        if (!mime) return;
-
-        curl_mimepart* part = curl_mime_addpart(mime.get());
-        curl_mime_filedata(part, crashFilePath.c_str());
-        curl_mime_name(part, "crash_dump");
-
-        part = curl_mime_addpart(mime.get());
-        curl_mime_data(part, conf.client_uuid.c_str(), CURL_ZERO_TERMINATED);
-        curl_mime_name(part, "client_uuid");
-
-        part = curl_mime_addpart(mime.get());
-        curl_mime_data(part, AppVersion::Current, CURL_ZERO_TERMINATED);
-        curl_mime_name(part, "version");
-
-        curl_easy_setopt(curl.get(), CURLOPT_URL, "https://api.omnistats.org/api/v1/crash");
-        curl_easy_setopt(curl.get(), CURLOPT_MIMEPOST, mime.get());
-        ApplyCommonOptions(curl.get(), userAgent, 15L);
-        curl_easy_setopt(curl.get(), CURLOPT_XFERINFOFUNCTION, TelemetryProgressCallback);
-        curl_easy_setopt(curl.get(), CURLOPT_XFERINFODATA, &g_isRunning);
-        curl_easy_setopt(curl.get(), CURLOPT_NOPROGRESS, 0L);
-
-        long code = 0;
-        if (curl_easy_perform(curl.get()) == CURLE_OK) {
-            curl_easy_getinfo(curl.get(), CURLINFO_RESPONSE_CODE, &code);
+        std::ifstream file(crashFilePath, std::ios::binary);
+        if (!file) {
+            std::cerr << "[Telemetry] Failed to open crash dump file.\n";
+            return;
         }
-        curl.reset();
-        mime.reset();
+        std::string dumpBytes((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
+        file.close();
+
+        OmniNet::Request req;
+        req.op = OmniNet::Op::Crash;
+        req.payload = std::move(dumpBytes);
+        req.fields["client_uuid"] = conf.client_uuid;
+        req.fields["version"] = AppVersion::Current;
+        req.timeoutSeconds = 15;
+        req.shouldAbort = []() { return !g_isRunning.load(); };
+
+        const auto resp = OmniNet::Send(req);
+        const long code = resp.status;
 
         // 4xx other than 429 means the server will never accept this dump (e.g. oversized), so stop retrying it every launch.
-        const bool accepted = code == 200;
-        const bool permanentlyRejected = code >= 400 && code < 500 && code != 429;
+        const bool accepted = (resp.transportError == 0 && code == 200);
+        const bool permanentlyRejected = (code >= 400 && code < 500 && code != 429);
         if (accepted || permanentlyRejected) {
             if (accepted) {
                 std::cout << "[Telemetry] Crash report processed by server. Clearing local dump.\n";

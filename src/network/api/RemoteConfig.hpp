@@ -44,13 +44,6 @@ class RemoteConfig {
     static constexpr size_t kMaxAnnouncements = 5;
     static constexpr size_t kMaxAnnouncementsInPayload = 25;
 
-    struct HttpResponse {
-        int curlCode = 0;
-        long statusCode = 0;
-        std::string body;
-    };
-
-    using HttpTransportFn = std::function<HttpResponse(const std::string& url, const std::string& userAgent)>;
     using ClockFn = std::function<int64_t()>;
 
     static RemoteConfig& Instance();
@@ -90,7 +83,6 @@ class RemoteConfig {
     bool IsAnnouncementDismissed(const std::string& id) const;
     void ClearDismissedAnnouncements();
 
-    void SetTransportForTests(HttpTransportFn transport);
     void SetClockForTests(ClockFn clockFn);
     void SetCacheFilePathForTests(std::string path);
     void SetDismissedFilePathForTests(std::string path);
@@ -99,7 +91,6 @@ class RemoteConfig {
 
   private:
     void WorkerLoop();
-    HttpResponse PerformHttpGet(const std::string& url, const std::string& userAgent);
     int64_t NowUnix() const;
     std::string CacheFilePath() const;
     std::string DismissedFilePath() const;
@@ -116,7 +107,6 @@ class RemoteConfig {
     bool m_dismissedLoaded = false;
     std::atomic<uint64_t> m_version{1};
 
-    HttpTransportFn m_transport;
     ClockFn m_clock;
     std::string m_cacheFileOverride;
     std::string m_dismissedFileOverride;

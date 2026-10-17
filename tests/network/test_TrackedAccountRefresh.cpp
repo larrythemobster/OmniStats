@@ -7,6 +7,7 @@
 #include "network/api/AccountClient.hpp"
 #include "network/http/CurlImpersonate.hpp"
 #include "network/mmr/MMRFetcher.hpp"
+#include "network/omninet/OmniNet.hpp"
 #include "network/mmr/MMRFetcherDetail.hpp"
 
 #include <algorithm>
@@ -35,6 +36,8 @@ namespace {
     std::string g_apiBody;
     std::vector<long> g_apiStatuses;
     long g_apiStatus = 200;
+    long g_refreshStatus = 200;
+    std::string g_refreshBody;
     long g_trackerStatus = 200;
     std::string g_trackerBody;
     std::string g_headers;
@@ -170,6 +173,28 @@ class TrackedAccountRefreshTest : public ::testing::Test {
         g_trackerBody.clear();
         g_headers.clear();
         g_performs.store(0);
+        g_refreshStatus = 200;
+        g_refreshBody.clear();
+        OmniNet::SetTransportForTesting([](const OmniNet::Request& req) {
+            if (req.op == OmniNet::Op::Ranks) {
+                g_performs.fetch_add(1);
+                g_postFields = req.payload;
+                g_postHistory.push_back(req.payload);
+                OmniNet::Response res;
+                long code = g_apiStatuses.empty() ? g_apiStatus : g_apiStatuses.front();
+                if (!g_apiStatuses.empty()) g_apiStatuses.erase(g_apiStatuses.begin());
+                res.status = code;
+                res.body = g_apiBody;
+                return res;
+            }
+            if (req.op == OmniNet::Op::AuthRefresh) {
+                OmniNet::Response res;
+                res.status = g_refreshStatus;
+                res.body = g_refreshBody;
+                return res;
+            }
+            return OmniNet::Response{};
+        });
 
         state = std::make_shared<SessionState>();
         db = std::make_shared<DatabaseManager>(state);
@@ -199,6 +224,7 @@ class TrackedAccountRefreshTest : public ::testing::Test {
         curl.SetReadyForTests(saved.ready);
         AccountClient::Instance().ResetForTests();
         Config::Update([this](ConfigData& c) { c = originalConfig; }, false);
+        OmniNet::SetTransportForTesting({});
     }
 
     void UseCustomApi() {
@@ -389,12 +415,8 @@ TEST_F(TrackedAccountRefreshTest, AuthenticationFailuresReportSignInRequired) {
         events.clear();
         AccountClient::Instance().ResetForTests();
         UseCustomApi();
-        AccountClient::Instance().SetTransportForTests([code](const std::string&, const std::string&) {
-            AccountClient::HttpResponse resp;
-            resp.statusCode = code;
-            resp.body = R"({"error":{"code":"invalid_grant","message":"Expired"}})";
-            return resp;
-        });
+        g_refreshStatus = code;
+        g_refreshBody = R"({"error":{"code":"invalid_grant","message":"Expired"}})";
         g_apiStatus = code;
         g_apiBody = R"({"error":{"code":"invalid_token","message":"Unauthorized"}})";
         fetcher->EnqueueTrackedAccount(kEpic, "");

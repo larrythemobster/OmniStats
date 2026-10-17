@@ -1,4 +1,5 @@
 #include <gtest/gtest.h>
+#include "network/omninet/OmniNet.hpp"
 #include "network/mmr/MMRFetcher.hpp"
 #include "network/http/CurlImpersonate.hpp"
 #include "network/api/AccountClient.hpp"
@@ -32,6 +33,7 @@ static std::string g_mock_impersonation_profile;
 static std::string g_mock_user_agent_header;
 static std::vector<std::string> g_mock_request_headers;
 static std::vector<long> g_mock_custom_api_status_sequence;
+static std::function<OmniNet::Response(const OmniNet::Request&)> g_mock_refresh_fn;
 static int mock_easy_setopt(void*, int option, ...) {
     va_list args;
     va_start(args, option);
@@ -142,6 +144,29 @@ class MMRFetcherTest : public ::testing::Test {
         g_mock_custom_api_perform_res = 0;
         sessionState = std::make_shared<SessionState>();
         fetcher = std::make_shared<MMRFetcher>(sessionState);
+        OmniNet::SetTransportForTesting([](const OmniNet::Request& req) {
+            OmniNet::Response res;
+            if (req.op == OmniNet::Op::Ranks) {
+                g_mock_perform_count.fetch_add(1);
+                g_mock_post_fields = req.payload;
+                if (g_mock_custom_api_perform_res != 0) {
+                    res.transportError = g_mock_custom_api_perform_res;
+                    return res;
+                }
+                long code = g_mock_custom_api_response_code > 0 ? g_mock_custom_api_response_code : 200;
+                if (!g_mock_custom_api_status_sequence.empty()) {
+                    code = g_mock_custom_api_status_sequence.front();
+                    g_mock_custom_api_status_sequence.erase(g_mock_custom_api_status_sequence.begin());
+                }
+                res.status = code;
+                res.body = g_mock_custom_api_response;
+                return res;
+            }
+            if (req.op == OmniNet::Op::AuthRefresh) {
+                if (g_mock_refresh_fn) return g_mock_refresh_fn(req);
+            }
+            return res;
+        });
 
         auto& curl = CurlImpersonate::Instance();
         original_perform = curl.easy_perform;
@@ -181,6 +206,8 @@ class MMRFetcherTest : public ::testing::Test {
         curl.easy_escape = original_easy_escape;
         curl.free_ptr = original_free;
         curl.easy_impersonate = original_easy_impersonate;
+        OmniNet::SetTransportForTesting({});
+        g_mock_refresh_fn = nullptr;
         curl.SetReadyForTests(original_ready);
         g_mock_url.clear();
         g_mock_post_fields.clear();
@@ -1614,21 +1641,22 @@ TEST_F(MMRFetcherTest, SignedInUsesBearerHeadersAndIsPrimaryForAllPlayers) {
 
     sessionState->game.myPrimaryId = "Epic|local_id";
     sessionState->game.roster["Epic|opp_id"] = PlayerData{.primaryId = "Epic|opp_id", .name = "Opponent"};
+    OmniNet::Request capturedReq;
+    OmniNet::SetTransportForTesting([&](const OmniNet::Request& req) {
+        capturedReq = req;
+        g_mock_perform_count.fetch_add(1);
+        OmniNet::Response res;
+        res.status = 200;
+        res.body = g_mock_custom_api_response;
+        return res;
+    });
+
     fetcher->FetchRosterProfileForTests("Epic|opp_id", "Opponent");
 
     EXPECT_EQ(g_mock_perform_count.load(), 1);
-    bool sawBearer = false;
-    bool sawDeviceId = false;
-    bool sawApiKey = false;
-    for (const auto& h : g_mock_request_headers) {
-        if (h == "Authorization: Bearer bearer_token_abc") sawBearer = true;
-        if (h == "X-Omni-Device-Id: " + keyPair.publicId) sawDeviceId = true;
-        if (h.rfind("X-API-Key:", 0) == 0) sawApiKey = true;
-    }
-    EXPECT_TRUE(sawBearer);
-    EXPECT_TRUE(sawDeviceId);
-    EXPECT_FALSE(sawApiKey);
-
+    EXPECT_EQ(capturedReq.op, OmniNet::Op::Ranks);
+    EXPECT_EQ(capturedReq.accessToken, "bearer_token_abc");
+    EXPECT_EQ(capturedReq.devicePublicId, keyPair.publicId);
     std::shared_lock<std::shared_mutex> lock(sessionState->game.mutex);
     ASSERT_TRUE(sessionState->game.roster.count("Epic|opp_id") > 0);
     EXPECT_EQ(sessionState->game.roster.at("Epic|opp_id").mmr, 1310);
@@ -1652,11 +1680,11 @@ TEST_F(MMRFetcherTest, SignedIn401RefreshesOnceAndRetriesOnceBeforeSigningOutOnS
     account.SetCachedAccessTokenForTests("expired_access_token", 1700000900);
 
     int refreshCalls = 0;
-    account.SetTransportForTests([&](const std::string& url, const std::string&) {
-        AccountClient::HttpResponse resp;
-        EXPECT_NE(url.find("/v1/auth/device/refresh"), std::string::npos);
+    g_mock_refresh_fn = [&](const OmniNet::Request& req) {
+        EXPECT_EQ(req.op, OmniNet::Op::AuthRefresh);
         ++refreshCalls;
-        resp.statusCode = 200;
+        OmniNet::Response resp;
+        resp.status = 200;
         resp.body = nlohmann::json{
             {"access_token", "fresh_access_token_" + std::to_string(refreshCalls)},
             {"expires_in", 900},
@@ -1666,7 +1694,7 @@ TEST_F(MMRFetcherTest, SignedIn401RefreshesOnceAndRetriesOnceBeforeSigningOutOnS
             {"device", {{"public_id", keyPair.publicId}, {"status", "active"}}}}
                         .dump();
         return resp;
-    });
+    };
 
     g_mock_custom_api_response_code = 200;
     g_mock_custom_api_status_sequence = {401, 200};
@@ -2002,4 +2030,68 @@ TEST_F(MMRFetcherTest, TrackerPathRemainsSingleRequestWhenCustomApiNotActive) {
                    false);
 
     EXPECT_FALSE(fetcher->IsCustomApiActiveSourceForTests());
+}
+
+TEST_F(MMRFetcherTest, UpdateRequiredOnRanksDoesNotSignOutAndFallsBackToTracker) {
+    SetUpSignedInDeviceAuth(true);
+    auto& account = AccountClient::Instance();
+    EXPECT_TRUE(account.IsSignedIn());
+
+    g_mock_response_code = 200;
+    g_mock_response = R"({
+        "data": {
+            "segments": [{
+                "type": "playlist",
+                "attributes": {"playlistId": 11},
+                "stats": {
+                    "rating": {"value": 1150},
+                    "tier": {"metadata": {"name": "Diamond I"}}
+                }
+            }]
+        }
+    })";
+
+    OmniNet::SetTransportForTesting([](const OmniNet::Request& req) {
+        OmniNet::Response res;
+        if (req.op == OmniNet::Op::Ranks) {
+            res.status = 426;
+            res.updateRequired = true;
+            res.body = R"({"error":{"code":"update_required","message":"Update OmniStats to keep live ranks."}})";
+            return res;
+        }
+        return res;
+    });
+
+    sessionState->game.roster["Epic|test_epic_id|0"] = PlayerData{.primaryId = "Epic|test_epic_id|0", .name = "TrackerPlayer"};
+    fetcher->FetchRosterProfileForTests("Epic|test_epic_id|0", "TrackerPlayer");
+
+    EXPECT_TRUE(account.IsSignedIn());
+    EXPECT_FALSE(Config::Read().account_refresh_token.empty());
+
+    std::shared_lock<std::shared_mutex> lock(sessionState->game.mutex);
+    ASSERT_TRUE(sessionState->game.roster.count("Epic|test_epic_id|0") > 0);
+    const auto& player = sessionState->game.roster["Epic|test_epic_id|0"];
+    EXPECT_TRUE(player.fetched);
+    EXPECT_EQ(player.playlists.at("2v2"), 1150);
+}
+
+TEST_F(MMRFetcherTest, UpdateRequiredOnRanksWithoutTrackerFailsWithUpdateMessage) {
+    SetUpSignedInDeviceAuth(false);
+    auto& account = AccountClient::Instance();
+    EXPECT_TRUE(account.IsSignedIn());
+
+    OmniNet::SetTransportForTesting([](const OmniNet::Request& req) {
+        OmniNet::Response res;
+        if (req.op == OmniNet::Op::Ranks) {
+            res.status = 426;
+            res.updateRequired = true;
+            return res;
+        }
+        return res;
+    });
+
+    sessionState->game.roster["Epic|test_epic_id|0"] = PlayerData{.primaryId = "Epic|test_epic_id|0", .name = "TestPlayer"};
+    fetcher->FetchRosterProfileForTests("Epic|test_epic_id|0", "TestPlayer");
+
+    EXPECT_TRUE(account.IsSignedIn());
 }

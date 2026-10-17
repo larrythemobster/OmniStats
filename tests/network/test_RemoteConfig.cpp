@@ -4,6 +4,7 @@
 #include "network/mmr/MMRFetcher.hpp"
 #include "core/config/Config.hpp"
 #include "core/state/SessionState.hpp"
+#include "network/omninet/OmniNet.hpp"
 #include <filesystem>
 #include <string>
 
@@ -29,6 +30,7 @@ namespace {
         void TearDown() override {
             RemoteConfig::Instance().ResetForTests();
             AccountClient::Instance().ResetForTests();
+            OmniNet::SetTransportForTesting({});
             std::error_code ec;
             fs::remove_all(tempDir, ec);
         }
@@ -164,13 +166,17 @@ TEST_F(RemoteConfigTestFixture, MinVersionIsWarningOnly) {
     EXPECT_FALSE(RemoteConfig::Instance().IsBelowMinSupportedVersion("2.3.0"));
 
     bool transportCalled = false;
-    AccountClient::Instance().SetTransportForTests([&](const std::string&, const std::string&) {
+    OmniNet::SetTransportForTesting([&](const OmniNet::Request& req) {
         transportCalled = true;
-        return AccountClient::HttpResponse{0, 200, "{}"};
+        EXPECT_EQ(req.op, OmniNet::Op::AuthStart);
+        OmniNet::Response res;
+        res.status = 200;
+        res.body = "{}";
+        return res;
     });
     AccountClient::Instance().StartAuthorization();
     EXPECT_TRUE(transportCalled);
-
+    OmniNet::SetTransportForTesting({});
     Config::Update([](ConfigData& c) { c.enable_mmr_tracking = true; }, false);
     auto state = std::make_shared<SessionState>();
     MMRFetcher fetcher(state, nullptr);
@@ -182,17 +188,21 @@ TEST_F(RemoteConfigTestFixture, CacheFallbackUnder24hAndDefaultResetAfter24h) {
     int64_t currentTime = 1760000000;
     RemoteConfig::Instance().SetClockForTests([&currentTime]() { return currentTime; });
 
-    RemoteConfig::Instance().SetTransportForTests([](const std::string& url, const std::string&) {
-        EXPECT_EQ(url, "https://api.omnistats.org/api/v1/client/config");
-        return RemoteConfig::HttpResponse{
-            0, 200, R"({"schema":1,"ttl_seconds":600,"min_supported_version":"2.3.0"})"};
+    OmniNet::SetTransportForTesting([](const OmniNet::Request& req) {
+        EXPECT_EQ(req.op, OmniNet::Op::ClientConfig);
+        OmniNet::Response res;
+        res.status = 200;
+        res.body = R"({"schema":1,"ttl_seconds":600,"min_supported_version":"2.3.0"})";
+        return res;
     });
     EXPECT_TRUE(RemoteConfig::Instance().FetchOnce());
     EXPECT_EQ(RemoteConfig::Instance().GetSnapshot().min_supported_version, "2.3.0");
 
     currentTime += 2 * 3600;
-    RemoteConfig::Instance().SetTransportForTests([](const std::string&, const std::string&) {
-        return RemoteConfig::HttpResponse{7, 0, ""};
+    OmniNet::SetTransportForTesting([](const OmniNet::Request&) {
+        OmniNet::Response res;
+        res.transportError = 7;
+        return res;
     });
     EXPECT_FALSE(RemoteConfig::Instance().FetchOnce());
     EXPECT_EQ(RemoteConfig::Instance().GetSnapshot().min_supported_version, "2.3.0");

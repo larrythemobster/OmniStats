@@ -73,6 +73,7 @@ namespace MMRFetcherDetail {
         long httpCode = 0;
         std::chrono::steady_clock::duration rateLimitLockout{};
         std::vector<BatchPlayerResult> playerResults;
+        bool updateRequired = false;
     };
 
     bool CaseInsensitiveEquals(std::string_view a, std::string_view b);
