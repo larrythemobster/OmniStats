@@ -230,6 +230,8 @@ void TelemetryReducer::HandleUpdateState(const nlohmann::json& data, SideEffects
                     // string changed after the round had already started.
                     m_state->game.arenaName = currentArena;
                     m_state->game.arenaAsset = currentArenaAsset;
+                    effects.pushDiscord = true;
+                    effects.discordSnapshot = BuildDiscordSnapshotLocked();
                     std::cout
                         << "[TelemetryReducer] Arena metadata changed during "
                            "active match; preserving match state.\n";

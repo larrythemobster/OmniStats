@@ -245,6 +245,10 @@ SideEffects TelemetryReducer::Reduce(const std::string& eventName, const nlohman
             << (wasInMatch ? "true" : "false")
             << ", action=" << action
             << ", reason=" << reason << ".\n";
+        if (startsNewLifecycle || attachesGuid) {
+            effects.pushDiscord = true;
+            effects.discordSnapshot = BuildDiscordSnapshotLocked();
+        }
         return effects;
     }
 
@@ -363,7 +367,16 @@ SideEffects TelemetryReducer::Reduce(const std::string& eventName, const nlohman
         return effects;
     }
     if (eventName == Constants::EVT_UPDATE_STATE) {
+        const std::string preArena = m_state->game.arenaName;
+        const std::array<int, 2> preScore = m_state->game.score;
+        const bool preInMatch = m_state->game.inMatch;
         HandleUpdateState(data, effects);
+        if (!effects.pushDiscord && (m_state->game.arenaName != preArena ||
+                                     m_state->game.score != preScore ||
+                                     m_state->game.inMatch != preInMatch)) {
+            effects.pushDiscord = true;
+            effects.discordSnapshot = BuildDiscordSnapshotLocked();
+        }
     } else if (eventName == Constants::EVT_STATFEED) {
         if (data.contains("EventName") && data["EventName"].is_string()) {
             const std::string name = data["EventName"].get<std::string>();

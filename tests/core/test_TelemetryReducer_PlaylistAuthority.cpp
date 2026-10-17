@@ -504,3 +504,26 @@ TEST(TelemetryReducerPlaylistAuthority, TrainingToRankedSameArenaUpdateBeforeMat
     EXPECT_EQ(state->game.roster.size(), 2u);
     EXPECT_EQ(onlineEffects.fetchMmrQueue.size(), 2u);
 }
+
+TEST(TelemetryReducerPlaylistAuthority, DiscordPresenceStartsBeforeFirstGoalAndTracksLateTrainingArena) {
+    auto state = std::make_shared<SessionState>();
+    TelemetryReducer reducer(state);
+    auto created = reducer.Reduce(std::string(Constants::EVT_MATCH_CREATED), nlohmann::json{});
+    EXPECT_TRUE(created.pushDiscord);
+    EXPECT_TRUE(created.discordSnapshot.showPresence);
+    EXPECT_TRUE(created.discordSnapshot.inMatch);
+
+    reducer.Reduce(std::string(Constants::EVT_ROUND_STARTED), nlohmann::json{});
+    state->game.score = {2, 1};
+    const uint64_t generation = state->game.activeMatchGeneration;
+    auto training = Update(9, 1, 0, "Park_P");
+    training["Game"]["bTraining"] = true;
+    auto updated = reducer.Reduce(std::string(Constants::EVT_UPDATE_STATE), training);
+    EXPECT_TRUE(updated.pushDiscord);
+    EXPECT_TRUE(updated.discordSnapshot.showPresence);
+    EXPECT_TRUE(updated.discordSnapshot.inMatch);
+    EXPECT_EQ(updated.discordSnapshot.arenaName, "Beckwith Park");
+    EXPECT_EQ(updated.discordSnapshot.score[0], 2);
+    EXPECT_EQ(updated.discordSnapshot.score[1], 1);
+    EXPECT_EQ(state->game.activeMatchGeneration, generation);
+}

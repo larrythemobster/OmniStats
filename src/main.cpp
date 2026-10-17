@@ -240,13 +240,13 @@ int main(int argc, char* argv[]) {
     accountManager->QueueStartupRefresh();
     StatsClient statsClient(g_state, mmrFetcher, dbManager);
     statsClient.SetAccountManager(accountManager);
-    statsClient.Start();
     std::shared_ptr<DiscordManager> discordManager;
     if (Config::Read().discord_rpc_enabled) {
         discordManager = std::make_shared<DiscordManager>(g_state);
         discordManager->Initialize();
         statsClient.SetDiscordManager(discordManager);
     }
+    statsClient.Start();
     InputManager inputManager(g_state);
     inputManager.Start();
     std::unique_ptr<ReplayUploader> uploader;
