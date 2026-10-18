@@ -18,7 +18,8 @@
 - **Live telemetry.** Real-time saves, shots, assists, demos, and goal and ball speeds for the lobby and for you.
 - **Rank progress and MMR graph.** Visual division bands, pre-session baseline, and match deltas. F9 toggles between session and lifetime history.
 - **Player scouting.** Head-to-head records (with and vs) computed from local history, plus private player notes.
-- **Session insights.** Win rates by teammate, time-of-day trends, and session recap cards exportable as PNG.
+- **Match analytics.** Each saved match records hits, kickoffs, possession, goal locations, stat-feed mechanics, and your boost and movement profile, shown in match history with a match story, timeline and field map.
+- **Session insights.** Win rates by teammate, time-of-day trends, clutch and arena records, playstyle averages, what separates your wins from losses, and session recap cards exportable as PNG.
 - **Account tracking.** Track MMR across all playlists for your main and alts without Rocket League running.
 - **Tournament reminders.** Signed-in users get a compact next-tournament countdown in either display mode, brief in-match reminders, and an optional dashboard sound cue. Card visibility and reminders are configured separately.
 - **Modular layout.** Draggable, dockable cards with per-card visibility rules, or a separate second-monitor window.

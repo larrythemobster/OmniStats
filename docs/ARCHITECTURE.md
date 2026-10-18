@@ -38,6 +38,8 @@ flowchart LR
 
 Boost collected estimates positive changes in sampled `Boost` values during active play. Countdown and demolition state exclude refill baselines; a pickup ending at 33 still counts. Boost picked up and spent between samples cannot be recovered from this feed.
 
+`MatchAnalyticsTracker` (`src/core/game/MatchAnalytics.*`) builds per-match analytics alongside the reducer from `UpdateState`, `BallHit`, `BoostPickup`, `GoalScored`, `StatfeedEvent`, `PlayerLeft`, kickoff and pause events. It counts only active play: the round is live from `RoundStarted` (or once the game clock moves, for mid-round joins) until a goal, countdown or match end, and paused or replay time is excluded. It records per-player hits (speed, height, field third, kickoff first touches), every stat-feed event name, demos inflicted and taken, goals with clock, assister and impact location, kickoff outcomes, possession from `Game.Ball.TeamNum` in 15-second windows, and players leaving. Car state (speed, boost, ground/air/wall, powerslide, supersonic) arrives only for the local player, so movement and boost-economy aggregates usually exist for that player alone. Car and ball speeds are normalized to km/h from the observed value range, because live payloads and the published Stats API units disagree. Pad counts come from `BoostPickup` events when the game sends them; otherwise they are inferred from boost increases (above 12 counts as a big pad) and steals are unavailable.
+
 Each reducer owns its identity-candidate history. Interleaved reducers cannot reset each other's account-detection state. Configuration snapshots refresh only when `Config::Revision()` changes; unchanged events reuse the cached snapshot.
 
 ## Storage schema
@@ -48,6 +50,7 @@ Persisted under `%APPDATA%\omnistats\omnistats.db` using versioned migrations (`
 - `MatchPlayers`: Participant platform IDs, names, teams, and MMR at match time.
 - `MatchPlayerStats`: Standard scoreboard stats, touches, max goal speed, and fastest goal time.
 - `MatchLocalStats`: Local player metrics including boost collected, demolitions sustained, and crossbar hits.
+- `MatchAnalytics`: One versioned JSON document per match (`MatchAnalyticsToJson`) holding the tracker output above. Matches saved before analytics capture have no row.
 - `Sessions`: Session start and end timestamps, outcomes, and playlist MMR deltas.
 - `TrackedAccounts`: Main and alt accounts with nicknames and current playlist ranks.
 - `PlayerNotes`: User-authored scouting notes keyed by normalized platform account identity.
@@ -62,6 +65,8 @@ Database startup checks existing foreign-key integrity before enabling enforceme
 File-backed databases open a separate read-only connection after migrations. History, account, session, note, replay, and settings reads lease that connection under a reader mutex and use a transaction snapshot for multi-query consistency. Writes keep the writer connection and its mutex. In-memory databases and installations where the reader cannot open use the writer connection for reads. Session queries may still run required backfill writes before acquiring their read snapshot.
 
 Schema v7 indexes `Matches.match_guid` for duplicate checks, post-match MMR updates, replay lookups and session linking. The index is not unique; duplicate prevention stays in `SaveMatch` so upgrades never fail on older duplicate rows. Date-range filters still convert stored timestamps, because older rows use more than one text format.
+
+Some local builds already advanced `user_version` past 10, so `MatchAnalytics` is created by migration v11 and by an idempotent check after the migration loop.
 
 Session backfill commits each chunk only when every selected match was linked. A chunk that links nothing ends the run and logs the SQLite error, so a locked or read-only database cannot stall the database worker.
 
