@@ -12,6 +12,7 @@
 #include <vector>
 
 #include "core/game/Insights.hpp"
+#include "core/game/PlaystyleInsights.hpp"
 #include "core/state/SessionState.hpp"
 
 namespace Rml {
@@ -99,12 +100,31 @@ struct RecapCompareRow {
     int tone = 0;
 };
 
+struct PlaystyleRecentRow {
+    Rml::String label;
+    Rml::String recent_val;
+    Rml::String previous_val;
+    Rml::String delta;
+    int tone = 0;
+};
+
+struct PlaystyleSplitRow {
+    Rml::String sentence;
+    Rml::String effect_label;
+};
+
+struct PlaystyleMetricRow {
+    Rml::String label;
+    Rml::String value;
+    Rml::String category;
+};
 class InsightsView {
   public:
     enum class Tab { Recap,
                      Sessions,
                      People,
-                     Trends };
+                     Trends,
+                     Playstyle };
 
     // Must run before insights.rml is loaded.
     bool Create(Rml::Context* context);
@@ -129,7 +149,8 @@ class InsightsView {
     // is not known yet.
     void SetHistory(const std::string& primaryId, bool loaded, const std::vector<PersonRecord>& people,
                     const std::vector<MatchOutcome>& outcomes, const std::vector<MatchMmrContext>& mmrContext = {},
-                    const std::vector<SessionRecap>& sessions = {});
+                    const std::vector<SessionRecap>& sessions = {},
+                    const std::vector<AnalyticsMatchRow>& analyticsMatches = {});
     void SetSessions(const std::vector<SessionRecap>& sessions);
     bool OpenSession(size_t index);
     bool OpenSessionById(int64_t id);
@@ -168,12 +189,14 @@ class InsightsView {
     size_t SelectedSessionIndex() const {
         return m_selectedSessionIndex;
     }
-    static std::vector<TrendSection> BuildTrendSections(const TrendsReport& report, const GapReport& gap = {});
+    static std::vector<TrendSection> BuildTrendSections(const TrendsReport& report, const GapReport& gap = {},
+                                                        const Playstyle::AnalyticsTrendsReport& analyticsTrends = {});
     static std::vector<RecapModeRow> BuildRecapModes(const SessionRecap& recap);
 
   private:
     void RebuildPeople();
     void RebuildTrends();
+    void RebuildPlaystyle();
     void RebuildSessions();
     void RebuildComparison();
     void Dirty(const char* name);
@@ -220,6 +243,10 @@ class InsightsView {
     bool m_recapComparing = false;
     Rml::String m_recapCompareTitle;
     std::vector<RecapCompareRow> m_recapCompareRows;
+    bool m_recapHasTelemetry = false;
+    Rml::String m_recapBpm;
+    Rml::String m_recapSupersonic;
+    Rml::String m_recapHits;
 
     std::vector<SessionRow> m_sessions;
     Rml::String m_sessionsEmpty;
@@ -239,4 +266,14 @@ class InsightsView {
     Rml::String m_trendsSummary;
     std::vector<TrendSection> m_trendSections;
     Rml::String m_trendsEmpty;
+
+    std::vector<AnalyticsMatchRow> m_analyticsMatchesSource;
+    bool m_playstyleHasData = false;
+    Rml::String m_playstyleSampleSummary;
+    Rml::String m_playstyleEmpty;
+    Rml::String m_playstyleRecentLabel;
+    std::vector<PlaystyleRecentRow> m_playstyleRecentForm;
+    std::vector<PlaystyleMetricRow> m_playstyleMetrics;
+    Rml::String m_playstyleSplitsEmpty;
+    std::vector<PlaystyleSplitRow> m_playstyleSplits;
 };

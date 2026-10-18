@@ -100,7 +100,6 @@ struct TrendsReport {
     // warning shown when it falls well below the overall rate.
     TrendBucket afterTwoPlusLosses;
     std::string tiltWarning;
-
     float WinRate() const {
         return games > 0 ? static_cast<float>(wins) / static_cast<float>(games) : 0.0f;
     }

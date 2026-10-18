@@ -20,6 +20,11 @@ struct HistoryFilterOption {
     Rml::String label;
 };
 
+struct HistoryMatchBadge {
+    Rml::String label;
+    Rml::String badge_class;
+};
+
 struct HistoryMatchRow {
     Rml::String match_id;
     Rml::String result;
@@ -28,6 +33,8 @@ struct HistoryMatchRow {
     Rml::String score;
     Rml::String mmr_delta;
     int mmr_tone = 0;
+    Rml::String stat_line;
+    std::vector<HistoryMatchBadge> badges;
     Rml::String arena;
     Rml::String teammates;
     Rml::String time;
@@ -53,6 +60,14 @@ struct HistoryDetailPlayerRow {
     Rml::String saves;
     Rml::String shots;
     Rml::String demos;
+    // Extended scoreboard analytics
+    Rml::String touches;
+    Rml::String avg_hit_speed;
+    Rml::String aerial_hits;
+    Rml::String first_touches;
+    Rml::String demos_inflicted;
+    Rml::String demos_taken;
+    Rml::String hits_by_third;
 };
 
 struct HistoryEventRow {
@@ -61,6 +76,45 @@ struct HistoryEventRow {
     Rml::String player;
     Rml::String detail;
     Rml::String category;
+};
+
+struct HistoryTimelineWindow {
+    Rml::String our_height;
+    Rml::String their_height;
+};
+
+struct HistoryTimelineGoal {
+    Rml::String x_pct;
+    Rml::String score_label;
+    Rml::String scorer;
+    bool is_our_team = false;
+};
+
+struct HistoryTeamCompareRow {
+    Rml::String label;
+    Rml::String our_val;
+    Rml::String their_val;
+    int tone = 0; // 1 = ours better, -1 = theirs better, 0 = neutral
+};
+
+struct HistoryMechanicsRow {
+    Rml::String player_name;
+    bool is_me = false;
+    bool is_total = false;
+    std::vector<Rml::String> values;
+};
+
+struct HistoryFieldDot {
+    Rml::String x_pct;
+    Rml::String y_pct;
+    Rml::String dot_class;
+};
+
+struct HistoryFieldGoal {
+    Rml::String x_pct;
+    Rml::String y_pct;
+    Rml::String marker_class;
+    Rml::String label;
 };
 
 class HistoryView {
@@ -130,6 +184,10 @@ class HistoryView {
     }
     bool ApplyDetailResult(uint64_t requestId, const std::optional<MatchDetail>& detail);
     void CloseDetail();
+    void SetDetailTab(const std::string& tab);
+    const Rml::String& DetailTab() const {
+        return m_detailTab;
+    }
     void SetEventFilter(const std::string& filter);
     void SetEventTeamFilter(const std::string& filter);
 
@@ -194,6 +252,7 @@ class HistoryView {
 
     bool m_detailOpen = false;
     bool m_detailLoading = false;
+    Rml::String m_detailTab = "overview";
     Rml::String m_detailResult;
     bool m_detailWin = false;
     Rml::String m_detailScore;
@@ -207,6 +266,69 @@ class HistoryView {
     Rml::String m_detailBallchasingUrl;
     std::vector<HistoryDetailPlayerRow> m_detailOurTeam;
     std::vector<HistoryDetailPlayerRow> m_detailTheirTeam;
+
+    // Overview tab
+    std::vector<Rml::String> m_detailStoryLines;
+    bool m_timelineHasData = false;
+    std::vector<HistoryTimelineWindow> m_timelineWindows;
+    std::vector<HistoryTimelineGoal> m_timelineGoals;
+    std::vector<HistoryTeamCompareRow> m_teamCompareRows;
+
+    // Boost & movement tab
+    bool m_hasCarTelemetry = false;
+    bool m_hasLegacyStats = false;
+    Rml::String m_telemetryNote;
+    Rml::String m_carBpm;
+    Rml::String m_carAvgBoost;
+    Rml::String m_carZeroBoost;
+    Rml::String m_carFullBoost;
+    Rml::String m_carBoostCollected;
+    Rml::String m_carBoostUsed;
+    Rml::String m_carBigPads;
+    Rml::String m_carSmallPads;
+    Rml::String m_carStolenPads;
+    Rml::String m_carAvgSpeed;
+    Rml::String m_carMaxSpeed;
+    Rml::String m_carPowerslides;
+    Rml::String m_carDemoTime;
+    Rml::String m_boostBand0;
+    Rml::String m_boostBand1;
+    Rml::String m_boostBand2;
+    Rml::String m_boostBand3;
+    Rml::String m_speedSlowPct;
+    Rml::String m_speedBoostPct;
+    Rml::String m_speedSupersonicPct;
+    Rml::String m_speedSlowLabel;
+    Rml::String m_speedBoostLabel;
+    Rml::String m_speedSupersonicLabel;
+    Rml::String m_surfaceGroundPct;
+    Rml::String m_surfaceAirPct;
+    Rml::String m_surfaceWallPct;
+    Rml::String m_surfaceGroundLabel;
+    Rml::String m_surfaceAirLabel;
+    Rml::String m_surfaceWallLabel;
+    Rml::String m_legacyBoostCollected;
+    Rml::String m_legacyDemoed;
+    Rml::String m_legacyCrossbars;
+    Rml::String m_legacyHardestCrossbar;
+    Rml::String m_legacyMaxBallSpeed;
+    Rml::String m_legacyOwnGoals;
+
+    // Mechanics tab
+    bool m_hasMechanics = false;
+    std::vector<Rml::String> m_mechanicsColumns;
+    std::vector<HistoryMechanicsRow> m_mechanicsRows;
+
+    // Field tab
+    bool m_fieldHasData = false;
+    std::vector<HistoryFieldDot> m_fieldDots;
+    std::vector<HistoryFieldGoal> m_fieldGoals;
+    Rml::String m_fieldTouchesCount;
+    Rml::String m_pitchLegendSoft;
+    Rml::String m_pitchLegendMed;
+    Rml::String m_pitchLegendHard;
+
+    // Events tab
     std::vector<HistoryEventRow> m_detailEvents;
     Rml::String m_eventFilter = "all";
     Rml::String m_eventTeamFilter = "all";

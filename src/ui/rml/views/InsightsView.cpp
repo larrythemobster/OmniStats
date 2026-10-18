@@ -222,6 +222,25 @@ bool InsightsView::Create(Rml::Context* context) {
         crow.RegisterMember("tone", &RecapCompareRow::tone);
     }
     constructor.RegisterArray<std::vector<RecapCompareRow>>();
+    if (auto prow = constructor.RegisterStruct<PlaystyleRecentRow>()) {
+        prow.RegisterMember("label", &PlaystyleRecentRow::label);
+        prow.RegisterMember("recent_val", &PlaystyleRecentRow::recent_val);
+        prow.RegisterMember("previous_val", &PlaystyleRecentRow::previous_val);
+        prow.RegisterMember("delta", &PlaystyleRecentRow::delta);
+        prow.RegisterMember("tone", &PlaystyleRecentRow::tone);
+    }
+    constructor.RegisterArray<std::vector<PlaystyleRecentRow>>();
+    if (auto srow = constructor.RegisterStruct<PlaystyleSplitRow>()) {
+        srow.RegisterMember("sentence", &PlaystyleSplitRow::sentence);
+        srow.RegisterMember("effect_label", &PlaystyleSplitRow::effect_label);
+    }
+    constructor.RegisterArray<std::vector<PlaystyleSplitRow>>();
+    if (auto mrow = constructor.RegisterStruct<PlaystyleMetricRow>()) {
+        mrow.RegisterMember("label", &PlaystyleMetricRow::label);
+        mrow.RegisterMember("value", &PlaystyleMetricRow::value);
+        mrow.RegisterMember("category", &PlaystyleMetricRow::category);
+    }
+    constructor.RegisterArray<std::vector<PlaystyleMetricRow>>();
     constructor.Bind("tab", &m_tabName);
     constructor.Bind("subtitle", &m_subtitle);
     constructor.Bind("recap_title", &m_recapTitle);
@@ -235,6 +254,10 @@ bool InsightsView::Create(Rml::Context* context) {
     constructor.Bind("recap_win_width", &m_recapWinWidth);
     constructor.Bind("recap_has_games", &m_recapHasGames);
     constructor.Bind("recap_stats", &m_recapStats);
+    constructor.Bind("recap_has_telemetry", &m_recapHasTelemetry);
+    constructor.Bind("recap_bpm", &m_recapBpm);
+    constructor.Bind("recap_supersonic", &m_recapSupersonic);
+    constructor.Bind("recap_hits", &m_recapHits);
     constructor.Bind("recap_modes", &m_recapModes);
     constructor.Bind("recap_can_step", &m_recapCanStep);
     constructor.Bind("recap_can_prev", &m_recapCanPrev);
@@ -258,6 +281,14 @@ bool InsightsView::Create(Rml::Context* context) {
     constructor.Bind("trends_summary", &m_trendsSummary);
     constructor.Bind("trend_sections", &m_trendSections);
     constructor.Bind("trends_empty", &m_trendsEmpty);
+    constructor.Bind("playstyle_has_data", &m_playstyleHasData);
+    constructor.Bind("playstyle_sample_summary", &m_playstyleSampleSummary);
+    constructor.Bind("playstyle_empty", &m_playstyleEmpty);
+    constructor.Bind("playstyle_recent_label", &m_playstyleRecentLabel);
+    constructor.Bind("playstyle_recent_form", &m_playstyleRecentForm);
+    constructor.Bind("playstyle_metrics", &m_playstyleMetrics);
+    constructor.Bind("playstyle_splits_empty", &m_playstyleSplitsEmpty);
+    constructor.Bind("playstyle_splits", &m_playstyleSplits);
     m_handle = constructor.GetModelHandle();
     m_bound = true;
     return true;
@@ -288,7 +319,8 @@ void InsightsView::SetTab(Tab tab) {
     m_tabName = tab == Tab::Recap      ? "recap"
                 : tab == Tab::Sessions ? "sessions"
                 : tab == Tab::People   ? "people"
-                                       : "trends";
+                : tab == Tab::Trends   ? "trends"
+                                       : "playstyle";
     Dirty("tab");
 }
 
@@ -311,6 +343,7 @@ void InsightsView::SetTrendPlaylistFilter(const std::string& playlist) {
     m_trendPlaylistFilter = next;
     Dirty("trend_playlist_filter");
     RebuildTrends();
+    RebuildPlaystyle();
 }
 
 std::vector<RecapModeRow> InsightsView::BuildRecapModes(const SessionRecap& recap) {
@@ -395,9 +428,51 @@ void InsightsView::SetRecap(const SessionRecap& recap, bool currentSession) {
     };
     m_recapModes = BuildRecapModes(recap);
 
+    // Check if session matches have analytics + car telemetry
+    float totalBpm = 0.0f;
+    float totalSupersonicShare = 0.0f;
+    int totalHits = 0;
+    int telemetryMatchesCount = 0;
+
+    for (const auto& m : m_analyticsMatchesSource) {
+        bool inSession = false;
+        if (currentSession) {
+            inSession = (recap.startedAtUnix > 0 && m.timestampUnix >= recap.startedAtUnix - 60) ||
+                        (recap.startedAtUnix == 0 && telemetryMatchesCount < recap.Games());
+        } else {
+            inSession = (recap.startedAtUnix > 0 && recap.endedAtUnix > 0 &&
+                         m.timestampUnix >= recap.startedAtUnix - 60 && m.timestampUnix <= recap.endedAtUnix + 300);
+        }
+        if (!inSession) continue;
+        if (!m.analytics.has_value()) continue;
+
+        for (const auto& p : m.analytics->players) {
+            if (p.car.has_value()) {
+                totalBpm += p.car->BoostPerMinute();
+                totalSupersonicShare += p.car->Share(p.car->supersonicSeconds);
+                totalHits += p.hits;
+                ++telemetryMatchesCount;
+                break;
+            }
+        }
+    }
+
+    if (telemetryMatchesCount > 0) {
+        m_recapHasTelemetry = true;
+        m_recapBpm = std::to_string(static_cast<int>(std::lround(totalBpm / static_cast<float>(telemetryMatchesCount))));
+        m_recapSupersonic = std::to_string(static_cast<int>(std::lround((totalSupersonicShare / static_cast<float>(telemetryMatchesCount)) * 100.0f))) + "%";
+        m_recapHits = std::to_string(totalHits);
+    } else {
+        m_recapHasTelemetry = false;
+        m_recapBpm.clear();
+        m_recapSupersonic.clear();
+        m_recapHits.clear();
+    }
+
     RebuildComparison();
     for (const char* name : {"recap_title", "recap_date", "recap_wins", "recap_losses", "recap_rate", "recap_mmr",
-                             "recap_mmr_tone", "recap_has_games", "recap_stats", "recap_modes", "recap_games", "recap_win_width"})
+                             "recap_mmr_tone", "recap_has_games", "recap_stats", "recap_modes", "recap_games", "recap_win_width",
+                             "recap_has_telemetry", "recap_bpm", "recap_supersonic", "recap_hits"})
         Dirty(name);
 }
 
@@ -421,8 +496,9 @@ void InsightsView::ClearArchivedSelection() {
     Dirty("recap_comparing");
 }
 
-std::vector<TrendSection> InsightsView::BuildTrendSections(const TrendsReport& report, const GapReport& gap) {
-    if (report.games == 0 && gap.games == 0) return {};
+std::vector<TrendSection> InsightsView::BuildTrendSections(const TrendsReport& report, const GapReport& gap,
+                                                           const Playstyle::AnalyticsTrendsReport& analyticsTrends) {
+    if (report.games == 0 && gap.games == 0 && analyticsTrends.overtimeGames.games == 0 && analyticsTrends.totalKickoffs == 0) return {};
     std::vector<TrendSection> sections;
     const float overall = report.games > 0 ? report.WinRate() : gap.WinRate();
     if (report.games > 0) {
@@ -447,20 +523,149 @@ std::vector<TrendSection> InsightsView::BuildTrendSections(const TrendsReport& r
             lobbySection.rows.push_back(MakeCarryWinRow(gap.carryHigher, gapOverall));
     }
     sections.push_back(std::move(lobbySection));
+
+    // Clutch & game state
+    const bool hasClutch = analyticsTrends.overtimeGames.games > 0 ||
+                           analyticsTrends.oneGoalGames.games > 0 ||
+                           analyticsTrends.scoredFirst.games > 0 ||
+                           analyticsTrends.concededFirst.games > 0 ||
+                           analyticsTrends.comebacks.games > 0 ||
+                           analyticsTrends.blownLeads.games > 0 ||
+                           analyticsTrends.lateRegulationWinners > 0;
+    if (hasClutch) {
+        TrendSection clutch;
+        clutch.title = "CLUTCH & GAME STATE";
+        clutch.subtitle = "Performance in tight games and critical situations";
+        clutch.tooltip = "Record in overtime, one-goal margins, comebacks when trailing, and leads preserved.";
+        if (analyticsTrends.overtimeGames.games > 0)
+            clutch.rows.push_back(MakeTrendRow(analyticsTrends.overtimeGames, overall));
+        if (analyticsTrends.oneGoalGames.games > 0)
+            clutch.rows.push_back(MakeTrendRow(analyticsTrends.oneGoalGames, overall));
+        if (analyticsTrends.scoredFirst.games > 0)
+            clutch.rows.push_back(MakeTrendRow(analyticsTrends.scoredFirst, overall));
+        if (analyticsTrends.concededFirst.games > 0)
+            clutch.rows.push_back(MakeTrendRow(analyticsTrends.concededFirst, overall));
+        if (analyticsTrends.comebacks.games > 0) {
+            TrendRow r;
+            r.label = "Comebacks (when trailing)";
+            r.rate = Percent(analyticsTrends.comebacks.WinRate());
+            r.games = std::to_string(analyticsTrends.comebacks.wins) + " of " + std::to_string(analyticsTrends.comebacks.games);
+            r.width = r.rate;
+            r.tone = analyticsTrends.comebacks.WinRate() >= 0.35f ? 1 : (analyticsTrends.comebacks.WinRate() < 0.20f ? -1 : 0);
+            clutch.rows.push_back(std::move(r));
+        }
+        if (analyticsTrends.blownLeads.games > 0) {
+            TrendRow r;
+            r.label = "Blown leads (when leading)";
+            const float blownRate = analyticsTrends.blownLeads.WinRate();
+            r.rate = Percent(blownRate);
+            r.games = std::to_string(analyticsTrends.blownLeads.wins) + " of " + std::to_string(analyticsTrends.blownLeads.games);
+            r.width = r.rate;
+            r.tone = blownRate <= 0.15f ? 1 : (blownRate > 0.30f ? -1 : 0);
+            clutch.rows.push_back(std::move(r));
+        }
+        if (analyticsTrends.lateRegulationWinners > 0) {
+            TrendRow r;
+            r.label = "Late regulation winners";
+            r.rate = std::to_string(analyticsTrends.lateRegulationWinners);
+            r.games = "Final 30s deciders";
+            r.width = "100%";
+            r.tone = 1;
+            clutch.rows.push_back(std::move(r));
+        }
+        sections.push_back(std::move(clutch));
+    }
+
+    // Arenas
+    if (!analyticsTrends.byArena.empty()) {
+        TrendSection arenaSection;
+        arenaSection.title = "ARENAS";
+        arenaSection.subtitle = "Win rate by arena (minimum 3 games)";
+        arenaSection.tooltip = "Performance on each field. OmniStats tracks every stadium automatically.";
+        for (const auto& arena : analyticsTrends.byArena) {
+            arenaSection.rows.push_back(MakeTrendRow(arena, overall));
+        }
+        sections.push_back(std::move(arenaSection));
+    }
+
+    // Kickoffs
+    if (analyticsTrends.totalKickoffs > 0) {
+        TrendSection kickoffSection;
+        kickoffSection.title = "KICKOFFS";
+        kickoffSection.subtitle = "Possession won and immediate goals after kickoffs";
+        kickoffSection.tooltip = "First touches and possession control 3 seconds after kickoff, plus goals within 10 seconds.";
+        {
+            TrendRow r;
+            r.label = "Kickoff possession won";
+            const float rate = static_cast<float>(analyticsTrends.kickoffPossessionWon) /
+                               static_cast<float>(analyticsTrends.totalKickoffs);
+            r.rate = Percent(rate);
+            r.games = std::to_string(analyticsTrends.kickoffPossessionWon) + " of " +
+                      std::to_string(analyticsTrends.totalKickoffs);
+            r.width = r.rate;
+            r.tone = rate >= 0.50f ? 1 : -1;
+            kickoffSection.rows.push_back(std::move(r));
+        }
+        {
+            TrendRow r;
+            r.label = "Kickoff goals (for)";
+            std::ostringstream ss;
+            ss << std::fixed << std::setprecision(2) << analyticsTrends.goalsAfterKickoffForPerGame << " / game";
+            r.rate = ss.str();
+            r.games = std::to_string(analyticsTrends.totalKickoffGoalsFor) + " total";
+            r.width = "50%";
+            r.tone = analyticsTrends.goalsAfterKickoffForPerGame >= 0.15f ? 1 : 0;
+            kickoffSection.rows.push_back(std::move(r));
+        }
+        {
+            TrendRow r;
+            r.label = "Kickoff goals (against)";
+            std::ostringstream ss;
+            ss << std::fixed << std::setprecision(2) << analyticsTrends.goalsAfterKickoffAgainstPerGame << " / game";
+            r.rate = ss.str();
+            r.games = std::to_string(analyticsTrends.totalKickoffGoalsAgainst) + " total";
+            r.width = "50%";
+            r.tone = analyticsTrends.goalsAfterKickoffAgainstPerGame > analyticsTrends.goalsAfterKickoffForPerGame ? -1 : 0;
+            kickoffSection.rows.push_back(std::move(r));
+        }
+        sections.push_back(std::move(kickoffSection));
+    }
+
+    // Match length
+    const bool hasLength = analyticsTrends.regulationGames.games > 0 ||
+                           analyticsTrends.overtimeLengthGames.games > 0 ||
+                           analyticsTrends.endedEarlyGames.games > 0;
+    if (hasLength) {
+        TrendSection lengthSection;
+        lengthSection.title = "MATCH LENGTH";
+        lengthSection.subtitle = "Win rate by game conclusion";
+        lengthSection.tooltip = "Outcomes in full regulation games, overtime, or early finishes (forfeits).";
+        if (analyticsTrends.regulationGames.games > 0)
+            lengthSection.rows.push_back(MakeTrendRow(analyticsTrends.regulationGames, overall));
+        if (analyticsTrends.overtimeLengthGames.games > 0)
+            lengthSection.rows.push_back(MakeTrendRow(analyticsTrends.overtimeLengthGames, overall));
+        if (analyticsTrends.endedEarlyGames.games > 0)
+            lengthSection.rows.push_back(MakeTrendRow(analyticsTrends.endedEarlyGames, overall));
+        sections.push_back(std::move(lengthSection));
+    }
+
     return sections;
 }
 
 void InsightsView::SetHistory(const std::string& primaryId, bool loaded, const std::vector<PersonRecord>& people,
                               const std::vector<MatchOutcome>& outcomes, const std::vector<MatchMmrContext>& mmrContext,
-                              const std::vector<SessionRecap>& sessions) {
+                              const std::vector<SessionRecap>& sessions,
+                              const std::vector<AnalyticsMatchRow>& analyticsMatches) {
     m_hasAccount = !primaryId.empty();
     m_historyLoaded = loaded;
     m_peopleSource = people;
     m_outcomesSource = outcomes;
     m_mmrContextSource = mmrContext;
     m_sessionsSource = sessions;
+    m_analyticsMatchesSource = analyticsMatches;
     RebuildPeople();
     RebuildTrends();
+    RebuildPlaystyle();
     RebuildSessions();
     RebuildComparison();
 }
@@ -717,7 +922,9 @@ void InsightsView::RebuildComparison() {
 void InsightsView::RebuildTrends() {
     const TrendsReport report = Insights::ComputeTrends(m_outcomesSource);
     const GapReport gap = Insights::ComputeGapTrends(m_mmrContextSource, m_trendPlaylistFilter);
-    m_trendSections = BuildTrendSections(report, gap);
+    const Playstyle::AnalyticsTrendsReport analyticsTrends =
+        Playstyle::ComputeAnalyticsTrends(m_analyticsMatchesSource, m_trendPlaylistFilter);
+    m_trendSections = BuildTrendSections(report, gap, analyticsTrends);
     m_tiltMessage = report.tiltWarning;
     m_gapCallout = gap.callout;
     if (report.games > 0) {
@@ -733,6 +940,39 @@ void InsightsView::RebuildTrends() {
                     : !m_historyLoaded ? "Loading your match history..."
                                        : "No saved matches yet. Trends show up once you have played a few games.";
     for (const char* name : {"trend_sections", "tilt_message", "gap_callout", "trends_summary", "trends_empty", "subtitle"})
+        Dirty(name);
+}
+
+void InsightsView::RebuildPlaystyle() {
+    const Playstyle::PlaystyleReport report =
+        Playstyle::ComputePlaystyle(m_analyticsMatchesSource, m_trendPlaylistFilter);
+
+    m_playstyleHasData = report.totalMatchesWithTelemetry > 0;
+    m_playstyleSampleSummary = report.sampleSummary;
+    m_playstyleEmpty = !m_hasAccount      ? "Play a match so OmniStats can identify your account."
+                       : !m_historyLoaded ? "Loading your match history..."
+                                          : report.emptyMessage;
+    m_playstyleRecentLabel = report.recentFormSubtitle;
+
+    m_playstyleRecentForm.clear();
+    for (const auto& r : report.recentForm) {
+        m_playstyleRecentForm.push_back({r.label, r.recentVal, r.previousVal, r.delta, r.tone});
+    }
+
+    m_playstyleMetrics.clear();
+    for (const auto& m : report.metrics) {
+        m_playstyleMetrics.push_back({m.label, m.formattedValue, m.category});
+    }
+
+    m_playstyleSplitsEmpty = report.splitsEmptyMessage;
+    m_playstyleSplits.clear();
+    for (const auto& s : report.topSplits) {
+        m_playstyleSplits.push_back({s.sentence, s.effectLabel});
+    }
+
+    for (const char* name : {"playstyle_has_data", "playstyle_sample_summary", "playstyle_empty",
+                             "playstyle_recent_label", "playstyle_recent_form", "playstyle_metrics",
+                             "playstyle_splits_empty", "playstyle_splits"})
         Dirty(name);
 }
 

@@ -66,6 +66,8 @@
                         <div class="history-cell-playlist">Playlist</div>
                         <div class="history-cell-score">Score</div>
                         <div class="history-cell-mmr">MMR</div>
+                        <div class="history-cell-stats">Stats</div>
+                        <div class="history-cell-badges">Badges</div>
                         <div class="history-cell-arena">Arena</div>
                         <div class="history-cell-teammates">Teammates</div>
                         <div class="history-cell-time">Time</div>
@@ -75,6 +77,10 @@
                         <div class="history-cell-playlist"><span>{{row.playlist}}</span><span class="badge" style="font-size:9dp;margin-left:4dp;padding:0 3dp;" data-if="row.has_replay">BC</span></div>
                         <div class="history-cell-score mono">{{row.score}}</div>
                         <div class="history-cell-mmr mono" data-class-win="row.mmr_tone == 1" data-class-loss="row.mmr_tone == -1">{{row.mmr_delta}}</div>
+                        <div class="history-cell-stats mono label">{{row.stat_line}}</div>
+                        <div class="history-cell-badges row gap-xs">
+                            <span class="badge" data-for="b : row.badges" data-attr-class="b.badge_class">{{b.label}}</span>
+                        </div>
                         <div class="history-cell-arena">{{row.arena}}</div>
                         <div class="history-cell-teammates label">{{row.teammates}}</div>
                         <div class="history-cell-time label">{{row.time}}</div>
@@ -109,104 +115,377 @@
                         </div>
                     </div>
 
-                    <div class="label" data-if="detail_loading">Loading match details...</div>
-                    <div class="callout" data-if="detail_v1_note != ''">{{detail_v1_note}}</div>
-
-                    <div class="history-scoreboard-block">
-                        <div class="stat-section-title">MATCH EVENTS</div>
-                        <div class="row gap-sm history-event-tabs">
-                            <button class="tab-button pill" data-action="history-event-filter" data-event-filter="all" data-class-active="event_filter == 'all'">All</button>
-                            <button class="tab-button pill" data-action="history-event-filter" data-event-filter="goals" data-class-active="event_filter == 'goals'">Goals</button>
-                            <button class="tab-button pill" data-action="history-event-filter" data-event-filter="saves" data-class-active="event_filter == 'saves'">Saves</button>
-                            <button class="tab-button pill" data-action="history-event-filter" data-event-filter="shots" data-class-active="event_filter == 'shots'">Shots</button>
-                            <button class="tab-button pill" data-action="history-event-filter" data-event-filter="demolitions" data-class-active="event_filter == 'demolitions'">Demos</button>
-                            <button class="tab-button pill" data-action="history-event-filter" data-event-filter="other" data-class-active="event_filter == 'other'">Other</button>
-                        </div>
-                        <div class="row gap-sm history-event-tabs" data-if="event_team_available">
-                            <span class="label">Team</span>
-                            <button class="tab-button pill" data-action="history-event-team" data-team-filter="all" data-class-active="event_team_filter == 'all'">Both</button>
-                            <button class="tab-button pill" data-action="history-event-team" data-team-filter="ours" data-class-active="event_team_filter == 'ours'">Ours</button>
-                            <button class="tab-button pill" data-action="history-event-team" data-team-filter="opponents" data-class-active="event_team_filter == 'opponents'">Opponents</button>
-                        </div>
-                        <div class="history-event-list" data-if="detail_events.size > 0">
-                            <div class="history-event-row" data-for="e : detail_events">
-                                <span class="mono history-event-clock">{{e.clock}}</span>
-                                <span class="history-event-type">{{e.type}}</span>
-                                <span class="history-event-player">{{e.player}}</span>
-                                <span class="label">{{e.detail}}</span>
-                            </div>
-                        </div>
-                        <div class="label" data-if="detail_events.size == 0">{{event_empty}}</div>
+                    <div class="view-tabs row history-detail-nav">
+                        <button class="tab-button" data-action="history-detail-tab" data-tab="overview" data-class-active="detail_tab == 'overview'">Overview</button>
+                        <button class="tab-button" data-action="history-detail-tab" data-tab="scoreboard" data-class-active="detail_tab == 'scoreboard'">Scoreboard</button>
+                        <button class="tab-button" data-action="history-detail-tab" data-tab="boost" data-class-active="detail_tab == 'boost'">Boost &amp; Movement</button>
+                        <button class="tab-button" data-action="history-detail-tab" data-tab="mechanics" data-class-active="detail_tab == 'mechanics'">Mechanics</button>
+                        <button class="tab-button" data-action="history-detail-tab" data-tab="field" data-class-active="detail_tab == 'field'">Field</button>
+                        <button class="tab-button" data-action="history-detail-tab" data-tab="events" data-class-active="detail_tab == 'events'">Events</button>
                     </div>
 
-                    <div class="history-scoreboard-block">
-                        <div class="stat-section-title">OUR TEAM</div>
-                        <div class="history-scoreboard-table">
-                            <div class="history-scoreboard-row header">
-                                <div class="history-sb-player"><span>Player</span></div>
-                                <div class="history-sb-tier">Tier</div>
-                                <div class="history-sb-mmr">MMR</div>
-                                <div class="history-sb-stat">Score</div>
-                                <div class="history-sb-stat">Goals</div>
-                                <div class="history-sb-stat">Assists</div>
-                                <div class="history-sb-stat">Saves</div>
-                                <div class="history-sb-stat">Shots</div>
-                                <div class="history-sb-stat">Demos</div>
-                            </div>
-                            <div class="history-scoreboard-row" data-for="p : detail_our_team" data-class-self="p.is_me">
-                                <div class="history-sb-player">
-                                    <div class="row gap-sm" style="align-items:center">
-                                        <span class="value">{{p.name}}</span>
-                                        <span class="badge" data-attr-class="p.platform_class" data-if="p.platform != ''">{{p.platform}}</span>
-                                        <span class="note-badge" data-if="p.has_note" data-action="player-note-open" data-attr-data-pid="p.primary_id" data-attr-data-name="p.name" data-attr-data-context="p.encounter">SCOUT</span>
-                                        <span class="note-add always" data-if="p.can_note && !p.has_note" data-action="player-note-open" data-attr-data-pid="p.primary_id" data-attr-data-name="p.name" data-attr-data-context="p.encounter">Scout</span>
-                                    </div>
-                                    <div class="label history-sb-met" data-if="p.encounter != ''">{{p.encounter}}</div>
-                                </div>
-                                <div class="history-sb-tier" data-style-color="p.tier_color">{{p.tier}}</div>
-                                <div class="history-sb-mmr mono">{{p.mmr}}</div>
-                                <div class="history-sb-stat mono">{{p.score}}</div>
-                                <div class="history-sb-stat mono">{{p.goals}}</div>
-                                <div class="history-sb-stat mono">{{p.assists}}</div>
-                                <div class="history-sb-stat mono">{{p.saves}}</div>
-                                <div class="history-sb-stat mono">{{p.shots}}</div>
-                                <div class="history-sb-stat mono">{{p.demos}}</div>
-                            </div>
-                        </div>
-                    </div>
+                    <div class="history-detail-body">
+                        <div class="label" data-if="detail_loading">Loading match details...</div>
+                        <div class="callout" data-if="detail_v1_note != ''">{{detail_v1_note}}</div>
 
-                    <div class="history-scoreboard-block">
-                        <div class="stat-section-title">OPPONENTS</div>
-                        <div class="history-scoreboard-table">
-                            <div class="history-scoreboard-row header">
-                                <div class="history-sb-player"><span>Player</span></div>
-                                <div class="history-sb-tier">Tier</div>
-                                <div class="history-sb-mmr">MMR</div>
-                                <div class="history-sb-stat">Score</div>
-                                <div class="history-sb-stat">Goals</div>
-                                <div class="history-sb-stat">Assists</div>
-                                <div class="history-sb-stat">Saves</div>
-                                <div class="history-sb-stat">Shots</div>
-                                <div class="history-sb-stat">Demos</div>
+                        <!-- 1. OVERVIEW TAB -->
+                        <div data-if="detail_tab == 'overview'">
+                            <div class="history-story-card card" data-if="detail_story_lines.size > 0">
+                                <div class="stat-section-title">MATCH STORY</div>
+                                <div class="history-story-line" data-for="line : detail_story_lines">{{line}}</div>
                             </div>
-                            <div class="history-scoreboard-row" data-for="p : detail_their_team">
-                                <div class="history-sb-player">
-                                    <div class="row gap-sm" style="align-items:center">
-                                        <span class="value">{{p.name}}</span>
-                                        <span class="badge" data-attr-class="p.platform_class" data-if="p.platform != ''">{{p.platform}}</span>
-                                        <span class="note-badge" data-if="p.has_note" data-action="player-note-open" data-attr-data-pid="p.primary_id" data-attr-data-name="p.name" data-attr-data-context="p.encounter">SCOUT</span>
-                                        <span class="note-add always" data-if="p.can_note && !p.has_note" data-action="player-note-open" data-attr-data-pid="p.primary_id" data-attr-data-name="p.name" data-attr-data-context="p.encounter">Scout</span>
+
+                            <div class="history-timeline-section card" data-if="timeline_has_data">
+                                <div class="stat-section-title">POSSESSION &amp; TIMELINE</div>
+                                <div class="history-timeline-wrap">
+                                    <div class="history-timeline-bars row">
+                                        <div class="history-timeline-col" data-for="w : timeline_windows">
+                                            <div class="history-timeline-bar-our" data-style-height="w.our_height"></div>
+                                            <div class="history-timeline-bar-their" data-style-height="w.their_height"></div>
+                                        </div>
                                     </div>
-                                    <div class="label history-sb-met" data-if="p.encounter != ''">{{p.encounter}}</div>
+                                    <div class="history-timeline-markers">
+                                        <div class="history-timeline-goal" data-for="g : timeline_goals" data-style-left="g.x_pct">
+                                            <div class="history-timeline-pin" data-class-our="g.is_our_team"></div>
+                                            <div class="history-timeline-score mono">{{g.score_label}}</div>
+                                        </div>
+                                    </div>
                                 </div>
-                                <div class="history-sb-tier" data-style-color="p.tier_color">{{p.tier}}</div>
-                                <div class="history-sb-mmr mono">{{p.mmr}}</div>
-                                <div class="history-sb-stat mono">{{p.score}}</div>
-                                <div class="history-sb-stat mono">{{p.goals}}</div>
-                                <div class="history-sb-stat mono">{{p.assists}}</div>
-                                <div class="history-sb-stat mono">{{p.saves}}</div>
-                                <div class="history-sb-stat mono">{{p.shots}}</div>
-                                <div class="history-sb-stat mono">{{p.demos}}</div>
+                                <div class="row gap-md history-timeline-legend">
+                                    <div class="row gap-xs" style="align-items:center"><span class="legend-swatch our"></span> <span class="label">Our Team</span></div>
+                                    <div class="row gap-xs" style="align-items:center"><span class="legend-swatch their"></span> <span class="label">Opponents</span></div>
+                                    <div class="row gap-xs" style="align-items:center"><span class="legend-swatch pin"></span> <span class="label">Goal Marker (Score after)</span></div>
+                                </div>
+                            </div>
+
+                            <div class="history-compare-section card" data-if="team_compare_rows.size > 0">
+                                <div class="stat-section-title">TEAM COMPARISON</div>
+                                <div class="history-compare-table">
+                                    <div class="history-compare-row header">
+                                        <div class="history-cmp-our">OUR TEAM</div>
+                                        <div class="history-cmp-label">METRIC</div>
+                                        <div class="history-cmp-their">OPPONENTS</div>
+                                    </div>
+                                    <div class="history-compare-row" data-for="row : team_compare_rows">
+                                        <div class="history-cmp-our mono" data-class-win="row.tone == 1" data-class-loss="row.tone == -1">{{row.our_val}}</div>
+                                        <div class="history-cmp-label">{{row.label}}</div>
+                                        <div class="history-cmp-their mono" data-class-win="row.tone == -1" data-class-loss="row.tone == 1">{{row.their_val}}</div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="muted view-empty" data-if="detail_story_lines.size == 0 && !timeline_has_data && team_compare_rows.size == 0">No overview data was recorded for this match.</div>
+                        </div>
+
+                        <!-- 2. SCOREBOARD TAB -->
+                        <div data-if="detail_tab == 'scoreboard'">
+                            <div class="history-scoreboard-block">
+                                <div class="stat-section-title">OUR TEAM</div>
+                                <div class="history-scoreboard-table">
+                                    <div class="history-scoreboard-row header">
+                                        <div class="history-sb-player"><span>Player</span></div>
+                                        <div class="history-sb-tier">Tier</div>
+                                        <div class="history-sb-mmr">MMR</div>
+                                        <div class="history-sb-stat">Score</div>
+                                        <div class="history-sb-stat">G</div>
+                                        <div class="history-sb-stat">A</div>
+                                        <div class="history-sb-stat">Sv</div>
+                                        <div class="history-sb-stat">Sh</div>
+                                        <div class="history-sb-stat">Dem</div>
+                                        <div class="history-sb-stat">Touches</div>
+                                        <div class="history-sb-stat-wide">Avg Spd</div>
+                                        <div class="history-sb-stat">Aerials</div>
+                                        <div class="history-sb-stat">KO</div>
+                                        <div class="history-sb-stat-wide">Def/Neu/Off</div>
+                                    </div>
+                                    <div class="history-scoreboard-row" data-for="p : detail_our_team" data-class-self="p.is_me">
+                                        <div class="history-sb-player">
+                                            <div class="row gap-sm" style="align-items:center">
+                                                <span class="value">{{p.name}}</span>
+                                                <span class="badge" data-attr-class="p.platform_class" data-if="p.platform != ''">{{p.platform}}</span>
+                                                <span class="note-badge" data-if="p.has_note" data-action="player-note-open" data-attr-data-pid="p.primary_id" data-attr-data-name="p.name" data-attr-data-context="p.encounter">SCOUT</span>
+                                                <span class="note-add always" data-if="p.can_note && !p.has_note" data-action="player-note-open" data-attr-data-pid="p.primary_id" data-attr-data-name="p.name" data-attr-data-context="p.encounter">Scout</span>
+                                            </div>
+                                            <div class="label history-sb-met" data-if="p.encounter != ''">{{p.encounter}}</div>
+                                        </div>
+                                        <div class="history-sb-tier" data-style-color="p.tier_color">{{p.tier}}</div>
+                                        <div class="history-sb-mmr mono">{{p.mmr}}</div>
+                                        <div class="history-sb-stat mono">{{p.score}}</div>
+                                        <div class="history-sb-stat mono">{{p.goals}}</div>
+                                        <div class="history-sb-stat mono">{{p.assists}}</div>
+                                        <div class="history-sb-stat mono">{{p.saves}}</div>
+                                        <div class="history-sb-stat mono">{{p.shots}}</div>
+                                        <div class="history-sb-stat mono">{{p.demos_inflicted}}</div>
+                                        <div class="history-sb-stat mono">{{p.touches}}</div>
+                                        <div class="history-sb-stat-wide mono">{{p.avg_hit_speed}}</div>
+                                        <div class="history-sb-stat mono">{{p.aerial_hits}}</div>
+                                        <div class="history-sb-stat mono">{{p.first_touches}}</div>
+                                        <div class="history-sb-stat-wide mono label">{{p.hits_by_third}}</div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="history-scoreboard-block" style="margin-top:16dp;">
+                                <div class="stat-section-title">OPPONENTS</div>
+                                <div class="history-scoreboard-table">
+                                    <div class="history-scoreboard-row header">
+                                        <div class="history-sb-player"><span>Player</span></div>
+                                        <div class="history-sb-tier">Tier</div>
+                                        <div class="history-sb-mmr">MMR</div>
+                                        <div class="history-sb-stat">Score</div>
+                                        <div class="history-sb-stat">G</div>
+                                        <div class="history-sb-stat">A</div>
+                                        <div class="history-sb-stat">Sv</div>
+                                        <div class="history-sb-stat">Sh</div>
+                                        <div class="history-sb-stat">Dem</div>
+                                        <div class="history-sb-stat">Touches</div>
+                                        <div class="history-sb-stat-wide">Avg Spd</div>
+                                        <div class="history-sb-stat">Aerials</div>
+                                        <div class="history-sb-stat">KO</div>
+                                        <div class="history-sb-stat-wide">Def/Neu/Off</div>
+                                    </div>
+                                    <div class="history-scoreboard-row" data-for="p : detail_their_team">
+                                        <div class="history-sb-player">
+                                            <div class="row gap-sm" style="align-items:center">
+                                                <span class="value">{{p.name}}</span>
+                                                <span class="badge" data-attr-class="p.platform_class" data-if="p.platform != ''">{{p.platform}}</span>
+                                                <span class="note-badge" data-if="p.has_note" data-action="player-note-open" data-attr-data-pid="p.primary_id" data-attr-data-name="p.name" data-attr-data-context="p.encounter">SCOUT</span>
+                                                <span class="note-add always" data-if="p.can_note && !p.has_note" data-action="player-note-open" data-attr-data-pid="p.primary_id" data-attr-data-name="p.name" data-attr-data-context="p.encounter">Scout</span>
+                                            </div>
+                                            <div class="label history-sb-met" data-if="p.encounter != ''">{{p.encounter}}</div>
+                                        </div>
+                                        <div class="history-sb-tier" data-style-color="p.tier_color">{{p.tier}}</div>
+                                        <div class="history-sb-mmr mono">{{p.mmr}}</div>
+                                        <div class="history-sb-stat mono">{{p.score}}</div>
+                                        <div class="history-sb-stat mono">{{p.goals}}</div>
+                                        <div class="history-sb-stat mono">{{p.assists}}</div>
+                                        <div class="history-sb-stat mono">{{p.saves}}</div>
+                                        <div class="history-sb-stat mono">{{p.shots}}</div>
+                                        <div class="history-sb-stat mono">{{p.demos_inflicted}}</div>
+                                        <div class="history-sb-stat mono">{{p.touches}}</div>
+                                        <div class="history-sb-stat-wide mono">{{p.avg_hit_speed}}</div>
+                                        <div class="history-sb-stat mono">{{p.aerial_hits}}</div>
+                                        <div class="history-sb-stat mono">{{p.first_touches}}</div>
+                                        <div class="history-sb-stat-wide mono label">{{p.hits_by_third}}</div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="muted view-empty" data-if="detail_our_team.size == 0 && detail_their_team.size == 0">No player scoreboard data was recorded for this match.</div>
+                        </div>
+
+                        <!-- 3. BOOST & MOVEMENT TAB -->
+                        <div data-if="detail_tab == 'boost'">
+                            <div class="callout" data-if="telemetry_note != ''">{{telemetry_note}}</div>
+
+                            <div data-if="has_car_telemetry">
+                                <div class="stat-section-title">YOUR BOOST USAGE</div>
+                                <div class="row gap-md telemetry-grid">
+                                    <div class="telemetry-card card">
+                                        <div class="label">Boost / Minute</div>
+                                        <div class="value mono large">{{car_bpm}}</div>
+                                    </div>
+                                    <div class="telemetry-card card">
+                                        <div class="label">Average Boost</div>
+                                        <div class="value mono large">{{car_avg_boost}}</div>
+                                    </div>
+                                    <div class="telemetry-card card">
+                                        <div class="label">Time at 0 Boost</div>
+                                        <div class="value mono">{{car_zero_boost}}</div>
+                                    </div>
+                                    <div class="telemetry-card card">
+                                        <div class="label">Time at 100 Boost</div>
+                                        <div class="value mono">{{car_full_boost}}</div>
+                                    </div>
+                                    <div class="telemetry-card card">
+                                        <div class="label">Collected / Used</div>
+                                        <div class="value mono">{{car_boost_collected}} / {{car_boost_used}}</div>
+                                    </div>
+                                    <div class="telemetry-card card">
+                                        <div class="label">Pads (Big / Small)</div>
+                                        <div class="value mono">{{car_big_pads}} / {{car_small_pads}}</div>
+                                    </div>
+                                    <div class="telemetry-card card">
+                                        <div class="label">Stolen Pads</div>
+                                        <div class="value mono">{{car_stolen_pads}}</div>
+                                    </div>
+                                </div>
+
+                                <div class="card" style="margin-top:12dp;">
+                                    <div class="label">Time spent at each boost level</div>
+                                    <div class="split-track row">
+                                        <div class="split-bar band-0" data-style-width="boost_band_0"></div>
+                                        <div class="split-bar band-1" data-style-width="boost_band_1"></div>
+                                        <div class="split-bar band-2" data-style-width="boost_band_2"></div>
+                                        <div class="split-bar band-3" data-style-width="boost_band_3"></div>
+                                    </div>
+                                    <div class="row gap-md" style="margin-top:6dp;font-size:11dp;">
+                                        <span class="label"><span class="legend-swatch band-0"></span> 0-25 boost ({{boost_band_0}})</span>
+                                        <span class="label"><span class="legend-swatch band-1"></span> 25-50 ({{boost_band_1}})</span>
+                                        <span class="label"><span class="legend-swatch band-2"></span> 50-75 ({{boost_band_2}})</span>
+                                        <span class="label"><span class="legend-swatch band-3"></span> 75-100 ({{boost_band_3}})</span>
+                                    </div>
+                                </div>
+
+                                <div class="stat-section-title" style="margin-top:16dp;">YOUR MOVEMENT &amp; POSITION</div>
+                                <div class="row gap-md telemetry-grid">
+                                    <div class="telemetry-card card">
+                                        <div class="label">Average Speed</div>
+                                        <div class="value mono large">{{car_avg_speed}}</div>
+                                    </div>
+                                    <div class="telemetry-card card">
+                                        <div class="label">Max Speed</div>
+                                        <div class="value mono large">{{car_max_speed}}</div>
+                                    </div>
+                                    <div class="telemetry-card card">
+                                        <div class="label">Powerslides</div>
+                                        <div class="value mono">{{car_powerslides}}</div>
+                                    </div>
+                                    <div class="telemetry-card card">
+                                        <div class="label">Demolished Time</div>
+                                        <div class="value mono">{{car_demo_time}}</div>
+                                    </div>
+                                </div>
+
+                                <div class="card" style="margin-top:12dp;">
+                                    <div class="label">Speed Tiers (Slow / Boost / Supersonic)</div>
+                                    <div class="split-track row">
+                                        <div class="split-bar speed-slow" data-style-width="speed_slow_pct"></div>
+                                        <div class="split-bar speed-boost" data-style-width="speed_boost_pct"></div>
+                                        <div class="split-bar speed-super" data-style-width="speed_supersonic_pct"></div>
+                                    </div>
+                                    <div class="row gap-md" style="margin-top:6dp;font-size:11dp;">
+                                        <span class="label"><span class="legend-swatch speed-slow"></span> Slow ({{speed_slow_label}})</span>
+                                        <span class="label"><span class="legend-swatch speed-boost"></span> Boost ({{speed_boost_label}})</span>
+                                        <span class="label"><span class="legend-swatch speed-super"></span> Supersonic ({{speed_supersonic_label}})</span>
+                                    </div>
+                                </div>
+
+                                <div class="card" style="margin-top:12dp;">
+                                    <div class="label">Height &amp; Surface (Ground / Air / Wall)</div>
+                                    <div class="split-track row">
+                                        <div class="split-bar surf-ground" data-style-width="surface_ground_pct"></div>
+                                        <div class="split-bar surf-air" data-style-width="surface_air_pct"></div>
+                                        <div class="split-bar surf-wall" data-style-width="surface_wall_pct"></div>
+                                    </div>
+                                    <div class="row gap-md" style="margin-top:6dp;font-size:11dp;">
+                                        <span class="label"><span class="legend-swatch surf-ground"></span> Ground ({{surface_ground_label}})</span>
+                                        <span class="label"><span class="legend-swatch surf-air"></span> Air ({{surface_air_label}})</span>
+                                        <span class="label"><span class="legend-swatch surf-wall"></span> Wall ({{surface_wall_label}})</span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div data-if="has_legacy_stats && !has_car_telemetry">
+                                <div class="stat-section-title">STORED MATCH STATS</div>
+                                <div class="row gap-md telemetry-grid">
+                                    <div class="telemetry-card card">
+                                        <div class="label">Boost Collected</div>
+                                        <div class="value mono large">{{legacy_boost_collected}}</div>
+                                    </div>
+                                    <div class="telemetry-card card">
+                                        <div class="label">Times Demolished</div>
+                                        <div class="value mono large">{{legacy_demoed}}</div>
+                                    </div>
+                                    <div class="telemetry-card card">
+                                        <div class="label">Crossbars</div>
+                                        <div class="value mono">{{legacy_crossbars}}</div>
+                                    </div>
+                                    <div class="telemetry-card card">
+                                        <div class="label">Hardest Crossbar</div>
+                                        <div class="value mono">{{legacy_hardest_crossbar}}</div>
+                                    </div>
+                                    <div class="telemetry-card card">
+                                        <div class="label">Max Ball Speed</div>
+                                        <div class="value mono">{{legacy_max_ball_speed}}</div>
+                                    </div>
+                                    <div class="telemetry-card card">
+                                        <div class="label">Own Goals</div>
+                                        <div class="value mono">{{legacy_ownGoals}}</div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="muted view-empty" data-if="!has_car_telemetry && !has_legacy_stats">No boost or movement telemetry was recorded for this match.</div>
+                        </div>
+
+                        <!-- 4. MECHANICS TAB -->
+                        <div data-if="detail_tab == 'mechanics'">
+                            <div class="stat-section-title">IN-GAME EVENTS MATRIX</div>
+                            <div class="history-mechanics-table" data-if="has_mechanics">
+                                <div class="history-mech-row header">
+                                    <div class="history-mech-player">Player</div>
+                                    <div class="history-mech-cell" data-for="col : mechanics_columns">{{col}}</div>
+                                </div>
+                                <div class="history-mech-row" data-for="row : mechanics_rows" data-class-total="row.is_total" data-class-self="row.is_me">
+                                    <div class="history-mech-player" data-class-bold="row.is_total">{{row.player_name}}</div>
+                                    <div class="history-mech-cell mono" data-for="val : row.values">{{val}}</div>
+                                </div>
+                            </div>
+                            <div class="muted view-empty" data-if="!has_mechanics">No detailed in-game events were recorded for this match.</div>
+                        </div>
+
+                        <!-- 5. FIELD TAB -->
+                        <div data-if="detail_tab == 'field'">
+                            <div class="stat-section-title">PITCH TOUCHES &amp; GOALS</div>
+                            <div class="pitch-outer row" data-if="field_has_data">
+                                <div class="pitch-container">
+                                    <div class="pitch-halfway-line"></div>
+                                    <div class="pitch-center-circle"></div>
+                                    <div class="pitch-goal-box top"></div>
+                                    <div class="pitch-goal-box bottom"></div>
+                                    <div class="pitch-label top">Attacking</div>
+                                    <div class="pitch-label bottom">Defending</div>
+
+                                    <div class="pitch-dot" data-for="d : field_dots" data-style-left="d.x_pct" data-style-top="d.y_pct" data-attr-class="d.dot_class"></div>
+                                    <div class="pitch-goal" data-for="g : field_goals" data-style-left="g.x_pct" data-style-top="g.y_pct" data-attr-class="g.marker_class">
+                                        <div class="pitch-goal-pin"></div>
+                                        <div class="pitch-goal-label">{{g.label}}</div>
+                                    </div>
+                                </div>
+
+                                <div class="pitch-side-panel card">
+                                    <div class="card-title">Pitch Map</div>
+                                    <div class="label">{{field_touches_count}}</div>
+                                    <div class="label" style="margin-top:12dp;">Your touches are oriented so you attack upward regardless of team colour.</div>
+
+                                    <div class="stat-section-title" style="margin-top:16dp;">TOUCH SPEED</div>
+                                    <div class="row gap-xs" style="align-items:center;margin-top:4dp;"><span class="pitch-legend-dot soft"></span> <span class="label">{{pitch_legend_soft}}</span></div>
+                                    <div class="row gap-xs" style="align-items:center;margin-top:4dp;"><span class="pitch-legend-dot medium"></span> <span class="label">{{pitch_legend_med}}</span></div>
+                                    <div class="row gap-xs" style="align-items:center;margin-top:4dp;"><span class="pitch-legend-dot hard"></span> <span class="label">{{pitch_legend_hard}}</span></div>
+
+                                    <div class="stat-section-title" style="margin-top:16dp;">GOAL LOCATIONS</div>
+                                    <div class="row gap-xs" style="align-items:center;margin-top:4dp;"><span class="pitch-legend-goal our"></span> <span class="label">Our Team Goal</span></div>
+                                    <div class="row gap-xs" style="align-items:center;margin-top:4dp;"><span class="pitch-legend-goal their"></span> <span class="label">Opponents Goal</span></div>
+                                </div>
+                            </div>
+                            <div class="muted view-empty" data-if="!field_has_data">No pitch touch coordinates were recorded for this match.</div>
+                        </div>
+
+                        <!-- 6. EVENTS TAB -->
+                        <div data-if="detail_tab == 'events'">
+                            <div class="history-scoreboard-block">
+                                <div class="stat-section-title">MATCH EVENTS LOG</div>
+                                <div class="row gap-sm history-event-tabs">
+                                    <button class="tab-button pill" data-action="history-event-filter" data-event-filter="all" data-class-active="event_filter == 'all'">All</button>
+                                    <button class="tab-button pill" data-action="history-event-filter" data-event-filter="goals" data-class-active="event_filter == 'goals'">Goals</button>
+                                    <button class="tab-button pill" data-action="history-event-filter" data-event-filter="saves" data-class-active="event_filter == 'saves'">Saves</button>
+                                    <button class="tab-button pill" data-action="history-event-filter" data-event-filter="shots" data-class-active="event_filter == 'shots'">Shots</button>
+                                    <button class="tab-button pill" data-action="history-event-filter" data-event-filter="demolitions" data-class-active="event_filter == 'demolitions'">Demos</button>
+                                    <button class="tab-button pill" data-action="history-event-filter" data-event-filter="other" data-class-active="event_filter == 'other'">Other</button>
+                                </div>
+                                <div class="row gap-sm history-event-tabs" data-if="event_team_available">
+                                    <span class="label">Team</span>
+                                    <button class="tab-button pill" data-action="history-event-team" data-team-filter="all" data-class-active="event_team_filter == 'all'">Both</button>
+                                    <button class="tab-button pill" data-action="history-event-team" data-team-filter="ours" data-class-active="event_team_filter == 'ours'">Ours</button>
+                                    <button class="tab-button pill" data-action="history-event-team" data-team-filter="opponents" data-class-active="event_team_filter == 'opponents'">Opponents</button>
+                                </div>
+                                <div class="history-event-list" data-if="detail_events.size > 0">
+                                    <div class="history-event-row" data-for="e : detail_events">
+                                        <span class="mono history-event-clock">{{e.clock}}</span>
+                                        <span class="history-event-type">{{e.type}}</span>
+                                        <span class="history-event-player">{{e.player}}</span>
+                                        <span class="label">{{e.detail}}</span>
+                                    </div>
+                                </div>
+                                <div class="label" data-if="detail_events.size == 0">{{event_empty}}</div>
                             </div>
                         </div>
                     </div>

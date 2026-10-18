@@ -25,6 +25,7 @@ namespace {
         if (name == "sessions") return InsightsView::Tab::Sessions;
         if (name == "people") return InsightsView::Tab::People;
         if (name == "trends") return InsightsView::Tab::Trends;
+        if (name == "playstyle") return InsightsView::Tab::Playstyle;
         return InsightsView::Tab::Recap;
     }
 }
@@ -129,6 +130,7 @@ void RmlUiController::RefreshInsights(bool force) {
     std::vector<MatchOutcome> outcomes;
     std::vector<MatchMmrContext> mmrContext;
     std::vector<SessionRecap> sessions;
+    std::vector<AnalyticsMatchRow> analyticsMatches;
     bool loaded = false;
     {
         std::lock_guard lock(m_state->insights.mutex);
@@ -138,9 +140,10 @@ void RmlUiController::RefreshInsights(bool force) {
             outcomes = m_state->insights.outcomes;
             mmrContext = m_state->insights.mmrContext;
             sessions = m_state->insights.sessions;
+            analyticsMatches = m_state->insights.analyticsMatches;
         }
     }
-    m_insights.SetHistory(m_snap.myPrimaryId, loaded, people, outcomes, mmrContext, sessions);
+    m_insights.SetHistory(m_snap.myPrimaryId, loaded, people, outcomes, mmrContext, sessions, analyticsMatches);
     m_renderDirty = true;
 }
 
@@ -770,6 +773,10 @@ bool RmlUiController::HandleViewAction(const std::string& action, Rml::Element* 
         HideHistory();
     } else if (action == "history-close-detail") {
         m_history.CloseDetail();
+        m_renderDirty = true;
+    } else if (action == "history-detail-tab") {
+        const std::string tab = Attribute(target, "data-tab");
+        if (!tab.empty()) m_history.SetDetailTab(tab);
         m_renderDirty = true;
     } else if (action == "history-filter") {
         const std::string playlist = Attribute(target, "data-playlist");

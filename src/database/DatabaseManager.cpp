@@ -358,10 +358,12 @@ void DatabaseManager::AsyncLoadInsights(const std::string& primaryId) {
         std::vector<MatchOutcome> outcomes;
         std::vector<MatchMmrContext> mmrContext;
         std::vector<SessionRecap> sessions;
+        std::vector<AnalyticsMatchRow> analyticsMatches;
         GetPeopleRecords(pid, people);
         GetMatchOutcomes(pid, outcomes);
         GetMatchMmrContext(pid, mmrContext);
         sessions = ListSessions(pid, 0, 200);
+        analyticsMatches = GetAnalyticsMatches(pid, 300);
         if (!m_state) return;
         std::lock_guard<std::mutex> lock(m_state->insights.mutex);
         m_state->insights.primaryId = pid;
@@ -369,6 +371,7 @@ void DatabaseManager::AsyncLoadInsights(const std::string& primaryId) {
         m_state->insights.outcomes = std::move(outcomes);
         m_state->insights.mmrContext = std::move(mmrContext);
         m_state->insights.sessions = std::move(sessions);
+        m_state->insights.analyticsMatches = std::move(analyticsMatches);
         m_state->insights.loaded = true;
         m_state->insights.version.fetch_add(1, std::memory_order_relaxed);
     },

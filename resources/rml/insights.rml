@@ -18,6 +18,7 @@
                 <button class="tab-button" data-action="insights-tab" data-tab="sessions" data-class-active="tab == 'sessions'">Sessions</button>
                 <button class="tab-button" data-action="insights-tab" data-tab="people" data-class-active="tab == 'people'">People</button>
                 <button class="tab-button" data-action="insights-tab" data-tab="trends" data-class-active="tab == 'trends'">Trends</button>
+                <button class="tab-button" data-action="insights-tab" data-tab="playstyle" data-class-active="tab == 'playstyle'">Playstyle</button>
             </div>
 
             <div class="view-body" data-if="tab == 'recap'">
@@ -58,6 +59,11 @@
                                     <div class="recap-strip-value">{{stat.value}}</div>
                                     <div class="recap-strip-label">{{stat.label}}</div>
                                 </div>
+                            </div>
+                            <div class="recap-pills" data-if="recap_has_telemetry">
+                                <div class="recap-pill"><span class="recap-pill-val mono">{{recap_bpm}}</span> <span class="recap-pill-lbl">BPM</span></div>
+                                <div class="recap-pill"><span class="recap-pill-val mono">{{recap_supersonic}}</span> <span class="recap-pill-lbl">Supersonic</span></div>
+                                <div class="recap-pill"><span class="recap-pill-val mono">{{recap_hits}}</span> <span class="recap-pill-lbl">Hits</span></div>
                             </div>
                             <div class="recap-modes" data-if="recap_modes.size > 0">
                                 <div class="recap-section-title">By playlist</div>
@@ -186,6 +192,55 @@
                     </div>
                 </div>
                 <div class="muted view-empty" data-if="trend_sections.size == 0">{{trends_empty}}</div>
+            </div>
+
+            <div class="view-body" data-if="tab == 'playstyle'">
+                <div class="row gap-sm view-filters">
+                    <button class="tab-button pill" data-for="playlist : trend_playlists" data-action="trend-playlist-filter" data-attr-data-playlist="playlist.id" data-class-active="trend_playlist_filter == playlist.id">{{playlist.label}}</button>
+                </div>
+                <div class="label trends-summary" data-if="playstyle_has_data">{{playstyle_sample_summary}}</div>
+                <div class="muted view-empty" data-if="!playstyle_has_data">{{playstyle_empty}}</div>
+
+                <div data-if="playstyle_has_data">
+                    <div class="playstyle-section" data-if="playstyle_recent_form.size > 0">
+                        <div class="stat-section-title">RECENT FORM</div>
+                        <div class="card-subtitle trend-section-subtitle">{{playstyle_recent_label}}</div>
+                        <div class="playstyle-recent-grid">
+                            <div class="playstyle-recent-card" data-for="item : playstyle_recent_form">
+                                <div class="playstyle-recent-lbl">{{item.label}}</div>
+                                <div class="playstyle-recent-val mono">{{item.recent_val}}</div>
+                                <div class="row gap-xs playstyle-recent-sub">
+                                    <span class="muted mono">vs {{item.previous_val}}</span>
+                                    <span class="mono" data-class-win="item.tone == 1" data-class-loss="item.tone == -1">{{item.delta}}</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="playstyle-section">
+                        <div class="stat-section-title">WHAT SEPARATES YOUR WINS</div>
+                        <div class="card-subtitle trend-section-subtitle">Top metric differences between wins and losses ranked by standardized effect size</div>
+                        <div class="callout" data-if="playstyle_splits_empty != ''">{{playstyle_splits_empty}}</div>
+                        <div class="playstyle-splits-list" data-if="playstyle_splits.size > 0">
+                            <div class="playstyle-split-item" data-for="split : playstyle_splits">
+                                <div class="playstyle-split-text">{{split.sentence}}</div>
+                                <div class="playstyle-split-effect mono label">{{split.effect_label}}</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="playstyle-section">
+                        <div class="stat-section-title">TELEMETRY AVERAGES</div>
+                        <div class="card-subtitle trend-section-subtitle">Per-game playstyle metrics from matches with local car telemetry</div>
+                        <div class="playstyle-metrics-grid">
+                            <div class="playstyle-metric-card" data-for="metric : playstyle_metrics">
+                                <div class="playstyle-metric-cat label">{{metric.category}}</div>
+                                <div class="playstyle-metric-val mono">{{metric.value}}</div>
+                                <div class="playstyle-metric-lbl">{{metric.label}}</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
             </div>
         </div>
     </div>

@@ -249,18 +249,6 @@ struct SessionRecap {
     }
 };
 
-// Database aggregates behind the Insights window, loaded on demand.
-struct InsightsState {
-    mutable std::mutex mutex;
-    std::atomic<uint64_t> version{0};
-    bool loaded = false;
-    std::string primaryId;
-    std::vector<PersonRecord> people;
-    std::vector<MatchOutcome> outcomes;
-    std::vector<MatchMmrContext> mmrContext;
-    std::vector<SessionRecap> sessions;
-};
-
 struct MatchQuery {
     enum Sort {
         Newest = 0,
@@ -404,6 +392,19 @@ struct AnalyticsMatchRow {
     std::optional<int> touches;
     std::optional<MatchLocalStatsRow> localStats;
     std::optional<MatchAnalytics> analytics;
+};
+
+// Database aggregates behind the Insights window, loaded on demand.
+struct InsightsState {
+    mutable std::mutex mutex;
+    std::atomic<uint64_t> version{0};
+    bool loaded = false;
+    std::string primaryId;
+    std::vector<PersonRecord> people;
+    std::vector<MatchOutcome> outcomes;
+    std::vector<MatchMmrContext> mmrContext;
+    std::vector<SessionRecap> sessions;
+    std::vector<AnalyticsMatchRow> analyticsMatches;
 };
 
 struct HistoryViewState {
