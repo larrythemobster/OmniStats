@@ -660,7 +660,9 @@ void MatchAnalyticsTracker::OnRoundStarted(double nowSeconds) {
     m_roundActive = !m_paused;
     m_lastSampleAt = nowSeconds;
     m_possessionTeam = -1;
-    m_score = m_scoreboard;
+    // Catches up on goals missed before we connected; a lagging scoreboard must not undo observed goals.
+    for (size_t t = 0; t < 2; ++t)
+        m_score[t] = std::max(m_score[t], m_scoreboard[t]);
     m_awaitingFirstTouch = true;
     m_kickoffPossessionPending = true;
     KickoffRecord k;

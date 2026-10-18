@@ -263,6 +263,7 @@ class HistoryView {
     int m_detailMmrTone = 0;
     Rml::String m_detailDuration;
     Rml::String m_detailV1Note;
+    bool m_hasV1Note = false;
     Rml::String m_detailBallchasingUrl;
     std::vector<HistoryDetailPlayerRow> m_detailOurTeam;
     std::vector<HistoryDetailPlayerRow> m_detailTheirTeam;

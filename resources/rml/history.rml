@@ -126,11 +126,11 @@
 
                     <div class="history-detail-body">
                         <div class="label" data-if="detail_loading">Loading match details...</div>
-                        <div class="callout" data-if="detail_v1_note != ''">{{detail_v1_note}}</div>
+                        <div class="callout" data-if="has_v1_note">{{detail_v1_note}}</div>
 
                         <!-- 1. OVERVIEW TAB -->
                         <div data-if="detail_tab == 'overview'">
-                            <div class="history-story-card card" data-if="detail_story_lines.size > 0">
+                            <div class="history-story-card" data-if="detail_story_lines.size > 0">
                                 <div class="stat-section-title">MATCH STORY</div>
                                 <div class="history-story-line" data-for="line : detail_story_lines">{{line}}</div>
                             </div>
@@ -152,9 +152,9 @@
                                     </div>
                                 </div>
                                 <div class="row gap-md history-timeline-legend">
-                                    <div class="row gap-xs" style="align-items:center"><span class="legend-swatch our"></span> <span class="label">Our Team</span></div>
-                                    <div class="row gap-xs" style="align-items:center"><span class="legend-swatch their"></span> <span class="label">Opponents</span></div>
-                                    <div class="row gap-xs" style="align-items:center"><span class="legend-swatch pin"></span> <span class="label">Goal Marker (Score after)</span></div>
+                                    <div class="row gap-xs" style="align-items:center"><div class="legend-swatch our"></div> <span class="label">Our Team</span></div>
+                                    <div class="row gap-xs" style="align-items:center"><div class="legend-swatch their"></div> <span class="label">Opponents</span></div>
+                                    <div class="row gap-xs" style="align-items:center"><div class="legend-swatch pin"></div> <span class="label">Goal Marker (Score after)</span></div>
                                 </div>
                             </div>
 
@@ -185,43 +185,45 @@
                                         <div class="history-sb-player"><span>Player</span></div>
                                         <div class="history-sb-tier">Tier</div>
                                         <div class="history-sb-mmr">MMR</div>
-                                        <div class="history-sb-stat">Score</div>
-                                        <div class="history-sb-stat">G</div>
-                                        <div class="history-sb-stat">A</div>
-                                        <div class="history-sb-stat">Sv</div>
-                                        <div class="history-sb-stat">Sh</div>
-                                        <div class="history-sb-stat">Dem</div>
-                                        <div class="history-sb-stat">Touches</div>
-                                        <div class="history-sb-stat-wide">Avg Spd</div>
-                                        <div class="history-sb-stat">Aerials</div>
-                                        <div class="history-sb-stat">KO</div>
-                                        <div class="history-sb-stat-wide">Def/Neu/Off</div>
+                                        <div class="history-sb-scr">Scr</div>
+                                        <div class="history-sb-g">G</div>
+                                        <div class="history-sb-a">A</div>
+                                        <div class="history-sb-sv">Sv</div>
+                                        <div class="history-sb-sh">Sh</div>
+                                        <div class="history-sb-dem">Dem</div>
+                                        <div class="history-sb-tch">Tch</div>
+                                        <div class="history-sb-spd">Spd</div>
+                                        <div class="history-sb-aer">Aer</div>
+                                        <div class="history-sb-ko">KO</div>
+                                        <div class="history-sb-3rd">3rds</div>
                                     </div>
                                     <div class="history-scoreboard-row" data-for="p : detail_our_team" data-class-self="p.is_me">
                                         <div class="history-sb-player">
-                                            <div class="row gap-sm" style="align-items:center">
+                                            <div class="row gap-xs" style="align-items:center">
                                                 <span class="value">{{p.name}}</span>
                                                 <span class="badge" data-attr-class="p.platform_class" data-if="p.platform != ''">{{p.platform}}</span>
+                                            </div>
+                                            <div class="row gap-xs" style="align-items:center;margin-top:2dp;">
                                                 <span class="note-badge" data-if="p.has_note" data-action="player-note-open" data-attr-data-pid="p.primary_id" data-attr-data-name="p.name" data-attr-data-context="p.encounter">SCOUT</span>
                                                 <span class="note-add always" data-if="p.can_note && !p.has_note" data-action="player-note-open" data-attr-data-pid="p.primary_id" data-attr-data-name="p.name" data-attr-data-context="p.encounter">Scout</span>
+                                                <span class="label history-sb-met" data-if="p.encounter != ''">{{p.encounter}}</span>
                                             </div>
-                                            <div class="label history-sb-met" data-if="p.encounter != ''">{{p.encounter}}</div>
                                         </div>
                                         <div class="history-sb-tier" data-style-color="p.tier_color">{{p.tier}}</div>
                                         <div class="history-sb-mmr mono">{{p.mmr}}</div>
-                                        <div class="history-sb-stat mono">{{p.score}}</div>
-                                        <div class="history-sb-stat mono">{{p.goals}}</div>
-                                        <div class="history-sb-stat mono">{{p.assists}}</div>
-                                        <div class="history-sb-stat mono">{{p.saves}}</div>
-                                        <div class="history-sb-stat mono">{{p.shots}}</div>
-                                        <div class="history-sb-stat mono">{{p.demos_inflicted}}</div>
-                                        <div class="history-sb-stat mono">{{p.touches}}</div>
-                                        <div class="history-sb-stat-wide mono">{{p.avg_hit_speed}}</div>
-                                        <div class="history-sb-stat mono">{{p.aerial_hits}}</div>
-                                        <div class="history-sb-stat mono">{{p.first_touches}}</div>
-                                        <div class="history-sb-stat-wide mono label">{{p.hits_by_third}}</div>
-                                    </div>
+                                        <div class="history-sb-scr mono">{{p.score}}</div>
+                                        <div class="history-sb-g mono">{{p.goals}}</div>
+                                        <div class="history-sb-a mono">{{p.assists}}</div>
+                                        <div class="history-sb-sv mono">{{p.saves}}</div>
+                                        <div class="history-sb-sh mono">{{p.shots}}</div>
+                                        <div class="history-sb-dem mono">{{p.demos_inflicted}}</div>
+                                        <div class="history-sb-tch mono">{{p.touches}}</div>
+                                        <div class="history-sb-spd mono">{{p.avg_hit_speed}}</div>
+                                        <div class="history-sb-aer mono">{{p.aerial_hits}}</div>
+                                        <div class="history-sb-ko mono">{{p.first_touches}}</div>
+                                        <div class="history-sb-3rd mono label">{{p.hits_by_third}}</div>
                                 </div>
+                            </div>
                             </div>
 
                             <div class="history-scoreboard-block" style="margin-top:16dp;">
@@ -231,45 +233,47 @@
                                         <div class="history-sb-player"><span>Player</span></div>
                                         <div class="history-sb-tier">Tier</div>
                                         <div class="history-sb-mmr">MMR</div>
-                                        <div class="history-sb-stat">Score</div>
-                                        <div class="history-sb-stat">G</div>
-                                        <div class="history-sb-stat">A</div>
-                                        <div class="history-sb-stat">Sv</div>
-                                        <div class="history-sb-stat">Sh</div>
-                                        <div class="history-sb-stat">Dem</div>
-                                        <div class="history-sb-stat">Touches</div>
-                                        <div class="history-sb-stat-wide">Avg Spd</div>
-                                        <div class="history-sb-stat">Aerials</div>
-                                        <div class="history-sb-stat">KO</div>
-                                        <div class="history-sb-stat-wide">Def/Neu/Off</div>
+                                        <div class="history-sb-scr">Scr</div>
+                                        <div class="history-sb-g">G</div>
+                                        <div class="history-sb-a">A</div>
+                                        <div class="history-sb-sv">Sv</div>
+                                        <div class="history-sb-sh">Sh</div>
+                                        <div class="history-sb-dem">Dem</div>
+                                        <div class="history-sb-tch">Tch</div>
+                                        <div class="history-sb-spd">Spd</div>
+                                        <div class="history-sb-aer">Aer</div>
+                                        <div class="history-sb-ko">KO</div>
+                                        <div class="history-sb-3rd">3rds</div>
                                     </div>
                                     <div class="history-scoreboard-row" data-for="p : detail_their_team">
                                         <div class="history-sb-player">
-                                            <div class="row gap-sm" style="align-items:center">
+                                            <div class="row gap-xs" style="align-items:center">
                                                 <span class="value">{{p.name}}</span>
                                                 <span class="badge" data-attr-class="p.platform_class" data-if="p.platform != ''">{{p.platform}}</span>
+                                            </div>
+                                            <div class="row gap-xs" style="align-items:center;margin-top:2dp;">
                                                 <span class="note-badge" data-if="p.has_note" data-action="player-note-open" data-attr-data-pid="p.primary_id" data-attr-data-name="p.name" data-attr-data-context="p.encounter">SCOUT</span>
                                                 <span class="note-add always" data-if="p.can_note && !p.has_note" data-action="player-note-open" data-attr-data-pid="p.primary_id" data-attr-data-name="p.name" data-attr-data-context="p.encounter">Scout</span>
+                                                <span class="label history-sb-met" data-if="p.encounter != ''">{{p.encounter}}</span>
                                             </div>
-                                            <div class="label history-sb-met" data-if="p.encounter != ''">{{p.encounter}}</div>
                                         </div>
                                         <div class="history-sb-tier" data-style-color="p.tier_color">{{p.tier}}</div>
                                         <div class="history-sb-mmr mono">{{p.mmr}}</div>
-                                        <div class="history-sb-stat mono">{{p.score}}</div>
-                                        <div class="history-sb-stat mono">{{p.goals}}</div>
-                                        <div class="history-sb-stat mono">{{p.assists}}</div>
-                                        <div class="history-sb-stat mono">{{p.saves}}</div>
-                                        <div class="history-sb-stat mono">{{p.shots}}</div>
-                                        <div class="history-sb-stat mono">{{p.demos_inflicted}}</div>
-                                        <div class="history-sb-stat mono">{{p.touches}}</div>
-                                        <div class="history-sb-stat-wide mono">{{p.avg_hit_speed}}</div>
-                                        <div class="history-sb-stat mono">{{p.aerial_hits}}</div>
-                                        <div class="history-sb-stat mono">{{p.first_touches}}</div>
-                                        <div class="history-sb-stat-wide mono label">{{p.hits_by_third}}</div>
-                                    </div>
+                                        <div class="history-sb-scr mono">{{p.score}}</div>
+                                        <div class="history-sb-g mono">{{p.goals}}</div>
+                                        <div class="history-sb-a mono">{{p.assists}}</div>
+                                        <div class="history-sb-sv mono">{{p.saves}}</div>
+                                        <div class="history-sb-sh mono">{{p.shots}}</div>
+                                        <div class="history-sb-dem mono">{{p.demos_inflicted}}</div>
+                                        <div class="history-sb-tch mono">{{p.touches}}</div>
+                                        <div class="history-sb-spd mono">{{p.avg_hit_speed}}</div>
+                                        <div class="history-sb-aer mono">{{p.aerial_hits}}</div>
+                                        <div class="history-sb-ko mono">{{p.first_touches}}</div>
+                                        <div class="history-sb-3rd mono label">{{p.hits_by_third}}</div>
                                 </div>
                             </div>
                             <div class="muted view-empty" data-if="detail_our_team.size == 0 && detail_their_team.size == 0">No player scoreboard data was recorded for this match.</div>
+                            </div>
                         </div>
 
                         <!-- 3. BOOST & MOVEMENT TAB -->
@@ -309,7 +313,7 @@
                                     </div>
                                 </div>
 
-                                <div class="card" style="margin-top:12dp;">
+                                <div class="telemetry-section-card">
                                     <div class="label">Time spent at each boost level</div>
                                     <div class="split-track row">
                                         <div class="split-bar band-0" data-style-width="boost_band_0"></div>
@@ -318,10 +322,10 @@
                                         <div class="split-bar band-3" data-style-width="boost_band_3"></div>
                                     </div>
                                     <div class="row gap-md" style="margin-top:6dp;font-size:11dp;">
-                                        <span class="label"><span class="legend-swatch band-0"></span> 0-25 boost ({{boost_band_0}})</span>
-                                        <span class="label"><span class="legend-swatch band-1"></span> 25-50 ({{boost_band_1}})</span>
-                                        <span class="label"><span class="legend-swatch band-2"></span> 50-75 ({{boost_band_2}})</span>
-                                        <span class="label"><span class="legend-swatch band-3"></span> 75-100 ({{boost_band_3}})</span>
+                                        <div class="row gap-xs" style="align-items:center"><div class="legend-swatch band-0"></div> <span class="label">0-25 boost ({{boost_band_0}})</span></div>
+                                        <div class="row gap-xs" style="align-items:center"><div class="legend-swatch band-1"></div> <span class="label">25-50 ({{boost_band_1}})</span></div>
+                                        <div class="row gap-xs" style="align-items:center"><div class="legend-swatch band-2"></div> <span class="label">50-75 ({{boost_band_2}})</span></div>
+                                        <div class="row gap-xs" style="align-items:center"><div class="legend-swatch band-3"></div> <span class="label">75-100 ({{boost_band_3}})</span></div>
                                     </div>
                                 </div>
 
@@ -345,7 +349,7 @@
                                     </div>
                                 </div>
 
-                                <div class="card" style="margin-top:12dp;">
+                                <div class="telemetry-section-card">
                                     <div class="label">Speed Tiers (Slow / Boost / Supersonic)</div>
                                     <div class="split-track row">
                                         <div class="split-bar speed-slow" data-style-width="speed_slow_pct"></div>
@@ -353,13 +357,12 @@
                                         <div class="split-bar speed-super" data-style-width="speed_supersonic_pct"></div>
                                     </div>
                                     <div class="row gap-md" style="margin-top:6dp;font-size:11dp;">
-                                        <span class="label"><span class="legend-swatch speed-slow"></span> Slow ({{speed_slow_label}})</span>
-                                        <span class="label"><span class="legend-swatch speed-boost"></span> Boost ({{speed_boost_label}})</span>
-                                        <span class="label"><span class="legend-swatch speed-super"></span> Supersonic ({{speed_supersonic_label}})</span>
+                                        <div class="row gap-xs" style="align-items:center"><div class="legend-swatch speed-slow"></div> <span class="label">Slow ({{speed_slow_label}})</span></div>
+                                        <div class="row gap-xs" style="align-items:center"><div class="legend-swatch speed-boost"></div> <span class="label">Boost ({{speed_boost_label}})</span></div>
+                                        <div class="row gap-xs" style="align-items:center"><div class="legend-swatch speed-super"></div> <span class="label">Supersonic ({{speed_supersonic_label}})</span></div>
                                     </div>
                                 </div>
-
-                                <div class="card" style="margin-top:12dp;">
+                                <div class="telemetry-section-card">
                                     <div class="label">Height &amp; Surface (Ground / Air / Wall)</div>
                                     <div class="split-track row">
                                         <div class="split-bar surf-ground" data-style-width="surface_ground_pct"></div>
@@ -367,9 +370,9 @@
                                         <div class="split-bar surf-wall" data-style-width="surface_wall_pct"></div>
                                     </div>
                                     <div class="row gap-md" style="margin-top:6dp;font-size:11dp;">
-                                        <span class="label"><span class="legend-swatch surf-ground"></span> Ground ({{surface_ground_label}})</span>
-                                        <span class="label"><span class="legend-swatch surf-air"></span> Air ({{surface_air_label}})</span>
-                                        <span class="label"><span class="legend-swatch surf-wall"></span> Wall ({{surface_wall_label}})</span>
+                                        <div class="row gap-xs" style="align-items:center"><div class="legend-swatch surf-ground"></div> <span class="label">Ground ({{surface_ground_label}})</span></div>
+                                        <div class="row gap-xs" style="align-items:center"><div class="legend-swatch surf-air"></div> <span class="label">Air ({{surface_air_label}})</span></div>
+                                        <div class="row gap-xs" style="align-items:center"><div class="legend-swatch surf-wall"></div> <span class="label">Wall ({{surface_wall_label}})</span></div>
                                     </div>
                                 </div>
                             </div>
@@ -437,7 +440,6 @@
                                     <div class="pitch-dot" data-for="d : field_dots" data-style-left="d.x_pct" data-style-top="d.y_pct" data-attr-class="d.dot_class"></div>
                                     <div class="pitch-goal" data-for="g : field_goals" data-style-left="g.x_pct" data-style-top="g.y_pct" data-attr-class="g.marker_class">
                                         <div class="pitch-goal-pin"></div>
-                                        <div class="pitch-goal-label">{{g.label}}</div>
                                     </div>
                                 </div>
 

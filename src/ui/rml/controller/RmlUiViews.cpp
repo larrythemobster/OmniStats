@@ -776,7 +776,14 @@ bool RmlUiController::HandleViewAction(const std::string& action, Rml::Element* 
         m_renderDirty = true;
     } else if (action == "history-detail-tab") {
         const std::string tab = Attribute(target, "data-tab");
-        if (!tab.empty()) m_history.SetDetailTab(tab);
+        if (!tab.empty()) {
+            m_history.SetDetailTab(tab);
+            if (m_historyDoc) {
+                if (auto* body = m_historyDoc->QuerySelector(".history-detail-body")) {
+                    body->SetScrollTop(0.0f);
+                }
+            }
+        }
         m_renderDirty = true;
     } else if (action == "history-filter") {
         const std::string playlist = Attribute(target, "data-playlist");

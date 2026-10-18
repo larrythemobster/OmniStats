@@ -353,6 +353,7 @@ bool HistoryView::Create(Rml::Context* context) {
     constructor.Bind("detail_mmr_tone", &m_detailMmrTone);
     constructor.Bind("detail_duration", &m_detailDuration);
     constructor.Bind("detail_v1_note", &m_detailV1Note);
+    constructor.Bind("has_v1_note", &m_hasV1Note);
     constructor.Bind("detail_our_team", &m_detailOurTeam);
     constructor.Bind("detail_their_team", &m_detailTheirTeam);
     constructor.Bind("detail_ballchasing_url", &m_detailBallchasingUrl);
@@ -469,6 +470,7 @@ void HistoryView::Reset() {
     m_detailLoading = false;
     m_detailTab = "overview";
     m_detailOurTeam.clear();
+    m_hasV1Note = false;
     m_detailTheirTeam.clear();
     m_detailStoryLines.clear();
     m_timelineHasData = false;
@@ -800,6 +802,7 @@ void HistoryView::RebuildDetail() {
         m_detailMmrTone = 0;
         m_detailDuration.clear();
         m_detailV1Note.clear();
+        m_hasV1Note = false;
         m_detailBallchasingUrl.clear();
     } else {
         const MatchDetail& d = *m_detailSource;
@@ -825,6 +828,7 @@ void HistoryView::RebuildDetail() {
         }
 
         m_detailDuration = FormatDurationAndOvertime(d.durationSeconds, d.overtimeSeconds);
+        m_hasV1Note = !d.hasPlayerStats;
         m_detailV1Note = d.hasPlayerStats ? "" : "Per-player scoreboard stats were not recorded for this match.";
         m_detailBallchasingUrl = d.ballchasingUrl;
 
@@ -972,7 +976,6 @@ void HistoryView::RebuildDetail() {
             for (const auto& w : a.possessionTimeline) {
                 const float totalSec = w.seconds[0] + w.seconds[1];
                 const float ourSec = (ourTeam == 0) ? w.seconds[0] : w.seconds[1];
-                const float theirSec = (ourTeam == 0) ? w.seconds[1] : w.seconds[0];
                 const int ourPct = totalSec > 0.0f ? std::clamp(static_cast<int>(std::lround(ourSec / totalSec * 100.0f)), 0, 100) : 50;
                 const int theirPct = 100 - ourPct;
                 m_timelineWindows.push_back({std::to_string(ourPct) + "%", std::to_string(theirPct) + "%"});
@@ -1257,7 +1260,7 @@ void HistoryView::RebuildDetail() {
             }
 
             if (e.ballSpeed.has_value()) {
-                const std::string speed = FormatSpeed(*e.ballSpeed, imperial);
+                const std::string speed = FormatSpeed(static_cast<float>(*e.ballSpeed), imperial);
                 if (row.detail.empty()) {
                     row.detail = speed;
                 } else {
@@ -1273,6 +1276,7 @@ void HistoryView::RebuildDetail() {
              "detail_open", "detail_loading", "detail_tab", "detail_result", "detail_win", "detail_score",
              "detail_playlist", "detail_arena", "detail_time", "detail_mmr_change", "detail_mmr_tone",
              "detail_duration", "detail_v1_note", "detail_our_team", "detail_their_team",
+             "has_v1_note",
              "detail_ballchasing_url", "detail_story_lines", "timeline_has_data", "timeline_windows",
              "timeline_goals", "team_compare_rows", "has_car_telemetry", "has_legacy_stats",
              "telemetry_note", "car_bpm", "car_avg_boost", "car_zero_boost", "car_full_boost",

@@ -56,6 +56,37 @@ namespace Playstyle {
             return std::to_string(static_cast<int>(std::lround(val))) + " km/h";
         }
 
+        std::pair<std::string, std::string> FormatDistinctPct(float w, float l) {
+            const int iw = static_cast<int>(std::lround(w));
+            const int il = static_cast<int>(std::lround(l));
+            if (iw != il) return {std::to_string(iw) + "%", std::to_string(il) + "%"};
+            return {FormatFloat(w, 1) + "%", FormatFloat(l, 1) + "%"};
+        }
+
+        std::pair<std::string, std::string> FormatDistinctInt(float w, float l) {
+            const int iw = static_cast<int>(std::lround(w));
+            const int il = static_cast<int>(std::lround(l));
+            if (iw != il) return {std::to_string(iw), std::to_string(il)};
+            return {FormatFloat(w, 1), FormatFloat(l, 1)};
+        }
+
+        std::pair<std::string, std::string> FormatDistinctSpeed(float w, float l) {
+            const int iw = static_cast<int>(std::lround(w));
+            const int il = static_cast<int>(std::lround(l));
+            if (iw != il) return {std::to_string(iw) + " km/h", std::to_string(il) + " km/h"};
+            return {FormatFloat(w, 1) + " km/h", FormatFloat(l, 1) + " km/h"};
+        }
+
+        std::pair<std::string, std::string> FormatDistinctFloat(float w, float l, int dec = 1) {
+            std::string sw = FormatFloat(w, dec);
+            std::string sl = FormatFloat(l, dec);
+            if (sw == sl) {
+                sw = FormatFloat(w, dec + 1);
+                sl = FormatFloat(l, dec + 1);
+            }
+            return {sw, sl};
+        }
+
         std::string FormatSignedDelta(float delta, const std::string& unit) {
             const int rounded = static_cast<int>(std::lround(delta));
             std::string s;
@@ -68,10 +99,11 @@ namespace Playstyle {
         }
 
         std::string FormatSignedDelta1Dec(float delta, const std::string& unit) {
+            const float rounded = std::lround(delta * 10.0f) / 10.0f;
             std::ostringstream ss;
-            if (delta > 0.0f) ss << "+";
-            ss << std::fixed << std::setprecision(1) << delta;
-            if (!unit.empty()) ss << " " << unit;
+            if (rounded > 0.0f) ss << "+";
+            ss << std::fixed << std::setprecision(1) << rounded;
+            if (!unit.empty()) ss << (unit == "%" ? "" : " ") << unit;
             return ss.str();
         }
 
@@ -89,105 +121,105 @@ namespace Playstyle {
             {"bpm", "Boost per minute", "Boost",
              [](const Sample& s) { return s.boostPerMinute; },
              [](float v) { return FormatInt(v) + " / min"; },
-             [](float w, float l) { return "In wins you use " + FormatInt(w) + " boost per minute; in losses " + FormatInt(l) + "."; }},
+             [](float w, float l) { auto [sw, sl] = FormatDistinctInt(w, l); return "In wins you use " + sw + " boost per minute; in losses " + sl + "."; }},
             {"avg_boost", "Average boost", "Boost",
              [](const Sample& s) { return s.avgBoost; },
              [](float v) { return FormatInt(v); },
-             [](float w, float l) { return "In wins your average boost is " + FormatInt(w) + "; in losses " + FormatInt(l) + "."; }},
+             [](float w, float l) { auto [sw, sl] = FormatDistinctInt(w, l); return "In wins your average boost is " + sw + "; in losses " + sl + "."; }},
             {"zero_boost", "Time at 0 boost", "Boost",
              [](const Sample& s) { return s.timeAtZeroBoostPct; },
              [](float v) { return FormatPct(v); },
-             [](float w, float l) { return "In wins you spend " + FormatPct(w) + " of the time at zero boost; in losses " + FormatPct(l) + "."; }},
+             [](float w, float l) { auto [sw, sl] = FormatDistinctPct(w, l); return "In wins you spend " + sw + " of the time at zero boost; in losses " + sl + "."; }},
             {"full_boost", "Time full boost", "Boost",
              [](const Sample& s) { return s.timeFullBoostPct; },
              [](float v) { return FormatPct(v); },
-             [](float w, float l) { return "In wins you spend " + FormatPct(w) + " of the time with full boost; in losses " + FormatPct(l) + "."; }},
+             [](float w, float l) { auto [sw, sl] = FormatDistinctPct(w, l); return "In wins you spend " + sw + " of the time with full boost; in losses " + sl + "."; }},
             {"big_pads", "Big pads / game", "Boost",
              [](const Sample& s) { return s.bigPads; },
              [](float v) { return FormatFloat(v, 1); },
-             [](float w, float l) { return "In wins you collect " + FormatFloat(w, 1) + " big pads per game; in losses " + FormatFloat(l, 1) + "."; }},
+             [](float w, float l) { auto [sw, sl] = FormatDistinctFloat(w, l, 1); return "In wins you collect " + sw + " big pads per game; in losses " + sl + "."; }},
             {"small_pads", "Small pads / game", "Boost",
              [](const Sample& s) { return s.smallPads; },
              [](float v) { return FormatFloat(v, 1); },
-             [](float w, float l) { return "In wins you collect " + FormatFloat(w, 1) + " small pads per game; in losses " + FormatFloat(l, 1) + "."; }},
+             [](float w, float l) { auto [sw, sl] = FormatDistinctFloat(w, l, 1); return "In wins you collect " + sw + " small pads per game; in losses " + sl + "."; }},
 
             // Movement
             {"supersonic", "Supersonic", "Movement",
              [](const Sample& s) { return s.supersonicPct; },
              [](float v) { return FormatPct(v); },
-             [](float w, float l) { return "In wins you spend " + FormatPct(w) + " of the time supersonic; in losses " + FormatPct(l) + "."; }},
+             [](float w, float l) { auto [sw, sl] = FormatDistinctPct(w, l); return "In wins you spend " + sw + " of the time supersonic; in losses " + sl + "."; }},
             {"boost_speed", "Boost speed", "Movement",
              [](const Sample& s) { return s.boostSpeedPct; },
              [](float v) { return FormatPct(v); },
-             [](float w, float l) { return "In wins you spend " + FormatPct(w) + " of the time at boost speed; in losses " + FormatPct(l) + "."; }},
+             [](float w, float l) { auto [sw, sl] = FormatDistinctPct(w, l); return "In wins you spend " + sw + " of the time at boost speed; in losses " + sl + "."; }},
             {"slow_speed", "Slow speed", "Movement",
              [](const Sample& s) { return s.slowPct; },
              [](float v) { return FormatPct(v); },
-             [](float w, float l) { return "In wins you spend " + FormatPct(w) + " of the time slow; in losses " + FormatPct(l) + "."; }},
+             [](float w, float l) { auto [sw, sl] = FormatDistinctPct(w, l); return "In wins you spend " + sw + " of the time slow; in losses " + sl + "."; }},
             {"air_time", "Air time", "Movement",
              [](const Sample& s) { return s.airPct; },
              [](float v) { return FormatPct(v); },
-             [](float w, float l) { return "In wins you spend " + FormatPct(w) + " of the time in the air; in losses " + FormatPct(l) + "."; }},
+             [](float w, float l) { auto [sw, sl] = FormatDistinctPct(w, l); return "In wins you spend " + sw + " of the time in the air; in losses " + sl + "."; }},
             {"wall_time", "Wall time", "Movement",
              [](const Sample& s) { return s.wallPct; },
              [](float v) { return FormatPct(v); },
-             [](float w, float l) { return "In wins you spend " + FormatPct(w) + " of the time on the wall; in losses " + FormatPct(l) + "."; }},
+             [](float w, float l) { auto [sw, sl] = FormatDistinctPct(w, l); return "In wins you spend " + sw + " of the time on the wall; in losses " + sl + "."; }},
             {"avg_speed", "Average speed", "Movement",
              [](const Sample& s) { return s.avgSpeed; },
              [](float v) { return FormatSpeed(v); },
-             [](float w, float l) { return "In wins your average speed is " + FormatSpeed(w) + "; in losses " + FormatSpeed(l) + "."; }},
+             [](float w, float l) { auto [sw, sl] = FormatDistinctSpeed(w, l); return "In wins your average speed is " + sw + "; in losses " + sl + "."; }},
             {"powerslides", "Powerslides / min", "Movement",
              [](const Sample& s) { return s.powerslidesPerMin; },
              [](float v) { return FormatFloat(v, 1) + " / min"; },
-             [](float w, float l) { return "In wins you powerslide " + FormatFloat(w, 1) + " times per minute; in losses " + FormatFloat(l, 1) + "."; }},
+             [](float w, float l) { auto [sw, sl] = FormatDistinctFloat(w, l, 1); return "In wins you powerslide " + sw + " times per minute; in losses " + sl + "."; }},
 
             // Mechanics & Ball
             {"hits", "Hits / game", "Mechanics & Ball",
              [](const Sample& s) { return s.hits; },
              [](float v) { return FormatFloat(v, 1); },
-             [](float w, float l) { return "In wins you average " + FormatFloat(w, 1) + " hits; in losses " + FormatFloat(l, 1) + "."; }},
+             [](float w, float l) { auto [sw, sl] = FormatDistinctFloat(w, l, 1); return "In wins you average " + sw + " hits; in losses " + sl + "."; }},
             {"avg_hit_speed", "Average hit speed", "Mechanics & Ball",
              [](const Sample& s) { return s.avgHitSpeed; },
              [](float v) { return FormatSpeed(v); },
-             [](float w, float l) { return "In wins your average hit speed is " + FormatSpeed(w) + "; in losses " + FormatSpeed(l) + "."; }},
+             [](float w, float l) { auto [sw, sl] = FormatDistinctSpeed(w, l); return "In wins your average hit speed is " + sw + "; in losses " + sl + "."; }},
             {"aerial_hits", "Aerial hits / game", "Mechanics & Ball",
              [](const Sample& s) { return s.aerialHits; },
              [](float v) { return FormatFloat(v, 1); },
-             [](float w, float l) { return "In wins you average " + FormatFloat(w, 1) + " aerial hits; in losses " + FormatFloat(l, 1) + "."; }},
+             [](float w, float l) { auto [sw, sl] = FormatDistinctFloat(w, l, 1); return "In wins you average " + sw + " aerial hits; in losses " + sl + "."; }},
             {"first_touch", "First-touch rate", "Mechanics & Ball",
              [](const Sample& s) { return s.firstTouchRate; },
              [](float v) { return FormatPct(v); },
-             [](float w, float l) { return "In wins you win the first touch " + FormatPct(w) + " of the time; in losses " + FormatPct(l) + "."; }},
+             [](float w, float l) { auto [sw, sl] = FormatDistinctPct(w, l); return "In wins you win the first touch " + sw + " of the time; in losses " + sl + "."; }},
             {"possession", "Possession", "Mechanics & Ball",
              [](const Sample& s) { return s.possessionPct; },
              [](float v) { return FormatPct(v); },
-             [](float w, float l) { return "In wins your team holds " + FormatPct(w) + " possession; in losses " + FormatPct(l) + "."; }},
+             [](float w, float l) { auto [sw, sl] = FormatDistinctPct(w, l); return "In wins your team holds " + sw + " possession; in losses " + sl + "."; }},
             {"demos_inflicted", "Demos inflicted / game", "Mechanics & Ball",
              [](const Sample& s) { return s.demosInflicted; },
              [](float v) { return FormatFloat(v, 1); },
-             [](float w, float l) { return "In wins you inflict " + FormatFloat(w, 1) + " demos; in losses " + FormatFloat(l, 1) + "."; }},
+             [](float w, float l) { auto [sw, sl] = FormatDistinctFloat(w, l, 1); return "In wins you inflict " + sw + " demos; in losses " + sl + "."; }},
             {"demos_taken", "Demos taken / game", "Mechanics & Ball",
              [](const Sample& s) { return s.demosTaken; },
              [](float v) { return FormatFloat(v, 1); },
-             [](float w, float l) { return "In wins you take " + FormatFloat(w, 1) + " demos; in losses " + FormatFloat(l, 1) + "."; }},
+             [](float w, float l) { auto [sw, sl] = FormatDistinctFloat(w, l, 1); return "In wins you take " + sw + " demos; in losses " + sl + "."; }},
 
             // Scoreboard
             {"touches", "Touches / game", "Scoreboard",
              [](const Sample& s) { return s.touches; },
              [](float v) { return FormatFloat(v, 1); },
-             [](float w, float l) { return "In wins you average " + FormatFloat(w, 1) + " touches; in losses " + FormatFloat(l, 1) + "."; }},
+             [](float w, float l) { auto [sw, sl] = FormatDistinctFloat(w, l, 1); return "In wins you average " + sw + " touches; in losses " + sl + "."; }},
             {"goals", "Goals / game", "Scoreboard",
              [](const Sample& s) { return s.goals; },
              [](float v) { return FormatFloat(v, 1); },
-             [](float w, float l) { return "In wins you average " + FormatFloat(w, 1) + " goals; in losses " + FormatFloat(l, 1) + "."; }},
+             [](float w, float l) { auto [sw, sl] = FormatDistinctFloat(w, l, 1); return "In wins you average " + sw + " goals; in losses " + sl + "."; }},
             {"saves", "Saves / game", "Scoreboard",
              [](const Sample& s) { return s.saves; },
              [](float v) { return FormatFloat(v, 1); },
-             [](float w, float l) { return "In wins you average " + FormatFloat(w, 1) + " saves; in losses " + FormatFloat(l, 1) + "."; }},
+             [](float w, float l) { auto [sw, sl] = FormatDistinctFloat(w, l, 1); return "In wins you average " + sw + " saves; in losses " + sl + "."; }},
             {"shots", "Shots / game", "Scoreboard",
              [](const Sample& s) { return s.shots; },
              [](float v) { return FormatFloat(v, 1); },
-             [](float w, float l) { return "In wins you average " + FormatFloat(w, 1) + " shots; in losses " + FormatFloat(l, 1) + "."; }},
+             [](float w, float l) { auto [sw, sl] = FormatDistinctFloat(w, l, 1); return "In wins you average " + sw + " shots; in losses " + sl + "."; }},
         };
 
     } // namespace
@@ -377,20 +409,21 @@ namespace Playstyle {
 
                 if (isPct) {
                     rfm.delta = FormatSignedDelta1Dec(delta, "%");
+                    const float r10 = std::lround(delta * 10.0f) / 10.0f;
+                    rfm.tone = r10 > 0.0f ? 1 : (r10 < 0.0f ? -1 : 0);
                 } else if (isSpeed) {
                     rfm.delta = FormatSignedDelta(delta, "km/h");
+                    const int rounded = static_cast<int>(std::lround(delta));
+                    rfm.tone = rounded > 0 ? 1 : (rounded < 0 ? -1 : 0);
                 } else if (isInt) {
                     rfm.delta = FormatSignedDelta(delta, "");
+                    const int rounded = static_cast<int>(std::lround(delta));
+                    rfm.tone = rounded > 0 ? 1 : (rounded < 0 ? -1 : 0);
                 } else {
                     rfm.delta = FormatSignedDelta1Dec(delta, "");
+                    const float r10 = std::lround(delta * 10.0f) / 10.0f;
+                    rfm.tone = r10 > 0.0f ? 1 : (r10 < 0.0f ? -1 : 0);
                 }
-
-                if (delta > 0.05f)
-                    rfm.tone = 1;
-                else if (delta < -0.05f)
-                    rfm.tone = -1;
-                else
-                    rfm.tone = 0;
             } else {
                 rfm.previousVal = "—";
                 rfm.delta = "—";
