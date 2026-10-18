@@ -1687,6 +1687,9 @@ body.view-document { pointer-events: none; }
 .history-detail-meta { margin-top: 4dp; font-size: 12dp; align-items: center; }
 .history-scoreboard-block { display: block; margin-bottom: 12dp; }
 .history-scoreboard-table { display: block; border: 1dp #eef1f51a; border-radius: 6dp; overflow: hidden; }
+/* The table clips overflow, so header tooltips open downward into the rows. */
+.history-scoreboard-row.header .tooltip-bubble { top: 100%; bottom: auto; left: auto; right: 0; margin: 4dp 0 0 0; width: 170dp; min-width: 0; white-space: normal; line-height: 1.35; text-transform: none; font-weight: 400; text-align: left; }
+.history-sb-name { display: block; white-space: nowrap; overflow: hidden; }
 .history-scoreboard-row {
     display: flex;
     flex-direction: row;

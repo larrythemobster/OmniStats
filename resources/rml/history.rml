@@ -183,27 +183,25 @@
                                 <div class="history-scoreboard-table">
                                     <div class="history-scoreboard-row header">
                                         <div class="history-sb-player"><span>Player</span></div>
-                                        <div class="history-sb-tier">Tier</div>
-                                        <div class="history-sb-mmr">MMR</div>
-                                        <div class="history-sb-scr">Scr</div>
-                                        <div class="history-sb-g">G</div>
-                                        <div class="history-sb-a">A</div>
-                                        <div class="history-sb-sv">Sv</div>
-                                        <div class="history-sb-sh">Sh</div>
-                                        <div class="history-sb-dem">Dem</div>
-                                        <div class="history-sb-tch">Tch</div>
-                                        <div class="history-sb-spd">Spd</div>
-                                        <div class="history-sb-aer">Aer</div>
-                                        <div class="history-sb-ko">KO</div>
-                                        <div class="history-sb-3rd">3rds</div>
+                                        <div class="history-sb-tier tooltip-host">Tier<div class="tooltip-bubble">Rank tier</div></div>
+                                        <div class="history-sb-mmr tooltip-host">MMR<div class="tooltip-bubble">Matchmaking rating (MMR)</div></div>
+                                        <div class="history-sb-scr tooltip-host">Scr<div class="tooltip-bubble">Score</div></div>
+                                        <div class="history-sb-g tooltip-host">G<div class="tooltip-bubble">Goals</div></div>
+                                        <div class="history-sb-a tooltip-host">A<div class="tooltip-bubble">Assists</div></div>
+                                        <div class="history-sb-sv tooltip-host">Sv<div class="tooltip-bubble">Saves</div></div>
+                                        <div class="history-sb-sh tooltip-host">Sh<div class="tooltip-bubble">Shots</div></div>
+                                        <div class="history-sb-dem tooltip-host">Dem<div class="tooltip-bubble">Demolitions</div></div>
+                                        <div class="history-sb-tch tooltip-host">Tch<div class="tooltip-bubble">Touches</div></div>
+                                        <div class="history-sb-spd tooltip-host">Spd<div class="tooltip-bubble">Average hit speed</div></div>
+                                        <div class="history-sb-aer tooltip-host">Aer<div class="tooltip-bubble">Aerial hits</div></div>
+                                        <div class="history-sb-ko tooltip-host">KO<div class="tooltip-bubble">Kickoff first touches</div></div>
+                                        <div class="history-sb-3rd tooltip-host">3rds<div class="tooltip-bubble">Hits by field third: defensive / neutral / offensive</div></div>
                                     </div>
                                     <div class="history-scoreboard-row" data-for="p : detail_our_team" data-class-self="p.is_me">
                                         <div class="history-sb-player">
-                                            <div class="row gap-xs" style="align-items:center">
-                                                <span class="value">{{p.name}}</span>
-                                                <span class="badge" data-attr-class="p.platform_class" data-if="p.platform != ''">{{p.platform}}</span>
-                                            </div>
+                                            <div class="value history-sb-name">{{p.name}}</div>
                                             <div class="row gap-xs" style="align-items:center;margin-top:2dp;">
+                                                <span class="badge" data-attr-class="p.platform_class" data-if="p.platform != ''">{{p.platform}}</span>
                                                 <span class="note-badge" data-if="p.has_note" data-action="player-note-open" data-attr-data-pid="p.primary_id" data-attr-data-name="p.name" data-attr-data-context="p.encounter">SCOUT</span>
                                                 <span class="note-add always" data-if="p.can_note && !p.has_note" data-action="player-note-open" data-attr-data-pid="p.primary_id" data-attr-data-name="p.name" data-attr-data-context="p.encounter">Scout</span>
                                                 <span class="label history-sb-met" data-if="p.encounter != ''">{{p.encounter}}</span>
@@ -231,27 +229,25 @@
                                 <div class="history-scoreboard-table">
                                     <div class="history-scoreboard-row header">
                                         <div class="history-sb-player"><span>Player</span></div>
-                                        <div class="history-sb-tier">Tier</div>
-                                        <div class="history-sb-mmr">MMR</div>
-                                        <div class="history-sb-scr">Scr</div>
-                                        <div class="history-sb-g">G</div>
-                                        <div class="history-sb-a">A</div>
-                                        <div class="history-sb-sv">Sv</div>
-                                        <div class="history-sb-sh">Sh</div>
-                                        <div class="history-sb-dem">Dem</div>
-                                        <div class="history-sb-tch">Tch</div>
-                                        <div class="history-sb-spd">Spd</div>
-                                        <div class="history-sb-aer">Aer</div>
-                                        <div class="history-sb-ko">KO</div>
-                                        <div class="history-sb-3rd">3rds</div>
+                                        <div class="history-sb-tier tooltip-host">Tier<div class="tooltip-bubble">Rank tier</div></div>
+                                        <div class="history-sb-mmr tooltip-host">MMR<div class="tooltip-bubble">Matchmaking rating (MMR)</div></div>
+                                        <div class="history-sb-scr tooltip-host">Scr<div class="tooltip-bubble">Score</div></div>
+                                        <div class="history-sb-g tooltip-host">G<div class="tooltip-bubble">Goals</div></div>
+                                        <div class="history-sb-a tooltip-host">A<div class="tooltip-bubble">Assists</div></div>
+                                        <div class="history-sb-sv tooltip-host">Sv<div class="tooltip-bubble">Saves</div></div>
+                                        <div class="history-sb-sh tooltip-host">Sh<div class="tooltip-bubble">Shots</div></div>
+                                        <div class="history-sb-dem tooltip-host">Dem<div class="tooltip-bubble">Demolitions</div></div>
+                                        <div class="history-sb-tch tooltip-host">Tch<div class="tooltip-bubble">Touches</div></div>
+                                        <div class="history-sb-spd tooltip-host">Spd<div class="tooltip-bubble">Average hit speed</div></div>
+                                        <div class="history-sb-aer tooltip-host">Aer<div class="tooltip-bubble">Aerial hits</div></div>
+                                        <div class="history-sb-ko tooltip-host">KO<div class="tooltip-bubble">Kickoff first touches</div></div>
+                                        <div class="history-sb-3rd tooltip-host">3rds<div class="tooltip-bubble">Hits by field third: defensive / neutral / offensive</div></div>
                                     </div>
                                     <div class="history-scoreboard-row" data-for="p : detail_their_team">
                                         <div class="history-sb-player">
-                                            <div class="row gap-xs" style="align-items:center">
-                                                <span class="value">{{p.name}}</span>
-                                                <span class="badge" data-attr-class="p.platform_class" data-if="p.platform != ''">{{p.platform}}</span>
-                                            </div>
+                                            <div class="value history-sb-name">{{p.name}}</div>
                                             <div class="row gap-xs" style="align-items:center;margin-top:2dp;">
+                                                <span class="badge" data-attr-class="p.platform_class" data-if="p.platform != ''">{{p.platform}}</span>
                                                 <span class="note-badge" data-if="p.has_note" data-action="player-note-open" data-attr-data-pid="p.primary_id" data-attr-data-name="p.name" data-attr-data-context="p.encounter">SCOUT</span>
                                                 <span class="note-add always" data-if="p.can_note && !p.has_note" data-action="player-note-open" data-attr-data-pid="p.primary_id" data-attr-data-name="p.name" data-attr-data-context="p.encounter">Scout</span>
                                                 <span class="label history-sb-met" data-if="p.encounter != ''">{{p.encounter}}</span>
