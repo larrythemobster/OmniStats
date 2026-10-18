@@ -9,6 +9,7 @@
 #include <optional>
 #include <nlohmann/json.hpp>
 #include "core/state/SessionState.hpp"
+#include "core/game/MatchAnalytics.hpp"
 #include "core/config/Config.hpp"
 #include "core/effects/SideEffects.hpp"
 
@@ -82,6 +83,7 @@ class TelemetryReducer {
         float durationSeconds = 0.0f;
         float overtimeSeconds = 0.0f;
         std::vector<MatchJournalEvent> events;
+        std::optional<MatchAnalytics> analytics;
     };
 
     void FinalizeMatchLocked(int winnerTeam, MatchFinalizeSource source, SideEffects& effects);
@@ -104,6 +106,8 @@ class TelemetryReducer {
     void UpdateLifecycleSignalsLocked(const nlohmann::json& data);
     static bool HasExplicitLocalForfeitSignal(const nlohmann::json& data, int localTeam);
     bool AttachTerminalGuidToCurrentLocked(const std::string& eventMatchGuid);
+    bool AcceptsAnalyticsEventLocked(const nlohmann::json& data) const;
+    double AnalyticsNowSeconds() const;
     bool AcceptsUiMatchEventLocked(const nlohmann::json& data, int64_t nowMs);
     bool TargetsCurrentActiveMatchUiLocked(const nlohmann::json& data);
 
@@ -129,6 +133,7 @@ class TelemetryReducer {
     std::string m_lastSavedMatchGuid;
     std::vector<MatchJournalEvent> m_matchEvents;
     std::unordered_set<std::string> m_eventNativeKeys;
+    MatchAnalyticsTracker m_analytics;
     bool m_hasObservedMatchClock = false;
     std::chrono::steady_clock::time_point m_lastMatchClockSampleAt{};
     std::string m_lastEventSignature;

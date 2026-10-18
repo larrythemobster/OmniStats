@@ -880,3 +880,59 @@ TEST(TelemetryReducerStats, JournalCapturesVerifiedEventsAndExcludesStaleAndFree
     EXPECT_DOUBLE_EQ(*end.saveSnapshot.events[1].ballSpeed, 112.0);
     EXPECT_EQ(end.saveSnapshot.events[1].actorId, "Steam|1");
 }
+
+TEST(TelemetryReducerStats, SavedMatchCarriesAnalyticsScopedToThatMatch) {
+    Storage::InitializeEnvironment();
+    auto state = std::make_shared<SessionState>();
+    TelemetryReducer reducer(state);
+    auto now = std::chrono::steady_clock::time_point{std::chrono::seconds(5000)};
+    reducer.SetClockForTests([&]() { return now; });
+    const auto hit = [&](const char* guid, const char* name, int team) {
+        reducer.Reduce(std::string(Constants::EVT_BALL_HIT),
+                       nlohmann::json{{"MatchGuid", guid},
+                                      {"Players", {{{"Name", name}, {"TeamNum", team}}}},
+                                      {"Ball", {{"PostHitSpeed", 88.0}, {"Location", {{"X", 0}, {"Y", 3000}, {"Z", 93}}}}}});
+    };
+
+    hit("", "Me", 0);
+    StartTimedMatch(reducer, *state, "analytics-1");
+    SendClock(reducer, 300.0f, false);
+    hit("analytics-1", "Me", 0);
+    for (int i = 0; i < 20; ++i) {
+        now += std::chrono::milliseconds(100);
+        SendClock(reducer, 300.0f - 0.1f * static_cast<float>(i + 1), false);
+    }
+    hit("other-match", "Opp", 1);
+    reducer.Reduce(std::string(Constants::EVT_GOAL_SCORED),
+                   nlohmann::json{{"MatchGuid", "analytics-1"},
+                                  {"Scorer", {{"Name", "Me"}, {"TeamNum", 0}}},
+                                  {"Assister", {{"Name", "Opp"}, {"TeamNum", 1}}}});
+    const auto end = reducer.Reduce(std::string(Constants::EVT_MATCH_ENDED),
+                                    nlohmann::json{{"MatchGuid", "analytics-1"}, {"WinnerTeamNum", 0}});
+
+    ASSERT_TRUE(end.saveMatch);
+    ASSERT_TRUE(end.saveSnapshot.analytics.has_value());
+    const MatchAnalytics& a = *end.saveSnapshot.analytics;
+    const auto* me = a.FindPlayer("Steam|1");
+    ASSERT_NE(me, nullptr);
+    EXPECT_EQ(me->hits, 1);
+    EXPECT_EQ(me->hitsByThird[2], 1);
+    EXPECT_EQ(a.FindPlayer("Epic|2")->hits, 0);
+    EXPECT_NEAR(a.playSeconds, 2.0f, 0.05f);
+    ASSERT_EQ(a.goals.size(), 1u);
+    EXPECT_EQ(a.goals[0].scorerId, "Steam|1");
+    EXPECT_TRUE(a.EndedEarly());
+    ASSERT_FALSE(end.saveSnapshot.events.empty());
+    EXPECT_EQ(end.saveSnapshot.events.back().type, "goal");
+    EXPECT_EQ(end.saveSnapshot.events.back().secondaryName, "Opp");
+
+    StartTimedMatch(reducer, *state, "analytics-2");
+    SendClock(reducer, 300.0f, false);
+    now += std::chrono::milliseconds(100);
+    SendClock(reducer, 299.9f, false);
+    const auto second = reducer.Reduce(std::string(Constants::EVT_MATCH_ENDED),
+                                       nlohmann::json{{"MatchGuid", "analytics-2"}, {"WinnerTeamNum", 1}});
+    ASSERT_TRUE(second.saveSnapshot.analytics.has_value());
+    EXPECT_TRUE(second.saveSnapshot.analytics->goals.empty());
+    EXPECT_EQ(second.saveSnapshot.analytics->FindPlayer("Steam|1")->hits, 0);
+}

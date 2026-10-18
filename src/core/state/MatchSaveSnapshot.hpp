@@ -5,6 +5,8 @@
 #include <cstdint>
 #include "core/state/SessionState.hpp"
 #include "core/state/MatchEvent.hpp"
+#include "core/game/MatchAnalytics.hpp"
+#include <optional>
 #include <vector>
 
 struct MatchSaveSnapshot {
@@ -33,4 +35,5 @@ struct MatchSaveSnapshot {
     float durationSeconds = 0.0f;
     float overtimeSeconds = 0.0f;
     std::vector<MatchJournalEvent> events;
+    std::optional<MatchAnalytics> analytics;
 };

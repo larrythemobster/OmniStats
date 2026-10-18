@@ -261,6 +261,7 @@ void TelemetryReducer::HandleUpdateState(const nlohmann::json& data, SideEffects
                     m_state->resetMatch(currentArena, currentArenaAsset);
                     if (startsNewLifecycle) {
                         m_matchEvents.clear();
+                        m_analytics.Reset();
                         m_eventNativeKeys.clear();
                         m_lastEventSignature.clear();
                         m_state->game.activeMatchGeneration =
@@ -368,6 +369,7 @@ void TelemetryReducer::HandleUpdateState(const nlohmann::json& data, SideEffects
                     const std::string currentArenaAsset = m_state->game.arenaAsset;
                     m_state->resetMatch(currentArena, currentArenaAsset);
                     m_matchEvents.clear();
+                    m_analytics.Reset();
                     m_eventNativeKeys.clear();
                     m_lastEventSignature.clear();
                     m_state->ui.ResetMatchTimestamps(SteadyNowMs());

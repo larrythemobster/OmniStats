@@ -49,6 +49,7 @@ TelemetryReducer::CapturedMatch TelemetryReducer::CaptureMatchLocked() const {
     match.nonLiveReplay = m_nonLiveReplayActive;
     match.stats = game.currentMatch;
     match.events = m_matchEvents;
+    if (MatchAnalytics analytics = m_analytics.Snapshot(); !analytics.Empty()) match.analytics = std::move(analytics);
     match.roster = game.matchRoster;
     for (const auto& [primaryId, player] : game.roster) {
         match.roster[primaryId] = player;

@@ -20,4 +20,6 @@ namespace Constants {
     constexpr std::string_view EVT_PODIUM_START = "PodiumStart";
     constexpr std::string_view EVT_MATCH_PAUSED = "MatchPaused";
     constexpr std::string_view EVT_MATCH_UNPAUSED = "MatchUnpaused";
+    constexpr std::string_view EVT_BOOST_PICKUP = "BoostPickup";
+    constexpr std::string_view EVT_PLAYER_LEFT = "PlayerLeft";
 }

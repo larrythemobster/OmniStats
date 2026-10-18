@@ -197,6 +197,7 @@ SideEffects TelemetryReducer::Reduce(const std::string& eventName, const nlohman
                 MmrCategory::Best;
             m_followedGraphPlaylistCategory = MmrCategory::Best;
             m_matchEvents.clear();
+            m_analytics.Reset();
             m_eventNativeKeys.clear();
             m_lastEventSignature.clear();
             m_lastPlayerBoost.clear();
@@ -285,6 +286,7 @@ SideEffects TelemetryReducer::Reduce(const std::string& eventName, const nlohman
             m_roundActive = false;
             m_lastPlayerBoost.clear();
         }
+        if (AcceptsAnalyticsEventLocked(data)) m_analytics.OnCountdownBegin();
         return effects;
     }
 
@@ -309,6 +311,7 @@ SideEffects TelemetryReducer::Reduce(const std::string& eventName, const nlohman
         }
         m_roundActive = true;
         m_state->game.roundEverStarted = true;
+        if (AcceptsAnalyticsEventLocked(data)) m_analytics.OnRoundStarted(AnalyticsNowSeconds());
         return effects;
     }
 
@@ -316,6 +319,7 @@ SideEffects TelemetryReducer::Reduce(const std::string& eventName, const nlohman
         if (!m_currentPauseStart.has_value()) {
             m_currentPauseStart = Now();
         }
+        if (AcceptsAnalyticsEventLocked(data)) m_analytics.OnPaused(AnalyticsNowSeconds());
         return effects;
     }
 
@@ -324,6 +328,7 @@ SideEffects TelemetryReducer::Reduce(const std::string& eventName, const nlohman
             m_pauseIntervals.push_back({*m_currentPauseStart, Now()});
             m_currentPauseStart.reset();
         }
+        if (AcceptsAnalyticsEventLocked(data)) m_analytics.OnUnpaused(AnalyticsNowSeconds());
         return effects;
     }
 
@@ -371,6 +376,7 @@ SideEffects TelemetryReducer::Reduce(const std::string& eventName, const nlohman
         const std::array<int, 2> preScore = m_state->game.score;
         const bool preInMatch = m_state->game.inMatch;
         HandleUpdateState(data, effects);
+        if (AcceptsAnalyticsEventLocked(data)) m_analytics.OnUpdateState(data, AnalyticsNowSeconds());
         if (!effects.pushDiscord && (m_state->game.arenaName != preArena ||
                                      m_state->game.score != preScore ||
                                      m_state->game.inMatch != preInMatch)) {
@@ -389,18 +395,27 @@ SideEffects TelemetryReducer::Reduce(const std::string& eventName, const nlohman
             if (!type.empty()) RecordJournalEventLocked(type, data,
                                                         data.contains("MainTarget") ? "MainTarget" : "Player", "SecondaryTarget", "statfeed");
         }
+        if (AcceptsAnalyticsEventLocked(data)) m_analytics.OnStatfeed(data);
         HandleStatFeed(data);
     } else if (eventName == Constants::EVT_GOAL_SCORED) {
-        RecordJournalEventLocked("goal", data, "Scorer", nullptr, "goal");
+        RecordJournalEventLocked("goal", data, "Scorer", "Assister", "goal");
+        if (AcceptsAnalyticsEventLocked(data)) m_analytics.OnGoalScored(data);
         HandleGoalScored(data, effects);
     } else if (eventName == Constants::EVT_BALL_HIT) {
+        if (AcceptsAnalyticsEventLocked(data)) m_analytics.OnBallHit(data);
         HandleBallHit(data);
+    } else if (eventName == Constants::EVT_BOOST_PICKUP) {
+        if (AcceptsAnalyticsEventLocked(data)) m_analytics.OnBoostPickup(data);
+    } else if (eventName == Constants::EVT_PLAYER_LEFT) {
+        if (AcceptsAnalyticsEventLocked(data)) m_analytics.OnPlayerLeft(data);
     } else if (eventName == Constants::EVT_CROSSBAR_HIT) {
         RecordJournalEventLocked("crossbar", data, nullptr, nullptr, "crossbar");
         HandleCrossbarHit(data);
     } else if (eventName == Constants::EVT_MATCH_ENDED) {
+        if (AcceptsAnalyticsEventLocked(data)) m_analytics.OnMatchEnded();
         HandleMatchEnded(data, effects);
     } else if (eventName == Constants::EVT_MATCH_DESTROYED) {
+        if (AcceptsAnalyticsEventLocked(data)) m_analytics.OnMatchEnded();
         HandleMatchDestroyed(data, effects);
     }
 
@@ -482,6 +497,20 @@ float TelemetryReducer::PausedSecondsWithin(std::chrono::steady_clock::time_poin
         addInterval(*m_currentPauseStart, windowEnd);
     }
     return std::chrono::duration<float>(total).count();
+}
+
+bool TelemetryReducer::AcceptsAnalyticsEventLocked(const nlohmann::json& data) const {
+    const auto& game = m_state->game;
+    if (!game.inMatch || game.matchFinalized || game.inReplay || m_nonLiveReplayActive ||
+        game.fallbackNonRecordableContext || PlaylistMetadata::IsNonRecordable(game.playlistId)) return false;
+    const std::string guid = ExtractEventMatchGuid(data);
+    if (guid.empty()) return !(m_missingGuidAssociationBlockedByReconnect && game.matchGuid.empty());
+    if (!game.matchGuid.empty() && guid != game.matchGuid) return false;
+    return m_finalizedMatchGuids.count(guid) == 0 && m_pendingDestroyedMatches.count(guid) == 0;
+}
+
+double TelemetryReducer::AnalyticsNowSeconds() const {
+    return std::chrono::duration<double>(Now().time_since_epoch()).count();
 }
 
 void TelemetryReducer::ResetMatchTimingState() {

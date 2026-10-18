@@ -325,6 +325,7 @@ MatchSaveSnapshot TelemetryReducer::BuildMatchSaveSnapshot(
     snapshot.myPrimaryId = match.myPrimaryId;
     snapshot.endedAtUnixMs = match.endedAtUnixMs;
     snapshot.events = match.events;
+    snapshot.analytics = match.analytics;
     snapshot.localStats = match.stats;
     snapshot.durationSeconds = match.durationSeconds;
     snapshot.overtimeSeconds = match.overtimeSeconds;

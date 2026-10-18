@@ -13,6 +13,7 @@
 #include <cstddef>
 #include <optional>
 #include "core/game/Insights.hpp"
+#include "core/game/MatchAnalytics.hpp"
 #include "core/accounts/PlayerNotes.hpp"
 #include "core/accounts/PlayerScout.hpp"
 #include "core/config/StatsApiConfig.hpp"
@@ -302,6 +303,16 @@ struct MatchRow {
     std::vector<std::string> teammates;
     bool hasBallchasing = false;
     std::string ballchasingUrl;
+    std::optional<int> myScore;
+    std::optional<int> myGoals;
+    std::optional<int> myAssists;
+    std::optional<int> mySaves;
+    std::optional<int> myShots;
+    // Highest scoreboard score in the lobby and on the winning team.
+    bool mvp = false;
+    bool overtime = false;
+    bool endedEarly = false;
+    std::optional<ScorelineSummary> scoreline;
 };
 
 struct MatchDetailPlayer {
@@ -327,6 +338,15 @@ struct MatchDetailPlayer {
     std::optional<float> fastestGoalTime;
     // Record with this player in other saved matches; nullopt when unavailable.
     std::optional<PersonRecord> encounter;
+};
+
+struct MatchLocalStatsRow {
+    int boostCollected = 0;
+    int demoed = 0;
+    int crossbars = 0;
+    std::optional<float> hardestCrossbar;
+    std::optional<float> maxBallSpeed;
+    int ownGoals = 0;
 };
 
 struct MatchDetail {
@@ -356,6 +376,34 @@ struct MatchDetail {
     std::vector<MatchDetailPlayer> ourTeam;
     std::vector<MatchDetailPlayer> theirTeam;
     std::vector<MatchJournalEvent> events;
+    std::optional<MatchLocalStatsRow> localStats;
+    // Absent for matches saved before analytics capture.
+    std::optional<MatchAnalytics> analytics;
+};
+
+// One saved match from the account's perspective, for insight aggregation.
+struct AnalyticsMatchRow {
+    int64_t matchId = 0;
+    int64_t timestampUnix = 0;
+    std::string playlist;
+    int playlistId = -1;
+    bool ranked = true;
+    bool win = false;
+    int ourScore = 0;
+    int theirScore = 0;
+    int myTeam = -1;
+    std::string arena;
+    std::optional<float> durationSeconds;
+    std::optional<float> overtimeSeconds;
+    std::optional<int> score;
+    std::optional<int> goals;
+    std::optional<int> assists;
+    std::optional<int> saves;
+    std::optional<int> shots;
+    std::optional<int> demos;
+    std::optional<int> touches;
+    std::optional<MatchLocalStatsRow> localStats;
+    std::optional<MatchAnalytics> analytics;
 };
 
 struct HistoryViewState {
