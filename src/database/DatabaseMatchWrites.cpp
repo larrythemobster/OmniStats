@@ -3,6 +3,8 @@
 #include "core/config/Config.hpp"
 #include "core/game/GamemodeUtils.hpp"
 #include "core/game/PlaylistMetadata.hpp"
+#include "core/game/MatchAnalytics.hpp"
+#include <nlohmann/json.hpp>
 #include <algorithm>
 #include <iostream>
 #include <shared_mutex>
@@ -180,6 +182,37 @@ bool DatabaseManager::InsertMatchEventsLocked(sqlite3_int64 matchId, const Match
         }
     }
     sqlite3_finalize(stmt);
+    return ok;
+}
+
+bool DatabaseManager::UpsertMatchAnalyticsLocked(sqlite3_int64 matchId, const MatchSaveSnapshot& snapshot) {
+    if (!snapshot.analytics.has_value() || snapshot.analytics->Empty()) {
+        return true;
+    }
+    if (!SqliteTableExists(m_db, "MatchAnalytics")) {
+        return true;
+    }
+
+    const char* sql = R"(
+        INSERT OR REPLACE INTO MatchAnalytics (match_id, format_version, data)
+        VALUES (?, ?, ?);
+    )";
+    sqlite3_stmt* stmt = nullptr;
+    if (sqlite3_prepare_v2(m_db, sql, -1, &stmt, nullptr) != SQLITE_OK) {
+        std::cerr << "[Database] Failed to prepare MatchAnalytics upsert.\n";
+        return false;
+    }
+
+    const std::string text = MatchAnalyticsToJson(*snapshot.analytics).dump();
+    sqlite3_bind_int64(stmt, 1, matchId);
+    sqlite3_bind_int(stmt, 2, snapshot.analytics->formatVersion);
+    sqlite3_bind_text(stmt, 3, text.c_str(), -1, SQLITE_TRANSIENT);
+
+    const bool ok = (sqlite3_step(stmt) == SQLITE_DONE);
+    sqlite3_finalize(stmt);
+    if (!ok) {
+        std::cerr << "[Database] Failed to upsert MatchAnalytics row.\n";
+    }
     return ok;
 }
 
@@ -383,7 +416,8 @@ void DatabaseManager::SaveMatch(const MatchSaveSnapshot& snapshot) {
     sqlite3_finalize(stmtPlayers);
 
     if (!ok || !UpsertMatchStatsLocked(matchId, snapshot) ||
-        !InsertMatchEventsLocked(matchId, snapshot)) {
+        !InsertMatchEventsLocked(matchId, snapshot) ||
+        !UpsertMatchAnalyticsLocked(matchId, snapshot)) {
         sqlite3_exec(m_db, "ROLLBACK;", nullptr, nullptr, nullptr);
         return;
     }
@@ -419,6 +453,15 @@ void DatabaseManager::ResolvePendingMatchLocked(sqlite3_int64 matchId, const Mat
                 sqlite3_finalize(stmt);
                 stmt = nullptr;
             }
+        }
+        if (ok && SqliteTableExists(m_db, "MatchAnalytics")) {
+            ok = sqlite3_prepare_v2(m_db, "DELETE FROM MatchAnalytics WHERE match_id = ?;", -1, &stmt, nullptr) == SQLITE_OK;
+            if (ok) {
+                sqlite3_bind_int64(stmt, 1, matchId);
+                ok = sqlite3_step(stmt) == SQLITE_DONE;
+            }
+            sqlite3_finalize(stmt);
+            stmt = nullptr;
         }
         for (const char* sql : {"DELETE FROM MatchPlayers WHERE match_id = ?;",
                                 "DELETE FROM Matches WHERE id = ?;"}) {
@@ -463,7 +506,8 @@ void DatabaseManager::ResolvePendingMatchLocked(sqlite3_int64 matchId, const Mat
     sqlite3_bind_int(stmt, 3, theirScore);
     sqlite3_bind_int64(stmt, 4, matchId);
     const bool ok = sqlite3_step(stmt) == SQLITE_DONE && UpsertMatchStatsLocked(matchId, snapshot) &&
-                    InsertMatchEventsLocked(matchId, snapshot);
+                    InsertMatchEventsLocked(matchId, snapshot) &&
+                    UpsertMatchAnalyticsLocked(matchId, snapshot);
     sqlite3_finalize(stmt);
     if (!ok || sqlite3_exec(m_db, "COMMIT;", nullptr, nullptr, nullptr) != SQLITE_OK) {
         sqlite3_exec(m_db, "ROLLBACK;", nullptr, nullptr, nullptr);

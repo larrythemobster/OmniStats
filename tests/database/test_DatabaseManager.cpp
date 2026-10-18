@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 #include "database/DatabaseManager.hpp"
 #include "core/state/SessionState.hpp"
+#include "core/game/MatchAnalytics.hpp"
 #include <memory>
 #include <filesystem>
 #include <chrono>
@@ -1062,7 +1063,7 @@ TEST_F(DatabaseManagerTest, MigratesAllHistoricalSchemasToV2WithBackupsAndIdempo
         {
             auto db = std::make_shared<DatabaseManager>(sessionState);
             ASSERT_TRUE(db->Initialize(path)) << tc.label;
-            EXPECT_EQ(db->GetSchemaVersion(), 10) << tc.label;
+            EXPECT_EQ(db->GetSchemaVersion(), 11) << tc.label;
             EXPECT_EQ(QueryIntScalar(db->GetRawDb(), "SELECT COUNT(*) FROM sqlite_master WHERE type='index' AND name='idx_matches_match_guid';"), 1)
                 << tc.label;
             EXPECT_EQ(QueryIntScalar(db->GetRawDb(), "SELECT COUNT(*) FROM Matches;"), 2) << tc.label;
@@ -1082,7 +1083,7 @@ TEST_F(DatabaseManagerTest, MigratesAllHistoricalSchemasToV2WithBackupsAndIdempo
         {
             auto db = std::make_shared<DatabaseManager>(sessionState);
             ASSERT_TRUE(db->Initialize(path)) << tc.label;
-            EXPECT_EQ(db->GetSchemaVersion(), 10) << tc.label;
+            EXPECT_EQ(db->GetSchemaVersion(), 11) << tc.label;
             EXPECT_EQ(QueryIntScalar(db->GetRawDb(), "SELECT COUNT(*) FROM Matches;"), 2) << tc.label;
             EXPECT_EQ(QueryIntScalar(db->GetRawDb(), "SELECT COUNT(*) FROM MatchPlayers;"), 3) << tc.label;
         }
@@ -1690,7 +1691,7 @@ TEST_F(DatabaseManagerTest, MigrationV2ToV3CreatesSessionsTableAndMatchSessionIn
     {
         auto db = std::make_shared<DatabaseManager>(sessionState);
         ASSERT_TRUE(db->Initialize(path));
-        EXPECT_EQ(db->GetSchemaVersion(), 10);
+        EXPECT_EQ(db->GetSchemaVersion(), 11);
         EXPECT_TRUE(std::filesystem::exists(backupPath));
         EXPECT_EQ(QueryIntScalar(db->GetRawDb(), "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='Sessions';"), 1);
         EXPECT_EQ(QueryIntScalar(db->GetRawDb(), "SELECT COUNT(*) FROM sqlite_master WHERE type='index' AND name='idx_matches_session';"), 1);
@@ -2482,7 +2483,7 @@ TEST_F(DatabaseManagerTest, MigrationV3ToV4CreatesReplayUploadsTable) {
     {
         auto db = std::make_shared<DatabaseManager>(sessionState);
         ASSERT_TRUE(db->Initialize(path));
-        EXPECT_EQ(db->GetSchemaVersion(), 10);
+        EXPECT_EQ(db->GetSchemaVersion(), 11);
         EXPECT_TRUE(std::filesystem::exists(backupPath));
         EXPECT_EQ(QueryIntScalar(db->GetRawDb(), "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='ReplayUploads';"), 1);
         EXPECT_EQ(QueryIntScalar(db->GetRawDb(), "SELECT COUNT(*) FROM sqlite_master WHERE type='index' AND name='idx_replay_uploads_match_guid';"), 1);
@@ -2552,4 +2553,365 @@ TEST_F(DatabaseManagerTest, MatchDetailAndQueryMatchesReturnBallchasingInfoWhenJ
     ASSERT_EQ(rows.size(), 1u);
     EXPECT_TRUE(rows[0].hasBallchasing);
     EXPECT_EQ(rows[0].ballchasingUrl, "https://ballchasing.com/replay/bc-upload-id-999");
+}
+
+TEST_F(DatabaseManagerTest, MatchAnalyticsRoundTripSaveAndDetail) {
+    const std::string pid = "Steam|analytics_user";
+    const std::string guid = "analytics-guid-roundtrip";
+
+    MatchSaveSnapshot snap;
+    snap.arenaName = "Champions Field";
+    snap.matchGuid = guid;
+    snap.playlistId = 11;
+    snap.myTeam = 0;
+    snap.winnerTeam = 0;
+    snap.validResult = true;
+    snap.score[0] = 3;
+    snap.score[1] = 1;
+    snap.endedAtUnixMs = 1'700'000'000'000LL;
+    snap.myPrimaryId = pid;
+    snap.roster[pid] = PlayerData{.primaryId = pid, .name = "Hero", .team = 0, .mmr = 1100};
+
+    snap.localStats.boostPickedUpSelf = 42;
+    snap.localStats.demoedSelf = 2;
+    snap.localStats.crossbarsSelf = 1;
+    snap.localStats.maxImpactForceSelf = 85.0f;
+    snap.localStats.maxBallSpeedSelf = 110.5f;
+    snap.localStats.ownGoalsSelf = 0;
+    snap.durationSeconds = 300.0f;
+    snap.overtimeSeconds = 0.0f;
+
+    MatchAnalytics ma;
+    ma.playSeconds = 295.5f;
+    ma.possessionSeconds = {130.0f, 165.5f};
+    ma.ballSpeedIntegral = 4200.0f;
+    ma.maxBallSpeed = 128.4f;
+    ma.pauses = 1;
+    ma.pausedSeconds = 3.5f;
+    ma.endedInOvertime = false;
+
+    PlayerAnalytics pa;
+    pa.primaryId = pid;
+    pa.team = 0;
+    pa.hits = 15;
+    pa.demosInflicted = 2;
+    ma.players.push_back(pa);
+
+    GoalRecord gr;
+    gr.scorerId = pid;
+    gr.team = 0;
+    gr.playSeconds = 110.0f;
+    gr.goalSpeed = 95.0f;
+    ma.goals.push_back(gr);
+
+    snap.analytics = ma;
+
+    dbManager->SaveMatch(snap);
+
+    int matchId = QueryIntScalar(dbManager->GetRawDb(), ("SELECT id FROM Matches WHERE match_guid = '" + guid + "';").c_str());
+    ASSERT_GT(matchId, 0);
+
+    MatchDetail detail;
+    EXPECT_TRUE(dbManager->GetMatchDetail(matchId, detail, pid));
+    EXPECT_TRUE(detail.found);
+
+    ASSERT_TRUE(detail.localStats.has_value());
+    EXPECT_EQ(detail.localStats->boostCollected, 42);
+    EXPECT_EQ(detail.localStats->demoed, 2);
+    EXPECT_EQ(detail.localStats->crossbars, 1);
+    ASSERT_TRUE(detail.localStats->maxBallSpeed.has_value());
+    EXPECT_FLOAT_EQ(*detail.localStats->maxBallSpeed, 110.5f);
+
+    ASSERT_TRUE(detail.analytics.has_value());
+    EXPECT_FLOAT_EQ(detail.analytics->playSeconds, 295.5f);
+    EXPECT_FLOAT_EQ(detail.analytics->maxBallSpeed, 128.4f);
+    EXPECT_EQ(detail.analytics->pauses, 1);
+    ASSERT_EQ(detail.analytics->players.size(), 1u);
+    EXPECT_EQ(detail.analytics->players[0].primaryId, pid);
+    EXPECT_EQ(detail.analytics->players[0].hits, 15);
+    ASSERT_EQ(detail.analytics->goals.size(), 1u);
+    EXPECT_EQ(detail.analytics->goals[0].scorerId, pid);
+}
+
+TEST_F(DatabaseManagerTest, VoidedPendingMatchRemovesAnalytics) {
+    const std::string pid = "Steam|void_user";
+    const std::string guid = "pending-guid-void-analytics";
+
+    MatchSaveSnapshot snap;
+    snap.arenaName = "Mannfield";
+    snap.matchGuid = guid;
+    snap.playlistId = 11;
+    snap.myTeam = 0;
+    snap.winnerTeam = 0;
+    snap.validResult = true;
+    snap.resultPending = true;
+    snap.myPrimaryId = pid;
+    snap.roster[pid] = PlayerData{.primaryId = pid, .name = "Player", .team = 0, .mmr = 1000};
+
+    MatchAnalytics ma;
+    ma.playSeconds = 120.0f;
+    snap.analytics = ma;
+
+    dbManager->SaveMatch(snap);
+
+    int matchId = QueryIntScalar(dbManager->GetRawDb(), ("SELECT id FROM Matches WHERE match_guid = '" + guid + "';").c_str());
+    ASSERT_GT(matchId, 0);
+    EXPECT_EQ(QueryIntScalar(dbManager->GetRawDb(), ("SELECT COUNT(*) FROM MatchAnalytics WHERE match_id = " + std::to_string(matchId) + ";").c_str()), 1);
+
+    // Resolve as voided (validResult = false)
+    MatchSaveSnapshot snapVoid = snap;
+    snapVoid.validResult = false;
+    snapVoid.resultPending = false;
+    snapVoid.voidReason = "forfeit_early";
+    dbManager->SaveMatch(snapVoid);
+
+    EXPECT_EQ(QueryIntScalar(dbManager->GetRawDb(), ("SELECT COUNT(*) FROM Matches WHERE id = " + std::to_string(matchId) + ";").c_str()), 0);
+    EXPECT_EQ(QueryIntScalar(dbManager->GetRawDb(), ("SELECT COUNT(*) FROM MatchAnalytics WHERE match_id = " + std::to_string(matchId) + ";").c_str()), 0);
+}
+
+TEST_F(DatabaseManagerTest, GetAnalyticsMatchesNewestFirstAndNullopt) {
+    const std::string pid = "Steam|analytics_series_user";
+
+    // First match: saved without analytics, earlier timestamp
+    MatchSaveSnapshot snap1;
+    snap1.arenaName = "DFH Stadium";
+    snap1.matchGuid = "guid-analytics-1";
+    snap1.playlistId = 11;
+    snap1.gamemode = "2v2";
+    snap1.myTeam = 0;
+    snap1.winnerTeam = 0;
+    snap1.validResult = true;
+    snap1.score[0] = 2;
+    snap1.score[1] = 0;
+    snap1.endedAtUnixMs = 1'700'000'000'000LL;
+    snap1.myPrimaryId = pid;
+    PlayerData p1;
+    p1.primaryId = pid;
+    p1.name = "Player";
+    p1.team = 0;
+    p1.mmr = 1000;
+    p1.score = 300;
+    p1.goals = 2;
+    snap1.roster[pid] = p1;
+    dbManager->SaveMatch(snap1);
+
+    int m1Id = QueryIntScalar(dbManager->GetRawDb(), "SELECT id FROM Matches WHERE match_guid = 'guid-analytics-1';");
+    ASSERT_EQ(sqlite3_exec(dbManager->GetRawDb(), ("UPDATE Matches SET timestamp = '2026-01-01 12:00:00' WHERE id = " + std::to_string(m1Id) + ";").c_str(), nullptr, nullptr, nullptr), SQLITE_OK);
+
+    // Second match: saved with analytics, later timestamp
+    MatchSaveSnapshot snap2;
+    snap2.arenaName = "Utopia Coliseum";
+    snap2.matchGuid = "guid-analytics-2";
+    snap2.playlistId = 11;
+    snap2.gamemode = "2v2";
+    snap2.myTeam = 0;
+    snap2.winnerTeam = 1;
+    snap2.validResult = true;
+    snap2.score[0] = 1;
+    snap2.score[1] = 3;
+    snap2.endedAtUnixMs = 1'700'001'000'000LL;
+    snap2.myPrimaryId = pid;
+    PlayerData p2;
+    p2.primaryId = pid;
+    p2.name = "Player";
+    p2.team = 0;
+    p2.mmr = 990;
+    p2.score = 250;
+    p2.goals = 1;
+    snap2.roster[pid] = p2;
+    snap2.localStats.boostPickedUpSelf = 35;
+    snap2.durationSeconds = 300.0f;
+
+    MatchAnalytics ma;
+    ma.playSeconds = 300.0f;
+    ma.maxBallSpeed = 115.0f;
+    snap2.analytics = ma;
+    dbManager->SaveMatch(snap2);
+
+    int m2Id = QueryIntScalar(dbManager->GetRawDb(), "SELECT id FROM Matches WHERE match_guid = 'guid-analytics-2';");
+    ASSERT_EQ(sqlite3_exec(dbManager->GetRawDb(), ("UPDATE Matches SET timestamp = '2026-01-02 12:00:00' WHERE id = " + std::to_string(m2Id) + ";").c_str(), nullptr, nullptr, nullptr), SQLITE_OK);
+
+    auto rows = dbManager->GetAnalyticsMatches(pid, 10);
+    ASSERT_EQ(rows.size(), 2u);
+
+    // Newest first: match 2 should be first
+    EXPECT_EQ(rows[0].matchId, m2Id);
+    EXPECT_TRUE(rows[0].analytics.has_value());
+    EXPECT_FLOAT_EQ(rows[0].analytics->maxBallSpeed, 115.0f);
+    ASSERT_TRUE(rows[0].localStats.has_value());
+    EXPECT_EQ(rows[0].localStats->boostCollected, 35);
+    EXPECT_EQ(rows[0].playlist, "Doubles");
+    EXPECT_TRUE(rows[0].ranked);
+    EXPECT_FALSE(rows[0].win);
+
+    // Match 1 should be second, analytics nullopt
+    EXPECT_EQ(rows[1].matchId, m1Id);
+    EXPECT_FALSE(rows[1].analytics.has_value());
+    EXPECT_TRUE(rows[1].win);
+    EXPECT_EQ(rows[1].goals.value_or(0), 2);
+}
+
+TEST_F(DatabaseManagerTest, MatchRowMvpAndOvertime) {
+    const std::string pid = "Steam|mvp_user";
+    const std::string opponentId = "Steam|opp_user";
+    const std::string teammateId = "Steam|tm_user";
+
+    // Match 1: Player won, highest score in lobby (400 vs 200 and 150), overtime_seconds > 0
+    MatchSaveSnapshot snap1;
+    snap1.arenaName = "DFH Stadium";
+    snap1.matchGuid = "guid-mvp-ot";
+    snap1.playlistId = 11;
+    snap1.gamemode = "2v2";
+    snap1.myTeam = 0;
+    snap1.winnerTeam = 0;
+    snap1.validResult = true;
+    snap1.score[0] = 3;
+    snap1.score[1] = 2;
+    snap1.endedAtUnixMs = 1'700'000'000'000LL;
+    snap1.myPrimaryId = pid;
+    PlayerData p1a;
+    p1a.primaryId = pid;
+    p1a.name = "Player";
+    p1a.team = 0;
+    p1a.mmr = 1000;
+    p1a.score = 400;
+    p1a.goals = 2;
+    snap1.roster[pid] = p1a;
+    PlayerData p1b;
+    p1b.primaryId = teammateId;
+    p1b.name = "Teammate";
+    p1b.team = 0;
+    p1b.mmr = 1000;
+    p1b.score = 200;
+    p1b.goals = 1;
+    snap1.roster[teammateId] = p1b;
+    PlayerData p1c;
+    p1c.primaryId = opponentId;
+    p1c.name = "Opponent";
+    p1c.team = 1;
+    p1c.mmr = 1000;
+    p1c.score = 150;
+    p1c.goals = 2;
+    snap1.roster[opponentId] = p1c;
+    snap1.durationSeconds = 345.0f;
+    snap1.overtimeSeconds = 45.0f;
+
+    MatchAnalytics ma1;
+    ma1.playSeconds = 345.0f;
+    ma1.endedInOvertime = true;
+    snap1.analytics = ma1;
+    dbManager->SaveMatch(snap1);
+
+    // Match 2: Player lost, lower score than opponent
+    MatchSaveSnapshot snap2;
+    snap2.arenaName = "Mannfield";
+    snap2.matchGuid = "guid-no-mvp";
+    snap2.playlistId = 11;
+    snap2.gamemode = "2v2";
+    snap2.myTeam = 0;
+    snap2.winnerTeam = 1;
+    snap2.validResult = true;
+    snap2.score[0] = 1;
+    snap2.score[1] = 4;
+    snap2.endedAtUnixMs = 1'700'001'000'000LL;
+    snap2.myPrimaryId = pid;
+    PlayerData p2a;
+    p2a.primaryId = pid;
+    p2a.name = "Player";
+    p2a.team = 0;
+    p2a.mmr = 990;
+    p2a.score = 150;
+    p2a.goals = 1;
+    snap2.roster[pid] = p2a;
+    PlayerData p2b;
+    p2b.primaryId = opponentId;
+    p2b.name = "Opponent";
+    p2b.team = 1;
+    p2b.mmr = 1010;
+    p2b.score = 500;
+    p2b.goals = 3;
+    snap2.roster[opponentId] = p2b;
+    snap2.durationSeconds = 300.0f;
+    snap2.overtimeSeconds = 0.0f;
+    dbManager->SaveMatch(snap2);
+
+    MatchQuery query;
+    query.account = pid;
+    std::vector<MatchRow> rows;
+    int total = 0;
+    dbManager->QueryMatches(query, rows, total);
+    ASSERT_EQ(rows.size(), 2u);
+
+    auto it1 = std::find_if(rows.begin(), rows.end(), [](const MatchRow& r) { return r.matchGuid == "guid-mvp-ot"; });
+    ASSERT_NE(it1, rows.end());
+    EXPECT_TRUE(it1->mvp);
+    EXPECT_TRUE(it1->overtime);
+    EXPECT_EQ(it1->myScore.value_or(0), 400);
+    EXPECT_EQ(it1->myGoals.value_or(0), 2);
+
+    auto it2 = std::find_if(rows.begin(), rows.end(), [](const MatchRow& r) { return r.matchGuid == "guid-no-mvp"; });
+    ASSERT_NE(it2, rows.end());
+    EXPECT_FALSE(it2->mvp);
+    EXPECT_FALSE(it2->overtime);
+}
+
+TEST_F(DatabaseManagerTest, EnsureStepCreatesTableWhenUserVersionAboveLatest) {
+    const std::string path = "test_user_version_above_latest.db";
+    RemoveTestDbFiles(path);
+
+    sqlite3* raw = nullptr;
+    ASSERT_EQ(sqlite3_open(path.c_str(), &raw), SQLITE_OK);
+    ASSERT_EQ(sqlite3_exec(raw, R"(
+        CREATE TABLE Matches (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+            arena TEXT,
+            our_score INTEGER,
+            their_score INTEGER,
+            win BOOLEAN,
+            match_guid TEXT,
+            playlist_id INTEGER,
+            gamemode TEXT,
+            player_count INTEGER,
+            result_pending BOOLEAN DEFAULT 0,
+            session_id INTEGER
+        );
+        CREATE TABLE MatchPlayers (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            match_id INTEGER,
+            primary_id TEXT,
+            name TEXT,
+            team INTEGER,
+            mmr INTEGER,
+            mmr_estimated BOOLEAN DEFAULT 0,
+            is_opponent BOOLEAN DEFAULT 0
+        );
+        CREATE TABLE Settings (key TEXT PRIMARY KEY, value TEXT);
+        CREATE TABLE MatchPlayerStats (
+            match_id INTEGER NOT NULL REFERENCES Matches(id) ON DELETE CASCADE,
+            primary_id TEXT NOT NULL,
+            score INTEGER, goals INTEGER, assists INTEGER, saves INTEGER, shots INTEGER, demos INTEGER,
+            touches INTEGER, car_touches INTEGER, max_goal_speed REAL, fastest_goal_time REAL,
+            PRIMARY KEY (match_id, primary_id)
+        );
+        CREATE TABLE MatchLocalStats (
+            match_id INTEGER PRIMARY KEY REFERENCES Matches(id) ON DELETE CASCADE,
+            boost_collected INTEGER, demoed INTEGER, crossbars INTEGER, hardest_crossbar REAL,
+            max_ball_speed REAL, own_goals INTEGER, duration_seconds REAL, overtime_seconds REAL,
+            stats_version INTEGER NOT NULL DEFAULT 1
+        );
+        PRAGMA user_version = 99;
+    )",
+                           nullptr, nullptr, nullptr),
+              SQLITE_OK);
+    sqlite3_close(raw);
+
+    {
+        auto db = std::make_shared<DatabaseManager>(sessionState);
+        ASSERT_TRUE(db->Initialize(path));
+        EXPECT_EQ(db->GetSchemaVersion(), 99);
+        EXPECT_EQ(QueryIntScalar(db->GetRawDb(), "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='MatchAnalytics';"), 1);
+    }
+
+    RemoveTestDbFiles(path);
 }

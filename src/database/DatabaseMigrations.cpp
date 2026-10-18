@@ -296,6 +296,14 @@ static constexpr const char* kMigrationV10Sql = R"(
     CREATE INDEX IF NOT EXISTS idx_player_tags_identity ON PlayerTags(platform, account_id, splitscreen);
 )";
 
+static constexpr const char* kMigrationV11Sql = R"(
+    CREATE TABLE IF NOT EXISTS MatchAnalytics (
+        match_id INTEGER PRIMARY KEY REFERENCES Matches(id) ON DELETE CASCADE,
+        format_version INTEGER NOT NULL,
+        data TEXT NOT NULL
+    );
+)";
+
 // Runs once per database, tracked in Settings rather than user_version: other local builds already use
 // schema versions past 10. Rows are rewritten by id so chained legacy renames cannot cascade.
 static void RepairArenaNamesOnce(sqlite3* db) {
@@ -365,6 +373,7 @@ static const std::vector<Migration> kMigrations = {
     {8, kMigrationV8Sql},
     {9, kMigrationV9Sql},
     {10, kMigrationV10Sql},
+    {11, kMigrationV11Sql},
 };
 
 bool DatabaseManager::CreateTables() {
@@ -425,6 +434,14 @@ bool DatabaseManager::CreateTables() {
         }
 
         currentVersion = migration.version;
+    }
+
+    // Ensure MatchAnalytics exists even if user_version is already >= 11 from another build.
+    char* ensureErrMsg = nullptr;
+    if (sqlite3_exec(m_db, kMigrationV11Sql, nullptr, nullptr, &ensureErrMsg) != SQLITE_OK) {
+        std::cerr << "[Database] Failed to ensure MatchAnalytics table: "
+                  << (ensureErrMsg ? ensureErrMsg : "unknown") << "\n";
+        if (ensureErrMsg) sqlite3_free(ensureErrMsg);
     }
 
     const bool hasV1Tables = SqliteTableExists(m_db, "Matches") &&

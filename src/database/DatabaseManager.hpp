@@ -122,6 +122,7 @@ class DatabaseManager {
     std::vector<PlayerStatRow> GetPlayerStatSeries(const std::string& primaryId,
                                                    const std::string& playlistFilter = "",
                                                    int limit = 100);
+    std::vector<AnalyticsMatchRow> GetAnalyticsMatches(const std::string& primaryId, int limit = 100);
     void GetDetailedStatsSummary(int& outMatchCount, std::string& outSinceDate);
     void AsyncRefreshDetailedStatsSummary();
     int GetSchemaVersion();
@@ -221,6 +222,7 @@ class DatabaseManager {
     void ResolvePendingMatchLocked(sqlite3_int64 matchId, const MatchSaveSnapshot& snapshot);
     bool UpsertMatchStatsLocked(sqlite3_int64 matchId, const MatchSaveSnapshot& snapshot);
     bool InsertMatchEventsLocked(sqlite3_int64 matchId, const MatchSaveSnapshot& snapshot);
+    bool UpsertMatchAnalyticsLocked(sqlite3_int64 matchId, const MatchSaveSnapshot& snapshot);
     // Shared by the roster, People, and match detail so the screens cannot
     // disagree. Empty `onlyPlayer` returns everyone; `excludeMatchId` > 0 leaves
     // that match out. nullopt means the query failed.

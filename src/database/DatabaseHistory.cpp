@@ -3,6 +3,8 @@
 #include "core/config/Config.hpp"
 #include "core/game/PlaylistMetadata.hpp"
 #include "network/mmr/MMRFetcher.hpp"
+#include "core/game/MatchAnalytics.hpp"
+#include <nlohmann/json.hpp>
 #include <algorithm>
 #include <cctype>
 #include <iostream>
@@ -784,6 +786,7 @@ void DatabaseManager::QueryMatches(const MatchQuery& query, std::vector<MatchRow
         "WITH AccountMatches AS ("
         "    SELECT m.id, m.timestamp, m.arena, m.our_score, m.their_score, m.win,"
         "           m.match_guid, m.playlist_id, m.gamemode, m.player_count,"
+        "           COALESCE(me.team, 0) AS my_team,"
         "           COALESCE(me.mmr, 0) AS my_mmr, COALESCE(me.mmr_estimated, 0) AS mmr_estimated,"
         "           LAG(CASE WHEN me.mmr > 0 THEN me.mmr END) OVER ("
         "               PARTITION BY m.gamemode"
@@ -795,7 +798,7 @@ void DatabaseManager::QueryMatches(const MatchQuery& query, std::vector<MatchRow
         "),"
         "Filtered AS ("
         "    SELECT id, timestamp, arena, our_score, their_score, win, match_guid,"
-        "           playlist_id, gamemode, player_count, my_mmr, mmr_estimated,"
+        "           playlist_id, gamemode, player_count, my_team, my_mmr, mmr_estimated,"
         "           CASE WHEN my_mmr > 0 AND prev_mmr > 0 THEN my_mmr - prev_mmr ELSE NULL END AS mmr_delta,"
         "           COUNT(*) OVER () AS total_count"
         "    FROM AccountMatches m"
@@ -804,25 +807,49 @@ void DatabaseManager::QueryMatches(const MatchQuery& query, std::vector<MatchRow
         "),"
         "PageRows AS ("
         "    SELECT id, timestamp, arena, our_score, their_score, win, match_guid,"
-        "           playlist_id, gamemode, player_count, my_mmr, mmr_estimated, mmr_delta, total_count"
+        "           playlist_id, gamemode, player_count, my_team, my_mmr, mmr_estimated, mmr_delta, total_count"
         "    FROM Filtered " +
         orderSql +
         "    LIMIT ?" + std::to_string(pLimit) + " OFFSET ?" + std::to_string(pOffset) +
         ") ";
+    const bool hasStats = HasStatsTables(db);
+    const bool hasAnalytics = SqliteTableExists(db, "MatchAnalytics");
     const bool hasReplayUploads = SqliteTableExists(db, "ReplayUploads");
+
+    sql +=
+        "SELECT p.id, CAST(strftime('%s', p.timestamp) AS INTEGER), p.arena, p.our_score, p.their_score, p.win,"
+        "       p.match_guid, p.playlist_id, p.gamemode, p.player_count, p.my_mmr, p.mmr_estimated, p.mmr_delta, p.total_count,"
+        "       p.my_team, ";
     if (hasReplayUploads) {
-        sql +=
-            "SELECT p.id, CAST(strftime('%s', p.timestamp) AS INTEGER), p.arena, p.our_score, p.their_score, p.win,"
-            "       p.match_guid, p.playlist_id, p.gamemode, p.player_count, p.my_mmr, p.mmr_estimated, p.mmr_delta, p.total_count,"
-            "       COALESCE(ru.ballchasing_url, '') "
-            "FROM PageRows p "
-            "LEFT JOIN (SELECT match_guid, ballchasing_url FROM ReplayUploads WHERE match_guid IS NOT NULL AND match_guid != '' AND ballchasing_url IS NOT NULL AND ballchasing_url != '' GROUP BY match_guid) ru ON ru.match_guid = p.match_guid;";
+        sql += "COALESCE(ru.ballchasing_url, ''), ";
     } else {
-        sql +=
-            "SELECT id, CAST(strftime('%s', timestamp) AS INTEGER), arena, our_score, their_score, win,"
-            "       match_guid, playlist_id, gamemode, player_count, my_mmr, mmr_estimated, mmr_delta, total_count, '' "
-            "FROM PageRows;";
+        sql += "'', ";
     }
+    if (hasStats) {
+        sql +=
+            "mps.score, mps.goals, mps.assists, mps.saves, mps.shots,"
+            "(CASE WHEN p.win = 1 AND mps.score > 0 AND mps.score = (SELECT MAX(score) FROM MatchPlayerStats WHERE match_id = p.id) THEN 1 ELSE 0 END),"
+            "(COALESCE(mls.overtime_seconds, 0) > 0), ";
+    } else {
+        sql += "NULL, NULL, NULL, NULL, NULL, 0, 0, ";
+    }
+    if (hasAnalytics) {
+        sql += "ma.data ";
+    } else {
+        sql += "NULL ";
+    }
+    sql += "FROM PageRows p ";
+    if (hasReplayUploads) {
+        sql += "LEFT JOIN (SELECT match_guid, ballchasing_url FROM ReplayUploads WHERE match_guid IS NOT NULL AND match_guid != '' AND ballchasing_url IS NOT NULL AND ballchasing_url != '' GROUP BY match_guid) ru ON ru.match_guid = p.match_guid ";
+    }
+    if (hasStats) {
+        sql += "LEFT JOIN MatchPlayerStats mps ON mps.match_id = p.id AND mps.primary_id = ?1 ";
+        sql += "LEFT JOIN MatchLocalStats mls ON mls.match_id = p.id ";
+    }
+    if (hasAnalytics) {
+        sql += "LEFT JOIN MatchAnalytics ma ON ma.match_id = p.id ";
+    }
+    sql += ";";
     sqlite3_stmt* stmt = nullptr;
     if (sqlite3_prepare_v2(db, sql.c_str(), -1, &stmt, nullptr) != SQLITE_OK) {
         return;
@@ -846,9 +873,32 @@ void DatabaseManager::QueryMatches(const MatchQuery& query, std::vector<MatchRow
             row.mmrDelta = sqlite3_column_int(stmt, 12);
         }
         outTotalCount = sqlite3_column_int(stmt, 13);
-        if (sqlite3_column_count(stmt) > 14) {
-            row.ballchasingUrl = SqlColumnText(stmt, 14);
-            row.hasBallchasing = !row.ballchasingUrl.empty();
+        const int myTeam = sqlite3_column_int(stmt, 14);
+        row.ballchasingUrl = SqlColumnText(stmt, 15);
+        row.hasBallchasing = !row.ballchasingUrl.empty();
+
+        if (sqlite3_column_type(stmt, 16) != SQLITE_NULL) row.myScore = sqlite3_column_int(stmt, 16);
+        if (sqlite3_column_type(stmt, 17) != SQLITE_NULL) row.myGoals = sqlite3_column_int(stmt, 17);
+        if (sqlite3_column_type(stmt, 18) != SQLITE_NULL) row.myAssists = sqlite3_column_int(stmt, 18);
+        if (sqlite3_column_type(stmt, 19) != SQLITE_NULL) row.mySaves = sqlite3_column_int(stmt, 19);
+        if (sqlite3_column_type(stmt, 20) != SQLITE_NULL) row.myShots = sqlite3_column_int(stmt, 20);
+        row.mvp = sqlite3_column_int(stmt, 21) != 0;
+        row.overtime = sqlite3_column_int(stmt, 22) != 0;
+
+        if (sqlite3_column_type(stmt, 23) != SQLITE_NULL) {
+            std::string text = SqlColumnText(stmt, 23);
+            if (!text.empty()) {
+                auto parsed = nlohmann::json::parse(text, nullptr, false);
+                if (!parsed.is_discarded()) {
+                    if (auto analytics = MatchAnalyticsFromJson(parsed)) {
+                        row.endedEarly = analytics->EndedEarly();
+                        row.scoreline = AnalyzeScoreline(*analytics, myTeam, row.win);
+                        if (!row.overtime && row.scoreline && row.scoreline->overtime) {
+                            row.overtime = true;
+                        }
+                    }
+                }
+            }
         }
         outRows.push_back(std::move(row));
     }
@@ -975,7 +1025,8 @@ bool DatabaseManager::GetMatchDetail(int64_t matchId, MatchDetail& outDetail, co
     const bool hasStatsTables = HasStatsTables(db);
     if (hasStatsTables) {
         const char* localSql =
-            "SELECT duration_seconds, overtime_seconds FROM MatchLocalStats WHERE match_id = ?1;";
+            "SELECT duration_seconds, overtime_seconds, boost_collected, demoed, crossbars, "
+            "hardest_crossbar, max_ball_speed, own_goals FROM MatchLocalStats WHERE match_id = ?1;";
         sqlite3_stmt* localStmt = nullptr;
         if (sqlite3_prepare_v2(db, localSql, -1, &localStmt, nullptr) == SQLITE_OK) {
             sqlite3_bind_int64(localStmt, 1, matchId);
@@ -987,8 +1038,36 @@ bool DatabaseManager::GetMatchDetail(int64_t matchId, MatchDetail& outDetail, co
                 if (sqlite3_column_type(localStmt, 1) != SQLITE_NULL) {
                     outDetail.overtimeSeconds = static_cast<float>(sqlite3_column_double(localStmt, 1));
                 }
+                MatchLocalStatsRow lstats;
+                lstats.boostCollected = sqlite3_column_int(localStmt, 2);
+                lstats.demoed = sqlite3_column_int(localStmt, 3);
+                lstats.crossbars = sqlite3_column_int(localStmt, 4);
+                if (sqlite3_column_type(localStmt, 5) != SQLITE_NULL) {
+                    lstats.hardestCrossbar = static_cast<float>(sqlite3_column_double(localStmt, 5));
+                }
+                if (sqlite3_column_type(localStmt, 6) != SQLITE_NULL) {
+                    lstats.maxBallSpeed = static_cast<float>(sqlite3_column_double(localStmt, 6));
+                }
+                lstats.ownGoals = sqlite3_column_int(localStmt, 7);
+                outDetail.localStats = lstats;
             }
             sqlite3_finalize(localStmt);
+        }
+    }
+
+    if (SqliteTableExists(db, "MatchAnalytics")) {
+        const char* analyticsSql = "SELECT data FROM MatchAnalytics WHERE match_id = ?1;";
+        sqlite3_stmt* analyticsStmt = nullptr;
+        if (sqlite3_prepare_v2(db, analyticsSql, -1, &analyticsStmt, nullptr) == SQLITE_OK) {
+            sqlite3_bind_int64(analyticsStmt, 1, matchId);
+            if (sqlite3_step(analyticsStmt) == SQLITE_ROW) {
+                std::string text = SqlColumnText(analyticsStmt, 0);
+                auto parsed = nlohmann::json::parse(text, nullptr, false);
+                if (!parsed.is_discarded()) {
+                    outDetail.analytics = MatchAnalyticsFromJson(parsed);
+                }
+            }
+            sqlite3_finalize(analyticsStmt);
         }
     }
 
@@ -1181,4 +1260,120 @@ bool DatabaseManager::GetMatchDetailByGuid(const std::string& matchGuid, MatchDe
     }
     if (matchId <= 0) return false;
     return GetMatchDetail(matchId, outDetail, accountPrimaryId);
+}
+
+std::vector<AnalyticsMatchRow> DatabaseManager::GetAnalyticsMatches(const std::string& primaryId, int limit) {
+    std::vector<AnalyticsMatchRow> rows;
+    if (primaryId.empty()) return rows;
+    if (limit <= 0) limit = 100;
+
+    auto read = AcquireRead();
+    sqlite3* db = read.db;
+    if (!db) return rows;
+
+    const bool hasStats = HasStatsTables(db);
+    const bool hasAnalytics = SqliteTableExists(db, "MatchAnalytics");
+
+    std::string sql =
+        "SELECT m.id, CAST(strftime('%s', m.timestamp) AS INTEGER), "
+        "       m.arena, m.our_score, m.their_score, m.win, "
+        "       m.playlist_id, m.gamemode, m.player_count, "
+        "       COALESCE(me.team, -1), ";
+    if (hasStats) {
+        sql +=
+            "mps.match_id, mps.score, mps.goals, mps.assists, mps.saves, mps.shots, mps.demos, mps.touches, "
+            "mls.match_id, mls.boost_collected, mls.demoed, mls.crossbars, mls.hardest_crossbar, mls.max_ball_speed, mls.own_goals, "
+            "mls.duration_seconds, mls.overtime_seconds, ";
+    } else {
+        sql +=
+            "NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, "
+            "NULL, NULL, NULL, NULL, NULL, NULL, NULL, "
+            "NULL, NULL, ";
+    }
+    if (hasAnalytics) {
+        sql += "ma.data ";
+    } else {
+        sql += "NULL ";
+    }
+    sql +=
+        "FROM Matches m "
+        "JOIN MatchPlayers me ON me.match_id = m.id AND me.primary_id = ?1 ";
+    if (hasStats) {
+        sql += "LEFT JOIN MatchPlayerStats mps ON mps.match_id = m.id AND mps.primary_id = ?1 ";
+        sql += "LEFT JOIN MatchLocalStats mls ON mls.match_id = m.id ";
+    }
+    if (hasAnalytics) {
+        sql += "LEFT JOIN MatchAnalytics ma ON ma.match_id = m.id ";
+    }
+    sql +=
+        "WHERE COALESCE(m.result_pending, 0) = 0 "
+        "ORDER BY m.timestamp DESC, m.id DESC "
+        "LIMIT ?2;";
+
+    sqlite3_stmt* stmt = nullptr;
+    if (sqlite3_prepare_v2(db, sql.c_str(), -1, &stmt, nullptr) != SQLITE_OK) {
+        return rows;
+    }
+
+    sqlite3_bind_text(stmt, 1, primaryId.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_int(stmt, 2, limit);
+
+    while (sqlite3_step(stmt) == SQLITE_ROW) {
+        AnalyticsMatchRow row;
+        row.matchId = sqlite3_column_int64(stmt, 0);
+        row.timestampUnix = sqlite3_column_int64(stmt, 1);
+        row.arena = SqlColumnText(stmt, 2);
+        row.ourScore = sqlite3_column_int(stmt, 3);
+        row.theirScore = sqlite3_column_int(stmt, 4);
+        row.win = sqlite3_column_int(stmt, 5) != 0;
+        row.playlistId = sqlite3_column_type(stmt, 6) == SQLITE_NULL ? -1 : sqlite3_column_int(stmt, 6);
+        row.playlist = DescribeMatchPlaylist(stmt, 7, 8, 6, row.ranked);
+        row.myTeam = sqlite3_column_int(stmt, 9);
+
+        if (sqlite3_column_type(stmt, 10) != SQLITE_NULL) {
+            if (sqlite3_column_type(stmt, 11) != SQLITE_NULL) row.score = sqlite3_column_int(stmt, 11);
+            if (sqlite3_column_type(stmt, 12) != SQLITE_NULL) row.goals = sqlite3_column_int(stmt, 12);
+            if (sqlite3_column_type(stmt, 13) != SQLITE_NULL) row.assists = sqlite3_column_int(stmt, 13);
+            if (sqlite3_column_type(stmt, 14) != SQLITE_NULL) row.saves = sqlite3_column_int(stmt, 14);
+            if (sqlite3_column_type(stmt, 15) != SQLITE_NULL) row.shots = sqlite3_column_int(stmt, 15);
+            if (sqlite3_column_type(stmt, 16) != SQLITE_NULL) row.demos = sqlite3_column_int(stmt, 16);
+            if (sqlite3_column_type(stmt, 17) != SQLITE_NULL) row.touches = sqlite3_column_int(stmt, 17);
+        }
+
+        if (sqlite3_column_type(stmt, 18) != SQLITE_NULL) {
+            MatchLocalStatsRow lstats;
+            lstats.boostCollected = sqlite3_column_int(stmt, 19);
+            lstats.demoed = sqlite3_column_int(stmt, 20);
+            lstats.crossbars = sqlite3_column_int(stmt, 21);
+            if (sqlite3_column_type(stmt, 22) != SQLITE_NULL) {
+                lstats.hardestCrossbar = static_cast<float>(sqlite3_column_double(stmt, 22));
+            }
+            if (sqlite3_column_type(stmt, 23) != SQLITE_NULL) {
+                lstats.maxBallSpeed = static_cast<float>(sqlite3_column_double(stmt, 23));
+            }
+            lstats.ownGoals = sqlite3_column_int(stmt, 24);
+            row.localStats = lstats;
+
+            if (sqlite3_column_type(stmt, 25) != SQLITE_NULL) {
+                row.durationSeconds = static_cast<float>(sqlite3_column_double(stmt, 25));
+            }
+            if (sqlite3_column_type(stmt, 26) != SQLITE_NULL) {
+                row.overtimeSeconds = static_cast<float>(sqlite3_column_double(stmt, 26));
+            }
+        }
+
+        if (sqlite3_column_type(stmt, 27) != SQLITE_NULL) {
+            std::string text = SqlColumnText(stmt, 27);
+            if (!text.empty()) {
+                auto parsed = nlohmann::json::parse(text, nullptr, false);
+                if (!parsed.is_discarded()) {
+                    row.analytics = MatchAnalyticsFromJson(parsed);
+                }
+            }
+        }
+
+        rows.push_back(std::move(row));
+    }
+    sqlite3_finalize(stmt);
+    return rows;
 }
