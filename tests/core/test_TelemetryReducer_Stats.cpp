@@ -936,3 +936,34 @@ TEST(TelemetryReducerStats, SavedMatchCarriesAnalyticsScopedToThatMatch) {
     EXPECT_TRUE(second.saveSnapshot.analytics->goals.empty());
     EXPECT_EQ(second.saveSnapshot.analytics->FindPlayer("Steam|1")->hits, 0);
 }
+
+TEST(TelemetryReducerStats, GoalReplayEchoOutsideReplayIsNotASecondGoal) {
+    Storage::InitializeEnvironment();
+    auto state = std::make_shared<SessionState>();
+    TelemetryReducer reducer(state);
+    StartTimedMatch(reducer, *state, "echo-1");
+    SendClock(reducer, 200.0f, false);
+    reducer.Reduce(std::string(Constants::EVT_GOAL_SCORED),
+                   nlohmann::json{{"MatchGuid", "echo-1"}, {"GoalSpeed", 90.0}, {"Scorer", {{"Name", "Me"}, {"TeamNum", 0}}}});
+    // A skipped replay can end before any UpdateState reports bReplay, so the echo arrives in live state.
+    reducer.Reduce(std::string(Constants::EVT_GOAL_SCORED),
+                   nlohmann::json{{"MatchGuid", "echo-1"},
+                                  {"GoalSpeed", 0.0},
+                                  {"Scorer", {{"Name", ""}, {"Shortcut", 0}, {"TeamNum", 0}}},
+                                  {"ImpactLocation", {{"X", 10.0}, {"Y", 5200.0}, {"Z", 120.0}}}});
+    {
+        std::shared_lock lock(state->game.mutex);
+        EXPECT_EQ(state->game.currentMatch.goals, 1);
+        EXPECT_EQ(state->game.currentMatch.goalsSelf, 1);
+    }
+    const auto end = reducer.Reduce(std::string(Constants::EVT_MATCH_ENDED),
+                                    nlohmann::json{{"MatchGuid", "echo-1"}, {"WinnerTeamNum", 0}});
+    ASSERT_TRUE(end.saveMatch);
+    EXPECT_EQ(std::count_if(end.saveSnapshot.events.begin(), end.saveSnapshot.events.end(),
+                            [](const MatchJournalEvent& e) { return e.type == "goal"; }),
+              1);
+    ASSERT_TRUE(end.saveSnapshot.analytics.has_value());
+    ASSERT_EQ(end.saveSnapshot.analytics->goals.size(), 1u);
+    ASSERT_TRUE(end.saveSnapshot.analytics->goals[0].location.has_value());
+    EXPECT_FLOAT_EQ(end.saveSnapshot.analytics->goals[0].location->y, 5200.0f);
+}

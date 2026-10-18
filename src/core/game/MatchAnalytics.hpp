@@ -157,6 +157,10 @@ struct MatchAnalytics {
 nlohmann::json MatchAnalyticsToJson(const MatchAnalytics& analytics);
 std::optional<MatchAnalytics> MatchAnalyticsFromJson(const nlohmann::json& json);
 
+// The game repeats GoalScored with an empty scorer when the goal replay ends; that repeat carries
+// the goal's real ImpactLocation and must not be counted as another goal.
+bool IsGoalReplayEcho(const nlohmann::json& goalScored);
+
 // Scoreline shape from one team's perspective, derived from GoalRecord order.
 struct ScorelineSummary {
     int maxLead = 0;

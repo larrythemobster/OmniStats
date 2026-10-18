@@ -398,9 +398,12 @@ SideEffects TelemetryReducer::Reduce(const std::string& eventName, const nlohman
         if (AcceptsAnalyticsEventLocked(data)) m_analytics.OnStatfeed(data);
         HandleStatFeed(data);
     } else if (eventName == Constants::EVT_GOAL_SCORED) {
-        RecordJournalEventLocked("goal", data, "Scorer", "Assister", "goal");
         if (AcceptsAnalyticsEventLocked(data, true)) m_analytics.OnGoalScored(data);
-        HandleGoalScored(data, effects);
+        // Skipped replays can deliver the replay-end echo outside replay state; it is not a new goal.
+        if (!IsGoalReplayEcho(data)) {
+            RecordJournalEventLocked("goal", data, "Scorer", "Assister", "goal");
+            HandleGoalScored(data, effects);
+        }
     } else if (eventName == Constants::EVT_BALL_HIT) {
         if (AcceptsAnalyticsEventLocked(data)) m_analytics.OnBallHit(data, AnalyticsNowSeconds());
         HandleBallHit(data);

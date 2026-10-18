@@ -13,6 +13,7 @@ namespace {
     constexpr float kHardHitKph = 100.0f;
     // Tuned on recorded online matches: closest match to the game's Touches stat.
     constexpr double kTouchMergeSeconds = 0.03;
+    constexpr float kGoalLineY = 5000.0f;
     constexpr float kUuToKph = 0.036f;
     constexpr float kBoostSpeedKph = 1400.0f * kUuToKph;
     constexpr float kSupersonicKph = 2200.0f * kUuToKph;
@@ -294,6 +295,11 @@ nlohmann::json MatchAnalyticsToJson(const MatchAnalytics& a) {
         departures.push_back(std::move(dj));
     }
     return j;
+}
+
+bool IsGoalReplayEcho(const nlohmann::json& goalScored) {
+    const auto* scorer = Child(goalScored, "Scorer");
+    return scorer && scorer->is_object() && String(*scorer, "Name").empty();
 }
 
 std::optional<MatchAnalytics> MatchAnalyticsFromJson(const nlohmann::json& j) {
@@ -756,12 +762,16 @@ void MatchAnalyticsTracker::OnBoostPickup(const nlohmann::json& data) {
 }
 
 void MatchAnalyticsTracker::OnGoalScored(const nlohmann::json& data) {
-    // The game re-sends GoalScored when the goal replay ends, with an empty scorer and the real
-    // ImpactLocation; the live event carries the previous goal's location (or zeros) instead.
-    const auto* scorerRef = Child(data, "Scorer");
-    if (!scorerRef || String(*scorerRef, "Name").empty()) {
+    // Online, the live event's ImpactLocation is often the previous goal's (or a placeholder), but the
+    // game always re-sends GoalScored with an empty scorer when the replay ends, even when it is skipped
+    // instantly, and that repeat carries this goal's location. It must lie behind the goal line the
+    // scoring team attacks (team 0 attacks +Y).
+    if (IsGoalReplayEcho(data)) {
         const auto location = Point(data, "ImpactLocation");
-        if (location && !m_data.goals.empty() && !m_data.goals.back().location) m_data.goals.back().location = location;
+        if (!location || m_data.goals.empty() || m_data.goals.back().location) return;
+        auto& goal = m_data.goals.back();
+        const float attackY = goal.team == 0 ? location->y : (goal.team == 1 ? -location->y : 0.0f);
+        if (attackY >= kGoalLineY) goal.location = location;
         return;
     }
     m_roundActive = false;

@@ -415,3 +415,26 @@ TEST(MatchAnalyticsTest, ConsecutiveContactFramesCountAsOneTouchWithTheHardestSp
     EXPECT_EQ(p.hardHits, 1);
     EXPECT_FLOAT_EQ(p.AverageHitSpeed(), 85.0f);
 }
+
+TEST(MatchAnalyticsTest, ReplayEndLocationIsKeptAfterInstantSkipAndRejectedOnTheWrongSide) {
+    MatchAnalyticsTracker t;
+    t.OnUpdateState(State({Remote("Steam|1", "Me", 1, 6), Remote("Epic|2", "Opp", 0, 1)}, 300.0f), 0.0);
+    t.OnRoundStarted(0.0);
+    const json echoScorer = {{"Name", ""}, {"Shortcut", 0}, {"TeamNum", 0}};
+    // Recorded online: a replay skipped after 1.4 s still echoed, repeating this goal's own location.
+    json first = Goal("Me", 1, 6);
+    first["ImpactLocation"] = {{"X", -806.2}, {"Y", -5412.6}, {"Z", 102.7}};
+    t.OnGoalScored(first);
+    t.OnGoalScored({{"Scorer", echoScorer}, {"ImpactLocation", {{"X", -806.2}, {"Y", -5412.6}, {"Z", 102.7}}}});
+    t.OnRoundStarted(1.0);
+    // An echo at the wrong end of the field for the scoring team is not used.
+    t.OnGoalScored(Goal("Opp", 0, 1));
+    t.OnGoalScored({{"Scorer", echoScorer}, {"ImpactLocation", {{"X", 100.0}, {"Y", -5200.0}, {"Z", 100.0}}}});
+
+    const MatchAnalytics a = t.Snapshot();
+    ASSERT_EQ(a.goals.size(), 2u);
+    ASSERT_TRUE(a.goals[0].location.has_value());
+    EXPECT_FLOAT_EQ(a.goals[0].location->y, -5412.6f);
+    EXPECT_FALSE(a.goals[1].location.has_value());
+    EXPECT_EQ(a.goals[1].team, 0);
+}
