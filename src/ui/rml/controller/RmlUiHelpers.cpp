@@ -592,7 +592,7 @@ namespace RmlUiDetail {
             if (!out.empty()) out += " · ";
             out += "Vs " + FormatRecord(record.winsAgainst, record.lossesAgainst);
         }
-        return out.empty() ? "First meeting" : out;
+        return out.empty() ? "New" : out;
     }
 
     std::string FormatClock(int64_t unixSeconds) {
