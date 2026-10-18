@@ -17,8 +17,8 @@ struct FieldPoint {
     float z = 0.0f;
 };
 
-// Car-state aggregates. Rocket League only streams car state for the local
-// player outside spectator mode, so this is usually present for one player.
+// Car-state aggregates. During live play Rocket League streams car state only for
+// players on your team; opponents' cars are visible only during goal replays.
 struct CarTelemetry {
     float sampledSeconds = 0.0f;
     float distance = 0.0f;
@@ -181,7 +181,7 @@ class MatchAnalyticsTracker {
     void OnUpdateState(const nlohmann::json& data, double nowSeconds);
     void OnCountdownBegin();
     void OnRoundStarted(double nowSeconds);
-    void OnBallHit(const nlohmann::json& data);
+    void OnBallHit(const nlohmann::json& data, double nowSeconds);
     void OnBoostPickup(const nlohmann::json& data);
     void OnGoalScored(const nlohmann::json& data);
     void OnStatfeed(const nlohmann::json& data);
@@ -210,6 +210,11 @@ class MatchAnalyticsTracker {
     void AddPlayTime(float seconds);
     void CloseKickoffWindows();
 
+    struct LastHit {
+        double at = 0.0;
+        float speed = 0.0f;
+        bool counted = false;
+    };
     MatchAnalytics m_data;
     std::unordered_map<std::string, size_t> m_playerIndex;
     std::unordered_map<int, std::string> m_shortcutToId;
@@ -217,6 +222,7 @@ class MatchAnalyticsTracker {
     std::vector<std::pair<float, float>> m_ballSpeedSamples;
     int m_possessionTeam = -1;
     std::optional<double> m_lastSampleAt;
+    std::unordered_map<std::string, LastHit> m_lastHit;
     std::optional<double> m_pausedAt;
     std::optional<float> m_lastClock;
     bool m_lastOvertime = false;

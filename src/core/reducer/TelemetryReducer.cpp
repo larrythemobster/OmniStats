@@ -399,10 +399,10 @@ SideEffects TelemetryReducer::Reduce(const std::string& eventName, const nlohman
         HandleStatFeed(data);
     } else if (eventName == Constants::EVT_GOAL_SCORED) {
         RecordJournalEventLocked("goal", data, "Scorer", "Assister", "goal");
-        if (AcceptsAnalyticsEventLocked(data)) m_analytics.OnGoalScored(data);
+        if (AcceptsAnalyticsEventLocked(data, true)) m_analytics.OnGoalScored(data);
         HandleGoalScored(data, effects);
     } else if (eventName == Constants::EVT_BALL_HIT) {
-        if (AcceptsAnalyticsEventLocked(data)) m_analytics.OnBallHit(data);
+        if (AcceptsAnalyticsEventLocked(data)) m_analytics.OnBallHit(data, AnalyticsNowSeconds());
         HandleBallHit(data);
     } else if (eventName == Constants::EVT_BOOST_PICKUP) {
         if (AcceptsAnalyticsEventLocked(data)) m_analytics.OnBoostPickup(data);
@@ -499,9 +499,9 @@ float TelemetryReducer::PausedSecondsWithin(std::chrono::steady_clock::time_poin
     return std::chrono::duration<float>(total).count();
 }
 
-bool TelemetryReducer::AcceptsAnalyticsEventLocked(const nlohmann::json& data) const {
+bool TelemetryReducer::AcceptsAnalyticsEventLocked(const nlohmann::json& data, bool duringReplay) const {
     const auto& game = m_state->game;
-    if (!game.inMatch || game.matchFinalized || game.inReplay || m_nonLiveReplayActive ||
+    if (!game.inMatch || game.matchFinalized || (game.inReplay && !duringReplay) || m_nonLiveReplayActive ||
         game.fallbackNonRecordableContext || PlaylistMetadata::IsNonRecordable(game.playlistId)) return false;
     const std::string guid = ExtractEventMatchGuid(data);
     if (guid.empty()) return !(m_missingGuidAssociationBlockedByReconnect && game.matchGuid.empty());

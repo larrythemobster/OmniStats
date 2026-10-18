@@ -8,7 +8,7 @@ namespace {
     using nlohmann::json;
 
     json Car(const char* id, const char* name, int team, int shortcut, int boost, json extra = json::object()) {
-        json p{{"PrimaryId", id}, {"Name", name}, {"TeamNum", team}, {"Shortcut", shortcut}, {"Boost", boost}, {"bOnGround", true}, {"Speed", 40.0}};
+        json p{{"PrimaryId", id}, {"Name", name}, {"TeamNum", team}, {"Shortcut", shortcut}, {"Boost", boost}, {"bHasCar", true}, {"bOnGround", true}, {"Speed", 40.0}};
         for (auto& [k, v] : extra.items())
             p[k] = v;
         return p;
@@ -180,11 +180,16 @@ TEST(MatchAnalyticsTest, JoiningMidRoundStartsTrackingOnceTheClockMoves) {
 
 TEST(MatchAnalyticsTest, HitsAreAttributedByThirdFromEachTeamsPerspective) {
     MatchAnalyticsTracker t;
-    t.OnUpdateState(State({Remote("Steam|1", "Blue", 0, 1), Remote("Epic|2", "Orange", 1, 2)}, 300.0f), 0.0);
-    t.OnRoundStarted(0.0);
-    t.OnBallHit(Hit("Blue", 0, 1, 0, -4000, 93, 60));
-    t.OnBallHit(Hit("Orange", 1, 2, 0, -4000, 900, 120));
-    t.OnBallHit(Hit("Blue", 0, 1, 0, 0, 400, 80));
+    float clock = 300.0f;
+    double now = 0.0;
+    auto state = [&](float c) { return State({Remote("Steam|1", "Blue", 0, 1), Remote("Epic|2", "Orange", 1, 2)}, c); };
+    t.OnUpdateState(state(clock), now);
+    t.OnRoundStarted(now);
+    t.OnBallHit(Hit("Blue", 0, 1, 0, -4000, 93, 60), now);
+    now = Play(t, now, 1.0f, clock, state);
+    t.OnBallHit(Hit("Orange", 1, 2, 0, -4000, 900, 120), now);
+    now = Play(t, now, 1.0f, clock, state);
+    t.OnBallHit(Hit("Blue", 0, 1, 0, 0, 400, 80), now);
 
     const MatchAnalytics a = t.Snapshot();
     const auto* blue = a.FindPlayer("Steam|1");
@@ -209,10 +214,10 @@ TEST(MatchAnalyticsTest, KickoffRecordsPossessionAfterThreeSecondsAndQuickGoals)
     auto state = [&](float c) { return State({Remote("Steam|1", "Blue", 0, 1), Remote("Epic|2", "Orange", 1, 2)}, c, ballTeam); };
     t.OnUpdateState(state(clock), now);
     t.OnRoundStarted(now);
-    t.OnBallHit(Hit("Blue", 0, 1, 0, 0, 93, 50));
+    t.OnBallHit(Hit("Blue", 0, 1, 0, 0, 93, 50), now);
     ballTeam = 0;
     now = Play(t, now, 1.0f, clock, state);
-    t.OnBallHit(Hit("Orange", 1, 2, 0, 0, 93, 50));
+    t.OnBallHit(Hit("Orange", 1, 2, 0, 0, 93, 50), now);
     ballTeam = 1;
     now = Play(t, now, 3.0f, clock, state);
     t.OnGoalScored(Goal("Orange", 1, 2));
@@ -300,12 +305,15 @@ TEST(MatchAnalyticsTest, JsonRoundTripPreservesStoredAnalytics) {
     };
     t.OnUpdateState(state(clock), now);
     t.OnRoundStarted(now);
-    t.OnBallHit(Hit("Me", 0, 1, 10, 20, 300, 77));
+    t.OnBallHit(Hit("Me", 0, 1, 10, 20, 300, 77), now);
     now = Play(t, now, 20.0f, clock, state);
     json goal = Goal("Me", 0, 1);
     goal["Assister"] = {{"Name", "Opp"}, {"TeamNum", 1}, {"Shortcut", 2}};
-    goal["ImpactLocation"] = {{"X", 1}, {"Y", 5100}, {"Z", 200}};
+    goal["ImpactLocation"] = {{"X", 0}, {"Y", 0}, {"Z", 0}};
     t.OnGoalScored(goal);
+    t.OnGoalScored({{"Scorer", {{"Name", ""}, {"Shortcut", 0}, {"TeamNum", 0}}},
+                    {"GoalSpeed", 0.0},
+                    {"ImpactLocation", {{"X", 1}, {"Y", 5100}, {"Z", 200}}}});
     t.OnStatfeed({{"EventName", "Shot"}, {"MainTarget", {{"Name", "Me"}, {"TeamNum", 0}, {"Shortcut", 1}}}});
     t.OnPlayerLeft({{"PlayerName", "Opp"}, {"PrimaryId", "Epic|2"}});
 
@@ -333,4 +341,77 @@ TEST(MatchAnalyticsTest, JsonRoundTripPreservesStoredAnalytics) {
 
 TEST(MatchAnalyticsTest, UnknownFormatVersionIsRejected) {
     EXPECT_FALSE(MatchAnalyticsFromJson(json{{"v", MatchAnalytics::kFormatVersion + 1}}).has_value());
+}
+
+TEST(MatchAnalyticsTest, OmittedCarFieldsMeanZeroAndOpponentsWithoutCarStateAreNotTracked) {
+    MatchAnalyticsTracker t;
+    float clock = 300.0f;
+    double now = 0.0;
+    // Live payloads drop zero and false values; opponents never carry bHasCar outside replays.
+    auto state = [&](float c) {
+        return State({{{"PrimaryId", "Steam|1"}, {"Name", "Me"}, {"TeamNum", 0}, {"Shortcut", 1}, {"bHasCar", true}},
+                      {{"PrimaryId", "Epic|2"}, {"Name", "Opp"}, {"TeamNum", 1}, {"Shortcut", 2}}},
+                     c, 0);
+    };
+    t.OnUpdateState(state(clock), now);
+    t.OnRoundStarted(now);
+    Play(t, now, 1.0f, clock, state);
+
+    const MatchAnalytics a = t.Snapshot();
+    const auto& me = *a.FindPlayer("Steam|1")->car;
+    EXPECT_NEAR(me.zeroBoostSeconds, 1.0f, 0.05f);
+    EXPECT_NEAR(me.airSeconds, 1.0f, 0.05f);
+    EXPECT_NEAR(me.slowSeconds, 1.0f, 0.05f);
+    EXPECT_FALSE(a.FindPlayer("Epic|2")->car.has_value());
+}
+
+TEST(MatchAnalyticsTest, GoalReplayEchoSuppliesLocationWithoutAddingAGoal) {
+    MatchAnalyticsTracker t;
+    t.OnUpdateState(State({Remote("Steam|1", "Me", 1, 6)}, 300.0f), 0.0);
+    t.OnRoundStarted(0.0);
+    json live = Goal("Me", 1, 6);
+    live["ImpactLocation"] = {{"X", 0.0}, {"Y", 0.0}, {"Z", 0.0}};
+    t.OnGoalScored(live);
+    t.OnGoalScored({{"Scorer", {{"Name", ""}, {"Shortcut", 0}, {"TeamNum", 0}}},
+                    {"GoalSpeed", 0.0},
+                    {"GoalTime", 0},
+                    {"ImpactLocation", {{"X", -536.0}, {"Y", -5247.8}, {"Z", 121.4}}}});
+
+    const MatchAnalytics a = t.Snapshot();
+    ASSERT_EQ(a.goals.size(), 1u);
+    EXPECT_EQ(a.goals[0].team, 1);
+    EXPECT_EQ(a.goals[0].scoreAfter[1], 1);
+    EXPECT_EQ(a.goals[0].scoreAfter[0], 0);
+    ASSERT_TRUE(a.goals[0].location.has_value());
+    EXPECT_FLOAT_EQ(a.goals[0].location->y, -5247.8f);
+}
+
+TEST(MatchAnalyticsTest, ReusedShortcutAfterBotReplacementResolvesByName) {
+    MatchAnalyticsTracker t;
+    t.OnUpdateState(State({Remote("Unknown|0|0", "Middy", 1, 6)}, 300.0f), 0.0);
+    t.OnUpdateState(State({Remote("Epic|me", "Me", 1, 6)}, 299.0f), 1.0);
+    t.OnBallHit(Hit("Middy", 1, 6, 0, 0, 93, 50), 1.0);
+    t.OnBallHit(Hit("Me", 1, 6, 0, 0, 93, 50), 1.0);
+
+    const MatchAnalytics a = t.Snapshot();
+    EXPECT_EQ(a.FindPlayer("Unknown|Middy")->hits, 1);
+    EXPECT_EQ(a.FindPlayer("Epic|me")->hits, 1);
+}
+
+TEST(MatchAnalyticsTest, ConsecutiveContactFramesCountAsOneTouchWithTheHardestSpeed) {
+    MatchAnalyticsTracker t;
+    t.OnUpdateState(State({Remote("Steam|1", "Me", 0, 1)}, 300.0f), 0.0);
+    t.OnRoundStarted(0.0);
+    // One push as recorded: a hit message per physics frame, 10-20 ms apart.
+    t.OnBallHit(Hit("Me", 0, 1, 0, 0, 93, 40), 1.000);
+    t.OnBallHit(Hit("Me", 0, 1, 0, 0, 93, 110), 1.015);
+    t.OnBallHit(Hit("Me", 0, 1, 0, 0, 93, 70), 1.040);
+    // A separate dribble touch 0.2 s later is a new touch in the game's count.
+    t.OnBallHit(Hit("Me", 0, 1, 0, 0, 93, 60), 1.240);
+
+    const MatchAnalytics a = t.Snapshot();
+    const PlayerAnalytics& p = *a.FindPlayer("Steam|1");
+    EXPECT_EQ(p.hits, 2);
+    EXPECT_EQ(p.hardHits, 1);
+    EXPECT_FLOAT_EQ(p.AverageHitSpeed(), 85.0f);
 }

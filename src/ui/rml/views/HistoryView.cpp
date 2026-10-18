@@ -301,6 +301,21 @@ bool HistoryView::Create(Rml::Context* context) {
     }
     constructor.RegisterArray<std::vector<HistoryTeamCompareRow>>();
 
+    if (auto car = constructor.RegisterStruct<HistoryCarRow>()) {
+        car.RegisterMember("name", &HistoryCarRow::name);
+        car.RegisterMember("is_me", &HistoryCarRow::is_me);
+        car.RegisterMember("bpm", &HistoryCarRow::bpm);
+        car.RegisterMember("avg_boost", &HistoryCarRow::avg_boost);
+        car.RegisterMember("zero_boost", &HistoryCarRow::zero_boost);
+        car.RegisterMember("full_boost", &HistoryCarRow::full_boost);
+        car.RegisterMember("pads", &HistoryCarRow::pads);
+        car.RegisterMember("avg_speed", &HistoryCarRow::avg_speed);
+        car.RegisterMember("supersonic", &HistoryCarRow::supersonic);
+        car.RegisterMember("air", &HistoryCarRow::air);
+        car.RegisterMember("powerslides", &HistoryCarRow::powerslides);
+    }
+    constructor.RegisterArray<std::vector<HistoryCarRow>>();
+
     constructor.RegisterArray<std::vector<Rml::String>>();
 
     if (auto mech = constructor.RegisterStruct<HistoryMechanicsRow>()) {
@@ -369,6 +384,8 @@ bool HistoryView::Create(Rml::Context* context) {
     constructor.Bind("has_car_telemetry", &m_hasCarTelemetry);
     constructor.Bind("has_legacy_stats", &m_hasLegacyStats);
     constructor.Bind("telemetry_note", &m_telemetryNote);
+    constructor.Bind("car_has_steals", &m_carHasSteals);
+    constructor.Bind("car_rows", &m_carRows);
     constructor.Bind("car_bpm", &m_carBpm);
     constructor.Bind("car_avg_boost", &m_carAvgBoost);
     constructor.Bind("car_zero_boost", &m_carZeroBoost);
@@ -784,6 +801,8 @@ void HistoryView::RebuildDetail() {
     m_hasCarTelemetry = false;
     m_hasLegacyStats = false;
     m_telemetryNote.clear();
+    m_carHasSteals = false;
+    m_carRows.clear();
     m_hasMechanics = false;
     m_mechanicsColumns.clear();
     m_mechanicsRows.clear();
@@ -1002,14 +1021,6 @@ void HistoryView::RebuildDetail() {
             if (!d.accountPrimaryId.empty()) {
                 me = d.analytics->FindPlayer(d.accountPrimaryId);
             }
-            if (!me) {
-                for (const auto& p : d.analytics->players) {
-                    if (p.car.has_value()) {
-                        me = &p;
-                        break;
-                    }
-                }
-            }
             if (!me && !d.ourTeam.empty()) {
                 for (const auto& p : d.ourTeam) {
                     if (p.isMe) {
@@ -1022,7 +1033,7 @@ void HistoryView::RebuildDetail() {
 
         if (me && me->car.has_value()) {
             m_hasCarTelemetry = true;
-            m_telemetryNote = "Rocket League only provides car telemetry for your own car.";
+            m_telemetryNote = "Rocket League sends boost and movement data for you and your teammates, not for opponents.";
             const auto& c = *me->car;
             m_carBpm = std::to_string(static_cast<int>(std::lround(c.BoostPerMinute())));
             m_carAvgBoost = std::to_string(static_cast<int>(std::lround(c.AverageBoost())));
@@ -1032,9 +1043,8 @@ void HistoryView::RebuildDetail() {
             m_carBoostUsed = std::to_string(c.boostUsed);
             m_carBigPads = std::to_string(c.bigPads);
             m_carSmallPads = std::to_string(c.smallPads);
-            m_carStolenPads = c.padsFromPickupEvents
-                                  ? (std::to_string(c.stolenBigPads) + " big / " + std::to_string(c.stolenSmallPads) + " small")
-                                  : "—";
+            m_carHasSteals = c.padsFromPickupEvents;
+            m_carStolenPads = std::to_string(c.stolenBigPads) + " big / " + std::to_string(c.stolenSmallPads) + " small";
             m_carAvgSpeed = FormatSpeed(c.AverageSpeed(), imperial);
             m_carMaxSpeed = FormatSpeed(c.maxSpeed, imperial);
             m_carPowerslides = std::to_string(c.powerslideCount) + " (" + FormatSec(c.powerslideSeconds) + ")";
@@ -1062,6 +1072,32 @@ void HistoryView::RebuildDetail() {
             m_surfaceGroundLabel = FormatSecAndPct(c.groundSeconds, c.sampledSeconds);
             m_surfaceAirLabel = FormatSecAndPct(c.airSeconds, c.sampledSeconds);
             m_surfaceWallLabel = FormatSecAndPct(c.wallSeconds, c.sampledSeconds);
+
+            for (const auto& p : d.analytics->players) {
+                if (!p.car || p.car->sampledSeconds <= 0.0f || p.team != me->team) continue;
+                const auto& t = *p.car;
+                const auto pct = [&](float seconds) {
+                    return std::to_string(std::clamp(static_cast<int>(std::lround(t.Share(seconds) * 100.0f)), 0, 100)) + "%";
+                };
+                HistoryCarRow row;
+                row.name = p.name;
+                row.is_me = &p == me;
+                row.bpm = std::to_string(static_cast<int>(std::lround(t.BoostPerMinute())));
+                row.avg_boost = std::to_string(static_cast<int>(std::lround(t.AverageBoost())));
+                row.zero_boost = pct(t.zeroBoostSeconds);
+                row.full_boost = pct(t.fullBoostSeconds);
+                row.pads = std::to_string(t.bigPads) + " / " + std::to_string(t.smallPads);
+                row.avg_speed = FormatSpeed(t.AverageSpeed(), imperial);
+                row.supersonic = pct(t.supersonicSeconds);
+                row.air = pct(t.airSeconds);
+                row.powerslides = std::to_string(t.powerslideCount);
+                if (row.is_me) {
+                    m_carRows.insert(m_carRows.begin(), std::move(row));
+                } else {
+                    m_carRows.push_back(std::move(row));
+                }
+            }
+            if (m_carRows.size() < 2) m_carRows.clear();
         } else if (d.localStats.has_value()) {
             m_hasLegacyStats = true;
             m_telemetryNote = "Detailed tracking applies to matches played from this version on.";
@@ -1279,7 +1315,7 @@ void HistoryView::RebuildDetail() {
              "has_v1_note",
              "detail_ballchasing_url", "detail_story_lines", "timeline_has_data", "timeline_windows",
              "timeline_goals", "team_compare_rows", "has_car_telemetry", "has_legacy_stats",
-             "telemetry_note", "car_bpm", "car_avg_boost", "car_zero_boost", "car_full_boost",
+             "telemetry_note", "car_has_steals", "car_rows", "car_bpm", "car_avg_boost", "car_zero_boost", "car_full_boost",
              "car_boost_collected", "car_boost_used", "car_big_pads", "car_small_pads",
              "car_stolen_pads", "car_avg_speed", "car_max_speed", "car_powerslides", "car_demo_time",
              "boost_band_0", "boost_band_1", "boost_band_2", "boost_band_3", "speed_slow_pct",

@@ -303,7 +303,7 @@
                                         <div class="label">Pads (Big / Small)</div>
                                         <div class="value mono">{{car_big_pads}} / {{car_small_pads}}</div>
                                     </div>
-                                    <div class="telemetry-card card">
+                                    <div class="telemetry-card card" data-if="car_has_steals">
                                         <div class="label">Stolen Pads</div>
                                         <div class="value mono">{{car_stolen_pads}}</div>
                                     </div>
@@ -325,7 +325,7 @@
                                     </div>
                                 </div>
 
-                                <div class="stat-section-title" style="margin-top:16dp;">YOUR MOVEMENT &amp; POSITION</div>
+                                <div class="stat-section-title" style="margin-top:16dp;">YOUR MOVEMENT</div>
                                 <div class="row gap-md telemetry-grid">
                                     <div class="telemetry-card card">
                                         <div class="label">Average Speed</div>
@@ -369,6 +369,36 @@
                                         <div class="row gap-xs" style="align-items:center"><div class="legend-swatch surf-ground"></div> <span class="label">Ground ({{surface_ground_label}})</span></div>
                                         <div class="row gap-xs" style="align-items:center"><div class="legend-swatch surf-air"></div> <span class="label">Air ({{surface_air_label}})</span></div>
                                         <div class="row gap-xs" style="align-items:center"><div class="legend-swatch surf-wall"></div> <span class="label">Wall ({{surface_wall_label}})</span></div>
+                                    </div>
+                                </div>
+
+                                <div data-if="car_rows.size > 0">
+                                    <div class="stat-section-title" style="margin-top:16dp;">YOUR TEAM</div>
+                                    <div class="history-scoreboard-table">
+                                        <div class="history-scoreboard-row header">
+                                            <div class="history-car-name">Player</div>
+                                            <div class="history-car-cell tooltip-host">BPM<div class="tooltip-bubble">Boost used per minute</div></div>
+                                            <div class="history-car-cell tooltip-host">Avg<div class="tooltip-bubble">Average boost held</div></div>
+                                            <div class="history-car-cell tooltip-host">0%<div class="tooltip-bubble">Time at zero boost</div></div>
+                                            <div class="history-car-cell tooltip-host">100%<div class="tooltip-bubble">Time at full boost</div></div>
+                                            <div class="history-car-cell wide tooltip-host">Pads<div class="tooltip-bubble">Big / small boost pads collected (estimated from boost gains)</div></div>
+                                            <div class="history-car-cell wide tooltip-host">Speed<div class="tooltip-bubble">Average speed</div></div>
+                                            <div class="history-car-cell tooltip-host">SS<div class="tooltip-bubble">Time supersonic</div></div>
+                                            <div class="history-car-cell tooltip-host">Air<div class="tooltip-bubble">Time in the air</div></div>
+                                            <div class="history-car-cell tooltip-host">PS<div class="tooltip-bubble">Powerslides</div></div>
+                                        </div>
+                                        <div class="history-scoreboard-row" data-for="r : car_rows" data-class-self="r.is_me">
+                                            <div class="history-car-name value">{{r.name}}</div>
+                                            <div class="history-car-cell mono">{{r.bpm}}</div>
+                                            <div class="history-car-cell mono">{{r.avg_boost}}</div>
+                                            <div class="history-car-cell mono">{{r.zero_boost}}</div>
+                                            <div class="history-car-cell mono">{{r.full_boost}}</div>
+                                            <div class="history-car-cell wide mono">{{r.pads}}</div>
+                                            <div class="history-car-cell wide mono">{{r.avg_speed}}</div>
+                                            <div class="history-car-cell mono">{{r.supersonic}}</div>
+                                            <div class="history-car-cell mono">{{r.air}}</div>
+                                            <div class="history-car-cell mono">{{r.powerslides}}</div>
+                                        </div>
                                     </div>
                                 </div>
                             </div>

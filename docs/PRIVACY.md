@@ -24,7 +24,7 @@ The installation ID is a persistent pseudonymous identifier used to correlate di
 All match and user data is stored locally in `%APPDATA%\omnistats\omnistats.db` (SQLite 3 in WAL mode):
 
 - **Match history:** Timestamps, arenas, scores, match outcomes, player platform IDs, names, MMR, and scoreboard statistics.
-- **Match analytics:** Per-match gameplay data from the Stats API: ball-hit locations and speeds, goal locations, kickoff and possession summaries, stat-feed events per player, and your own car's boost and movement aggregates.
+- **Match analytics:** Per-match gameplay data from the Stats API: ball-hit locations and speeds, goal locations, kickoff and possession summaries, stat-feed events per player, and boost and movement aggregates for you and your teammates.
 - **Player notes:** Private scouting notes keyed by normalized platform account identity.
 - **Tracked accounts:** Curated list of local and alt accounts with nicknames and cached playlist ranks.
 - **Replay queue:** Local replay paths, upload status, and Ballchasing URLs.

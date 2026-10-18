@@ -1690,6 +1690,9 @@ body.view-document { pointer-events: none; }
 /* The table clips overflow, so header tooltips open downward into the rows. */
 .history-scoreboard-row.header .tooltip-bubble { top: 100%; bottom: auto; left: auto; right: 0; margin: 4dp 0 0 0; width: 170dp; min-width: 0; white-space: normal; line-height: 1.35; text-transform: none; font-weight: 400; text-align: left; }
 .history-sb-name { display: block; white-space: nowrap; overflow: hidden; }
+.history-car-name { flex-grow: 1; white-space: nowrap; overflow: hidden; }
+.history-car-cell { width: 52dp; flex-shrink: 0; text-align: right; }
+.history-car-cell.wide { width: 76dp; }
 .history-scoreboard-row {
     display: flex;
     flex-direction: row;

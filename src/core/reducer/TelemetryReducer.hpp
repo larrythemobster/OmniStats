@@ -106,7 +106,7 @@ class TelemetryReducer {
     void UpdateLifecycleSignalsLocked(const nlohmann::json& data);
     static bool HasExplicitLocalForfeitSignal(const nlohmann::json& data, int localTeam);
     bool AttachTerminalGuidToCurrentLocked(const std::string& eventMatchGuid);
-    bool AcceptsAnalyticsEventLocked(const nlohmann::json& data) const;
+    bool AcceptsAnalyticsEventLocked(const nlohmann::json& data, bool duringReplay = false) const;
     double AnalyticsNowSeconds() const;
     bool AcceptsUiMatchEventLocked(const nlohmann::json& data, int64_t nowMs);
     bool TargetsCurrentActiveMatchUiLocked(const nlohmann::json& data);

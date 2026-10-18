@@ -97,6 +97,20 @@ struct HistoryTeamCompareRow {
     int tone = 0; // 1 = ours better, -1 = theirs better, 0 = neutral
 };
 
+struct HistoryCarRow {
+    Rml::String name;
+    bool is_me = false;
+    Rml::String bpm;
+    Rml::String avg_boost;
+    Rml::String zero_boost;
+    Rml::String full_boost;
+    Rml::String pads;
+    Rml::String avg_speed;
+    Rml::String supersonic;
+    Rml::String air;
+    Rml::String powerslides;
+};
+
 struct HistoryMechanicsRow {
     Rml::String player_name;
     bool is_me = false;
@@ -279,6 +293,8 @@ class HistoryView {
     bool m_hasCarTelemetry = false;
     bool m_hasLegacyStats = false;
     Rml::String m_telemetryNote;
+    bool m_carHasSteals = false;
+    std::vector<HistoryCarRow> m_carRows;
     Rml::String m_carBpm;
     Rml::String m_carAvgBoost;
     Rml::String m_carZeroBoost;

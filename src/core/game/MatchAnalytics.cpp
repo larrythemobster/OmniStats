@@ -11,6 +11,8 @@ namespace {
     constexpr float kAerialHitZ = 300.0f;
     constexpr float kCrossbarZ = 642.775f;
     constexpr float kHardHitKph = 100.0f;
+    // Tuned on recorded online matches: closest match to the game's Touches stat.
+    constexpr double kTouchMergeSeconds = 0.03;
     constexpr float kUuToKph = 0.036f;
     constexpr float kBoostSpeedKph = 1400.0f * kUuToKph;
     constexpr float kSupersonicKph = 2200.0f * kUuToKph;
@@ -491,19 +493,23 @@ std::string MatchAnalyticsTracker::ResolvePlayer(const nlohmann::json& ref) cons
     const std::string name = String(ref, "Name");
     const std::string id = String(ref, "PrimaryId");
     if (!id.empty()) return NormalizeId(id, name);
+    // Shortcuts are reused when a player replaces a bot mid-match, so names win over shortcuts.
+    if (!name.empty()) {
+        const int team = TeamOf(ref);
+        std::string match;
+        bool ambiguous = false;
+        for (const auto& p : m_data.players) {
+            if (p.name != name || (team != -1 && p.team != team)) continue;
+            ambiguous = !match.empty();
+            match = p.primaryId;
+        }
+        if (!match.empty() && !ambiguous) return match;
+    }
     if (const auto shortcut = Integer(ref, "Shortcut")) {
         const auto it = m_shortcutToId.find(*shortcut);
         if (it != m_shortcutToId.end()) return it->second;
     }
-    if (name.empty()) return {};
-    const int team = TeamOf(ref);
-    std::string match;
-    for (const auto& p : m_data.players) {
-        if (p.name != name || (team != -1 && p.team != team)) continue;
-        if (!match.empty()) return {};
-        match = p.primaryId;
-    }
-    return match;
+    return {};
 }
 
 void MatchAnalyticsTracker::AddPlayTime(float seconds) {
@@ -579,7 +585,10 @@ void MatchAnalyticsTracker::OnUpdateState(const nlohmann::json& data, double now
     const auto* players = Child(data, "Players");
     if (!players || !players->is_array()) return;
     for (const auto& pj : *players) {
-        if (!Child(pj, "Boost") && !Child(pj, "bOnGround") && !Child(pj, "Speed")) continue;
+        // Car state is sent only for players on your team (opponents only during replays). Zero and
+        // false values are omitted, so a missing field inside a car-state entry means 0 or false.
+        const bool demolished = Bool(pj, "bDemolished").value_or(false);
+        if (!Child(pj, "bHasCar") && !demolished) continue;
         const std::string rawId = String(pj, "PrimaryId");
         if (rawId.empty()) continue;
         const std::string id = NormalizeId(rawId, String(pj, "Name"));
@@ -588,7 +597,7 @@ void MatchAnalyticsTracker::OnUpdateState(const nlohmann::json& data, double now
         auto& car = *p.car;
         auto& raw = m_rawCar[id];
 
-        if (Bool(pj, "bDemolished").value_or(false) || !Bool(pj, "bHasCar").value_or(true)) {
+        if (demolished || !Bool(pj, "bHasCar").value_or(false)) {
             car.demolishedSeconds += dt;
             raw.respawning = true;
             raw.wasPowersliding = false;
@@ -596,12 +605,10 @@ void MatchAnalyticsTracker::OnUpdateState(const nlohmann::json& data, double now
         }
         car.sampledSeconds += dt;
 
-        if (const auto speed = Number(pj, "Speed")) {
-            const auto supersonic = Bool(pj, "bSupersonic");
-            raw.speedSamples.push_back({*speed, dt, supersonic ? (*supersonic ? 1 : 0) : -1});
-        }
+        const auto supersonic = Bool(pj, "bSupersonic");
+        raw.speedSamples.push_back({Number(pj, "Speed").value_or(0.0f), dt, supersonic.value_or(false) ? 1 : 0});
         const bool onWall = Bool(pj, "bOnWall").value_or(false);
-        const bool onGround = Bool(pj, "bOnGround").value_or(true);
+        const bool onGround = Bool(pj, "bOnGround").value_or(false);
         if (onWall) {
             car.wallSeconds += dt;
         } else if (onGround) {
@@ -617,9 +624,7 @@ void MatchAnalyticsTracker::OnUpdateState(const nlohmann::json& data, double now
         raw.wasPowersliding = powersliding;
         if (Bool(pj, "bBoosting").value_or(false)) car.boostingSeconds += dt;
 
-        const auto boost = Integer(pj, "Boost");
-        if (!boost) continue;
-        const int amount = std::clamp(*boost, 0, 100);
+        const int amount = std::clamp(Integer(pj, "Boost").value_or(0), 0, 100);
         car.boostIntegral += static_cast<float>(amount) * dt;
         if (amount <= 0) car.zeroBoostSeconds += dt;
         if (amount >= 100) car.fullBoostSeconds += dt;
@@ -670,7 +675,7 @@ void MatchAnalyticsTracker::OnRoundStarted(double nowSeconds) {
     m_data.kickoffs.push_back(std::move(k));
 }
 
-void MatchAnalyticsTracker::OnBallHit(const nlohmann::json& data) {
+void MatchAnalyticsTracker::OnBallHit(const nlohmann::json& data, double nowSeconds) {
     const auto* hitters = Child(data, "Players");
     if (!hitters || !hitters->is_array() || hitters->empty()) return;
     const auto* ball = Child(data, "Ball");
@@ -687,6 +692,22 @@ void MatchAnalyticsTracker::OnBallHit(const nlohmann::json& data) {
         if (p.name.empty()) p.name = String(h, "Name");
         const int team = TeamOf(h) != -1 ? TeamOf(h) : p.team;
         if (p.team == -1) p.team = team;
+        if (team == 0 || team == 1) m_possessionTeam = team;
+        // BallHit fires on every physics frame a car stays in contact with the ball; the game's Touches
+        // stat counts one per contact. Frames of one contact arrive back to back, so each hit chains to
+        // the previous one when it arrives within kTouchMergeSeconds.
+        auto& last = m_lastHit[id];
+        if (last.counted && nowSeconds - last.at <= kTouchMergeSeconds) {
+            last.at = nowSeconds;
+            if (speed > last.speed) {
+                p.hitSpeedSum += speed - last.speed;
+                if (last.speed < kHardHitKph && speed >= kHardHitKph) p.hardHits++;
+                last.speed = speed;
+            }
+            p.maxHitSpeed = std::max(p.maxHitSpeed, speed);
+            continue;
+        }
+        last = {nowSeconds, speed, true};
         p.hits++;
         p.hitSpeedSum += speed;
         p.maxHitSpeed = std::max(p.maxHitSpeed, speed);
@@ -701,7 +722,6 @@ void MatchAnalyticsTracker::OnBallHit(const nlohmann::json& data) {
             if (m_data.hits.size() < MatchAnalytics::kMaxHits)
                 m_data.hits.push_back({m_data.playSeconds, id, team, *location, speed});
         }
-        if (team == 0 || team == 1) m_possessionTeam = team;
         if (first) {
             p.firstTouches++;
             if (!m_data.kickoffs.empty() && m_data.kickoffs.back().firstTouchId.empty()) {
@@ -736,6 +756,14 @@ void MatchAnalyticsTracker::OnBoostPickup(const nlohmann::json& data) {
 }
 
 void MatchAnalyticsTracker::OnGoalScored(const nlohmann::json& data) {
+    // The game re-sends GoalScored when the goal replay ends, with an empty scorer and the real
+    // ImpactLocation; the live event carries the previous goal's location (or zeros) instead.
+    const auto* scorerRef = Child(data, "Scorer");
+    if (!scorerRef || String(*scorerRef, "Name").empty()) {
+        const auto location = Point(data, "ImpactLocation");
+        if (location && !m_data.goals.empty() && !m_data.goals.back().location) m_data.goals.back().location = location;
+        return;
+    }
     m_roundActive = false;
     m_awaitingFirstTouch = false;
     GoalRecord g;
@@ -758,7 +786,6 @@ void MatchAnalyticsTracker::OnGoalScored(const nlohmann::json& data) {
     if (const auto* touch = Child(data, "BallLastTouch")) {
         if (const auto speed = Number(*touch, "Speed"); speed && *speed > 0.0f) g.lastTouchSpeed = speed;
     }
-    g.location = Point(data, "ImpactLocation");
     if (const auto round = Number(data, "GoalTime"); round && *round > 0.0f) g.roundSeconds = round;
     if (g.team == 0 || g.team == 1) {
         m_score[g.team]++;
