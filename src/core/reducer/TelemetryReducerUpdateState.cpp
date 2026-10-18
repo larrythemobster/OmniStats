@@ -14,6 +14,35 @@
 
 using namespace TelemetryReducerDetail;
 
+namespace {
+    // Outside spectator mode Game.Target is the car your camera follows, i.e. you; it is cleared
+    // during replays and while demolished. Returns nullopt when the payload has no bHasTarget at all,
+    // and an empty id when the target is absent or not in the player list.
+    std::optional<std::string> CameraTargetPlayerId(const nlohmann::json& data) {
+        if (!data.contains("Game") || !data["Game"].is_object()) return std::nullopt;
+        const auto& game = data["Game"];
+        if (!game.contains("bHasTarget") || !game["bHasTarget"].is_boolean()) return std::nullopt;
+        if (!game["bHasTarget"].get<bool>() || !game.contains("Target") || !game["Target"].is_object()) return std::string{};
+        const auto& target = game["Target"];
+        if (!target.contains("Name") || !target["Name"].is_string()) return std::string{};
+        const std::string name = target["Name"].get<std::string>();
+        const int team = target.contains("TeamNum") && target["TeamNum"].is_number_integer() ? target["TeamNum"].get<int>() : -1;
+        if (name.empty() || !data.contains("Players") || !data["Players"].is_array()) return std::string{};
+        std::string match;
+        for (const auto& p : data["Players"]) {
+            if (!p.contains("PrimaryId") || !p["PrimaryId"].is_string() || !p.contains("Name") || !p["Name"].is_string() ||
+                p["Name"].get<std::string>() != name)
+                continue;
+            if (team != -1 && (!p.contains("TeamNum") || !p["TeamNum"].is_number_integer() || p["TeamNum"].get<int>() != team))
+                continue;
+            if (!match.empty()) return std::string{};
+            match = p["PrimaryId"].get<std::string>();
+            if (match == "Unknown" || match.rfind("Unknown|", 0) == 0) match = "Unknown|" + name;
+        }
+        return match;
+    }
+} // namespace
+
 void TelemetryReducer::CapturePreMatchMmrLocked() {
     const std::string& matchGuid = m_state->game.matchGuid;
     if (matchGuid.empty() ||
@@ -529,6 +558,7 @@ void TelemetryReducer::HandleUpdateState(const nlohmann::json& data, SideEffects
             bool hasLocalPlayerFeeds = false;
             bool seenMyIdInLobby = false;
             std::unordered_set<std::string> currentCandidates;
+            const std::optional<std::string> cameraTargetId = CameraTargetPlayerId(data);
             std::string mySavedId = m_state->game.myPrimaryId;
             if (mySavedId != m_lastKnownMyId) {
                 m_lastKnownMyId = mySavedId;
@@ -554,7 +584,10 @@ void TelemetryReducer::HandleUpdateState(const nlohmann::json& data, SideEffects
                             isPcPlatform = true;
                     }
 
-                    bool isLocalPlayerFeed = isPcPlatform && (p.contains("Boost") || p.contains("bOnGround"));
+                    // Teammates also receive car state, so it only identifies you when no camera target is reported.
+                    const bool isLocalPlayerFeed =
+                        isPcPlatform && (cameraTargetId ? pid == *cameraTargetId
+                                                        : (p.contains("Boost") || p.contains("bOnGround")));
                     if (isLocalPlayerFeed) {
                         hasLocalPlayerFeeds = true;
                         currentCandidates.insert(pid);

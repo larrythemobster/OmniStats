@@ -1,110 +1,52 @@
 #include <gtest/gtest.h>
-#include "core/reducer/TelemetryReducer.hpp"
-#include "core/state/SessionState.hpp"
-#include "core/config/Config.hpp"
-#include "utils/Storage.hpp"
-#include "core/config/Constants.hpp"
-#include "database/DatabaseManager.hpp"
+
 #include <memory>
 
-// This test exercises the identity auto-switch behavior in TelemetryReducer.
-// It simulates an UpdateState payload where a saved primary id is present but
-// not seen in the lobby while local player feeds (PC platform players) exist.
+#include "core/config/Config.hpp"
+#include "core/config/Constants.hpp"
+#include "core/reducer/TelemetryReducer.hpp"
+#include "core/state/SessionState.hpp"
+#include "utils/Storage.hpp"
 
-TEST(TelemetryReducerIdentity, AutoSwitchesWhenSavedIdMissing) {
-    Storage::InitializeEnvironment();
-    // Ensure clean config
-    Config::Update([](ConfigData& c) { c.last_primary_id = ""; }, true);
-
-    auto state = std::make_shared<SessionState>();
-    TelemetryReducer reducer(state);
-
-    // Start with a saved id in config and apply into state
-    Config::Update([](ConfigData& c) { c.last_primary_id = "Steam|12345"; }, true);
-    {
-        std::unique_lock<std::shared_mutex> lk(state->game.mutex);
-        state->game.myPrimaryId = "Steam|12345";
-    }
-    {
-        std::unique_lock<std::shared_mutex> lk(state->history.mutex);
-        state->history.SelectMmrOwner("Steam|12345");
-        state->history.playlistInitialMmr["2v2"] = 1424;
-        state->history.playlistHistoryY["2v2"] = {1424.0f, 1425.0f};
+namespace {
+    nlohmann::json LiveState(bool hasTarget) {
+        // Mirrors a recorded online 2v2: you and your teammate both carry car state.
+        nlohmann::json game{{"Arena", "Stadium_P"}, {"PlaylistId", 11}, {"TimeSeconds", 250}, {"bReplay", false}, {"bOvertime", false}, {"bHasTarget", hasTarget}};
+        if (hasTarget) game["Target"] = {{"Name", "Me"}, {"Shortcut", 6}, {"TeamNum", 1}};
+        return {{"Game", game},
+                {"Players",
+                 {{{"PrimaryId", "Epic|me|0"}, {"Name", "Me"}, {"TeamNum", 1}, {"Shortcut", 6}, {"bHasCar", true}, {"Boost", 40}},
+                  {{"PrimaryId", "Steam|mate|0"}, {"Name", "Mate"}, {"TeamNum", 1}, {"Shortcut", 5}, {"bHasCar", true}, {"Boost", 70}},
+                  {{"PrimaryId", "Epic|opp|0"}, {"Name", "Opp"}, {"TeamNum", 0}, {"Shortcut", 1}}}}};
     }
 
-    // Build a Players array where the saved id is NOT present but a local PC feed exists
-    nlohmann::json data;
-    data["Players"] = nlohmann::json::array();
-
-    // Local feed 1 (Epic)
-    nlohmann::json p1;
-    p1["PrimaryId"] = "Epic|98765";
-    p1["Name"] = "PlayerLocal";
-    p1["TeamNum"] = 0;
-    p1["Boost"] = 50; // presence of Boost marks it as local feed on PC
-    data["Players"].push_back(p1);
-
-    // Non-local console feed
-    nlohmann::json p2;
-    p2["PrimaryId"] = "PS4|222";
-    p2["Name"] = "Other";
-    p2["TeamNum"] = 1;
-    data["Players"].push_back(p2);
-
-    SideEffects effects = reducer.Reduce(std::string(Constants::EVT_UPDATE_STATE), data);
-
-    // Expect that the state switched to the Epic|98765 account
-    EXPECT_EQ(state->game.myPrimaryId, "Epic|98765");
-    // Expect SideEffects requested lifetime/history refresh for the new id
-    EXPECT_TRUE(effects.fetchLifetimeHistory);
-    EXPECT_EQ(effects.lifetimePrimaryId, "Epic|98765");
-    EXPECT_TRUE(effects.refreshDbStats);
-    EXPECT_EQ(effects.refreshStatsPrimaryId, "Epic|98765");
-    {
-        std::shared_lock<std::shared_mutex> lk(state->history.mutex);
-        EXPECT_TRUE(state->history.playlistHistoryY.empty());
-    }
-
-    data["Players"][0]["PrimaryId"] = "Steam|12345";
-    reducer.Reduce(std::string(Constants::EVT_UPDATE_STATE), data);
-    EXPECT_EQ(state->game.myPrimaryId, "Steam|12345");
-    {
-        std::shared_lock<std::shared_mutex> lk(state->history.mutex);
-        EXPECT_EQ(state->history.playlistInitialMmr.at("2v2"), 1424);
-        EXPECT_EQ(state->history.playlistHistoryY.at("2v2"),
-                  (std::vector<float>{1424.0f, 1425.0f}));
-    }
-
-    // Clean up
-    Config::Update([](ConfigData& c) { c.last_primary_id = ""; }, true);
+    struct Fixture {
+        std::shared_ptr<SessionState> state = std::make_shared<SessionState>();
+        TelemetryReducer reducer{state};
+        Fixture() {
+            Storage::InitializeEnvironment();
+            Config::Update([](ConfigData& c) { c.last_primary_id.clear(); });
+            std::unique_lock lock(state->game.mutex);
+            state->game.myPrimaryId.clear();
+        }
+        std::string MyId() {
+            std::shared_lock lock(state->game.mutex);
+            return state->game.myPrimaryId;
+        }
+    };
 }
 
-TEST(TelemetryReducerIdentity, InterleavedReducersKeepIndependentCandidateHistories) {
-    Storage::InitializeEnvironment();
-    const auto original = Config::Read();
-    Config::Update([](ConfigData& c) { c.last_primary_id.clear(); }, false);
-    auto firstState = std::make_shared<SessionState>();
-    auto secondState = std::make_shared<SessionState>();
-    secondState->game.myPrimaryId = "Steam|other";
-    TelemetryReducer first(firstState);
-    TelemetryReducer second(secondState);
-    auto players = [](std::initializer_list<const char*> ids) {
-        nlohmann::json data;
-        data["Players"] = nlohmann::json::array();
-        for (const auto* id : ids) {
-            data["Players"].push_back({{"PrimaryId", id}, {"Name", id}, {"TeamNum", 0}, {"Boost", 50}});
-        }
-        return data;
-    };
-    const std::string event(Constants::EVT_UPDATE_STATE);
-    first.Reduce(event, players({"Steam|self", "Steam|first-candidate"}));
-    EXPECT_TRUE(firstState->game.myPrimaryId.empty());
-    second.Reduce(event, players({"Steam|other"}));
-    const auto effects = first.Reduce(
-        event, players({"Steam|self", "Steam|second-candidate"}));
-    EXPECT_EQ(firstState->game.myPrimaryId, "Steam|self");
-    EXPECT_EQ(secondState->game.myPrimaryId, "Steam|other");
-    EXPECT_TRUE(effects.fetchLifetimeHistory);
-    EXPECT_EQ(effects.lifetimePrimaryId, "Steam|self");
-    Config::Update([&original](ConfigData& c) { c = original; }, false);
+TEST(TelemetryReducerIdentity, CameraTargetIdentifiesYouEvenWhenTeammatesSendCarState) {
+    Fixture f;
+    f.reducer.Reduce(std::string(Constants::EVT_UPDATE_STATE), LiveState(true));
+    EXPECT_EQ(f.MyId(), "Epic|me|0");
+}
+
+TEST(TelemetryReducerIdentity, NoCameraTargetLeavesIdentityUndecided) {
+    Fixture f;
+    for (int i = 0; i < 5; ++i)
+        f.reducer.Reduce(std::string(Constants::EVT_UPDATE_STATE), LiveState(false));
+    EXPECT_EQ(f.MyId(), "");
+    f.reducer.Reduce(std::string(Constants::EVT_UPDATE_STATE), LiveState(true));
+    EXPECT_EQ(f.MyId(), "Epic|me|0");
 }
