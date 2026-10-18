@@ -151,6 +151,7 @@ class TrackedAccountDiscoveryTest : public ::testing::Test {
         data["Players"].push_back({{"PrimaryId", localId}, {"Name", localName}, {"TeamNum", 0}, {"Boost", 33}});
         data["Players"].push_back({{"PrimaryId", "Epic|" + kEpicHex + "|0"}, {"Name", "Opponent"}, {"TeamNum", 1}});
         data["Players"].push_back({{"PrimaryId", "PS4|555|0"}, {"Name", "Teammate"}, {"TeamNum", 0}});
+        data["Game"] = {{"bHasTarget", true}, {"Target", {{"Name", localName}, {"TeamNum", 0}}}};
         return data;
     }
 

@@ -265,8 +265,6 @@ TEST_F(OmniStatsPipelineTest, FullLifecycleMatchFlow) {
         }
     })");
 
-    // Let the process of elimination identify "steam|76561198000000001" as local player
-    // Since there is only one PC platform player with boost in team 0
     {
         std::unique_lock<std::shared_mutex> lock(session->game.mutex);
         session->game.myPrimaryId = "steam|76561198000000001";
