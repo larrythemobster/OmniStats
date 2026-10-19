@@ -52,7 +52,7 @@ namespace OmniNet {
     bool UpdateRequired();
 
     using Transport = std::function<Response(const Request&)>;
-    // Tests only: routes Send() through transport and makes Available() true; empty restores the linked backend.
+    // Tests only: routes Send() through transport and makes Available() true. Test builds never use the linked backend.
     void SetTransportForTesting(Transport transport);
     void ResetUpdateRequiredForTesting();
 

@@ -16,7 +16,11 @@ namespace OmniNet {
         if (g_testTransport) {
             return true;
         }
+#ifdef OMNISTATS_TEST_ENVIRONMENT
+        return false;
+#else
         return OmniNetBackend::Available();
+#endif
     }
 
     Response Send(const Request& request) {
@@ -30,7 +34,12 @@ namespace OmniNet {
         if (transport) {
             res = transport(request);
         } else {
+#ifdef OMNISTATS_TEST_ENVIRONMENT
+            // Test builds never reach the live service; unmocked calls fail like the stub backend.
+            res.transportError = -1;
+#else
             res = OmniNetBackend::Send(request);
+#endif
         }
 
         if (res.updateRequired || res.status == 426) {
