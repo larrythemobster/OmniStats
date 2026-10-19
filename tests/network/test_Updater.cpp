@@ -146,8 +146,8 @@ TEST(UpdaterCommonTest, VerifyMsiPackageRejectsFileHashMismatch) {
         out << "Fake MSI payload for hash mismatch test\n";
     }
     const std::string wrongHash = "0000000000000000000000000000000000000000000000000000000000000000";
-    bool ok = UpdaterCommon::VerifyMsiPackage(tempFile.string(), wrongHash, "fake_cert_hash");
-    EXPECT_FALSE(ok);
+    EXPECT_EQ(UpdaterCommon::VerifyMsiPackage(tempFile.string(), wrongHash, "fake_cert_hash"),
+              UpdaterCommon::MsiVerifyResult::ChecksumMismatch);
     std::error_code ec;
     std::filesystem::remove(tempFile, ec);
 }
@@ -162,9 +162,8 @@ TEST(UpdaterCommonTest, VerifyMsiPackageRejectsUnsignedFileEvenIfFileHashMatches
     ASSERT_FALSE(realHash.empty());
 
     // Pass matching file hash, but unsigned file must still be rejected
-    bool ok = UpdaterCommon::VerifyMsiPackage(tempFile.string(), realHash,
-                                              SigningConfig::CURRENT_CERT_SHA256);
-    EXPECT_FALSE(ok);
+    EXPECT_EQ(UpdaterCommon::VerifyMsiPackage(tempFile.string(), realHash, SigningConfig::CURRENT_CERT_SHA256),
+              UpdaterCommon::MsiVerifyResult::SignatureInvalid);
     std::error_code ec;
     std::filesystem::remove(tempFile, ec);
 }
@@ -177,9 +176,9 @@ TEST(UpdaterCommonTest, VerifyMsiPackageRejectsWrongCertHash) {
     }
     std::string realHash = CalculateSHA256(tempFile.string());
 
-    bool ok = UpdaterCommon::VerifyMsiPackage(tempFile.string(), realHash,
-                                              "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
-    EXPECT_FALSE(ok);
+    EXPECT_EQ(UpdaterCommon::VerifyMsiPackage(tempFile.string(), realHash,
+                                              "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"),
+              UpdaterCommon::MsiVerifyResult::SignatureInvalid);
     std::error_code ec;
     std::filesystem::remove(tempFile, ec);
 }
@@ -195,26 +194,25 @@ TEST(UpdaterCommonTest, VerifyMsiPackageAcceptsSignedArtifactWhenHashesMatch) {
     ASSERT_FALSE(realHash.empty());
 
     // 1. Accepts with default current pinned cert
-    bool ok = UpdaterCommon::VerifyMsiPackage(msiPath.string(), realHash);
-    EXPECT_TRUE(ok);
+    EXPECT_EQ(UpdaterCommon::VerifyMsiPackage(msiPath.string(), realHash), UpdaterCommon::MsiVerifyResult::Ok);
 
     // 2. Rotation support: accepts if nextPinnedCertSha matches even if current differs
-    bool rotationOk = UpdaterCommon::VerifyMsiPackage(
-        msiPath.string(), realHash,
-        "0000000000000000000000000000000000000000000000000000000000000000",
-        SigningConfig::CURRENT_CERT_SHA256);
-    EXPECT_TRUE(rotationOk);
+    EXPECT_EQ(UpdaterCommon::VerifyMsiPackage(
+                  msiPath.string(), realHash,
+                  "0000000000000000000000000000000000000000000000000000000000000000",
+                  SigningConfig::CURRENT_CERT_SHA256),
+              UpdaterCommon::MsiVerifyResult::Ok);
 
     // 3. Rejects if neither current nor next matches
-    bool neitherMatches = UpdaterCommon::VerifyMsiPackage(
-        msiPath.string(), realHash,
-        "0000000000000000000000000000000000000000000000000000000000000000",
-        "1111111111111111111111111111111111111111111111111111111111111111");
-    EXPECT_FALSE(neitherMatches);
+    EXPECT_EQ(UpdaterCommon::VerifyMsiPackage(
+                  msiPath.string(), realHash,
+                  "0000000000000000000000000000000000000000000000000000000000000000",
+                  "1111111111111111111111111111111111111111111111111111111111111111"),
+              UpdaterCommon::MsiVerifyResult::SignatureInvalid);
 
     // 4. Rejects if file SHA-256 does not match even if signature is valid
-    bool wrongFileHash = UpdaterCommon::VerifyMsiPackage(
-        msiPath.string(),
-        "0000000000000000000000000000000000000000000000000000000000000000");
-    EXPECT_FALSE(wrongFileHash);
+    EXPECT_EQ(UpdaterCommon::VerifyMsiPackage(
+                  msiPath.string(),
+                  "0000000000000000000000000000000000000000000000000000000000000000"),
+              UpdaterCommon::MsiVerifyResult::ChecksumMismatch);
 }

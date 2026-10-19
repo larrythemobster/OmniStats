@@ -199,34 +199,21 @@ bool RepairDependencies(const std::string& appDataDir) {
 }
 
 bool PerformUpdateCheck(const std::string& serverUrl, std::string& latestVersion) {
+    const std::string localVersion = UpdaterCommon::GetInstalledAppVersion();
     const std::string versionUrl = serverUrl + "/version.txt?t=" + std::to_string(std::time(nullptr));
-    latestVersion = UpdaterCommon::Trim(UpdaterCommon::DownloadString(versionUrl, 10));
+    long httpCode = 0;
+    CURLcode curlCode = CURLE_OK;
+    latestVersion = UpdaterCommon::Trim(UpdaterCommon::DownloadString(versionUrl, 10, &httpCode, &curlCode));
     if (latestVersion.empty()) {
         std::cout << "[Updater] Failed to check version from " << versionUrl << "\n";
+        std::string category = "parse";
+        if (curlCode != CURLE_OK) {
+            category = "network";
+        } else if (httpCode != 200 && httpCode != 0) {
+            category = "http_" + std::to_string(httpCode);
+        }
+        UpdaterCommon::RecordUpdaterEvent("update_check_failed", "", category, localVersion);
         return false;
-    }
-
-    char updaterPath[MAX_PATH] = {0};
-    GetModuleFileNameA(NULL, updaterPath, MAX_PATH);
-    std::string updaterDir;
-    const std::string updaterPathStr(updaterPath);
-    const size_t lastSlash = updaterPathStr.find_last_of("\\/");
-    if (lastSlash != std::string::npos) {
-        updaterDir = updaterPathStr.substr(0, lastSlash + 1);
-    }
-
-    const std::string appNextToUpdater = updaterDir + "OmniStats.exe";
-    const std::string appInLocalAppData = UpdaterCommon::GetLocalAppDataDir() + "OmniStats.exe";
-
-    std::string localVersion;
-    if (GetFileAttributesA(appNextToUpdater.c_str()) != INVALID_FILE_ATTRIBUTES) {
-        localVersion = UpdaterCommon::GetFileVersion(appNextToUpdater);
-    } else if (GetFileAttributesA(appInLocalAppData.c_str()) != INVALID_FILE_ATTRIBUTES) {
-        localVersion = UpdaterCommon::GetFileVersion(appInLocalAppData);
-    }
-
-    if (localVersion.empty()) {
-        localVersion = OMNISTATS_VERSION;
     }
 
     std::cout << "[Updater] Server version: " << latestVersion
@@ -235,10 +222,6 @@ bool PerformUpdateCheck(const std::string& serverUrl, std::string& latestVersion
 }
 
 namespace {
-
-    bool VerifyMsiPackage(const std::string& msiPath, const std::string& expectedSha) {
-        return UpdaterCommon::VerifyMsiPackage(msiPath, expectedSha);
-    }
 
     std::string QuoteCommandLineArg(const std::string& value) {
         std::string quoted = "\"";
@@ -253,7 +236,7 @@ namespace {
         return quoted;
     }
 
-    bool LaunchSilentMsiUpgrade(const std::string& msiPath) {
+    bool LaunchSilentMsiUpgrade(const std::string& msiPath, const std::string& targetVersion, const std::string& localVersion) {
         const std::string logPath = UpdaterCommon::GetAppDataDir() + "omnistats_msi_update.log";
         std::string commandLine =
             "msiexec.exe /i " + QuoteCommandLineArg(msiPath) +
@@ -267,20 +250,31 @@ namespace {
 
         if (!CreateProcessA(nullptr, commandLineBuffer.data(), nullptr, nullptr, FALSE, 0, nullptr, nullptr, &si, &pi)) {
             std::cout << "[Updater] Failed to start Windows Installer. Error: " << GetLastError() << "\n";
+            UpdaterCommon::RecordUpdaterEvent("msi_launch_failed", targetVersion, "create_process_failed", localVersion);
             return false;
         }
 
         std::cout << "[Updater] Windows Installer started. The updater will now exit so MSI can replace it.\n";
+        UpdaterCommon::RecordUpdaterEvent("msi_launched", targetVersion, "", localVersion);
         CloseHandle(pi.hThread);
         CloseHandle(pi.hProcess);
         return true;
     }
 
-    bool DownloadAndLaunchMsiUpgrade(const std::string& serverUrl) {
+    bool DownloadAndLaunchMsiUpgrade(const std::string& serverUrl, const std::string& targetVersionParam = "") {
+        const std::string localVersion = UpdaterCommon::GetInstalledAppVersion();
+        std::string targetVersion = targetVersionParam;
+        if (targetVersion.empty()) {
+            targetVersion = UpdaterCommon::Trim(UpdaterCommon::DownloadString(serverUrl + "/version.txt?t=" + std::to_string(std::time(nullptr)), 10));
+        }
+
+        UpdaterCommon::RecordUpdaterEvent("update_started", targetVersion, "", localVersion);
+
         const std::string appDataDir = UpdaterCommon::GetAppDataDir();
         const std::string updatesDir = appDataDir + "updates\\";
         if (!UpdaterCommon::EnsureDirExists(updatesDir)) {
             std::cout << "[Updater] Failed to create updates directory.\n";
+            UpdaterCommon::RecordUpdaterEvent("download_failed", targetVersion, "io_error", localVersion);
             return false;
         }
 
@@ -290,24 +284,38 @@ namespace {
 
         DeleteFileA(msiPath.c_str());
         std::cout << "[Updater] Downloading signed installer package...\n";
-        if (!UpdaterCommon::DownloadFile(msiUrl, msiPath, 180)) {
+        long httpCode = 0;
+        CURLcode curlCode = CURLE_OK;
+        if (!UpdaterCommon::DownloadFile(msiUrl, msiPath, 180, &httpCode, &curlCode)) {
             std::cout << "[Updater] Failed to download OmniStats.msi.\n";
+            std::string cat = "network";
+            if (httpCode != 200 && httpCode != 0) cat = "http_" + std::to_string(httpCode);
+            UpdaterCommon::RecordUpdaterEvent("download_failed", targetVersion, cat, localVersion);
             return false;
         }
 
-        const std::string expectedSha = UpdaterCommon::DownloadString(shaUrl, 15);
+        const std::string expectedSha = UpdaterCommon::Trim(UpdaterCommon::DownloadString(shaUrl, 15, &httpCode, &curlCode));
         if (expectedSha.empty()) {
             std::cout << "[Updater] Failed to retrieve OmniStats.msi.sha256.\n";
             DeleteFileA(msiPath.c_str());
+            std::string cat = "network";
+            if (httpCode != 200 && httpCode != 0) cat = "http_" + std::to_string(httpCode);
+            UpdaterCommon::RecordUpdaterEvent("download_failed", targetVersion, cat, localVersion);
             return false;
         }
 
-        if (!VerifyMsiPackage(msiPath, expectedSha)) {
+        const auto verifyRes = UpdaterCommon::VerifyMsiPackage(msiPath, expectedSha);
+        if (verifyRes != UpdaterCommon::MsiVerifyResult::Ok) {
             DeleteFileA(msiPath.c_str());
+            if (verifyRes == UpdaterCommon::MsiVerifyResult::ChecksumMismatch) {
+                UpdaterCommon::RecordUpdaterEvent("checksum_failed", targetVersion, "checksum_mismatch", localVersion);
+            } else {
+                UpdaterCommon::RecordUpdaterEvent("signature_failed", targetVersion, "signature_invalid", localVersion);
+            }
             return false;
         }
 
-        return LaunchSilentMsiUpgrade(msiPath);
+        return LaunchSilentMsiUpgrade(msiPath, targetVersion, localVersion);
     }
 
     bool ShouldRetryStatsRepairElevated(int result) {
@@ -391,6 +399,7 @@ int main(int argc, char* argv[]) {
     std::string resultFile;
     std::string statsApiPath;
     int statsApiPort = 49123;
+    std::string targetVersion;
 
     for (int i = 1; i < argc; ++i) {
         const std::string arg = argv[i];
@@ -432,6 +441,8 @@ int main(int argc, char* argv[]) {
             elevatedRepair = true;
         } else if (arg == "--result-file" && i + 1 < argc) {
             resultFile = argv[++i];
+        } else if (arg == "--target-version" && i + 1 < argc) {
+            targetVersion = argv[++i];
         }
     }
 
@@ -484,7 +495,7 @@ int main(int argc, char* argv[]) {
             }
         }
 
-        const bool success = DownloadAndLaunchMsiUpgrade(serverUrl);
+        const bool success = DownloadAndLaunchMsiUpgrade(serverUrl, targetVersion);
         curl_global_cleanup();
         return success ? 0 : 1;
     }

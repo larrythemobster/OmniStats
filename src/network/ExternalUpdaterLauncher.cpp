@@ -1,5 +1,7 @@
 #include "ExternalUpdaterLauncher.hpp"
 #include "core/state/SessionState.hpp"
+#include "core/config/AppVersion.hpp"
+#include "network/telemetry/TelemetryManager.hpp"
 #include <atomic>
 #include <fstream>
 #include <iostream>
@@ -136,19 +138,27 @@ namespace {
         return true;
     }
 
-    bool LaunchUpdateForCurrentApp() {
+    bool LaunchUpdateForCurrentApp(const std::string& targetVersion = "") {
         const std::string currentExePath = GetCurrentExecutablePath();
         if (currentExePath.empty()) {
             std::cout << "[UpdaterLauncher] Failed to resolve current executable path.\n";
+            TelemetryManager::RecordUpdaterEvent("update_check_failed", targetVersion, "resolve_exe_failed", AppVersion::Current);
             return false;
         }
 
         // Keep the legacy --update-app command shape so older installed updaters do not
         // break during the one-time migration to MSI-based updater replacement. New updaters
         // interpret the same command as an MSI upgrade and ignore the target path.
-        const std::string arguments = "--update-app \"" + currentExePath + "\" " +
-                                      std::to_string(GetCurrentProcessId());
-        return LaunchUpdater(arguments);
+        std::string arguments = "--update-app \"" + currentExePath + "\" " +
+                                std::to_string(GetCurrentProcessId());
+        if (!targetVersion.empty()) {
+            arguments += " --target-version " + targetVersion;
+        }
+        if (!LaunchUpdater(arguments)) {
+            TelemetryManager::RecordUpdaterEvent("update_check_failed", targetVersion, "updater_missing", AppVersion::Current);
+            return false;
+        }
+        return true;
     }
 
     UpdateCheckResult RunInstalledUpdaterCheck(std::string& latestVersion) {
@@ -157,6 +167,7 @@ namespace {
         std::string updaterPath;
         if (!FindUpdaterExecutable(updaterPath)) {
             std::cout << "[UpdaterLauncher] Installed updater not found; skipping update check.\n";
+            TelemetryManager::RecordUpdaterEvent("update_check_failed", "", "updater_missing", AppVersion::Current);
             return UpdateCheckResult::Failed;
         }
 
@@ -171,6 +182,7 @@ namespace {
         const std::string arguments = "--check --result-file \"" + resultPath + "\"";
         if (!LaunchUpdater(arguments, &processHandle) || !processHandle) {
             DeleteFileA(resultPath.c_str());
+            TelemetryManager::RecordUpdaterEvent("update_check_failed", "", "launch_failed", AppVersion::Current);
             return UpdateCheckResult::Failed;
         }
 
@@ -179,6 +191,7 @@ namespace {
             std::cout << "[UpdaterLauncher] Installed updater check timed out.\n";
             CloseHandle(processHandle);
             DeleteFileA(resultPath.c_str());
+            TelemetryManager::RecordUpdaterEvent("update_check_failed", "", "timeout", AppVersion::Current);
             return UpdateCheckResult::Failed;
         }
 
@@ -291,7 +304,7 @@ namespace ExternalUpdaterLauncher {
             return false;
         }
 
-        if (!LaunchUpdateForCurrentApp()) {
+        if (!LaunchUpdateForCurrentApp(latestVersion)) {
             ShowUpdaterMissingMessage();
             return false;
         }
@@ -366,7 +379,13 @@ namespace ExternalUpdaterLauncher {
         }
         state->ui.updateDownloadFailed.store(false);
 
-        if (!LaunchUpdateForCurrentApp()) {
+        std::string targetVersion;
+        {
+            std::lock_guard<std::mutex> lock(state->ui.updateMutex);
+            targetVersion = state->ui.updateAvailableVersion;
+        }
+
+        if (!LaunchUpdateForCurrentApp(targetVersion)) {
             state->ui.updateDownloading.store(false);
             state->ui.updateDownloadFailed.store(true);
             ShowUpdaterMissingMessage();

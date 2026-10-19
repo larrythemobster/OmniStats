@@ -19,6 +19,9 @@ namespace OmniNet {
         ClientConfig,
         Telemetry,
         Crash,
+        Heartbeat,
+        Milestones,
+        UpdaterEvent,
     };
 
     struct Request {

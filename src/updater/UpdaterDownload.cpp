@@ -30,7 +30,9 @@ namespace UpdaterCommon {
         return str.substr(first, (last - first + 1));
     }
 
-    bool DownloadFile(const std::string& url, const std::string& outputPath, long timeoutSecs) {
+    bool DownloadFile(const std::string& url, const std::string& outputPath, long timeoutSecs, long* outHttpCode, CURLcode* outCurlCode) {
+        if (outHttpCode) *outHttpCode = 0;
+        if (outCurlCode) *outCurlCode = CURLE_OK;
         size_t lastSlash = outputPath.find_last_of("\\/");
         if (lastSlash != std::string::npos) {
             EnsureDirExists(outputPath.substr(0, lastSlash));
@@ -59,6 +61,8 @@ namespace UpdaterCommon {
         CURLcode res = curl_easy_perform(curl);
         long http_code = 0;
         curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &http_code);
+        if (outHttpCode) *outHttpCode = http_code;
+        if (outCurlCode) *outCurlCode = res;
         outFile.close();
         curl_easy_cleanup(curl);
 
@@ -70,7 +74,9 @@ namespace UpdaterCommon {
         return true;
     }
 
-    std::string DownloadString(const std::string& url, long timeoutSecs) {
+    std::string DownloadString(const std::string& url, long timeoutSecs, long* outHttpCode, CURLcode* outCurlCode) {
+        if (outHttpCode) *outHttpCode = 0;
+        if (outCurlCode) *outCurlCode = CURLE_OK;
         CURL* curl = curl_easy_init();
         if (!curl) {
             return "";
@@ -88,6 +94,8 @@ namespace UpdaterCommon {
         CURLcode res = curl_easy_perform(curl);
         long http_code = 0;
         curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &http_code);
+        if (outHttpCode) *outHttpCode = http_code;
+        if (outCurlCode) *outCurlCode = res;
         curl_easy_cleanup(curl);
 
         if (res != CURLE_OK || http_code != 200) {

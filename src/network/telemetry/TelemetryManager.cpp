@@ -4,16 +4,22 @@
 #include "utils/Storage.hpp"
 #include "core/config/AppVersion.hpp"
 #include "network/omninet/OmniNet.hpp"
-#include <fstream>
-#include <windows.h>
+#include "updater/UpdaterEventLog.hpp"
+#include <algorithm>
 #include <atomic>
+#include <chrono>
+#include <condition_variable>
 #include <filesystem>
+#include <fstream>
 #include <iostream>
 #include <memory>
+#include <mutex>
 #include <nlohmann/json.hpp>
 #include <random>
 #include <sstream>
 #include <thread>
+#include <vector>
+#include <windows.h>
 
 namespace fs = std::filesystem;
 
@@ -22,7 +28,55 @@ namespace TelemetryManager {
     static bool g_isTestMode = false;
     static std::unique_ptr<std::jthread> g_workerThread;
     static std::atomic<bool> g_isRunning{true};
+    static std::chrono::steady_clock::time_point g_startTime = std::chrono::steady_clock::now();
+    static std::mutex g_workerMutex;
+    static std::condition_variable g_workerCv;
 
+    static std::mutex g_milestonesMutex;
+    static std::atomic<uint32_t> g_knownMask{0};
+    static uint32_t g_reportedMask = 0;
+    static uint32_t g_pendingMask = 0;
+    static std::shared_ptr<DatabaseManager> g_db;
+
+    static uint32_t LoadMaskFromJson(const std::string& jsonStr) {
+        uint32_t mask = 0;
+        if (jsonStr.empty()) return mask;
+        try {
+            const auto j = nlohmann::json::parse(jsonStr);
+            if (j.is_array()) {
+                for (const auto& item : j) {
+                    std::string name;
+                    if (item.is_object() && item.contains("name") && item["name"].is_string()) {
+                        name = item["name"].get<std::string>();
+                    } else if (item.is_string()) {
+                        name = item.get<std::string>();
+                    }
+                    if (!name.empty()) {
+                        for (uint8_t i = 0; i < static_cast<uint8_t>(Milestone::Count); ++i) {
+                            const auto meta = MilestoneMetadata(static_cast<Milestone>(i));
+                            if (meta.name == name) {
+                                mask |= (1u << i);
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+        } catch (...) {
+        }
+        return mask;
+    }
+
+    static std::string DumpMaskToJson(uint32_t mask) {
+        nlohmann::json arr = nlohmann::json::array();
+        for (uint8_t i = 0; i < static_cast<uint8_t>(Milestone::Count); ++i) {
+            if (mask & (1u << i)) {
+                const auto meta = MilestoneMetadata(static_cast<Milestone>(i));
+                arr.push_back({{"kind", std::string(meta.kind)}, {"name", std::string(meta.name)}});
+            }
+        }
+        return arr.dump();
+    }
     std::string GenerateUUIDv4() {
         std::random_device rd;
         std::mt19937 gen(rd());
@@ -49,13 +103,206 @@ namespace TelemetryManager {
         return ss.str();
     }
 
+    void RecordMilestone(Milestone m) {
+        const auto idx = static_cast<uint8_t>(m);
+        if (idx >= static_cast<uint8_t>(Milestone::Count)) return;
+        const uint32_t bit = 1u << idx;
+        if (g_knownMask.load(std::memory_order_relaxed) & bit) {
+            return;
+        }
+
+        std::string pendingJson;
+        {
+            std::lock_guard<std::mutex> lock(g_milestonesMutex);
+            if ((g_reportedMask | g_pendingMask) & bit) {
+                return;
+            }
+            g_pendingMask |= bit;
+            g_knownMask.store(g_reportedMask | g_pendingMask, std::memory_order_release);
+            pendingJson = DumpMaskToJson(g_pendingMask);
+        }
+
+        if (g_db) {
+            g_db->AsyncSetSetting("milestones_pending", pendingJson);
+        }
+    }
+
+    void FlushPendingMilestones() {
+        if (g_isTestMode || !OmniNet::Available()) {
+            return;
+        }
+
+        uint32_t pendingSnapshot = 0;
+        {
+            std::lock_guard<std::mutex> lock(g_milestonesMutex);
+            pendingSnapshot = g_pendingMask;
+        }
+
+        if (pendingSnapshot == 0) return;
+
+        const ConfigData conf = Config::Read();
+        if (conf.client_uuid.empty()) return;
+
+        nlohmann::json items = nlohmann::json::array();
+        uint32_t flushedMask = 0;
+        for (uint8_t i = 0; i < static_cast<uint8_t>(Milestone::Count); ++i) {
+            if (pendingSnapshot & (1u << i)) {
+                const auto meta = MilestoneMetadata(static_cast<Milestone>(i));
+                items.push_back({{"kind", std::string(meta.kind)}, {"name", std::string(meta.name)}});
+                flushedMask |= (1u << i);
+                if (items.size() >= 32) break;
+            }
+        }
+
+        if (items.empty()) return;
+
+        nlohmann::json j;
+        j["client_uuid"] = conf.client_uuid;
+        j["version"] = AppVersion::Current;
+        j["items"] = items;
+
+        OmniNet::Request req;
+        req.op = OmniNet::Op::Milestones;
+        req.payload = j.dump();
+        req.shouldAbort = []() { return !g_isRunning.load(); };
+
+        const auto resp = OmniNet::Send(req);
+        if (resp.transportError == 0 && resp.status == 200) {
+            std::string reportedJson;
+            std::string pendingJson;
+            {
+                std::lock_guard<std::mutex> lock(g_milestonesMutex);
+                g_pendingMask &= ~flushedMask;
+                g_reportedMask |= flushedMask;
+                g_knownMask.store(g_reportedMask | g_pendingMask, std::memory_order_release);
+                reportedJson = DumpMaskToJson(g_reportedMask);
+                pendingJson = DumpMaskToJson(g_pendingMask);
+            }
+            if (g_db) {
+                (void)g_db->SetSetting("milestones_reported", reportedJson);
+                (void)g_db->SetSetting("milestones_pending", pendingJson);
+            }
+            std::cout << "[Telemetry] Flushed " << items.size() << " milestones (HTTP 200)\n";
+        } else {
+            std::cerr << "[Telemetry] Milestone flush failed (HTTP " << resp.status
+                      << ", transportError " << resp.transportError << ")\n";
+        }
+    }
+
+    void RecordUpdaterEvent(const std::string& event,
+                            const std::string& targetVersion,
+                            const std::string& errorCategory,
+                            const std::string& version) {
+        UpdaterEventLog::Append(Storage::GetDataDirectory(), event, targetVersion, errorCategory, version);
+    }
+
+    void FlushPendingUpdaterEvents() {
+        if (g_isTestMode || !OmniNet::Available()) {
+            return;
+        }
+
+        const std::string eventsPath = Storage::GetDataDirectory() + UpdaterEventLog::kFileName;
+        const std::vector<std::string> lines = UpdaterEventLog::ReadLines(eventsPath);
+        if (lines.empty()) {
+            std::error_code ec;
+            fs::remove(eventsPath, ec);
+            return;
+        }
+
+        const ConfigData conf = Config::Read();
+        if (conf.client_uuid.empty()) {
+            return;
+        }
+
+        size_t sentCount = 0;
+        bool transportFailed = false;
+
+        for (size_t i = 0; i < lines.size(); ++i) {
+            if (!g_isRunning.load()) break;
+
+            try {
+                const auto jLine = nlohmann::json::parse(lines[i]);
+                nlohmann::json j;
+                j["client_uuid"] = conf.client_uuid;
+                j["version"] = jLine.value("version", AppVersion::Current);
+                j["event"] = jLine.value("event", "");
+                j["target_version"] = jLine.value("target_version", "");
+                j["error_category"] = jLine.value("error_category", "");
+                j["update_checks_enabled"] = true;
+                j["auto_updater_enabled"] = conf.enable_auto_updates;
+
+                OmniNet::Request req;
+                req.op = OmniNet::Op::UpdaterEvent;
+                req.payload = j.dump();
+                req.shouldAbort = []() { return !g_isRunning.load(); };
+
+                const auto resp = OmniNet::Send(req);
+                if (resp.transportError != 0) {
+                    transportFailed = true;
+                    break;
+                }
+                sentCount++;
+            } catch (...) {
+                sentCount++;
+            }
+        }
+
+        if (sentCount == lines.size()) {
+            std::error_code ec;
+            fs::remove(eventsPath, ec);
+            std::cout << "[Telemetry] All updater events sent and queue cleared.\n";
+        } else if (sentCount > 0) {
+            UpdaterEventLog::WriteLines(eventsPath, lines, sentCount);
+        }
+    }
+
+    void SendHeartbeat() {
+        if (g_isTestMode || !OmniNet::Available()) {
+            return;
+        }
+
+        const ConfigData conf = Config::Read();
+        if (conf.client_uuid.empty()) {
+            return;
+        }
+
+        const auto now = std::chrono::steady_clock::now();
+        const auto elapsed = std::chrono::duration_cast<std::chrono::minutes>(now - g_startTime).count();
+        const int uptimeMinutes = std::clamp(static_cast<int>(elapsed), 0, 10080);
+
+        nlohmann::json j;
+        j["client_uuid"] = conf.client_uuid;
+        j["version"] = AppVersion::Current;
+        j["uptime_minutes"] = uptimeMinutes;
+
+        OmniNet::Request req;
+        req.op = OmniNet::Op::Heartbeat;
+        req.payload = j.dump();
+        req.shouldAbort = []() { return !g_isRunning.load(); };
+
+        const auto resp = OmniNet::Send(req);
+        if (resp.transportError == 0) {
+            std::cout << "[Telemetry] Heartbeat sent (HTTP " << resp.status << ")\n";
+        } else {
+            std::cerr << "[Telemetry] Heartbeat failed (error " << resp.transportError << ")\n";
+        }
+    }
+
     void Initialize(std::shared_ptr<DatabaseManager> db) {
         if (!db)
             return;
 
+        g_db = db;
         g_isTestMode = db->GetDatabasePath() == ":memory:";
         if (g_isTestMode) {
             std::cout << "[Telemetry] Test environment detected (:memory:). Live network transmissions disabled.\n";
+        }
+
+        {
+            std::lock_guard<std::mutex> lock(g_milestonesMutex);
+            g_reportedMask = LoadMaskFromJson(db->GetSetting("milestones_reported"));
+            g_pendingMask = LoadMaskFromJson(db->GetSetting("milestones_pending"));
+            g_knownMask.store(g_reportedMask | g_pendingMask, std::memory_order_release);
         }
 
         // Load or generate the pseudonymous installation ID used for required startup diagnostics.
@@ -78,6 +325,16 @@ namespace TelemetryManager {
             c.client_uuid = uuid;
         });
 
+        const std::string lastRunVersion = db->GetSetting("last_run_version");
+        const std::string currentVersion = AppVersion::Current;
+        if (lastRunVersion.empty()) {
+            (void)db->SetSetting("last_run_version", currentVersion);
+            RecordMilestone(Milestone::FirstLaunch);
+        } else if (lastRunVersion != currentVersion) {
+            (void)db->SetSetting("last_run_version", currentVersion);
+            RecordUpdaterEvent("updated_successfully", currentVersion, "", lastRunVersion);
+        }
+
         if (g_isTestMode) {
             std::cout << "[Telemetry] Test environment detected. Skipping background telemetry worker thread.\n";
             return;
@@ -86,10 +343,24 @@ namespace TelemetryManager {
         std::cout << "[Telemetry] Scheduling required startup diagnostics.\n";
         g_isRunning.store(true);
         if (!g_workerThread) {
-            g_workerThread = std::make_unique<std::jthread>([]() {
+            g_workerThread = std::make_unique<std::jthread>([](std::stop_token stopToken) {
                 try {
                     SendTelemetryAsync();
+                    FlushPendingUpdaterEvents();
+                    FlushPendingMilestones();
                     if (Config::Read().crash_reports_enabled) CheckAndReportCrashes();
+
+                    while (!stopToken.stop_requested() && g_isRunning.load()) {
+                        std::unique_lock<std::mutex> lock(g_workerMutex);
+                        if (g_workerCv.wait_for(lock, std::chrono::minutes(60), [&]() {
+                                return stopToken.stop_requested() || !g_isRunning.load();
+                            })) {
+                            break;
+                        }
+
+                        SendHeartbeat();
+                        FlushPendingMilestones();
+                    }
                 } catch (const std::exception& e) {
                     std::cerr << "[Telemetry] Worker error: " << e.what() << "\n";
                 } catch (...) {
@@ -101,8 +372,12 @@ namespace TelemetryManager {
 
     void Shutdown() {
         g_isRunning.store(false);
-        if (g_workerThread && g_workerThread->joinable()) {
-            g_workerThread->join();
+        g_workerCv.notify_all();
+        if (g_workerThread) {
+            g_workerThread->request_stop();
+            if (g_workerThread->joinable()) {
+                g_workerThread->join();
+            }
             g_workerThread.reset();
             std::cout << "[Telemetry] Worker thread joined.\n";
         }

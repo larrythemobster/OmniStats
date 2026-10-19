@@ -1,7 +1,9 @@
 #include "updater/UpdaterCommon.hpp"
 #include "utils/FileHash.hpp"
+#include "updater/UpdaterEventLog.hpp"
 #include <vector>
 #include <sstream>
+#include <fstream>
 #include <algorithm>
 #include <iostream>
 #include <iomanip>
@@ -205,14 +207,14 @@ namespace UpdaterCommon {
         return result;
     }
 
-    bool VerifyMsiPackage(const std::string& msiPath,
-                          const std::string& expectedFileSha,
-                          const std::string& currentPinnedCertSha,
-                          const std::string& nextPinnedCertSha) {
+    MsiVerifyResult VerifyMsiPackage(const std::string& msiPath,
+                                     const std::string& expectedFileSha,
+                                     const std::string& currentPinnedCertSha,
+                                     const std::string& nextPinnedCertSha) {
         // 1. Keep the existing updater file SHA-256 check
         if (!VerifyFileSHA256(msiPath, expectedFileSha)) {
             std::cout << "[Updater] MSI file SHA-256 verification failed.\n";
-            return false;
+            return MsiVerifyResult::ChecksumMismatch;
         }
         std::cout << "[Updater] MSI file SHA-256 verification passed.\n";
 
@@ -225,14 +227,14 @@ namespace UpdaterCommon {
 
         if (currentPin.empty() && nextPin.empty()) {
             std::cout << "[Updater] Authenticode certificate pin verification is not configured for this build.\n";
-            return true;
+            return MsiVerifyResult::Ok;
         }
 
         // 2. Extra updater check: verify Authenticode signature against pinned certificate hash
         const SignatureVerificationResult signature = VerifyAuthenticodeSignature(msiPath);
         if (!signature.digestValid) {
             std::cout << "[Updater] MSI Authenticode verification failed: " << signature.statusMessage << "\n";
-            return false;
+            return MsiVerifyResult::SignatureInvalid;
         }
 
         // Display publisher name for information only; do not reject if publisher string changes
@@ -271,11 +273,48 @@ namespace UpdaterCommon {
                 std::cout << " (or next: " << nextPin << ")";
             }
             std::cout << "\n          Actual:   " << actualCertSha << "\n";
-            return false;
+            return MsiVerifyResult::SignatureInvalid;
         }
 
         std::cout << "[Updater] MSI Authenticode certificate verification passed.\n";
-        return true;
+        return MsiVerifyResult::Ok;
+    }
+
+    std::string GetInstalledAppVersion() {
+        char updaterPath[MAX_PATH] = {0};
+        GetModuleFileNameA(NULL, updaterPath, MAX_PATH);
+        std::string updaterDir;
+        const std::string updaterPathStr(updaterPath);
+        const size_t lastSlash = updaterPathStr.find_last_of("\\/");
+        if (lastSlash != std::string::npos) {
+            updaterDir = updaterPathStr.substr(0, lastSlash + 1);
+        }
+
+        const std::string appNextToUpdater = updaterDir + "OmniStats.exe";
+        const std::string appInLocalAppData = GetLocalAppDataDir() + "OmniStats.exe";
+
+        std::string localVersion;
+        if (GetFileAttributesA(appNextToUpdater.c_str()) != INVALID_FILE_ATTRIBUTES) {
+            localVersion = GetFileVersion(appNextToUpdater);
+        } else if (GetFileAttributesA(appInLocalAppData.c_str()) != INVALID_FILE_ATTRIBUTES) {
+            localVersion = GetFileVersion(appInLocalAppData);
+        }
+
+        if (localVersion.empty()) {
+#ifdef OMNISTATS_VERSION
+            localVersion = OMNISTATS_VERSION;
+#else
+            localVersion = "2.0.0";
+#endif
+        }
+        return localVersion;
+    }
+
+    void RecordUpdaterEvent(const std::string& event,
+                            const std::string& targetVersion,
+                            const std::string& errorCategory,
+                            const std::string& version) {
+        UpdaterEventLog::Append(GetAppDataDir(), event, targetVersion, errorCategory, version);
     }
 
 } // namespace UpdaterCommon

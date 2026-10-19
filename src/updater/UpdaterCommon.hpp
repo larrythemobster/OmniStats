@@ -18,10 +18,19 @@ namespace UpdaterCommon {
     };
 
     SignatureVerificationResult VerifyAuthenticodeSignature(const std::string& filePath);
-    bool VerifyMsiPackage(const std::string& msiPath,
-                          const std::string& expectedFileSha,
-                          const std::string& currentPinnedCertSha = "",
-                          const std::string& nextPinnedCertSha = "");
+    enum class MsiVerifyResult { Ok,
+                                 ChecksumMismatch,
+                                 SignatureInvalid };
+
+    MsiVerifyResult VerifyMsiPackage(const std::string& msiPath,
+                                     const std::string& expectedFileSha,
+                                     const std::string& currentPinnedCertSha = "",
+                                     const std::string& nextPinnedCertSha = "");
+    void RecordUpdaterEvent(const std::string& event,
+                            const std::string& targetVersion,
+                            const std::string& errorCategory,
+                            const std::string& version);
+    std::string GetInstalledAppVersion();
 
 } // namespace UpdaterCommon
 
