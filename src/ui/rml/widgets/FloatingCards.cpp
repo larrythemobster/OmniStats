@@ -10,6 +10,7 @@
 #include "network/ExternalUpdaterLauncher.hpp"
 #include "network/mmr/MMRFetcher.hpp"
 #include "ui/Formatting.hpp"
+#include "network/telemetry/TelemetryManager.hpp"
 #include "ui/window/KeyNames.hpp"
 #include "ui/rml/backend/RmlInputWin32.hpp"
 #include "ui/rml/widgets/RmlMmrGraphLines.hpp"
@@ -126,6 +127,9 @@ std::string RmlUiController::RenderMatchSummary() {
 std::string RmlUiController::RenderSessionView() {
     const auto category = m_state ? m_state->ui.graphMmrCategory.load() : MmrCategory::TwoVTwo;
     const bool graph = m_state && m_state->ui.showGraphView.load();
+    if (graph) {
+        TelemetryManager::RecordMilestone(TelemetryManager::Milestone::MmrGraphView);
+    }
     const bool lifetime = graph && m_snap.showLifetimeGraph;
     std::ostringstream out;
     out << "<div class='card match-summary" << FloatingCardClass() << "' data-action='floating-card-drag' data-card='session-view'"

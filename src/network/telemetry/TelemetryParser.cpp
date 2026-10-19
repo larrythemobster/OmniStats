@@ -1,5 +1,6 @@
 #include "network/telemetry/TelemetryParser.hpp"
 #include "core/config/Config.hpp"
+#include "network/telemetry/TelemetryManager.hpp"
 #include <iostream>
 #include <stdexcept>
 
@@ -109,6 +110,7 @@ void TelemetryParser::ConnectAndRead(JsonLineCallback onJsonLine) {
     }
 
     std::cout << "[StatsClient] Connected to Rocket League!\n";
+    TelemetryManager::RecordMilestone(TelemetryManager::Milestone::StatsApiConnected);
 
 #ifdef _WIN32
     DWORD timeoutMs = 5000;

@@ -14,6 +14,7 @@
 #include "network/mmr/MMRFetcher.hpp"
 #include "network/api/RemoteConfig.hpp"
 #include "network/omninet/OmniNet.hpp"
+#include "network/telemetry/TelemetryManager.hpp"
 #include "ui/Formatting.hpp"
 #include "ui/window/KeyNames.hpp"
 #include "ui/rml/backend/RmlInputWin32.hpp"
@@ -66,6 +67,7 @@ std::string RmlUiController::RenderWidget(DashboardLayout::WidgetId id, bool das
     case DashboardLayout::WidgetId::SessionStats:
         return RenderSessionStats(true, true);
     case DashboardLayout::WidgetId::MmrGraph: {
+        TelemetryManager::RecordMilestone(TelemetryManager::Milestone::MmrGraphView);
         std::string controls;
         if (dashboard) {
             const auto graphCategory = m_state ? m_state->ui.graphMmrCategory.load() : MmrCategory::TwoVTwo;

@@ -5,6 +5,7 @@
 #include "utils/Storage.hpp"
 #include "core/state/SessionState.hpp"
 #include "database/DatabaseManager.hpp"
+#include "network/telemetry/TelemetryManager.hpp"
 #include <nlohmann/json.hpp>
 #include <iostream>
 #include <chrono>
@@ -444,6 +445,7 @@ void ReplayUploader::UploadReplayRecord(int64_t id, const std::string& path, con
         m_state->ui.lastBallchasingMatchGuid = matchGuid;
         m_state->ui.lastBallchasingUrl = decision.ballchasingUrl;
         m_state->ui.replayUploadVersion.fetch_add(1, std::memory_order_relaxed);
+        TelemetryManager::RecordMilestone(TelemetryManager::Milestone::ReplayUploadBallchasing);
     }
 
     std::cout << "[ReplayUploader] Upload result for " << PrivacyLog::Sensitive(path, "replay path")

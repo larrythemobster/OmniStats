@@ -1,5 +1,6 @@
 #include "DiscordManager.hpp"
 #include "core/config/Config.hpp"
+#include "network/telemetry/TelemetryManager.hpp"
 
 #define DISCORDPP_IMPLEMENTATION
 #include <discordpp.h>
@@ -18,6 +19,7 @@ DiscordManager::~DiscordManager() {
 }
 
 void DiscordManager::Initialize() {
+    TelemetryManager::RecordMilestone(TelemetryManager::Milestone::DiscordRpcEnabled);
     if (m_running.exchange(true)) return;
     m_worker = std::jthread(&DiscordManager::CallbackThread, this);
 }

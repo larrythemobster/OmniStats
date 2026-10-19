@@ -4,6 +4,7 @@
 #include "core/game/GamemodeUtils.hpp"
 #include "core/game/PlaylistMetadata.hpp"
 #include "core/game/MatchAnalytics.hpp"
+#include "network/telemetry/TelemetryManager.hpp"
 #include <nlohmann/json.hpp>
 #include <algorithm>
 #include <iostream>
@@ -429,6 +430,7 @@ void DatabaseManager::SaveMatch(const MatchSaveSnapshot& snapshot) {
     }
 
     std::cout << "Match saved to database. ID: " << matchId << " Gamemode: " << gamemode << "\n";
+    TelemetryManager::RecordMilestone(TelemetryManager::Milestone::FirstMatchTracked);
 }
 
 void DatabaseManager::ResolvePendingMatchLocked(sqlite3_int64 matchId, const MatchSaveSnapshot& snapshot) {

@@ -1,5 +1,6 @@
 #include "platform/InputManager.hpp"
 #include "core/config/Config.hpp"
+#include "network/telemetry/TelemetryManager.hpp"
 #define SDL_MAIN_HANDLED
 #include <SDL2/SDL.h>
 #include <iostream>
@@ -153,6 +154,7 @@ namespace {
     void ExpandActiveView(SessionState& state) {
         if (state.ui.showSessionView.load()) {
             if (!state.ui.showGraphView.load()) {
+                TelemetryManager::RecordMilestone(TelemetryManager::Milestone::MmrGraphView);
                 state.ui.showGraphView.store(true);
                 state.history.showLifetimeGraph.store(false);
                 state.ui.graphOffset.store(0);
@@ -330,6 +332,9 @@ void InputManager::RefreshConfigCache() {
 }
 
 void InputManager::SetOverlayHeld(OverlayHoldSource source, bool held) {
+    if (held) {
+        TelemetryManager::RecordMilestone(TelemetryManager::Milestone::OverlayToggle);
+    }
     std::lock_guard lock(m_overlayHoldMutex);
     m_overlayHolds.Set(source, held);
     if (m_state && !m_state->ui.inputCaptureActive.load(std::memory_order_relaxed)) {

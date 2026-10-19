@@ -2,6 +2,7 @@
 #include <sstream>
 #include "ui/rml/widgets/TournamentWidget.hpp"
 #include "ui/rml/controller/RmlUiHelpers.hpp"
+#include "network/telemetry/TelemetryManager.hpp"
 
 namespace TournamentUi {
     namespace {
@@ -42,6 +43,7 @@ namespace TournamentUi {
         }
         const auto* next = Tournaments::NextSlot(snapshot.slots, now, false);
         if (!next) return "<span class='label'>No upcoming tournaments.</span>";
+        TelemetryManager::RecordMilestone(TelemetryManager::Milestone::TournamentsView);
         return "<div class='row tournament-countdown'><span class='tournament-name grow'>" + Escape(next->title) +
                "</span><span class='tournament-region label'>" + Escape(snapshot.group) +
                "</span><span class='mono accent tournament-remaining'>" + Countdown(next->startUnix - now) + "</span></div>";
@@ -52,6 +54,7 @@ namespace TournamentUi {
         if (snapshot.status != Tournaments::ScheduleStatus::Ready && snapshot.status != Tournaments::ScheduleStatus::Loading) return {};
         const auto* next = Tournaments::NextSlot(snapshot.slots, now, standardOnly);
         if (!next) return {};
+        TelemetryManager::RecordMilestone(TelemetryManager::Milestone::TournamentsView);
         const bool soon = reminderMinutes > 0 && next->startUnix - now <= static_cast<int64_t>(reminderMinutes) * 60;
         std::ostringstream out;
         out << "<div class='tournament-topbar tooltip-host" << (soon ? " starting-soon" : "") << "'>"

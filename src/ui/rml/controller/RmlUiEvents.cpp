@@ -16,6 +16,7 @@
 #include "network/ExternalUpdaterLauncher.hpp"
 #include "network/mmr/MMRFetcher.hpp"
 #include "network/api/RemoteConfig.hpp"
+#include "network/telemetry/TelemetryManager.hpp"
 #include "ui/Formatting.hpp"
 #include "ui/window/KeyNames.hpp"
 #include "ui/rml/backend/RmlInputWin32.hpp"
@@ -178,6 +179,7 @@ void RmlUiController::HandleClick(Rml::Element* target) {
     } else if (action == "open-player-tracker") {
         const std::string url = Attribute(target, "data-url");
         if (url.rfind("https://rocketleague.tracker.network/rocket-league/profile/", 0) == 0) {
+            TelemetryManager::RecordMilestone(TelemetryManager::Milestone::PlayerLookup);
             ShellExecuteA(nullptr, "open", url.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
         }
     } else if (action == "open-ballchasing-url") {
@@ -793,6 +795,7 @@ void RmlUiController::HandleChange(Rml::Element* target, Rml::Event& event) {
             }
         }
     });
+    TelemetryManager::RecordMilestone(TelemetryManager::Milestone::SettingsChanged);
     if (key == "show_tournaments" || key == "tournament_region" || key == "widget_enabled:tournaments")
         Tournaments::TournamentScheduleService::Instance().RequestRefresh();
 

@@ -4,6 +4,7 @@
 #include "core/config/Config.hpp"
 #include "utils/PrivacyLog.hpp"
 #include "network/http/HttpSecurity.hpp"
+#include "network/telemetry/TelemetryManager.hpp"
 
 #include "network/omninet/OmniNet.hpp"
 #include <nlohmann/json.hpp>
@@ -585,6 +586,7 @@ AccountClient::PollResult AccountClient::PollTokenOnce() {
 
             result.outcome = PollOutcome::Approved;
             result.displayName = displayName;
+            TelemetryManager::RecordMilestone(TelemetryManager::Milestone::AccountLinked);
             return result;
         } catch (...) {
             result.outcome = PollOutcome::Error;
@@ -787,6 +789,7 @@ bool AccountClient::ExchangeAPIKey(uint64_t generation) {
             (void)SendLogoutRequest(refreshToken);
             return false;
         }
+        TelemetryManager::RecordMilestone(TelemetryManager::Milestone::AccountLinked);
         return true;
     } catch (...) {
         return fail("OmniStats returned an invalid device session. Restart to retry, or sign in in Settings > Accounts & services.");
