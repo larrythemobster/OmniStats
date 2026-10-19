@@ -17,6 +17,7 @@
 #include "network/api/AccountClient.hpp"
 #include "ui/Formatting.hpp"
 #include "ui/rml/controller/RmlUiHelpers.hpp"
+#include "core/state/MatchCardUrl.hpp"
 #include "network/telemetry/TelemetryManager.hpp"
 
 using namespace RmlUiDetail;
@@ -816,6 +817,18 @@ bool RmlUiController::HandleViewAction(const std::string& action, Rml::Element* 
         if (!text.empty()) {
             m_systemInterface.SetClipboardText(text);
             ShowToast("Copied match summary to clipboard.");
+        }
+    } else if (action == "history-share-card") {
+        const auto& detailOpt = m_history.Detail();
+        if (detailOpt.has_value() && detailOpt->found) {
+            const std::string url = OmniStats::MatchCard::BuildMatchCardUrl(*detailOpt);
+            m_systemInterface.SetClipboardText(url);
+            const std::wstring wideUrl(url.begin(), url.end());
+            ShellExecuteW(nullptr, L"open", wideUrl.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+            ShowToast("Copied match card link to clipboard.");
+            TelemetryManager::RecordMilestone(TelemetryManager::Milestone::MatchCardShared);
+        } else {
+            ShowToast("Match details not loaded.", true);
         }
     } else if (action == "accounts-open") {
         ShowAccounts();
