@@ -823,9 +823,8 @@ bool RmlUiController::HandleViewAction(const std::string& action, Rml::Element* 
         if (detailOpt.has_value() && detailOpt->found) {
             const std::string url = OmniStats::MatchCard::BuildMatchCardUrl(*detailOpt);
             m_systemInterface.SetClipboardText(url);
-            const std::wstring wideUrl(url.begin(), url.end());
-            ShellExecuteW(nullptr, L"open", wideUrl.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
-            ShowToast("Copied match card link to clipboard.");
+            ShellExecuteA(nullptr, "open", url.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+            ShowToast("Opened the match card in your browser. Link copied.");
             TelemetryManager::RecordMilestone(TelemetryManager::Milestone::MatchCardShared);
         } else {
             ShowToast("Match details not loaded.", true);
