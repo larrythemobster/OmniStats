@@ -1,9 +1,31 @@
 #pragma once
+#include <algorithm>
+#include <cstdint>
 #include <string>
 #include <memory>
 #include "database/DatabaseManager.hpp"
 
 namespace TelemetryManager {
+    namespace detail {
+        inline constexpr uint64_t k100nsPerMinute = 600'000'000ULL;
+        inline constexpr int kMaxOpenMinutes = 1440;
+
+        struct HeartbeatAccounting {
+            int open_minutes = 0;
+            uint64_t remainder_100ns = 0;
+        };
+
+        inline HeartbeatAccounting CalculateHeartbeatMinutes(uint64_t elapsed_100ns, uint64_t carry_100ns = 0) {
+            const uint64_t total = (UINT64_MAX - elapsed_100ns < carry_100ns)
+                                       ? UINT64_MAX
+                                       : (elapsed_100ns + carry_100ns);
+            const uint64_t minutes = total / k100nsPerMinute;
+            const int clamped = static_cast<int>(std::min<uint64_t>(minutes, static_cast<uint64_t>(kMaxOpenMinutes)));
+            const uint64_t remainder = total % k100nsPerMinute;
+            return {clamped, remainder};
+        }
+    }
+
     // Generates a random standard UUIDv4 string
     std::string GenerateUUIDv4();
 

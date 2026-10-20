@@ -28,7 +28,15 @@ namespace TelemetryManager {
     static bool g_isTestMode = false;
     static std::unique_ptr<std::jthread> g_workerThread;
     static std::atomic<bool> g_isRunning{true};
-    static std::chrono::steady_clock::time_point g_startTime = std::chrono::steady_clock::now();
+    static uint64_t GetCurrentUnbiasedTime() {
+        ULONGLONG t = 0;
+        QueryUnbiasedInterruptTime(&t);
+        return static_cast<uint64_t>(t);
+    }
+
+    static uint64_t g_lastAccountingUnbiasedTime = GetCurrentUnbiasedTime();
+    static std::mutex g_heartbeatMutex;
+    static std::atomic<bool> g_shutdownHeartbeatSent{false};
     static std::mutex g_workerMutex;
     static std::condition_variable g_workerCv;
 
@@ -256,7 +264,7 @@ namespace TelemetryManager {
         }
     }
 
-    void SendHeartbeat() {
+    static void SendHeartbeatInternal(bool isShutdown) {
         if (g_isTestMode || !OmniNet::Available()) {
             return;
         }
@@ -266,26 +274,48 @@ namespace TelemetryManager {
             return;
         }
 
-        const auto now = std::chrono::steady_clock::now();
-        const auto elapsed = std::chrono::duration_cast<std::chrono::minutes>(now - g_startTime).count();
-        const int uptimeMinutes = std::clamp(static_cast<int>(elapsed), 0, 10080);
+        std::lock_guard<std::mutex> lock(g_heartbeatMutex);
+        if (!isShutdown && (!g_isRunning.load() || g_shutdownHeartbeatSent.load())) {
+            return;
+        }
+
+        const uint64_t now = GetCurrentUnbiasedTime();
+        const uint64_t elapsed = (now >= g_lastAccountingUnbiasedTime) ? (now - g_lastAccountingUnbiasedTime) : 0;
+        const auto accounting = detail::CalculateHeartbeatMinutes(elapsed);
 
         nlohmann::json j;
         j["client_uuid"] = conf.client_uuid;
         j["version"] = AppVersion::Current;
-        j["uptime_minutes"] = uptimeMinutes;
+        j["open_minutes"] = accounting.open_minutes;
 
         OmniNet::Request req;
         req.op = OmniNet::Op::Heartbeat;
         req.payload = j.dump();
-        req.shouldAbort = []() { return !g_isRunning.load(); };
+        if (isShutdown) {
+            req.timeoutSeconds = 3;
+        } else {
+            req.shouldAbort = []() { return !g_isRunning.load(); };
+        }
 
         const auto resp = OmniNet::Send(req);
-        if (resp.transportError == 0) {
-            std::cout << "[Telemetry] Heartbeat sent (HTTP " << resp.status << ")\n";
+        if (resp.transportError == 0 && resp.status == 200) {
+            g_lastAccountingUnbiasedTime = now - accounting.remainder_100ns;
+            std::cout << "[Telemetry] Heartbeat sent (HTTP 200, open_minutes " << accounting.open_minutes << ")\n";
         } else {
-            std::cerr << "[Telemetry] Heartbeat failed (error " << resp.transportError << ")\n";
+            std::cerr << "[Telemetry] Heartbeat failed (HTTP " << resp.status
+                      << ", transportError " << resp.transportError << ")\n";
         }
+    }
+
+    static void SendShutdownHeartbeat() {
+        if (g_shutdownHeartbeatSent.exchange(true)) {
+            return;
+        }
+        SendHeartbeatInternal(true);
+    }
+
+    void SendHeartbeat() {
+        SendHeartbeatInternal(false);
     }
 
     void Initialize(std::shared_ptr<DatabaseManager> db) {
@@ -305,7 +335,13 @@ namespace TelemetryManager {
             g_knownMask.store(g_reportedMask | g_pendingMask, std::memory_order_release);
         }
 
+        g_shutdownHeartbeatSent.store(false);
+        if (g_lastAccountingUnbiasedTime == 0) {
+            g_lastAccountingUnbiasedTime = GetCurrentUnbiasedTime();
+        }
+
         // Load or generate the pseudonymous installation ID used for required startup diagnostics.
+        bool isFreshUUID = false;
         std::string uuid = db->GetSetting("client_uuid");
         if (uuid.empty()) {
             ConfigData conf = Config::Read();
@@ -315,6 +351,7 @@ namespace TelemetryManager {
                 std::cout << "[Telemetry] Synced client UUID from config: " << PrivacyLog::Sensitive(uuid, "client UUID") << "\n";
             } else {
                 uuid = GenerateUUIDv4();
+                isFreshUUID = true;
                 (void)db->SetSetting("client_uuid", uuid);
                 std::cout << "[Telemetry] Generated new client UUID: " << PrivacyLog::Sensitive(uuid, "client UUID") << "\n";
             }
@@ -329,7 +366,9 @@ namespace TelemetryManager {
         const std::string currentVersion = AppVersion::Current;
         if (lastRunVersion.empty()) {
             (void)db->SetSetting("last_run_version", currentVersion);
-            RecordMilestone(Milestone::FirstLaunch);
+            if (isFreshUUID) {
+                RecordMilestone(Milestone::FirstLaunch);
+            }
         } else if (lastRunVersion != currentVersion) {
             (void)db->SetSetting("last_run_version", currentVersion);
             RecordUpdaterEvent("updated_successfully", currentVersion, "", lastRunVersion);
@@ -361,6 +400,7 @@ namespace TelemetryManager {
                         SendHeartbeat();
                         FlushPendingMilestones();
                     }
+                    SendShutdownHeartbeat();
                 } catch (const std::exception& e) {
                     std::cerr << "[Telemetry] Worker error: " << e.what() << "\n";
                 } catch (...) {
@@ -381,6 +421,7 @@ namespace TelemetryManager {
             g_workerThread.reset();
             std::cout << "[Telemetry] Worker thread joined.\n";
         }
+        SendShutdownHeartbeat();
     }
 
     void CheckAndReportCrashes() {
@@ -409,7 +450,7 @@ namespace TelemetryManager {
         j["discord_rpc_enabled"] = conf.discord_rpc_enabled;
         j["update_checks_enabled"] = true;
         j["auto_updater_enabled"] = conf.enable_auto_updates;
-
+        j["crash_reports_enabled"] = conf.crash_reports_enabled;
         OmniNet::Request req;
         req.op = OmniNet::Op::Telemetry;
         req.payload = j.dump();
