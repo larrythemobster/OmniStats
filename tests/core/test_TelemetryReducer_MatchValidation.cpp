@@ -677,6 +677,68 @@ TEST(
         MmrCategory::Best);
 }
 
+TEST(TelemetryReducerMatchValidation, RankProgressFollowsIndependentlyAndResumesWithinTheSamePlaylist) {
+    Storage::InitializeEnvironment();
+    ScopedConfigRestore restore;
+    Config::Update([](ConfigData& c) {
+        c.mmr_category = "best";
+        c.auto_switch_mmr_category = false;
+        c.graph_mmr_category = "3v3";
+        c.graph_follow_current_playlist = false;
+        c.rank_progress_mmr_category = "2v2";
+        c.rank_progress_follow_current_playlist = true;
+    },
+                   false);
+    auto state = std::make_shared<SessionState>();
+    state->ui.rosterMmrCategory.store(MmrCategory::Best);
+    state->ui.graphMmrCategory.store(MmrCategory::ThreeVThree);
+    TelemetryReducer reducer(state);
+    reducer.Reduce(std::string(Constants::EVT_MATCH_CREATED),
+                   nlohmann::json{{"MatchGuid", "rank-progress-follow"}});
+    const auto update = TeamUpdate(1, {{"PlaylistId", 10}});
+    reducer.Reduce(std::string(Constants::EVT_UPDATE_STATE), update);
+    EXPECT_EQ(state->ui.rankProgressMmrCategory.load(), MmrCategory::OneVOne);
+    EXPECT_EQ(state->ui.rosterMmrCategory.load(), MmrCategory::Best);
+    EXPECT_EQ(state->ui.graphMmrCategory.load(), MmrCategory::ThreeVThree);
+
+    Config::Update([](ConfigData& c) {
+        c.rank_progress_follow_current_playlist = false;
+    },
+                   false);
+    reducer.Reduce(std::string(Constants::EVT_UPDATE_STATE), update);
+    EXPECT_EQ(state->ui.rankProgressMmrCategory.load(), MmrCategory::TwoVTwo);
+
+    Config::Update([](ConfigData& c) {
+        c.rank_progress_follow_current_playlist = true;
+    },
+                   false);
+    reducer.Reduce(std::string(Constants::EVT_UPDATE_STATE), update);
+    EXPECT_EQ(state->ui.rankProgressMmrCategory.load(), MmrCategory::OneVOne);
+
+    Config::Update([](ConfigData& c) {
+        c.rank_progress_follow_current_playlist = false;
+    },
+                   false);
+    reducer.OnConfigChanged();
+    EXPECT_EQ(state->ui.rankProgressMmrCategory.load(), MmrCategory::TwoVTwo);
+    Config::Update([](ConfigData& c) {
+        c.rank_progress_follow_current_playlist = true;
+    },
+                   false);
+    reducer.OnConfigChanged();
+    reducer.Reduce(std::string(Constants::EVT_UPDATE_STATE), update);
+    EXPECT_EQ(state->ui.rankProgressMmrCategory.load(), MmrCategory::OneVOne);
+    EXPECT_EQ(state->ui.rosterMmrCategory.load(), MmrCategory::Best);
+    EXPECT_EQ(state->ui.graphMmrCategory.load(), MmrCategory::ThreeVThree);
+
+    reducer.Reduce(std::string(Constants::EVT_MATCH_CREATED),
+                   nlohmann::json{{"MatchGuid", "rank-progress-threes"}});
+    reducer.Reduce(std::string(Constants::EVT_UPDATE_STATE),
+                   TeamUpdate(3, {{"PlaylistId", 13}}));
+    EXPECT_EQ(state->ui.rankProgressMmrCategory.load(), MmrCategory::ThreeVThree);
+    EXPECT_EQ(Config::Read().rank_progress_mmr_category, "2v2");
+}
+
 TEST(
     TelemetryReducerMatchValidation,
     RepeatedTelemetryDoesNotReassignSameFollowedPlaylist) {

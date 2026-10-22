@@ -733,7 +733,8 @@ void RmlUiController::RebuildVisibleUi(bool force, bool configChanged) {
            << m_config.show_gamemode_record_2v2 << '|' << m_config.show_gamemode_record_3v3 << '|'
            << m_config.gamemode_breakdown_scope << '|' << m_config.mmr_category << '|'
            << m_config.auto_switch_mmr_category << '|' << m_config.graph_follow_current_playlist << '|'
-           << m_config.graph_mmr_category << '|' << m_config.show_extra_playlists << '|'
+           << m_config.graph_mmr_category << '|' << m_config.rank_progress_follow_current_playlist << '|'
+           << m_config.rank_progress_mmr_category << '|' << m_config.show_extra_playlists << '|'
            << m_config.ui_scale << '|' << m_config.imperial_units << '|' << m_config.crossbar_display_mode << '|'
            << m_config.use_roman_numerals << '|' << m_config.key_cycle << '|' << m_config.key_expand << '|'
            << m_config.key_session << '|';
@@ -925,15 +926,17 @@ void RmlUiController::RefreshLiveUi(bool force, bool allowStructural) {
     const int graphOffset = m_state->ui.graphOffset.load(std::memory_order_relaxed);
     const MmrCategory rosterCategory = m_state->ui.rosterMmrCategory.load(std::memory_order_relaxed);
     const MmrCategory graphCategory = m_state->ui.graphMmrCategory.load(std::memory_order_relaxed);
+    const MmrCategory rankProgressCategory = m_state ? m_state->ui.rankProgressMmrCategory.load(std::memory_order_relaxed) : MmrCategory::TwoVTwo;
     const bool showLifetimeGraph = m_state->history.showLifetimeGraph.load(std::memory_order_relaxed);
     const bool rosterCategoryChanged = force || m_lastRosterMmrCategory != rosterCategory;
     const bool graphCategoryChanged = force || m_lastGraphMmrCategory != graphCategory;
+    const bool rankProgressCategoryChanged = force || m_lastRankProgressMmrCategory != rankProgressCategory;
     const bool graphOffsetChanged = force || m_lastGraphOffset != graphOffset;
     const bool lifetimeGraphChanged = force || m_lastShowLifetimeGraph != showLifetimeGraph;
     const bool notesChanged = force || m_lastRenderedNotesVersion != m_snap.notesVersion;
 
     const bool structuralPending = gameChanged || historyChanged || dbChanged || rosterCategoryChanged ||
-                                   graphCategoryChanged || graphOffsetChanged || lifetimeGraphChanged || notesChanged;
+                                   graphCategoryChanged || rankProgressCategoryChanged || graphOffsetChanged || lifetimeGraphChanged || notesChanged;
     const bool primeStructure = allowStructural && m_liveDomNeedsPrime;
     if (!leafGameChanged && !primeStructure && (!allowStructural || !structuralPending)) return;
 
@@ -1095,6 +1098,8 @@ void RmlUiController::RefreshLiveUi(bool force, bool allowStructural) {
 
         if (historyChanged || graphCategoryChanged || graphOffsetChanged || lifetimeGraphChanged)
             refreshWidget(DashboardLayout::WidgetId::MmrGraph);
+        if (rankProgressCategoryChanged)
+            refreshWidget(DashboardLayout::WidgetId::RankProgress);
         if (historyChanged) refreshWidget(DashboardLayout::WidgetId::PreviousGames);
         if (dbChanged) refreshWidget(DashboardLayout::WidgetId::StreaksStats);
         if (dbChanged || gameChanged || m_liveDomNeedsPrime) {
@@ -1159,6 +1164,7 @@ void RmlUiController::RefreshLiveUi(bool force, bool allowStructural) {
         m_lastGraphOffset = graphOffset;
         m_lastRosterMmrCategory = rosterCategory;
         m_lastGraphMmrCategory = graphCategory;
+        m_lastRankProgressMmrCategory = rankProgressCategory;
         m_lastRenderedNotesVersion = m_snap.notesVersion;
     }
 }

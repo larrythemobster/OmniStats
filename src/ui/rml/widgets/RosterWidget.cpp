@@ -214,7 +214,7 @@ std::string RmlUiController::RenderSelfRankProgress(bool card) const {
     if (!m_snap.myPrimaryId.empty()) {
         if (auto it = m_snap.roster.find(m_snap.myPrimaryId); it != m_snap.roster.end()) self = &it->second;
     }
-    const std::string category = MmrCategoryToString(m_state ? m_state->ui.rosterMmrCategory.load() : MmrCategory::Best);
+    const std::string category = MmrCategoryToString(m_state ? m_state->ui.rankProgressMmrCategory.load() : MmrCategory::TwoVTwo);
     std::string playlist = category;
     int mmr = 0;
     if (self && category == "best") {

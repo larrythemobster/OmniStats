@@ -438,6 +438,7 @@ struct UIState {
     std::atomic<bool> mmrEnabled{true};
     std::atomic<MmrCategory> rosterMmrCategory{MmrCategory::Best};
     std::atomic<MmrCategory> graphMmrCategory{MmrCategory::TwoVTwo};
+    std::atomic<MmrCategory> rankProgressMmrCategory{MmrCategory::TwoVTwo};
 
     // F7 while F8 is active toggles the lifetime MMR graph. It always shows the
     // latest 25 matches, preserving per-match dots at the overlay's card width.

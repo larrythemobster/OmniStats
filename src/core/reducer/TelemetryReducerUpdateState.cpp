@@ -787,6 +787,38 @@ void TelemetryReducer::HandleUpdateState(const nlohmann::json& data, SideEffects
                         fallbackCategory);
                 }
             }
+
+            if (m_cachedConf.rank_progress_follow_current_playlist) {
+                if (!m_cachedConf.show_extra_playlists &&
+                    IsExtraMmrCategory(m_state->ui.rankProgressMmrCategory.load())) {
+                    m_state->ui.rankProgressMmrCategory.store(MmrCategory::TwoVTwo);
+                }
+                if (!m_nonLiveReplayActive &&
+                    !inferredCategoryIsHiddenExtra &&
+                    IsSupportedMmrCategory(inferredPlaylistCat)) {
+                    if (m_state->ui.rankProgressMmrCategory.load() !=
+                        inferredPlaylistCat) {
+                        m_state->ui.rankProgressMmrCategory.store(
+                            inferredPlaylistCat);
+                        std::cout
+                            << "[Identity] Rank progress following playlist category: "
+                            << MmrCategoryToString(inferredPlaylistCat)
+                            << "\n";
+                    }
+                }
+            } else {
+                MmrCategory fallbackCategory = StringToMmrCategory(
+                    m_cachedConf.rank_progress_mmr_category);
+                if (!m_cachedConf.show_extra_playlists &&
+                    IsExtraMmrCategory(fallbackCategory)) {
+                    fallbackCategory = MmrCategory::TwoVTwo;
+                }
+                if (m_state->ui.rankProgressMmrCategory.load() !=
+                    fallbackCategory) {
+                    m_state->ui.rankProgressMmrCategory.store(
+                        fallbackCategory);
+                }
+            }
         }
 
         auto now = std::chrono::steady_clock::now();

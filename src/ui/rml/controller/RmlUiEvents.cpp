@@ -669,10 +669,15 @@ void RmlUiController::HandleChange(Rml::Element* target, Rml::Event& event) {
             c.show_extra_playlists = checked;
             if (!checked && IsExtraMmrCategory(StringToMmrCategory(c.mmr_category))) c.mmr_category = "best";
             if (!checked && IsExtraMmrCategory(StringToMmrCategory(c.graph_mmr_category))) c.graph_mmr_category = "2v2";
+            if (!checked && IsExtraMmrCategory(StringToMmrCategory(c.rank_progress_mmr_category))) c.rank_progress_mmr_category = "2v2";
         } else if (key == "graph_follow_current_playlist")
             c.graph_follow_current_playlist = checked;
         else if (key == "graph_mmr_category")
             c.graph_mmr_category = value;
+        else if (key == "rank_progress_follow_current_playlist")
+            c.rank_progress_follow_current_playlist = checked;
+        else if (key == "rank_progress_mmr_category")
+            c.rank_progress_mmr_category = value;
         else if (key == "ui_scale")
             c.ui_scale = SanitizedUiScale(std::strtof(value.c_str(), nullptr));
         else if (key == "font_ui")
@@ -820,9 +825,12 @@ void RmlUiController::HandleChange(Rml::Element* target, Rml::Event& event) {
     if (key == "mmr_category" && m_state) m_state->ui.rosterMmrCategory.store(StringToMmrCategory(value));
     if (key == "graph_mmr_category" && m_state) m_state->ui.graphMmrCategory.store(StringToMmrCategory(value));
     if (key == "graph_follow_current_playlist" && !checked && m_state) m_state->ui.graphMmrCategory.store(StringToMmrCategory(m_config.graph_mmr_category));
+    if (key == "rank_progress_mmr_category" && m_state) m_state->ui.rankProgressMmrCategory.store(StringToMmrCategory(value));
+    if (key == "rank_progress_follow_current_playlist" && !checked && m_state) m_state->ui.rankProgressMmrCategory.store(StringToMmrCategory(m_config.rank_progress_mmr_category));
     if (key == "show_extra_playlists" && !checked && m_state) {
         if (IsExtraMmrCategory(m_state->ui.rosterMmrCategory.load())) m_state->ui.rosterMmrCategory.store(MmrCategory::Best);
         if (IsExtraMmrCategory(m_state->ui.graphMmrCategory.load())) m_state->ui.graphMmrCategory.store(MmrCategory::TwoVTwo);
+        if (IsExtraMmrCategory(m_state->ui.rankProgressMmrCategory.load())) m_state->ui.rankProgressMmrCategory.store(MmrCategory::TwoVTwo);
     }
     m_config = Config::Read();
     if (key == "statsapi_path") CheckStatsApi(false);

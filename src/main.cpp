@@ -193,6 +193,14 @@ int main(int argc, char* argv[]) {
         graphCategory = MmrCategory::TwoVTwo;
     }
     g_state->ui.graphMmrCategory.store(graphCategory);
+
+    MmrCategory rankProgressCategory =
+        StringToMmrCategory(startupConf.rank_progress_mmr_category);
+    if (!startupConf.show_extra_playlists &&
+        IsExtraMmrCategory(rankProgressCategory)) {
+        rankProgressCategory = MmrCategory::TwoVTwo;
+    }
+    g_state->ui.rankProgressMmrCategory.store(rankProgressCategory);
     // Stats API config check
     std::string apiPath = startupConf.rocket_league_stats_api_config_path;
     if (apiPath.empty()) {

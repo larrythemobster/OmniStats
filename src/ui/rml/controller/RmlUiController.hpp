@@ -444,6 +444,7 @@ class RmlUiController final : public Rml::EventListener {
     int m_lastGraphOffset = 0;
     MmrCategory m_lastRosterMmrCategory = MmrCategory::Best;
     MmrCategory m_lastGraphMmrCategory = MmrCategory::Best;
+    MmrCategory m_lastRankProgressMmrCategory = MmrCategory::Best;
     std::string m_lastConfigFingerprint;
     uint64_t m_lastConfigHash = 0;
     uint64_t m_lastRuntimeStructuralHash = 0;

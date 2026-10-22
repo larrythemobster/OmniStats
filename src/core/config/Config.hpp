@@ -60,6 +60,8 @@ struct ConfigData {
     std::string mmr_category = "best";
     std::string graph_mmr_category = "2v2";
     bool graph_follow_current_playlist = true;
+    std::string rank_progress_mmr_category = "2v2";
+    bool rank_progress_follow_current_playlist = true;
     std::string last_primary_id = "";
     std::vector<std::string> known_primary_ids; // previously used/seen accounts for faster identity detection
 

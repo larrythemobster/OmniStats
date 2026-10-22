@@ -22,11 +22,17 @@ using namespace RmlUiDetail;
 std::string RmlUiController::RenderSettingsRanks() {
     const std::string rosterCategory = MmrCategoryToString(StringToMmrCategory(m_config.mmr_category));
     const std::string graphCategory = MmrCategoryToString(StringToMmrCategory(m_config.graph_mmr_category));
+    const std::string rankCategory = MmrCategoryToString(StringToMmrCategory(m_config.rank_progress_mmr_category));
     std::ostringstream out;
     out << SectionStart("Player ranks")
         << SelectRow("mmr_category", "Player MMR category", "Rank displayed beside live lobby players.", MmrCategoryOptions(true, m_config.show_extra_playlists), rosterCategory)
         << ToggleControl("auto_switch_mmr_category", "Automatically follow current playlist", "", m_config.auto_switch_mmr_category)
         << ToggleControl("show_extra_playlists", "Show extra playlists", "Hoops, Rumble, Dropshot, Snow Day, and Heatseeker.", m_config.show_extra_playlists)
+        << SectionEnd();
+
+    out << SectionStart("Rank progress")
+        << ToggleControl("rank_progress_follow_current_playlist", "Follow current playlist", "", m_config.rank_progress_follow_current_playlist)
+        << SelectRow("rank_progress_mmr_category", "Default rank playlist", "Playlist shown when not following the active match.", MmrCategoryOptions(true, m_config.show_extra_playlists), rankCategory, m_config.rank_progress_follow_current_playlist)
         << SectionEnd();
 
     out << SectionStart("Personal MMR graph")

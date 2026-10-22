@@ -225,6 +225,8 @@ TEST_F(ConfigTest, MigratesLegacySharedMmrCategory) {
     EXPECT_FALSE(migrated.auto_switch_mmr_category);
     EXPECT_EQ(migrated.graph_mmr_category, "3v3");
     EXPECT_FALSE(migrated.graph_follow_current_playlist);
+    EXPECT_EQ(migrated.rank_progress_mmr_category, "3v3");
+    EXPECT_FALSE(migrated.rank_progress_follow_current_playlist);
     EXPECT_EQ(migrated.port, 49200);
 
     Config::Save();
@@ -237,6 +239,8 @@ TEST_F(ConfigTest, MigratesLegacySharedMmrCategory) {
     EXPECT_EQ(saved["auto_switch_mmr_category"], false);
     EXPECT_EQ(saved["graph_mmr_category"], "3v3");
     EXPECT_EQ(saved["graph_follow_current_playlist"], false);
+    EXPECT_EQ(saved["rank_progress_mmr_category"], "3v3");
+    EXPECT_EQ(saved["rank_progress_follow_current_playlist"], false);
 }
 
 TEST_F(ConfigTest, PersistsIndependentMmrSettings) {
@@ -245,6 +249,8 @@ TEST_F(ConfigTest, PersistsIndependentMmrSettings) {
         c.auto_switch_mmr_category = false;
         c.graph_mmr_category = "2v2";
         c.graph_follow_current_playlist = true;
+        c.rank_progress_mmr_category = "1v1";
+        c.rank_progress_follow_current_playlist = false;
     });
     Config::Save();
 
@@ -253,6 +259,8 @@ TEST_F(ConfigTest, PersistsIndependentMmrSettings) {
         c.auto_switch_mmr_category = true;
         c.graph_mmr_category = "3v3";
         c.graph_follow_current_playlist = false;
+        c.rank_progress_mmr_category = "3v3";
+        c.rank_progress_follow_current_playlist = true;
     },
                    false);
 
@@ -262,6 +270,8 @@ TEST_F(ConfigTest, PersistsIndependentMmrSettings) {
     EXPECT_FALSE(loaded.auto_switch_mmr_category);
     EXPECT_EQ(loaded.graph_mmr_category, "2v2");
     EXPECT_TRUE(loaded.graph_follow_current_playlist);
+    EXPECT_EQ(loaded.rank_progress_mmr_category, "1v1");
+    EXPECT_FALSE(loaded.rank_progress_follow_current_playlist);
 }
 
 TEST_F(ConfigTest, InvalidMmrCategoriesUseSafeDefaults) {
@@ -272,7 +282,9 @@ TEST_F(ConfigTest, InvalidMmrCategoriesUseSafeDefaults) {
         file << nlohmann::json{
             {"mmr_category", "not-a-playlist"},
             {"graph_mmr_category", "also-invalid"},
-            {"graph_follow_current_playlist", true}}
+            {"graph_follow_current_playlist", true},
+            {"rank_progress_mmr_category", "invalid-progress"},
+            {"rank_progress_follow_current_playlist", false}}
                     .dump(2);
     }
 
@@ -281,6 +293,8 @@ TEST_F(ConfigTest, InvalidMmrCategoriesUseSafeDefaults) {
     EXPECT_EQ(loaded.mmr_category, "best");
     EXPECT_EQ(loaded.graph_mmr_category, "2v2");
     EXPECT_TRUE(loaded.graph_follow_current_playlist);
+    EXPECT_EQ(loaded.rank_progress_mmr_category, "2v2");
+    EXPECT_FALSE(loaded.rank_progress_follow_current_playlist);
 }
 
 TEST_F(ConfigTest, ResetThemeColorsRestoresDefaultColors) {

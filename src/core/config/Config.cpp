@@ -401,6 +401,29 @@ namespace Config {
                     Current.auto_switch_mmr_category;
                 needsSave = true;
             }
+            if (j.contains("rank_progress_mmr_category") &&
+                j["rank_progress_mmr_category"].is_string() &&
+                IsKnownMmrCategory(j["rank_progress_mmr_category"].get<std::string>())) {
+                Current.rank_progress_mmr_category = j["rank_progress_mmr_category"];
+            } else if (j.contains("rank_progress_mmr_category")) {
+                Current.rank_progress_mmr_category = "2v2";
+                needsSave = true;
+            } else {
+                Current.rank_progress_mmr_category =
+                    IsKnownMmrCategory(Current.mmr_category)
+                        ? Current.mmr_category
+                        : "2v2";
+                needsSave = true;
+            }
+            if (j.contains("rank_progress_follow_current_playlist") &&
+                j["rank_progress_follow_current_playlist"].is_boolean()) {
+                Current.rank_progress_follow_current_playlist =
+                    j["rank_progress_follow_current_playlist"];
+            } else {
+                Current.rank_progress_follow_current_playlist =
+                    Current.auto_switch_mmr_category;
+                needsSave = true;
+            }
             // Update discovery is mandatory. Migrate older configs that explicitly
             // disabled it so the persisted compatibility field also reflects the
             // current behavior.
@@ -447,6 +470,11 @@ namespace Config {
             if (!Current.show_extra_playlists &&
                 IsExtraMmrCategory(Current.graph_mmr_category)) {
                 Current.graph_mmr_category = "2v2";
+                needsSave = true;
+            }
+            if (!Current.show_extra_playlists &&
+                IsExtraMmrCategory(Current.rank_progress_mmr_category)) {
+                Current.rank_progress_mmr_category = "2v2";
                 needsSave = true;
             }
             if (j.contains("custom_api_enabled") && j["custom_api_enabled"].is_boolean()) {
@@ -830,6 +858,8 @@ namespace Config {
         j["mmr_category"] = Current.mmr_category;
         j["graph_mmr_category"] = Current.graph_mmr_category;
         j["graph_follow_current_playlist"] = Current.graph_follow_current_playlist;
+        j["rank_progress_mmr_category"] = Current.rank_progress_mmr_category;
+        j["rank_progress_follow_current_playlist"] = Current.rank_progress_follow_current_playlist;
         j["last_primary_id"] = Current.last_primary_id;
         j["known_primary_ids"] = Current.known_primary_ids;
         j["require_rl_focus"] = Current.require_rl_focus;

@@ -17,6 +17,19 @@ TelemetryReducer::TelemetryReducer(std::shared_ptr<SessionState> state)
     : m_state(state) {
     m_cachedConfigRevision = Config::Revision();
     m_cachedConf = Config::Read();
+    if (m_state) {
+        if (!m_cachedConf.show_extra_playlists &&
+            IsExtraMmrCategory(m_state->ui.rankProgressMmrCategory.load())) {
+            m_state->ui.rankProgressMmrCategory.store(MmrCategory::TwoVTwo);
+        }
+        if (!m_cachedConf.rank_progress_follow_current_playlist) {
+            MmrCategory fallback = StringToMmrCategory(m_cachedConf.rank_progress_mmr_category);
+            if (!m_cachedConf.show_extra_playlists && IsExtraMmrCategory(fallback)) {
+                fallback = MmrCategory::TwoVTwo;
+            }
+            m_state->ui.rankProgressMmrCategory.store(fallback);
+        }
+    }
 }
 
 void TelemetryReducer::SetClockForTests(std::function<std::chrono::steady_clock::time_point()> clockFn) {
@@ -39,6 +52,19 @@ void TelemetryReducer::OnConfigChanged() {
     std::unique_lock<std::shared_mutex> lock(m_state->game.mutex);
     m_cachedConfigRevision = Config::Revision();
     m_cachedConf = Config::Read();
+    if (m_state) {
+        if (!m_cachedConf.show_extra_playlists &&
+            IsExtraMmrCategory(m_state->ui.rankProgressMmrCategory.load())) {
+            m_state->ui.rankProgressMmrCategory.store(MmrCategory::TwoVTwo);
+        }
+        if (!m_cachedConf.rank_progress_follow_current_playlist) {
+            MmrCategory fallback = StringToMmrCategory(m_cachedConf.rank_progress_mmr_category);
+            if (!m_cachedConf.show_extra_playlists && IsExtraMmrCategory(fallback)) {
+                fallback = MmrCategory::TwoVTwo;
+            }
+            m_state->ui.rankProgressMmrCategory.store(fallback);
+        }
+    }
 }
 
 bool TelemetryReducer::AcceptsUiMatchEventLocked(const nlohmann::json& data, int64_t nowMs) {
@@ -100,6 +126,10 @@ SideEffects TelemetryReducer::Reduce(const std::string& eventName, const nlohman
     if (revision != m_cachedConfigRevision) {
         m_cachedConfigRevision = revision;
         m_cachedConf = Config::Read();
+        if (m_state && !m_cachedConf.show_extra_playlists &&
+            IsExtraMmrCategory(m_state->ui.rankProgressMmrCategory.load())) {
+            m_state->ui.rankProgressMmrCategory.store(MmrCategory::TwoVTwo);
+        }
     }
 
     if (eventName == Constants::EVT_REPLAY_CREATED) {

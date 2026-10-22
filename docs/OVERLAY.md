@@ -18,6 +18,10 @@ Docked cards keep their own rules. **Show card options** adds goal-replay hiding
 
 Existing placements and visibility rules are preserved. New standalone cards enabled from settings start with **Always** visibility.
 
+## Rank progress and MMR graph
+
+Under **Settings > Accounts & services > Show rank options**, **Rank progress** has its own **Follow current playlist** switch. It does not change the player-rank or MMR-graph playlist selections. Turn it off to choose a **Default rank playlist**. Existing configurations retain their previous rank-progress playlist and follow preference.
+
 ## Tournaments
 
 The tournament countdown has the same compact layout in both modes: next tournament name, region, and time remaining. Enable it under **Settings > Display**. It does not show a schedule list, second-chance row, or update timestamp.
