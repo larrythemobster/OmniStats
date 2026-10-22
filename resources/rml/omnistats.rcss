@@ -1125,19 +1125,20 @@ scrollbarcorner { background-color: #0e0e0eaa; }
 .graph-point-halo.win { background-color: #43d926; }
 .graph-point-halo.loss { background-color: #ff3030; }
 .graph-point-halo.neutral { background-color: #9da6b3; }
-/* Invisible hover target around each point for its tooltip. */
-.graph-hit, .graph-hit.tooltip-host { position: absolute; width: 20dp; height: 20dp; margin-left: -10dp; margin-top: -10dp; }
-.graph-hit .tooltip-bubble { min-width: 0; margin-left: -70dp; font-family: "JetBrains Mono"; font-size: 10dp; }
-.graph-hit .tooltip-bubble.below { top: 100%; bottom: auto; margin-top: 4dp; margin-bottom: 0; }
-.graph-hit .tooltip-bubble.align-right { left: auto; right: 0; margin-left: 0; }
-.graph-hit .tooltip-bubble.align-left { left: 0; margin-left: 0; }
+/* Tooltip positioning uses the graph width, not the narrow point target. */
+.graph-hover-row { position: absolute; left: 0; width: 100%; height: 0; pointer-events: none; z-index: 5; }
+.graph-hit { position: absolute; top: 0; width: 20dp; height: 24dp; margin-left: -10dp; margin-top: -12dp; pointer-events: auto; }
+.graph-hover-row .tooltip-bubble { left: 4%; bottom: 0; width: 54%; min-width: 0; max-width: 250dp; margin-left: 0; margin-bottom: 16dp; white-space: normal; line-height: 1.35; font-family: "JetBrains Mono"; font-size: 10dp; }
+.graph-hover-row .tooltip-bubble.below { top: 0; bottom: auto; margin-top: 16dp; margin-bottom: 0; }
+.graph-hit:hover ~ .tooltip-bubble { display: block; }
 
 /* Division boundaries sit behind the MMR line. The 9dp host gives the hover
    tooltip a usable target around the 1dp rule. */
-.graph-rank-line, .graph-rank-line.tooltip-host { position: absolute; height: 9dp; margin-top: -4dp; }
+.graph-rank-line, .graph-rank-line.tooltip-host { position: absolute; height: 9dp; margin-top: -4dp; z-index: 1; }
 .graph-rank-rule { position: absolute; left: 0; right: 0; top: 4dp; height: 1dp; opacity: 0.45; }
 .graph-rank-line.tier-start .graph-rank-rule { opacity: 0.8; }
-.graph-rank-line .tooltip-bubble { left: 50%; right: auto; margin-left: -70dp; }
+.graph-rank-line .tooltip-bubble { left: 6%; right: auto; width: 80%; min-width: 0; margin-left: 0; max-width: 250dp; white-space: normal; line-height: 1.35; }
+.graph-rank-line .tooltip-bubble.below { top: 100%; bottom: auto; margin-top: 5dp; margin-bottom: 0; }
 .graph-rank-label {
     position: absolute;
     padding: 0 3dp;

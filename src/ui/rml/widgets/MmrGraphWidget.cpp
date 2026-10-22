@@ -169,7 +169,7 @@ std::string RmlUiController::RenderMmrGraph(bool showCategoryBadge, bool showPan
         const std::string color = CssColor(Format::RankColor(b.boundary.label));
         out << "<div class='graph-rank-line tooltip-host" << (b.boundary.tierStart ? " tier-start" : "") << "' style='left:" << xMin
             << "%;top:" << b.topPct << "%;width:" << (xMax - xMin) << "%'><div class='graph-rank-rule' style='background-color:" << color
-            << "'></div><span class='tooltip-bubble'>"
+            << "'></div><span class='tooltip-bubble" << (b.topPct < 25.0f ? " below" : "") << "'>"
             << Escape(Format::RankTier(b.boundary.label, m_config.use_roman_numerals) + " starts at " + std::to_string(b.boundary.mmr) + " MMR")
             << "</span></div>";
     }
@@ -234,10 +234,18 @@ std::string RmlUiController::RenderMmrGraph(bool showCategoryBadge, bool showPan
             cls += " current";
         }
         out << "<div class='graph-point" << cls << "' style='left:" << x << "%;top:" << y << "%'></div>"
-            << "<div class='graph-hit tooltip-host' style='left:" << x << "%;top:" << y << "%'><span class='tooltip-bubble"
-            << (y < 45.0f ? " below" : "") << (x > 55.0f ? " align-right" : x < 25.0f ? " align-left"
-                                                                                      : "")
-            << "'>" << Escape(tip)
+            << "<div class='graph-hover-row' style='top:" << y << "%'>";
+        if (plotted.size() <= 2) {
+            out << "<div class='graph-hit' style='left:" << x << "%'></div>";
+        } else {
+            const float xSpacing = (xMax - xMin) / static_cast<float>(plotted.size() - 1);
+            const float hitWidth = xSpacing * 0.96f;
+            out << "<div class='graph-hit' style='left:" << x
+                << "%;width:" << hitWidth << "%;margin-left:-" << (hitWidth * 0.5f) << "%'></div>";
+        }
+        const float tooltipLeft = std::clamp(x - 27.0f, 4.0f, 38.0f);
+        out << "<span class='tooltip-bubble" << (y < 45.0f ? " below" : "")
+            << "' style='left:" << tooltipLeft << "%'>" << Escape(tip)
             << "</span></div>";
     }
 

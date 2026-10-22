@@ -435,8 +435,10 @@ void RmlUiController::SetElementRml(Rml::Element* element, const std::string& rm
     m_rebuildingUi = true;
     m_systemInterface.BeginCursorUpdate();
     element->SetInnerRML(rml);
-    if (replayPointer && m_hasPointerPosition && m_context)
+    if (replayPointer && m_hasPointerPosition && m_context) {
+        m_context->Update();
         m_context->ProcessMouseMove(m_lastPointerX, m_lastPointerY, 0);
+    }
     m_systemInterface.EndCursorUpdate();
     m_rebuildingUi = prev;
     m_renderDirty = true;
@@ -978,8 +980,9 @@ void RmlUiController::RefreshLiveUi(bool force, bool allowStructural) {
                 }
                 if (!force && cacheIt->second == rml) continue;
                 cacheIt->second = rml;
+                const bool replay = (id == DashboardLayout::WidgetId::MmrGraph);
                 for (Rml::Element* element : groupIt->second)
-                    SetElementRml(element, rml, false);
+                    SetElementRml(element, rml, replay);
             }
         };
 
@@ -1141,7 +1144,7 @@ void RmlUiController::RefreshLiveUi(bool force, bool allowStructural) {
                         m_lastSessionViewRml = rml;
                     } else if (force || m_lastSessionViewRml != rml) {
                         m_lastSessionViewRml = rml;
-                        SetElementRml(element, rml, false);
+                        SetElementRml(element, rml, sessionGraphVisible);
                     }
                 }
             }
