@@ -22,6 +22,8 @@ Existing placements and visibility rules are preserved. New standalone cards ena
 
 Under **Settings > Accounts & services > Show rank options**, **Rank progress** has its own **Follow current playlist** switch. It does not change the player-rank or MMR-graph playlist selections. Turn it off to choose a **Default rank playlist**. Existing configurations retain their previous rank-progress playlist and follow preference.
 
+Rank progress keeps the reported division when MMR falls below its usual threshold. **Grace** replaces the red buffer label, with the MMR deficit centered beneath the bar. Hover over the label for an explanation of Rocket League's demotion grace period. If MMR reaches the next division's threshold without a reported division change, the card shows **Rank unchanged** and the threshold difference.
+
 ## Tournaments
 
 The tournament countdown has the same compact layout in both modes: next tournament name, region, and time remaining. Enable it under **Settings > Display**. It does not show a schedule list, second-chance row, or update timestamp.

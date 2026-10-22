@@ -306,6 +306,7 @@ std::string RmlUiController::RenderRankProgress(const RankProgress::Progress& pr
         out << "<span class='label'>Top rank</span>";
     out << "</div><div class='row rank-progress-bar'>";
 
+    std::string note;
     if (progress.floor && progress.previous) {
         const std::string floorText = rankName(progress.floor->label) + " (starts at " + std::to_string(progress.floor->mmr) + " MMR)";
         if (progress.aboveFloor > 0) {
@@ -319,9 +320,10 @@ std::string RmlUiController::RenderRankProgress(const RankProgress::Progress& pr
                              rankName(progress.previous->label) + ".",
                          false);
         } else {
-            out << delta("loss", "buffer",
-                         std::to_string(-progress.aboveFloor) + " MMR below " + floorText + ". Rocket League's demotion buffer is keeping you in this division.",
+            out << delta("neutral", "Grace",
+                         "Rocket League gives you a grace period before demoting you, so falling below the MMR threshold does not immediately remove your rank.",
                          false);
+            note = std::to_string(-progress.aboveFloor) + " MMR below the " + rankName(progress.floor->label) + " threshold";
         }
     }
 
@@ -339,11 +341,23 @@ std::string RmlUiController::RenderRankProgress(const RankProgress::Progress& pr
 
     if (progress.next) {
         const std::string nextText = rankName(progress.next->label) + " (starts at " + std::to_string(progress.next->mmr) + " MMR)";
-        const int gain = std::max(0, progress.toNext);
-        out << delta("win", "+" + std::to_string(gain),
-                     gain > 0 ? "Gain " + std::to_string(gain) + " MMR to reach " + nextText + "." : "You have reached " + nextText + ".", true);
+        if (progress.toNext <= 0) {
+            out << delta("neutral", "Rank unchanged",
+                         "You have reached the " + rankName(progress.next->label) + " MMR threshold, but your reported division has not changed.",
+                         true);
+            note = progress.toNext == 0
+                       ? "At the " + rankName(progress.next->label) + " MMR threshold"
+                       : std::to_string(progress.mmr - progress.next->mmr) + " MMR above the " + rankName(progress.next->label) + " threshold";
+        } else {
+            out << delta("win", "+" + std::to_string(progress.toNext),
+                         "Gain " + std::to_string(progress.toNext) + " MMR to reach " + nextText + ".", true);
+        }
     }
-    out << "</div></div>";
+    out << "</div>";
+    if (!note.empty()) {
+        out << "<div class='label rank-progress-note'>" << Escape(note) << "</div>";
+    }
+    out << "</div>";
     return out.str();
 }
 
