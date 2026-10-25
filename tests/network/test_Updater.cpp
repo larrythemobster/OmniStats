@@ -10,6 +10,9 @@
 #include "core/config/AppVersion.hpp"
 #include "updater/UpdaterCommon.hpp"
 #include "utils/FileHash.hpp"
+#include "updater/ReleaseManifest.hpp"
+#include "network/http/SigningConfig.hpp"
+#include <sodium.h>
 TEST(UpdaterTest, VersionStringIsPopulated) {
     EXPECT_NE(AppVersion::Current[0], '\0');
 }
@@ -215,4 +218,233 @@ TEST(UpdaterCommonTest, VerifyMsiPackageAcceptsSignedArtifactWhenHashesMatch) {
                   msiPath.string(),
                   "0000000000000000000000000000000000000000000000000000000000000000"),
               UpdaterCommon::MsiVerifyResult::ChecksumMismatch);
+}
+
+namespace {
+
+    struct TestKeypair {
+        std::string publicKeyHex;
+        std::vector<unsigned char> secretKey;
+
+        static TestKeypair Generate() {
+            EXPECT_GE(sodium_init(), 0);
+            TestKeypair kp;
+            kp.secretKey.resize(crypto_sign_SECRETKEYBYTES);
+            std::vector<unsigned char> pk(crypto_sign_PUBLICKEYBYTES);
+            crypto_sign_keypair(pk.data(), kp.secretKey.data());
+
+            std::vector<char> hex(crypto_sign_PUBLICKEYBYTES * 2 + 1);
+            sodium_bin2hex(hex.data(), hex.size(), pk.data(), pk.size());
+            kp.publicKeyHex = hex.data();
+            return kp;
+        }
+
+        std::string Sign(const std::string& message) const {
+            std::vector<unsigned char> sig(crypto_sign_BYTES);
+            unsigned long long sigLen = 0;
+            EXPECT_EQ(crypto_sign_detached(sig.data(), &sigLen,
+                                           reinterpret_cast<const unsigned char*>(message.data()),
+                                           message.size(), secretKey.data()),
+                      0);
+            return std::string(reinterpret_cast<char*>(sig.data()), sig.size());
+        }
+    };
+
+} // namespace
+
+TEST(ReleaseManifestTest, ParseValidManifest) {
+    const std::string json = R"({
+        "version": "2.5.0",
+        "msi_sha256": "4a7b48325a7d7efb991b5c469b8fe1ad15694c9f13e711be8bb698d28cf8efea",
+        "msi_url": "OmniStats.msi",
+        "min_version": "2.0.0",
+        "published_at": "2026-10-25T12:00:00Z"
+    })";
+
+    ReleaseManifest manifest;
+    EXPECT_TRUE(ReleaseManifestVerifier::ParseManifest(json, manifest));
+    EXPECT_EQ(manifest.version, "2.5.0");
+    EXPECT_EQ(manifest.msi_sha256, "4a7b48325a7d7efb991b5c469b8fe1ad15694c9f13e711be8bb698d28cf8efea");
+    EXPECT_EQ(manifest.msi_url, "OmniStats.msi");
+    EXPECT_EQ(manifest.min_version, "2.0.0");
+    EXPECT_EQ(manifest.published_at, "2026-10-25T12:00:00Z");
+}
+
+TEST(ReleaseManifestTest, ParseInvalidJson) {
+    ReleaseManifest manifest;
+    EXPECT_FALSE(ReleaseManifestVerifier::ParseManifest("not a json string", manifest));
+    EXPECT_FALSE(ReleaseManifestVerifier::ParseManifest("", manifest));
+}
+
+TEST(ReleaseManifestTest, ParseMissingRequiredFields) {
+    ReleaseManifest manifest;
+    // Missing version
+    EXPECT_FALSE(ReleaseManifestVerifier::ParseManifest(R"({
+        "msi_sha256": "4a7b48325a7d7efb991b5c469b8fe1ad15694c9f13e711be8bb698d28cf8efea",
+        "msi_url": "OmniStats.msi"
+    })",
+                                                        manifest));
+
+    // Missing msi_sha256
+    EXPECT_FALSE(ReleaseManifestVerifier::ParseManifest(R"({
+        "version": "2.5.0",
+        "msi_url": "OmniStats.msi"
+    })",
+                                                        manifest));
+
+    // Invalid hash length
+    EXPECT_FALSE(ReleaseManifestVerifier::ParseManifest(R"({
+        "version": "2.5.0",
+        "msi_sha256": "short_hash",
+        "msi_url": "OmniStats.msi"
+    })",
+                                                        manifest));
+}
+
+TEST(ReleaseManifestTest, ValidSignatureAccepted) {
+    const auto kp = TestKeypair::Generate();
+    ReleaseManifest manifest;
+    manifest.version = "2.5.0";
+    manifest.msi_sha256 = "4a7b48325a7d7efb991b5c469b8fe1ad15694c9f13e711be8bb698d28cf8efea";
+    manifest.msi_url = "OmniStats.msi";
+    manifest.min_version = "2.0.0";
+    manifest.published_at = "2026-10-25T12:00:00Z";
+
+    const std::string manifestJson = ReleaseManifestVerifier::SerializeManifest(manifest);
+    const std::string sig = kp.Sign(manifestJson);
+
+    EXPECT_TRUE(ReleaseManifestVerifier::VerifySignature(manifestJson, sig, kp.publicKeyHex));
+
+    ReleaseManifest parsed;
+    const auto result = ReleaseManifestVerifier::VerifyManifest(manifestJson, sig, "2.4.0", kp.publicKeyHex, "", &parsed);
+    EXPECT_EQ(result, ManifestVerifyResult::Ok);
+    EXPECT_EQ(parsed.version, "2.5.0");
+    EXPECT_EQ(parsed.msi_sha256, manifest.msi_sha256);
+}
+
+TEST(ReleaseManifestTest, TamperedManifestRejected) {
+    const auto kp = TestKeypair::Generate();
+    ReleaseManifest manifest;
+    manifest.version = "2.5.0";
+    manifest.msi_sha256 = "4a7b48325a7d7efb991b5c469b8fe1ad15694c9f13e711be8bb698d28cf8efea";
+    manifest.msi_url = "OmniStats.msi";
+    manifest.min_version = "2.0.0";
+    manifest.published_at = "2026-10-25T12:00:00Z";
+
+    const std::string manifestJson = ReleaseManifestVerifier::SerializeManifest(manifest);
+    const std::string sig = kp.Sign(manifestJson);
+
+    // Tamper with the manifest payload
+    std::string tampered = manifestJson;
+    tampered.replace(tampered.find("2.5.0"), 5, "2.9.9");
+
+    EXPECT_FALSE(ReleaseManifestVerifier::VerifySignature(tampered, sig, kp.publicKeyHex));
+    EXPECT_EQ(ReleaseManifestVerifier::VerifyManifest(tampered, sig, "2.4.0", kp.publicKeyHex),
+              ManifestVerifyResult::SignatureInvalid);
+}
+
+TEST(ReleaseManifestTest, WrongKeyRejected) {
+    const auto kp1 = TestKeypair::Generate();
+    const auto kp2 = TestKeypair::Generate();
+
+    ReleaseManifest manifest;
+    manifest.version = "2.5.0";
+    manifest.msi_sha256 = "4a7b48325a7d7efb991b5c469b8fe1ad15694c9f13e711be8bb698d28cf8efea";
+    manifest.msi_url = "OmniStats.msi";
+
+    const std::string manifestJson = ReleaseManifestVerifier::SerializeManifest(manifest);
+    const std::string sig = kp1.Sign(manifestJson);
+
+    // Verify against kp2 (wrong key)
+    EXPECT_FALSE(ReleaseManifestVerifier::VerifySignature(manifestJson, sig, kp2.publicKeyHex));
+    EXPECT_EQ(ReleaseManifestVerifier::VerifyManifest(manifestJson, sig, "2.4.0", kp2.publicKeyHex),
+              ManifestVerifyResult::SignatureInvalid);
+}
+
+TEST(ReleaseManifestTest, DowngradeRefused) {
+    const auto kp = TestKeypair::Generate();
+    ReleaseManifest manifest;
+    manifest.version = "2.3.0";
+    manifest.msi_sha256 = "4a7b48325a7d7efb991b5c469b8fe1ad15694c9f13e711be8bb698d28cf8efea";
+    manifest.msi_url = "OmniStats.msi";
+
+    const std::string manifestJson = ReleaseManifestVerifier::SerializeManifest(manifest);
+    const std::string sig = kp.Sign(manifestJson);
+
+    // Installed version is 2.4.0, manifest is 2.3.0 -> Refuse downgrade
+    EXPECT_EQ(ReleaseManifestVerifier::VerifyManifest(manifestJson, sig, "2.4.0", kp.publicKeyHex),
+              ManifestVerifyResult::DowngradeRefused);
+
+    // Equal version 2.4.0 -> Refuse downgrade
+    manifest.version = "2.4.0";
+    const std::string manifestJsonEqual = ReleaseManifestVerifier::SerializeManifest(manifest);
+    const std::string sigEqual = kp.Sign(manifestJsonEqual);
+    EXPECT_EQ(ReleaseManifestVerifier::VerifyManifest(manifestJsonEqual, sigEqual, "2.4.0", kp.publicKeyHex),
+              ManifestVerifyResult::DowngradeRefused);
+
+    // Newer version 2.4.1 -> Accept
+    manifest.version = "2.4.1";
+    const std::string manifestJsonNewer = ReleaseManifestVerifier::SerializeManifest(manifest);
+    const std::string sigNewer = kp.Sign(manifestJsonNewer);
+    EXPECT_EQ(ReleaseManifestVerifier::VerifyManifest(manifestJsonNewer, sigNewer, "2.4.0", kp.publicKeyHex),
+              ManifestVerifyResult::Ok);
+}
+
+TEST(ReleaseManifestTest, MissingManifestFailsClosed) {
+    const auto kp = TestKeypair::Generate();
+    EXPECT_EQ(ReleaseManifestVerifier::VerifyManifest("", "", "2.4.0", kp.publicKeyHex),
+              ManifestVerifyResult::ManifestMissing);
+    EXPECT_EQ(ReleaseManifestVerifier::VerifyManifest("{}", "", "2.4.0", kp.publicKeyHex),
+              ManifestVerifyResult::SignatureInvalid);
+}
+
+TEST(ReleaseManifestTest, NextKeyRotationAccepted) {
+    const auto kpCurrent = TestKeypair::Generate();
+    const auto kpNext = TestKeypair::Generate();
+    const auto kpOther = TestKeypair::Generate();
+
+    ReleaseManifest manifest;
+    manifest.version = "2.5.0";
+    manifest.msi_sha256 = "4a7b48325a7d7efb991b5c469b8fe1ad15694c9f13e711be8bb698d28cf8efea";
+    manifest.msi_url = "OmniStats.msi";
+
+    const std::string manifestJson = ReleaseManifestVerifier::SerializeManifest(manifest);
+
+    // 1. Signed by current key -> accepted with rotation configured
+    const std::string sigCurrent = kpCurrent.Sign(manifestJson);
+    EXPECT_TRUE(ReleaseManifestVerifier::VerifySignatureWithRotation(
+        manifestJson, sigCurrent, kpCurrent.publicKeyHex, kpNext.publicKeyHex));
+    EXPECT_EQ(ReleaseManifestVerifier::VerifyManifest(
+                  manifestJson, sigCurrent, "2.4.0", kpCurrent.publicKeyHex, kpNext.publicKeyHex),
+              ManifestVerifyResult::Ok);
+
+    // 2. Signed by next key -> accepted with rotation configured
+    const std::string sigNext = kpNext.Sign(manifestJson);
+    EXPECT_TRUE(ReleaseManifestVerifier::VerifySignatureWithRotation(
+        manifestJson, sigNext, kpCurrent.publicKeyHex, kpNext.publicKeyHex));
+    EXPECT_EQ(ReleaseManifestVerifier::VerifyManifest(
+                  manifestJson, sigNext, "2.4.0", kpCurrent.publicKeyHex, kpNext.publicKeyHex),
+              ManifestVerifyResult::Ok);
+
+    // 3. Signed by third untrusted key -> rejected
+    const std::string sigOther = kpOther.Sign(manifestJson);
+    EXPECT_FALSE(ReleaseManifestVerifier::VerifySignatureWithRotation(
+        manifestJson, sigOther, kpCurrent.publicKeyHex, kpNext.publicKeyHex));
+    EXPECT_EQ(ReleaseManifestVerifier::VerifyManifest(
+                  manifestJson, sigOther, "2.4.0", kpCurrent.publicKeyHex, kpNext.publicKeyHex),
+              ManifestVerifyResult::SignatureInvalid);
+}
+
+TEST(ReleaseManifestTest, MinVersionForcingUpdate) {
+    // Installed version is below min_version -> forced update
+    EXPECT_TRUE(ReleaseManifestVerifier::IsUpdateForced("1.9.0", "2.0.0"));
+    EXPECT_TRUE(ReleaseManifestVerifier::IsUpdateForced("1.9.9", "2.0.0"));
+
+    // Installed version is equal or above min_version -> not forced
+    EXPECT_FALSE(ReleaseManifestVerifier::IsUpdateForced("2.0.0", "2.0.0"));
+    EXPECT_FALSE(ReleaseManifestVerifier::IsUpdateForced("2.1.0", "2.0.0"));
+
+    // Empty fields
+    EXPECT_FALSE(ReleaseManifestVerifier::IsUpdateForced("", "2.0.0"));
+    EXPECT_FALSE(ReleaseManifestVerifier::IsUpdateForced("2.0.0", ""));
 }

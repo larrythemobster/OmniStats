@@ -200,25 +200,35 @@ bool RepairDependencies(const std::string& appDataDir) {
 
 bool PerformUpdateCheck(const std::string& serverUrl, std::string& latestVersion) {
     const std::string localVersion = UpdaterCommon::GetInstalledAppVersion();
-    const std::string versionUrl = serverUrl + "/version.txt?t=" + std::to_string(std::time(nullptr));
-    long httpCode = 0;
-    CURLcode curlCode = CURLE_OK;
-    latestVersion = UpdaterCommon::Trim(UpdaterCommon::DownloadString(versionUrl, 10, &httpCode, &curlCode));
-    if (latestVersion.empty()) {
-        std::cout << "[Updater] Failed to check version from " << versionUrl << "\n";
-        std::string category = "parse";
-        if (curlCode != CURLE_OK) {
-            category = "network";
-        } else if (httpCode != 200 && httpCode != 0) {
-            category = "http_" + std::to_string(httpCode);
+    ReleaseManifest manifest;
+    ManifestVerifyResult result = ManifestVerifyResult::ManifestMissing;
+
+    const bool ok = ReleaseManifestVerifier::FetchAndVerify(
+        serverUrl, localVersion, manifest, result,
+        SigningConfig::CURRENT_RELEASE_PUBLIC_KEY_HEX,
+        SigningConfig::NEXT_RELEASE_PUBLIC_KEY_HEX);
+
+    if (!ok) {
+        std::cout << "[Updater] Manifest verification failed from " << serverUrl << "\n";
+        std::string category = "manifest_missing";
+        if (result == ManifestVerifyResult::SignatureInvalid) {
+            category = "signature_invalid";
+        } else if (result == ManifestVerifyResult::DowngradeRefused) {
+            category = "downgrade_refused";
+            latestVersion = manifest.version;
+        } else if (result == ManifestVerifyResult::ParseError) {
+            category = "parse_error";
         }
         UpdaterCommon::RecordUpdaterEvent("update_check_failed", "", category, localVersion);
         return false;
     }
 
-    std::cout << "[Updater] Server version: " << latestVersion
-              << ", Local app version: " << localVersion << "\n";
-    return UpdaterCommon::IsNewerVersion(localVersion, latestVersion);
+    latestVersion = manifest.version;
+    const bool forced = ReleaseManifestVerifier::IsUpdateForced(localVersion, manifest.min_version);
+    std::cout << "[Updater] Verified server release: " << latestVersion
+              << ", local app version: " << localVersion
+              << (forced ? " (mandatory update required)" : "") << "\n";
+    return true;
 }
 
 namespace {
@@ -263,11 +273,27 @@ namespace {
 
     bool DownloadAndLaunchMsiUpgrade(const std::string& serverUrl, const std::string& targetVersionParam = "") {
         const std::string localVersion = UpdaterCommon::GetInstalledAppVersion();
-        std::string targetVersion = targetVersionParam;
-        if (targetVersion.empty()) {
-            targetVersion = UpdaterCommon::Trim(UpdaterCommon::DownloadString(serverUrl + "/version.txt?t=" + std::to_string(std::time(nullptr)), 10));
+
+        ReleaseManifest manifest;
+        ManifestVerifyResult manifestRes = ManifestVerifyResult::ManifestMissing;
+        const bool manifestOk = ReleaseManifestVerifier::FetchAndVerify(
+            serverUrl, localVersion, manifest, manifestRes,
+            SigningConfig::CURRENT_RELEASE_PUBLIC_KEY_HEX,
+            SigningConfig::NEXT_RELEASE_PUBLIC_KEY_HEX);
+
+        if (!manifestOk) {
+            std::cout << "[Updater] Failed to verify release manifest from " << serverUrl << "\n";
+            std::string cat = "manifest_missing";
+            if (manifestRes == ManifestVerifyResult::SignatureInvalid) {
+                cat = "signature_invalid";
+            } else if (manifestRes == ManifestVerifyResult::DowngradeRefused) {
+                cat = "downgrade_refused";
+            }
+            UpdaterCommon::RecordUpdaterEvent("download_failed", targetVersionParam, cat, localVersion);
+            return false;
         }
 
+        const std::string targetVersion = manifest.version;
         UpdaterCommon::RecordUpdaterEvent("update_started", targetVersion, "", localVersion);
 
         const std::string appDataDir = UpdaterCommon::GetAppDataDir();
@@ -279,11 +305,13 @@ namespace {
         }
 
         const std::string msiPath = updatesDir + "OmniStats.msi";
-        const std::string msiUrl = serverUrl + "/OmniStats.msi?t=" + std::to_string(std::time(nullptr));
-        const std::string shaUrl = serverUrl + "/OmniStats.msi.sha256?t=" + std::to_string(std::time(nullptr));
+        std::string msiUrl = ReleaseManifestVerifier::ResolveMsiUrl(serverUrl, manifest.msi_url);
+        if (msiUrl.find('?') == std::string::npos) {
+            msiUrl += "?t=" + std::to_string(std::time(nullptr));
+        }
 
         DeleteFileA(msiPath.c_str());
-        std::cout << "[Updater] Downloading signed installer package...\n";
+        std::cout << "[Updater] Downloading signed installer package from " << msiUrl << "...\n";
         long httpCode = 0;
         CURLcode curlCode = CURLE_OK;
         if (!UpdaterCommon::DownloadFile(msiUrl, msiPath, 180, &httpCode, &curlCode)) {
@@ -294,17 +322,7 @@ namespace {
             return false;
         }
 
-        const std::string expectedSha = UpdaterCommon::Trim(UpdaterCommon::DownloadString(shaUrl, 15, &httpCode, &curlCode));
-        if (expectedSha.empty()) {
-            std::cout << "[Updater] Failed to retrieve OmniStats.msi.sha256.\n";
-            DeleteFileA(msiPath.c_str());
-            std::string cat = "network";
-            if (httpCode != 200 && httpCode != 0) cat = "http_" + std::to_string(httpCode);
-            UpdaterCommon::RecordUpdaterEvent("download_failed", targetVersion, cat, localVersion);
-            return false;
-        }
-
-        const auto verifyRes = UpdaterCommon::VerifyMsiPackage(msiPath, expectedSha);
+        const auto verifyRes = UpdaterCommon::VerifyMsiPackage(msiPath, manifest.msi_sha256);
         if (verifyRes != UpdaterCommon::MsiVerifyResult::Ok) {
             DeleteFileA(msiPath.c_str());
             if (verifyRes == UpdaterCommon::MsiVerifyResult::ChecksumMismatch) {

@@ -417,6 +417,7 @@ if(OMNISTATS_BUILD_UPDATER)
     )
     target_link_libraries(OmniStatsUpdater PRIVATE
         CURL::libcurl
+        unofficial-sodium::sodium
         version.lib
         crypt32.lib
         wintrust.lib
@@ -446,6 +447,10 @@ if(OMNISTATS_BUILD_UPDATER)
         )
     endif()
 endif()
+
+add_executable(OmniStatsReleaseSigner tools/ReleaseSigner.cpp)
+target_include_directories(OmniStatsReleaseSigner PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
+target_link_libraries(OmniStatsReleaseSigner PRIVATE unofficial-sodium::sodium)
 
 # -----------------------------------------------------------------------------
 # Test Target (OmniStatsTests.exe)

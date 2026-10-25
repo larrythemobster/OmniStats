@@ -12,6 +12,24 @@
 #include <softpub.h>
 #include <bcrypt.h>
 
+#ifndef WTD_CACHE_ONLY_URL_RETRIEVAL
+#define WTD_CACHE_ONLY_URL_RETRIEVAL 0x00001000
+#endif
+#ifndef CERT_E_REVOKED
+#define CERT_E_REVOKED 0x800B010CL
+#endif
+#ifndef CERT_E_REVOCATION_FAILURE
+#define CERT_E_REVOCATION_FAILURE 0x800B010EL
+#endif
+#ifndef CRYPT_E_REVOKED
+#define CRYPT_E_REVOKED 0x80092010L
+#endif
+#ifndef CRYPT_E_NO_REVOCATION_CHECK
+#define CRYPT_E_NO_REVOCATION_CHECK 0x80092012L
+#endif
+#ifndef CRYPT_E_REVOCATION_OFFLINE
+#define CRYPT_E_REVOCATION_OFFLINE 0x80092013L
+#endif
 #pragma comment(lib, "wintrust.lib")
 #pragma comment(lib, "crypt32.lib")
 #pragma comment(lib, "bcrypt.lib")
@@ -149,15 +167,27 @@ namespace UpdaterCommon {
         WINTRUST_DATA trustData = {};
         trustData.cbStruct = sizeof(trustData);
         trustData.dwUIChoice = WTD_UI_NONE;
-        trustData.fdwRevocationChecks = WTD_REVOKE_NONE;
+        trustData.fdwRevocationChecks = WTD_REVOKE_WHOLECHAIN;
         trustData.dwUnionChoice = WTD_CHOICE_FILE;
         trustData.pFile = &fileInfo;
         trustData.dwStateAction = WTD_STATEACTION_VERIFY;
         trustData.dwProvFlags = WTD_REVOCATION_CHECK_CHAIN_EXCLUDE_ROOT;
 
         GUID action = WINTRUST_ACTION_GENERIC_VERIFY_V2;
-        const LONG status = WinVerifyTrust(nullptr, &action, &trustData);
+        LONG status = WinVerifyTrust(nullptr, &action, &trustData);
 
+        // Fall back to cached revocation if online revocation check fails due to offline/unreachable server.
+        if (status == static_cast<LONG>(CERT_E_REVOCATION_FAILURE) ||
+            status == static_cast<LONG>(CRYPT_E_REVOCATION_OFFLINE) ||
+            status == static_cast<LONG>(CRYPT_E_NO_REVOCATION_CHECK)) {
+            trustData.dwStateAction = WTD_STATEACTION_CLOSE;
+            WinVerifyTrust(nullptr, &action, &trustData);
+
+            trustData.hWVTStateData = nullptr;
+            trustData.dwStateAction = WTD_STATEACTION_VERIFY;
+            trustData.dwProvFlags = WTD_REVOCATION_CHECK_CHAIN_EXCLUDE_ROOT | WTD_CACHE_ONLY_URL_RETRIEVAL;
+            status = WinVerifyTrust(nullptr, &action, &trustData);
+        }
         // Separate cryptographic Authenticode signature validity from Windows trust-chain status:
         // - ERROR_SUCCESS: signature intact, root trusted by Windows CA store
         // - CERT_E_UNTRUSTEDROOT: signature intact, root untrusted (expected for pinned self-signed cert)
@@ -198,8 +228,11 @@ namespace UpdaterCommon {
                 ss << " (TRUST_E_NOSIGNATURE: file is unsigned)";
             } else if (status == static_cast<LONG>(TRUST_E_BAD_DIGEST)) {
                 ss << " (TRUST_E_BAD_DIGEST: signature digest mismatch - file modified/tampered)";
+            } else if (status == static_cast<LONG>(CERT_E_REVOKED) || status == static_cast<LONG>(CRYPT_E_REVOKED)) {
+                ss << " (CERT_E_REVOKED: signing certificate is revoked)";
+            } else if (status == static_cast<LONG>(CERT_E_REVOCATION_FAILURE) || status == static_cast<LONG>(CRYPT_E_REVOCATION_OFFLINE)) {
+                ss << " (CERT_E_REVOCATION_FAILURE: revocation check failed)";
             }
-            result.statusMessage = ss.str();
         }
 
         trustData.dwStateAction = WTD_STATEACTION_CLOSE;

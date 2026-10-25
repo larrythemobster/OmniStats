@@ -40,3 +40,4 @@ namespace UpdaterCommon {
 #include "updater/UpdaterProcess.hpp"
 #include "updater/ShortcutUtils.hpp"
 #include "network/http/SigningConfig.hpp"
+#include "updater/ReleaseManifest.hpp"

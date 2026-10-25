@@ -94,6 +94,7 @@ id_ed25519
 id_ed25519.*
 *_deploy_key*
 *.ps1
+!scripts/New-ReleaseSigningKey.ps1
 deploy.local.ps1
 config.local.json
 secrets.*
