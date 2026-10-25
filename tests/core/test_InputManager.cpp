@@ -34,7 +34,8 @@ namespace {
             InputManager::HandleHotKeyAction(
                 *m_state,
                 hotKeyId,
-                showExtraPlaylists);
+                showExtraPlaylists,
+                nullptr);
         }
 
         ConfigData m_originalConfig = Config::Read();

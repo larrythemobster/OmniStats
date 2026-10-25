@@ -15,6 +15,11 @@
 class DatabaseManager;
 class RmlUiController;
 class AccountManagerService;
+class RemoteConfig;
+class TelemetryManager;
+namespace Tournaments {
+    class TournamentScheduleService;
+}
 
 class Overlay {
   public:
@@ -22,7 +27,10 @@ class Overlay {
 
     Overlay(std::shared_ptr<SessionState> state,
             std::shared_ptr<DatabaseManager> dbManager = nullptr,
-            std::shared_ptr<AccountManagerService> accounts = nullptr);
+            std::shared_ptr<AccountManagerService> accounts = nullptr,
+            std::shared_ptr<RemoteConfig> remoteConfig = nullptr,
+            std::shared_ptr<Tournaments::TournamentScheduleService> tournamentService = nullptr,
+            std::shared_ptr<TelemetryManager> telemetry = nullptr);
     ~Overlay();
 
     bool Initialize();
@@ -51,6 +59,9 @@ class Overlay {
     std::shared_ptr<DatabaseManager> m_dbManager;
     std::shared_ptr<AccountManagerService> m_accounts;
     ConfigData m_frameConfig;
+    std::shared_ptr<RemoteConfig> m_remoteConfig;
+    std::shared_ptr<Tournaments::TournamentScheduleService> m_tournamentService;
+    std::shared_ptr<TelemetryManager> m_telemetry;
 
     std::unique_ptr<OverlayWindow> m_window;
     std::unique_ptr<TrayIcon> m_trayIcon;

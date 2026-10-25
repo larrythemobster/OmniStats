@@ -151,10 +151,10 @@ namespace {
     // 1. Session text stats
     // 2. Session MMR graph
     // 3. Lifetime MMR graph (plotted with 25 matches and dots)
-    void ExpandActiveView(SessionState& state) {
+    void ExpandActiveView(SessionState& state, TelemetryManager* telemetry) {
         if (state.ui.showSessionView.load()) {
             if (!state.ui.showGraphView.load()) {
-                TelemetryManager::RecordMilestone(TelemetryManager::Milestone::MmrGraphView);
+                if (telemetry) telemetry->RecordMilestone(TelemetryManager::Milestone::MmrGraphView);
                 state.ui.showGraphView.store(true);
                 state.history.showLifetimeGraph.store(false);
                 state.ui.graphOffset.store(0);
@@ -192,7 +192,8 @@ namespace {
 void InputManager::HandleHotKeyAction(
     SessionState& state,
     int hotKeyId,
-    bool showExtraPlaylists) {
+    bool showExtraPlaylists,
+    TelemetryManager* telemetry) {
     switch (hotKeyId) {
     case HotKeyMenu:
         ToggleSettingsMenu(state);
@@ -201,7 +202,7 @@ void InputManager::HandleHotKeyAction(
         CycleMmrCategory(state, showExtraPlaylists);
         break;
     case HotKeyExpand:
-        ExpandActiveView(state);
+        ExpandActiveView(state, telemetry);
         break;
     case HotKeySession:
         ToggleSessionView(state);
@@ -223,8 +224,8 @@ void InputManager::HandleHotKeyAction(
     }
 }
 
-InputManager::InputManager(std::shared_ptr<SessionState> state)
-    : m_state(state) {
+InputManager::InputManager(std::shared_ptr<SessionState> state, std::shared_ptr<TelemetryManager> telemetry)
+    : m_state(std::move(state)), m_telemetry(std::move(telemetry)) {
     g_instance.store(this, std::memory_order_release);
 }
 
@@ -333,7 +334,9 @@ void InputManager::RefreshConfigCache() {
 
 void InputManager::SetOverlayHeld(OverlayHoldSource source, bool held) {
     if (held) {
-        TelemetryManager::RecordMilestone(TelemetryManager::Milestone::OverlayToggle);
+        if (m_telemetry) {
+            m_telemetry->RecordMilestone(TelemetryManager::Milestone::OverlayToggle);
+        }
     }
     std::lock_guard lock(m_overlayHoldMutex);
     m_overlayHolds.Set(source, held);
@@ -470,7 +473,8 @@ void InputManager::KeyboardThreadLoop() {
         HandleHotKeyAction(
             state,
             hotKeyId,
-            m_showExtraPlaylists.load(std::memory_order_relaxed));
+            m_showExtraPlaylists.load(std::memory_order_relaxed),
+            m_telemetry.get());
     };
 
     while (m_isRunning) {
@@ -575,7 +579,7 @@ LRESULT CALLBACK InputManager::LowLevelKeyboardProc(int nCode, WPARAM wParam,
         }
 
         if (kb->vkCode == keyExpand && wParam == WM_KEYDOWN) {
-            ExpandActiveView(*st);
+            ExpandActiveView(*st, self->m_telemetry.get());
         }
         if (kb->vkCode == static_cast<DWORD>(self->m_keyLifetimeGraph.load(std::memory_order_relaxed)) && wParam == WM_KEYDOWN) {
             ToggleLifetimeGraph(*st);
@@ -768,7 +772,7 @@ void InputManager::GamepadThreadLoop() {
                         if (overlayVisible && isPressed(self->m_gamepadExpand.load(std::memory_order_relaxed),
                                                         self->m_gamepadExpandRaw.load(std::memory_order_relaxed),
                                                         self->m_gamepadExpandRawButton.load(std::memory_order_relaxed))) {
-                            ExpandActiveView(*st);
+                            ExpandActiveView(*st, self->m_telemetry.get());
                         }
 
                         if (overlayVisible && isPressed(self->m_gamepadSession.load(std::memory_order_relaxed),
@@ -844,7 +848,7 @@ void InputManager::GamepadThreadLoop() {
                         if (overlayVisible && isPressed(self->m_gamepadExpand.load(std::memory_order_relaxed),
                                                         self->m_gamepadExpandRaw.load(std::memory_order_relaxed),
                                                         self->m_gamepadExpandRawButton.load(std::memory_order_relaxed))) {
-                            ExpandActiveView(*st);
+                            ExpandActiveView(*st, self->m_telemetry.get());
                         }
 
                         if (overlayVisible && isPressed(self->m_gamepadSession.load(std::memory_order_relaxed),

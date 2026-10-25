@@ -4,6 +4,7 @@
 #include <mutex>
 #include "core/state/SessionState.hpp"
 #include <sqlite3.h>
+class TelemetryManager;
 
 #include <deque>
 #include <functional>
@@ -85,6 +86,9 @@ class DatabaseManager {
     DatabaseManager(std::shared_ptr<SessionState> state);
     ~DatabaseManager();
 
+    void SetTelemetryManager(std::shared_ptr<TelemetryManager> tm) {
+        m_telemetry = std::move(tm);
+    }
     [[nodiscard]] bool Initialize(const std::string& dbPath);
     void SaveMatch(const MatchSaveSnapshot& snapshot);
     void AsyncSaveMatch(MatchSaveSnapshot snapshot);
@@ -265,6 +269,7 @@ class DatabaseManager {
     std::condition_variable m_cv;
     std::jthread m_worker;
     bool m_stopWorker = false;
+    std::shared_ptr<TelemetryManager> m_telemetry;
 
   public:
     // Testing instrumentation (unit tests read these to assert Async calls)

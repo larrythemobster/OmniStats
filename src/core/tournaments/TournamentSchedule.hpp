@@ -47,7 +47,6 @@ namespace Tournaments {
     };
     class TournamentScheduleService {
       public:
-        static TournamentScheduleService& Instance();
         ~TournamentScheduleService();
         void Start();
         void Stop();

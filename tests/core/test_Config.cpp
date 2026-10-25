@@ -594,3 +594,268 @@ TEST_F(ConfigTest, InvalidFieldsDoNotDiscardCredentialsOrOtherSettings) {
     Config::Load();
     EXPECT_EQ(Config::Read().custom_api_key, "synthetic-legacy-key");
 }
+TEST_F(ConfigTest, FullRealShapedConfigRoundTrip) {
+    const auto path = Storage::GetDataDirectory() + "config.json";
+
+    nlohmann::json fullJson = {
+        {"host", "127.0.0.1"},
+        {"port", 49123},
+        {"key_overlay", 9},
+        {"key_cycle", 117},
+        {"key_expand", 118},
+        {"key_session", 119},
+        {"key_menu", 116},
+        {"key_graph_pan_left", 37},
+        {"key_graph_pan_right", 39},
+        {"key_lifetime_graph", 120},
+        {"gamepad_overlay", 4},
+        {"gamepad_overlay_raw", true},
+        {"gamepad_overlay_raw_button", 6},
+        {"gamepad_cycle", 2},
+        {"gamepad_cycle_raw", false},
+        {"gamepad_cycle_raw_button", -1},
+        {"gamepad_expand", 3},
+        {"gamepad_expand_raw", false},
+        {"gamepad_expand_raw_button", -1},
+        {"gamepad_session", 1},
+        {"gamepad_session_raw", false},
+        {"gamepad_session_raw_button", -1},
+        {"gamepad_menu", 0},
+        {"gamepad_menu_raw", false},
+        {"gamepad_menu_raw_button", -1},
+        {"gamepad_graph_pan_left", -1},
+        {"gamepad_graph_pan_left_raw", false},
+        {"gamepad_graph_pan_left_raw_button", -1},
+        {"gamepad_graph_pan_right", -1},
+        {"gamepad_graph_pan_right_raw", false},
+        {"gamepad_graph_pan_right_raw_button", -1},
+        {"mmr_category", "2v2"},
+        {"graph_mmr_category", "2v2"},
+        {"graph_follow_current_playlist", true},
+        {"rank_progress_mmr_category", "3v3"},
+        {"rank_progress_follow_current_playlist", false},
+        {"last_primary_id", "Steam|76561198012345678|0"},
+        {"known_primary_ids", nlohmann::json::array({"Steam|76561198012345678|0", "Epic|abcdef123456|0"})},
+        {"require_rl_focus", true},
+        {"show_match_summary", true},
+        {"match_summary_seconds", 25},
+        {"discord_rpc_enabled", true},
+        {"enable_mmr_tracking", true},
+        {"auto_switch_mmr_category", true},
+        {"enable_auto_updates", true},
+        {"crash_reports_enabled", false},
+        {"debug_logging", true},
+        {"imperial_units", false},
+        {"run_on_startup", false},
+        {"reset_session_on_close", true},
+        {"show_session_recap_on_close", true},
+        {"client_uuid", "11111111-2222-4333-8444-555555555555"},
+        {"privacy_policy_accepted_version", "2026-07-12"},
+        {"terms_accepted_version", "2026-07-12"},
+        {"privacy_accepted_at", "2026-07-15T12:00:00Z"},
+        {"onboarding_completed", true},
+        {"account_link_prompt_shown", true},
+        {"position", "top-left"},
+        {"show_running_indicator", true},
+        {"use_roman_numerals", true},
+        {"use_rank_icons", true},
+        {"show_extra_playlists", true},
+        {"custom_api_enabled", true},
+        {"account_signed_in_name", "TestPilot"},
+        {"account_device_public_id", "dev_pub_98765"},
+        {"rocket_league_stats_api_config_path", "C:/RL/statsapi.json"},
+        {"check_stats_api_config_on_startup", true},
+        {"auto_upload_replays", true},
+        {"ballchasing_upload_notice_accepted", true},
+        {"ballchasing_visibility", "public"},
+        {"ballchasing_filter_ranked_only", true},
+        {"ballchasing_filter_wins_only", false},
+        {"auto_save_replays", false},
+        {"key_save_replay", 8},
+        {"show_session_record", true},
+        {"show_session_goals", true},
+        {"show_session_saves", true},
+        {"show_session_demos", false},
+        {"show_session_assists", true},
+        {"show_session_goal_participation", true},
+        {"show_session_mmr_change", true},
+        {"show_session_boost", true},
+        {"show_lobby_ranks_overlay", true},
+        {"show_lobby_rank_1v1", true},
+        {"show_lobby_rank_2v2", true},
+        {"show_lobby_rank_3v3", true},
+        {"show_lobby_rank_casual", true},
+        {"show_lobby_rank_tourny", true},
+        {"show_lobby_rank_hoops", false},
+        {"show_lobby_rank_rumble", false},
+        {"show_lobby_rank_dropshot", false},
+        {"show_lobby_rank_snowday", false},
+        {"show_lobby_rank_heatseeker", false},
+        {"show_account_wins_overlay", true},
+        {"show_demo_tracker_overlay", false},
+        {"show_rank_progress", true},
+        {"show_previous_games_summary", true},
+        {"previous_games_limit", 15},
+        {"show_tournaments", true},
+        {"tournament_region", "EU"},
+        {"tournament_reminder_minutes", 15},
+        {"tournament_reminder_standard_only", true},
+        {"tournament_sound_cue", true},
+        {"show_streaks_stats", true},
+        {"show_longest_loss_streak", true},
+        {"show_gamemode_breakdown", true},
+        {"show_gamemode_record_1v1", true},
+        {"show_gamemode_record_2v2", true},
+        {"show_gamemode_record_3v3", true},
+        {"gamemode_breakdown_scope", "lifetime"},
+        {"crossbar_display_mode", "speed"},
+        {"second_monitor_mode", true},
+        {"second_monitor_show_roster", true},
+        {"second_monitor_show_session", true},
+        {"second_monitor_show_settings", false},
+        {"second_monitor_has_bounds", true},
+        {"second_monitor_x", 1920},
+        {"second_monitor_y", 0},
+        {"second_monitor_w", 1920},
+        {"second_monitor_h", 1080},
+        {"ui_scale", 1.25f},
+        {"font_ui", "Inter"},
+        {"font_mono", "JetBrains Mono"},
+        {"font_display", "Russo One"},
+        {"session_view_x", 500.0f},
+        {"session_view_y", 10.0f},
+        {"match_summary_x", 1200.0f},
+        {"match_summary_y", 600.0f},
+        {"overlay_fps_cap", 144},
+        {"vsync", true},
+        {"theme", {{"bg", {0.1f, 0.1f, 0.1f, 0.95f}}, {"settingsPanel", {0.05f, 0.05f, 0.05f, 1.0f}}, {"topbar", {0.06f, 0.06f, 0.06f, 1.0f}}, {"graphPanel", {0.04f, 0.04f, 0.04f, 1.0f}}, {"text", {0.9f, 0.9f, 0.9f, 1.0f}}, {"accent", {0.5f, 0.1f, 0.1f, 1.0f}}, {"win", {0.1f, 0.6f, 0.1f, 1.0f}}, {"loss", {0.9f, 0.1f, 0.1f, 1.0f}}, {"dim", {0.8f, 0.8f, 0.8f, 1.0f}}, {"muted", {0.6f, 0.6f, 0.6f, 1.0f}}, {"graphLine", {0.2f, 0.4f, 0.8f, 1.0f}}, {"graphBaseline", {0.9f, 0.9f, 0.1f, 1.0f}}, {"rosterCard", {0.06f, 0.06f, 0.06f, 0.8f}}, {"rosterCardSelf", {0.07f, 0.07f, 0.07f, 0.8f}}, {"scoutTag", {0.3f, 0.1f, 0.1f, 1.0f}}, {"statBox", {0.06f, 0.06f, 0.06f, 0.8f}}, {"matchRow", {0.07f, 0.07f, 0.07f, 0.8f}}, {"matchRowAlt", {0.05f, 0.05f, 0.05f, 0.95f}}}},
+        {"dashboard_layout", {{"version", 1}, {"widgets", nlohmann::json::array({{{"id", 0}, {"x", 0.0}, {"y", 0.0}, {"w", 300.0}, {"h", 200.0}, {"enabled", true}}})}}},
+        {"overlay_layout", {{"version", 5}, {"containers", nlohmann::json::array({{{"id", "main_stack"}, {"x", 100.0}, {"y", 200.0}, {"w", 400.0}, {"h", 600.0}, {"widgets", nlohmann::json::array({"live_roster"})}, {"visibility", {{"mode", "key_held"}, {"event", "first_countdown"}, {"seconds", 8}, {"also_while_key_held", true}, {"hide_during_replay", false}}}}})}}}};
+
+    {
+        std::ofstream file(path, std::ios::trunc);
+        file << fullJson.dump(4);
+        file.flush();
+    }
+
+    Config::Load();
+    const ConfigData loaded = Config::Read();
+
+    EXPECT_EQ(loaded.host, "127.0.0.1");
+    EXPECT_EQ(loaded.port, 49123);
+    EXPECT_EQ(loaded.key_overlay, 9);
+    EXPECT_EQ(loaded.key_cycle, 117);
+    EXPECT_EQ(loaded.key_expand, 118);
+    EXPECT_EQ(loaded.key_session, 119);
+    EXPECT_EQ(loaded.key_menu, 116);
+    EXPECT_EQ(loaded.key_graph_pan_left, 37);
+    EXPECT_EQ(loaded.key_graph_pan_right, 39);
+    EXPECT_EQ(loaded.key_lifetime_graph, 120);
+    EXPECT_EQ(loaded.gamepad_overlay, 4);
+    EXPECT_TRUE(loaded.gamepad_overlay_raw);
+    EXPECT_EQ(loaded.gamepad_overlay_raw_button, 6);
+    EXPECT_EQ(loaded.gamepad_cycle, 2);
+    EXPECT_EQ(loaded.gamepad_expand, 3);
+    EXPECT_EQ(loaded.gamepad_session, 1);
+    EXPECT_EQ(loaded.gamepad_menu, 0);
+    EXPECT_EQ(loaded.mmr_category, "2v2");
+    EXPECT_EQ(loaded.graph_mmr_category, "2v2");
+    EXPECT_TRUE(loaded.graph_follow_current_playlist);
+    EXPECT_EQ(loaded.rank_progress_mmr_category, "3v3");
+    EXPECT_FALSE(loaded.rank_progress_follow_current_playlist);
+    EXPECT_EQ(loaded.last_primary_id, "Steam|76561198012345678|0");
+    ASSERT_EQ(loaded.known_primary_ids.size(), 2u);
+    EXPECT_EQ(loaded.known_primary_ids[0], "Steam|76561198012345678|0");
+    EXPECT_EQ(loaded.known_primary_ids[1], "Epic|abcdef123456|0");
+    EXPECT_TRUE(loaded.require_rl_focus);
+    EXPECT_TRUE(loaded.show_match_summary);
+    EXPECT_EQ(loaded.match_summary_seconds, 25);
+    EXPECT_TRUE(loaded.discord_rpc_enabled);
+    EXPECT_TRUE(loaded.enable_mmr_tracking);
+    EXPECT_TRUE(loaded.auto_switch_mmr_category);
+    EXPECT_TRUE(loaded.enable_auto_updates);
+    EXPECT_FALSE(loaded.crash_reports_enabled);
+    EXPECT_TRUE(loaded.debug_logging);
+    EXPECT_FALSE(loaded.imperial_units);
+    EXPECT_FALSE(loaded.run_on_startup);
+    EXPECT_TRUE(loaded.reset_session_on_close);
+    EXPECT_TRUE(loaded.show_session_recap_on_close);
+    EXPECT_EQ(loaded.client_uuid, "11111111-2222-4333-8444-555555555555");
+    EXPECT_EQ(loaded.privacy_policy_accepted_version, "2026-07-12");
+    EXPECT_EQ(loaded.terms_accepted_version, "2026-07-12");
+    EXPECT_EQ(loaded.privacy_accepted_at, "2026-07-15T12:00:00Z");
+    EXPECT_TRUE(loaded.onboarding_completed);
+    EXPECT_TRUE(loaded.account_link_prompt_shown);
+    EXPECT_EQ(loaded.position, "top-left");
+    EXPECT_TRUE(loaded.show_running_indicator);
+    EXPECT_TRUE(loaded.use_roman_numerals);
+    EXPECT_TRUE(loaded.use_rank_icons);
+    EXPECT_TRUE(loaded.show_extra_playlists);
+    EXPECT_TRUE(loaded.custom_api_enabled);
+    EXPECT_EQ(loaded.account_signed_in_name, "TestPilot");
+    EXPECT_EQ(loaded.account_device_public_id, "dev_pub_98765");
+    EXPECT_EQ(loaded.rocket_league_stats_api_config_path, "C:/RL/statsapi.json");
+    EXPECT_TRUE(loaded.check_stats_api_config_on_startup);
+    EXPECT_TRUE(loaded.auto_upload_replays);
+    EXPECT_TRUE(loaded.ballchasing_upload_notice_accepted);
+    EXPECT_EQ(loaded.ballchasing_visibility, "public");
+    EXPECT_TRUE(loaded.ballchasing_filter_ranked_only);
+    EXPECT_FALSE(loaded.ballchasing_filter_wins_only);
+    EXPECT_FALSE(loaded.auto_save_replays);
+    EXPECT_EQ(loaded.key_save_replay, 8);
+    EXPECT_EQ(loaded.previous_games_limit, 15);
+    EXPECT_TRUE(loaded.show_tournaments);
+    EXPECT_EQ(loaded.tournament_region, "EU");
+    EXPECT_EQ(loaded.tournament_reminder_minutes, 15);
+    EXPECT_TRUE(loaded.tournament_reminder_standard_only);
+    EXPECT_TRUE(loaded.tournament_sound_cue);
+    EXPECT_TRUE(loaded.show_longest_loss_streak);
+    EXPECT_EQ(loaded.gamemode_breakdown_scope, "lifetime");
+    EXPECT_EQ(loaded.crossbar_display_mode, "speed");
+    EXPECT_TRUE(loaded.second_monitor_mode);
+    EXPECT_FALSE(loaded.second_monitor_show_settings);
+    EXPECT_EQ(loaded.second_monitor_x, 1920);
+    EXPECT_FLOAT_EQ(loaded.ui_scale, 1.25f);
+    EXPECT_EQ(loaded.font_ui, "Inter");
+    EXPECT_EQ(loaded.font_mono, "JetBrains Mono");
+    EXPECT_EQ(loaded.font_display, "Russo One");
+    EXPECT_FLOAT_EQ(loaded.session_view_x, 500.0f);
+    EXPECT_FLOAT_EQ(loaded.match_summary_x, 1200.0f);
+    EXPECT_EQ(loaded.overlay_fps_cap, 144);
+    EXPECT_TRUE(loaded.vsync);
+    EXPECT_FLOAT_EQ(loaded.themeBg.a, 0.95f);
+    EXPECT_EQ(loaded.overlay_layout.version, 5);
+    ASSERT_EQ(loaded.overlay_layout.containers.size(), 1u);
+    EXPECT_EQ(loaded.overlay_layout.containers[0].id, "main_stack");
+
+    Config::Save();
+
+    std::ifstream savedFile(path);
+    ASSERT_TRUE(savedFile.is_open());
+    nlohmann::json roundTripJson;
+    savedFile >> roundTripJson;
+    savedFile.close();
+
+    EXPECT_EQ(roundTripJson["host"], "127.0.0.1");
+    EXPECT_EQ(roundTripJson["port"], 49123);
+    EXPECT_EQ(roundTripJson["key_overlay"], 9);
+    EXPECT_EQ(roundTripJson["gamepad_overlay_raw_button"], 6);
+    EXPECT_EQ(roundTripJson["tournament_region"], "EU");
+    EXPECT_EQ(roundTripJson["tournament_reminder_minutes"], 15);
+    EXPECT_EQ(roundTripJson["position"], "top-left");
+    EXPECT_EQ(roundTripJson["client_uuid"], "11111111-2222-4333-8444-555555555555");
+    EXPECT_EQ(roundTripJson["font_ui"], "Inter");
+    EXPECT_EQ(roundTripJson["font_mono"], "JetBrains Mono");
+    EXPECT_EQ(roundTripJson["font_display"], "Russo One");
+    EXPECT_EQ(roundTripJson["overlay_layout"]["containers"][0]["id"], "main_stack");
+
+    Config::Load();
+    const ConfigData reloaded = Config::Read();
+    EXPECT_EQ(reloaded.host, "127.0.0.1");
+    EXPECT_EQ(reloaded.port, 49123);
+    EXPECT_EQ(reloaded.key_overlay, 9);
+    EXPECT_EQ(reloaded.tournament_region, "EU");
+    EXPECT_EQ(reloaded.client_uuid, "11111111-2222-4333-8444-555555555555");
+    EXPECT_EQ(reloaded.font_ui, "Inter");
+    EXPECT_FLOAT_EQ(reloaded.ui_scale, 1.25f);
+}

@@ -179,7 +179,7 @@ void RmlUiController::HandleClick(Rml::Element* target) {
     } else if (action == "open-player-tracker") {
         const std::string url = Attribute(target, "data-url");
         if (url.rfind("https://rocketleague.tracker.network/rocket-league/profile/", 0) == 0) {
-            TelemetryManager::RecordMilestone(TelemetryManager::Milestone::PlayerLookup);
+            if (m_telemetry) m_telemetry->RecordMilestone(TelemetryManager::Milestone::PlayerLookup);
             ShellExecuteA(nullptr, "open", url.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
         }
     } else if (action == "open-ballchasing-url") {
@@ -212,7 +212,7 @@ void RmlUiController::HandleClick(Rml::Element* target) {
     } else if (action == "dismiss-announcement") {
         const std::string id = Attribute(target, "data-announcement-id");
         if (!id.empty()) {
-            RemoteConfig::Instance().DismissAnnouncement(id);
+            if (m_remoteConfig) m_remoteConfig->DismissAnnouncement(id);
             if (m_config.second_monitor_mode) RebuildDashboard();
             if (m_state && m_state->ui.showMenu.load()) RebuildSettings();
         }
@@ -369,7 +369,7 @@ void RmlUiController::HandleClick(Rml::Element* target) {
     } else if (action == "create-support-bundle") {
         StartBackgroundTask("Creating support bundle...", [this](std::stop_token) -> std::function<void()> {
             std::string bundlePath, error;
-            const bool ok = SupportBundle::CreateSupportBundle(bundlePath, error);
+            const bool ok = SupportBundle::CreateSupportBundle(bundlePath, error, m_remoteConfig.get());
             return [this, ok, bundlePath = std::move(bundlePath), error = std::move(error)] {
                 if (!ok) {
                     ShowToast("Failed to create support bundle: " + (error.empty() ? "unknown error" : error), true);
@@ -800,9 +800,10 @@ void RmlUiController::HandleChange(Rml::Element* target, Rml::Event& event) {
             }
         }
     });
-    TelemetryManager::RecordMilestone(TelemetryManager::Milestone::SettingsChanged);
-    if (key == "show_tournaments" || key == "tournament_region" || key == "widget_enabled:tournaments")
-        Tournaments::TournamentScheduleService::Instance().RequestRefresh();
+    if (m_telemetry) m_telemetry->RecordMilestone(TelemetryManager::Milestone::SettingsChanged);
+    if (key == "show_tournaments" || key == "tournament_region" || key == "widget_enabled:tournaments") {
+        if (m_tournamentService) m_tournamentService->RequestRefresh();
+    }
 
     if (key == "run_on_startup") Config::SetWindowsAutoStart(checked);
     if (key == "identity" && m_state) {

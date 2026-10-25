@@ -3,6 +3,8 @@
 #include <stop_token>
 #include <string>
 
+class TelemetryManager;
+
 class SessionState;
 
 namespace ExternalUpdaterLauncher {
@@ -13,6 +15,7 @@ namespace ExternalUpdaterLauncher {
         Periodic
     };
 
+    void SetTelemetryManager(std::shared_ptr<TelemetryManager> tm);
     bool RunStartupUpdateCheck();
     bool StartBackgroundUpdateCheck(std::shared_ptr<SessionState> state,
                                     BackgroundUpdateCheckReason reason = BackgroundUpdateCheckReason::Initial);

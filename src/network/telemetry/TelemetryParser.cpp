@@ -110,7 +110,7 @@ void TelemetryParser::ConnectAndRead(JsonLineCallback onJsonLine) {
     }
 
     std::cout << "[StatsClient] Connected to Rocket League!\n";
-    TelemetryManager::RecordMilestone(TelemetryManager::Milestone::StatsApiConnected);
+    if (m_telemetry) m_telemetry->RecordMilestone(TelemetryManager::Milestone::StatsApiConnected);
 
 #ifdef _WIN32
     DWORD timeoutMs = 5000;

@@ -1,46 +1,40 @@
 #pragma once
+
 #include <algorithm>
+#include <atomic>
+#include <condition_variable>
 #include <cstdint>
-#include <string>
 #include <memory>
-#include "database/DatabaseManager.hpp"
+#include <mutex>
+#include <string>
+#include <string_view>
+#include <thread>
 
-namespace TelemetryManager {
-    namespace detail {
-        inline constexpr uint64_t k100nsPerMinute = 600'000'000ULL;
-        inline constexpr int kMaxOpenMinutes = 1440;
+class DatabaseManager;
 
-        struct HeartbeatAccounting {
-            int open_minutes = 0;
-            uint64_t remainder_100ns = 0;
-        };
+namespace TelemetryDetail {
+    inline constexpr uint64_t k100nsPerMinute = 600'000'000ULL;
+    inline constexpr int kMaxOpenMinutes = 1440;
 
-        inline HeartbeatAccounting CalculateHeartbeatMinutes(uint64_t elapsed_100ns, uint64_t carry_100ns = 0) {
-            const uint64_t total = (UINT64_MAX - elapsed_100ns < carry_100ns)
-                                       ? UINT64_MAX
-                                       : (elapsed_100ns + carry_100ns);
-            const uint64_t minutes = total / k100nsPerMinute;
-            const int clamped = static_cast<int>(std::min<uint64_t>(minutes, static_cast<uint64_t>(kMaxOpenMinutes)));
-            const uint64_t remainder = total % k100nsPerMinute;
-            return {clamped, remainder};
-        }
+    struct HeartbeatAccounting {
+        int open_minutes = 0;
+        uint64_t remainder_100ns = 0;
+    };
+
+    inline constexpr HeartbeatAccounting CalculateHeartbeatMinutes(uint64_t elapsed_100ns, uint64_t carry_100ns = 0) {
+        const uint64_t total = (UINT64_MAX - elapsed_100ns < carry_100ns)
+                                   ? UINT64_MAX
+                                   : (elapsed_100ns + carry_100ns);
+        const uint64_t minutes = total / k100nsPerMinute;
+        const uint64_t maxOpen = static_cast<uint64_t>(kMaxOpenMinutes);
+        const int clamped = static_cast<int>(minutes < maxOpen ? minutes : maxOpen);
+        const uint64_t remainder = total % k100nsPerMinute;
+        return {clamped, remainder};
     }
+}
 
-    // Generates a random standard UUIDv4 string
-    std::string GenerateUUIDv4();
-
-    // Initializes telemetry: loads/creates client_uuid and enables telemetry.
-    void Initialize(std::shared_ptr<DatabaseManager> db);
-
-    // Checks and reports any pending crashes asynchronously
-    void CheckAndReportCrashes();
-
-    // Asynchronously sends a telemetry ping
-    void SendTelemetryAsync();
-
-    // Asynchronously sends a crash report ping with error details
-    void SendCrashAsync(const std::string& filePath);
-
+class TelemetryManager {
+  public:
     enum class Milestone : uint8_t {
         FirstLaunch,
         OnboardingCompleted,
@@ -65,7 +59,7 @@ namespace TelemetryManager {
         std::string_view name;
     };
 
-    constexpr MilestoneInfo MilestoneMetadata(Milestone m) {
+    static constexpr MilestoneInfo MilestoneMetadata(Milestone m) {
         switch (m) {
         case Milestone::FirstLaunch:
             return {"onboarding", "first_launch"};
@@ -102,23 +96,47 @@ namespace TelemetryManager {
         }
     }
 
-    // Records a milestone via lockless fast path.
+    static std::string GenerateUUIDv4();
+
+    TelemetryManager() = default;
+    explicit TelemetryManager(std::shared_ptr<DatabaseManager> db);
+    ~TelemetryManager();
+
+    TelemetryManager(const TelemetryManager&) = delete;
+    TelemetryManager& operator=(const TelemetryManager&) = delete;
+
+    void Initialize(std::shared_ptr<DatabaseManager> db);
+    void Shutdown();
+
     void RecordMilestone(Milestone m);
-    // Appends an updater outcome to <appdata>/updater_events.jsonl capped at 20 lines.
     void RecordUpdaterEvent(const std::string& event,
                             const std::string& targetVersion,
                             const std::string& errorCategory,
                             const std::string& version);
 
-    // Flushes pending milestones to the server (max 32 per batch).
     void FlushPendingMilestones();
-
-    // Reads and sends pending updater events from <appdata>/updater_events.jsonl.
     void FlushPendingUpdaterEvents();
-
-    // Sends hourly heartbeat ping.
     void SendHeartbeat();
+    void CheckAndReportCrashes();
+    void SendTelemetryAsync();
+    void SendCrashAsync(const std::string& filePath);
 
-    // Gracefully stops telemetry background worker
-    void Shutdown();
-}
+  private:
+    void SendHeartbeatInternal(bool isShutdown);
+    void SendShutdownHeartbeat();
+
+    bool m_isTestMode = false;
+    std::unique_ptr<std::jthread> m_workerThread;
+    std::atomic<bool> m_isRunning{false};
+    uint64_t m_lastAccountingUnbiasedTime = 0;
+    std::mutex m_heartbeatMutex;
+    std::atomic<bool> m_shutdownHeartbeatSent{false};
+    std::mutex m_workerMutex;
+    std::condition_variable m_workerCv;
+
+    std::mutex m_milestonesMutex;
+    std::atomic<uint32_t> m_knownMask{0};
+    uint32_t m_reportedMask = 0;
+    uint32_t m_pendingMask = 0;
+    std::shared_ptr<DatabaseManager> m_db;
+};

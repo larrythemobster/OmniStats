@@ -586,7 +586,7 @@ AccountClient::PollResult AccountClient::PollTokenOnce() {
 
             result.outcome = PollOutcome::Approved;
             result.displayName = displayName;
-            TelemetryManager::RecordMilestone(TelemetryManager::Milestone::AccountLinked);
+            if (m_telemetry) m_telemetry->RecordMilestone(TelemetryManager::Milestone::AccountLinked);
             return result;
         } catch (...) {
             result.outcome = PollOutcome::Error;
@@ -789,7 +789,7 @@ bool AccountClient::ExchangeAPIKey(uint64_t generation) {
             (void)SendLogoutRequest(refreshToken);
             return false;
         }
-        TelemetryManager::RecordMilestone(TelemetryManager::Milestone::AccountLinked);
+        if (m_telemetry) m_telemetry->RecordMilestone(TelemetryManager::Milestone::AccountLinked);
         return true;
     } catch (...) {
         return fail("OmniStats returned an invalid device session. Restart to retry, or sign in in Settings > Accounts & services.");

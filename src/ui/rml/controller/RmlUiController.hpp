@@ -37,6 +37,8 @@
 #include "ui/rml/backend/RmlSystemInterfaceWin32.hpp"
 
 class DatabaseManager;
+class RemoteConfig;
+class TelemetryManager;
 struct DbMergeResult;
 class AccountManagerService;
 namespace Rml {
@@ -94,7 +96,10 @@ class RmlUiController final : public Rml::EventListener {
   public:
     RmlUiController(std::shared_ptr<SessionState> state,
                     std::shared_ptr<DatabaseManager> dbManager,
-                    std::shared_ptr<AccountManagerService> accounts = nullptr);
+                    std::shared_ptr<AccountManagerService> accounts = nullptr,
+                    std::shared_ptr<RemoteConfig> remoteConfig = nullptr,
+                    std::shared_ptr<Tournaments::TournamentScheduleService> tournamentService = nullptr,
+                    std::shared_ptr<TelemetryManager> telemetry = nullptr);
     ~RmlUiController() override;
 
     bool Initialize(HWND hwnd, ID3D11Device* device, ID3D11DeviceContext* context, int width, int height, float dpiScale);
@@ -531,4 +536,7 @@ class RmlUiController final : public Rml::EventListener {
     std::atomic<bool> m_backgroundTaskRunning{false};
     // Declared last so it stops and joins before the members it writes are destroyed.
     std::jthread m_backgroundTask;
+    std::shared_ptr<RemoteConfig> m_remoteConfig;
+    std::shared_ptr<Tournaments::TournamentScheduleService> m_tournamentService;
+    std::shared_ptr<TelemetryManager> m_telemetry;
 };

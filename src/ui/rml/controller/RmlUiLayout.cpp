@@ -67,7 +67,7 @@ std::string RmlUiController::RenderWidget(DashboardLayout::WidgetId id, bool das
     case DashboardLayout::WidgetId::SessionStats:
         return RenderSessionStats(true, true);
     case DashboardLayout::WidgetId::MmrGraph: {
-        TelemetryManager::RecordMilestone(TelemetryManager::Milestone::MmrGraphView);
+        if (m_telemetry) m_telemetry->RecordMilestone(TelemetryManager::Milestone::MmrGraphView);
         std::string controls;
         if (dashboard) {
             const auto graphCategory = m_state ? m_state->ui.graphMmrCategory.load() : MmrCategory::TwoVTwo;
@@ -97,7 +97,7 @@ std::string RmlUiController::RenderWidget(DashboardLayout::WidgetId id, bool das
         // The overlay keeps the bare bar so it reads as part of the card it is docked to.
         return RenderSelfRankProgress(dashboard);
     case DashboardLayout::WidgetId::Tournaments:
-        return TournamentUi::RenderWidget(*Tournaments::TournamentScheduleService::Instance().Snapshot(), static_cast<int64_t>(std::time(nullptr)));
+        return TournamentUi::RenderWidget(m_tournamentService ? *m_tournamentService->Snapshot() : Tournaments::ScheduleSnapshot{}, static_cast<int64_t>(std::time(nullptr)), m_telemetry.get());
     }
     return {};
 }
@@ -309,10 +309,10 @@ void RmlUiController::RebuildOverlay() {
 }
 
 std::string RmlUiController::RenderReleaseBanners() const {
-    const RemoteConfigData remoteSnap = RemoteConfig::Instance().GetSnapshot();
+    const RemoteConfigData remoteSnap = m_remoteConfig ? m_remoteConfig->GetSnapshot() : RemoteConfigData{};
     const bool belowMin = RemoteConfig::IsVersionBelowMinimum(AppVersion::Current, remoteSnap.min_supported_version);
     const bool wireUpdateRequired = OmniNet::UpdateRequired();
-    const auto announcements = RemoteConfig::Instance().ActiveAnnouncements();
+    const auto announcements = m_remoteConfig ? m_remoteConfig->ActiveAnnouncements() : std::vector<RemoteAnnouncement>{};
     if (!belowMin && !wireUpdateRequired && announcements.empty()) {
         return {};
     }
@@ -466,7 +466,7 @@ void RmlUiController::RebuildDashboard() {
     }
     out << "</div><div id='dashboard-match-status' class='match-status'>{{dashboard_status}}</div></div>"
         << "<div id='tournament-topbar-root'>"
-        << (m_config.show_tournaments && AccountClient::Instance().IsSignedIn() ? TournamentUi::RenderTopbar(*Tournaments::TournamentScheduleService::Instance().Snapshot(), static_cast<int64_t>(std::time(nullptr)), m_config.tournament_reminder_standard_only, m_config.tournament_reminder_minutes) : "")
+        << (m_config.show_tournaments && AccountClient::Instance().IsSignedIn() && m_tournamentService ? TournamentUi::RenderTopbar(*m_tournamentService->Snapshot(), static_cast<int64_t>(std::time(nullptr)), m_config.tournament_reminder_standard_only, m_config.tournament_reminder_minutes, m_telemetry.get()) : "")
         << "</div>"
         << "<div class='topbar-actions'>"
         << Button("history-open", "History", "ghost compact")

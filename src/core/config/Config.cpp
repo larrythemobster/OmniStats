@@ -1,233 +1,584 @@
 #include "core/config/Config.hpp"
-#include <fstream>
-#include <iostream>
-#include <filesystem>
-#include <sstream>
-#include <iomanip>
-#include <algorithm>
-#include <thread>
-#include <atomic>
-#include <cstring>
-#include <cmath>
-#include <limits>
-#include <stdexcept>
-#include <type_traits>
-#include <nlohmann/json.hpp>
+#include "core/config/SecretStore.hpp"
 #include "utils/Storage.hpp"
 
-#include <windows.h>
-#include <wincrypt.h>
+#include <algorithm>
+#include <atomic>
+#include <chrono>
+#include <cmath>
+#include <condition_variable>
+#include <filesystem>
+#include <fstream>
+#include <functional>
+#include <iomanip>
+#include <iostream>
+#include <limits>
+#include <mutex>
+#include <nlohmann/json.hpp>
+#include <optional>
+#include <sstream>
+#include <stdexcept>
+#include <string>
+#include <string_view>
+#include <thread>
+#include <type_traits>
+#include <vector>
 
 namespace fs = std::filesystem;
 
-static std::string StringToHex(const std::string& input) {
-    std::stringstream ss;
-    ss << std::hex << std::setfill('0');
-    for (unsigned char c : input) {
-        ss << std::setw(2) << (int)c;
-    }
-    return ss.str();
-}
+namespace {
 
-static bool IsHexString(const std::string& s) {
-    if (s.empty() || s.length() % 2 != 0) return false;
-    for (char c : s) {
-        if (!std::isxdigit(static_cast<unsigned char>(c))) {
-            return false;
+    static bool IsKnownMmrCategory(const std::string& category) {
+        return category == "best" || category == "1v1" ||
+               category == "2v2" || category == "3v3" ||
+               category == "casual" || category == "t" ||
+               category == "hoops" || category == "rumble" ||
+               category == "dropshot" || category == "snowday" ||
+               category == "heatseeker";
+    }
+
+    static bool IsGraphMmrCategory(const std::string& category) {
+        return category != "best" && IsKnownMmrCategory(category);
+    }
+
+    static bool IsExtraMmrCategory(const std::string& category) {
+        return category == "hoops" || category == "rumble" ||
+               category == "dropshot" || category == "snowday" ||
+               category == "heatseeker";
+    }
+
+    static bool IsValidBallchasingVisibility(const std::string& visibility) {
+        return visibility == "private" || visibility == "unlisted" || visibility == "public";
+    }
+
+    static bool IsValidTournamentRegion(const std::string& region) {
+        return region == "auto" || region == "US" || region == "EU" || region == "OCE" ||
+               region == "SAM" || region == "ASIA" || region == "ME" || region == "SAF";
+    }
+
+    static bool IsValidTournamentReminderMinutes(int minutes) {
+        return minutes == 0 || minutes == 5 || minutes == 10 || minutes == 15;
+    }
+
+    static nlohmann::json ColorToJson(const ColorRGBA& c) {
+        return nlohmann::json::array({c.r, c.g, c.b, c.a});
+    }
+
+    static ColorRGBA JsonToColor(const nlohmann::json& j, const ColorRGBA& fallback) {
+        if (!j.is_array() || j.size() < 4) return fallback;
+        for (size_t i = 0; i < 4; ++i) {
+            if (!j[i].is_number()) return fallback;
+            const double component = j[i].get<double>();
+            if (!std::isfinite(component) || component < 0.0 || component > 1.0) return fallback;
         }
+        return {j[0].get<float>(), j[1].get<float>(), j[2].get<float>(), j[3].get<float>()};
     }
-    return true;
-}
 
-static std::string HexToString(const std::string& input) {
-    if (!IsHexString(input)) return "";
-    std::string output;
-    try {
-        for (size_t i = 0; i < input.length(); i += 2) {
-            std::string part = input.substr(i, 2);
-            char chr = (char)std::stoul(part, nullptr, 16);
-            output.push_back(chr);
-        }
-    } catch (...) {
-        return "";
-    }
-    return output;
-}
-
-struct CryptResult {
-    bool success = false;
-    std::string value;
-    DWORD errorCode = 0;
-};
-
-struct DecryptResult {
-    bool success = false;
-    std::string value;
-    bool needsReencryption = false;
-    DWORD errorCode = 0;
-};
-
-#ifdef OMNISTATS_TEST_ENVIRONMENT
-static Config::CryptProtectHook s_protectHook = nullptr;
-static Config::CryptUnprotectHook s_unprotectHook = nullptr;
-
-namespace Config {
-    void SetCryptProtectHookForTests(CryptProtectHook hook) {
-        s_protectHook = std::move(hook);
-    }
-    void SetCryptUnprotectHookForTests(CryptUnprotectHook hook) {
-        s_unprotectHook = std::move(hook);
-    }
-    void ResetCryptHooksForTests() {
-        s_protectHook = nullptr;
-        s_unprotectHook = nullptr;
-    }
-}
-#endif
-
-static std::unordered_map<std::string, std::string> s_savedCiphertexts;
-static std::unordered_map<std::string, std::string> s_encryptedPlaintexts;
-
-static bool HasDpapiSignature(std::string_view bytes) {
-    if (bytes.size() < 20) return false;
-    static const unsigned char kDpapiHeader[8] = {0x01, 0x00, 0x00, 0x00, 0xd0, 0x02, 0x9a, 0xdf};
-    return std::memcmp(bytes.data(), kDpapiHeader, sizeof(kDpapiHeader)) == 0;
-}
-
-static CryptResult EncryptSecret(const std::string& plainText) {
-    if (plainText.empty()) {
-        return {true, "", 0};
-    }
-#ifdef OMNISTATS_TEST_ENVIRONMENT
-    if (s_protectHook) {
-        std::string cipher;
-        DWORD err = 0;
-        if (s_protectHook(plainText, cipher, err)) {
-            return {true, cipher, 0};
-        }
-        return {false, "", err ? err : static_cast<DWORD>(ERROR_ENCRYPTION_FAILED)};
-    }
-#endif
-    DATA_BLOB inputBlob;
-    inputBlob.pbData = (BYTE*)plainText.data();
-    inputBlob.cbData = (DWORD)plainText.size();
-
-    DATA_BLOB outputBlob;
-    if (CryptProtectData(&inputBlob, L"OmniStats Token", nullptr, nullptr, nullptr,
-                         CRYPTPROTECT_UI_FORBIDDEN, &outputBlob)) {
-        std::string encryptedBytes((char*)outputBlob.pbData, outputBlob.cbData);
-        LocalFree(outputBlob.pbData);
-        return {true, StringToHex(encryptedBytes), 0};
-    }
-    const DWORD err = GetLastError();
-    std::cerr << "[Config] DPAPI encryption failed with error: " << err << "\n";
-    return {false, "", err};
-}
-
-static DecryptResult DecryptSecret(const std::string& raw) {
-    if (raw.empty()) {
-        return {true, "", false, 0};
-    }
-#ifdef OMNISTATS_TEST_ENVIRONMENT
-    if (s_unprotectHook) {
-        std::string plain;
-        DWORD err = 0;
-        if (s_unprotectHook(raw, plain, err)) {
-            return {true, plain, false, 0};
-        }
-        return {false, "", false, err ? err : static_cast<DWORD>(ERROR_DECRYPTION_FAILED)};
-    }
-#endif
-    if (IsHexString(raw)) {
-        std::string cipherBytes = HexToString(raw);
-        if (!cipherBytes.empty()) {
-            DATA_BLOB inputBlob;
-            inputBlob.pbData = (BYTE*)cipherBytes.data();
-            inputBlob.cbData = (DWORD)cipherBytes.size();
-
-            DATA_BLOB outputBlob;
-            if (CryptUnprotectData(&inputBlob, nullptr, nullptr, nullptr, nullptr, CRYPTPROTECT_UI_FORBIDDEN, &outputBlob)) {
-                std::string decryptedBytes((char*)outputBlob.pbData, outputBlob.cbData);
-                LocalFree(outputBlob.pbData);
-                DWORD flags = 0;
-                // DPAPI stores protection flags after the master-key version and GUID.
-                if (cipherBytes.size() >= 44) std::memcpy(&flags, cipherBytes.data() + 40, sizeof(flags));
-                return {true, decryptedBytes, (flags & CRYPTPROTECT_LOCAL_MACHINE) != 0, 0};
-            }
-            const DWORD err = GetLastError();
-            if (HasDpapiSignature(cipherBytes)) {
-                std::cerr << "[Config] DPAPI decryption failed for ciphertext with error: " << err << "\n";
-                return {false, "", false, err};
+    static void ReadContainerVisibility(const nlohmann::json& jv, OverlayLayout::ContainerConfig::Visibility& vis) {
+        if (jv.contains("mode")) {
+            if (jv["mode"].is_string()) {
+                vis.mode = OverlayLayout::VisibilityModeFromConfigString(jv["mode"].get<std::string>());
+            } else if (jv["mode"].is_number_integer()) {
+                vis.mode = static_cast<OverlayLayout::VisibilityMode>(jv["mode"].get<int>());
+            } else {
+                vis.mode = OverlayLayout::Visibility::KeyHeld;
             }
         }
-    }
-    return {true, raw, true, 0};
-}
-
-template <typename T>
-static void ReadField(const nlohmann::json& object, const char* key, T& target) {
-    if (!object.is_object()) return;
-    const auto value = object.find(key);
-    if (value == object.end()) return;
-    if constexpr (std::is_same_v<T, std::string>) {
-        if (value->is_string()) value->get_to(target);
-    } else if constexpr (std::is_same_v<T, bool>) {
-        if (value->is_boolean()) value->get_to(target);
-    } else {
-        if constexpr (std::is_integral_v<T>) {
-            if (!value->is_number_integer()) return;
-        } else {
-            if (!value->is_number()) return;
+        if (jv.contains("event")) {
+            if (jv["event"].is_string()) {
+                vis.event = OverlayLayout::VisibilityEventFromConfigString(jv["event"].get<std::string>());
+            } else if (jv["event"].is_number_integer()) {
+                vis.event = static_cast<OverlayLayout::VisibilityEvent>(jv["event"].get<int>());
+            } else {
+                vis.event = OverlayLayout::Visibility::FirstCountdown;
+            }
         }
-        const long double number = value->get<long double>();
-        if (std::isfinite(number) &&
-            number >= (std::numeric_limits<T>::lowest)() &&
-            number <= (std::numeric_limits<T>::max)()) {
-            target = static_cast<T>(number);
+        if (jv.contains("seconds") && jv["seconds"].is_number_integer()) {
+            vis.seconds = jv["seconds"].get<int>();
         }
+        if (jv.contains("also_while_key_held") && jv["also_while_key_held"].is_boolean()) {
+            vis.alsoWhileKeyHeld = jv["also_while_key_held"].get<bool>();
+        } else if (jv.contains("alsoWhileKeyHeld") && jv["alsoWhileKeyHeld"].is_boolean()) {
+            vis.alsoWhileKeyHeld = jv["alsoWhileKeyHeld"].get<bool>();
+        }
+        if (jv.contains("hide_during_replay") && jv["hide_during_replay"].is_boolean()) {
+            vis.hideDuringReplay = jv["hide_during_replay"].get<bool>();
+        } else if (jv.contains("hideDuringReplay") && jv["hideDuringReplay"].is_boolean()) {
+            vis.hideDuringReplay = jv["hideDuringReplay"].get<bool>();
+        }
+        OverlayLayout::Sanitize(vis);
     }
-}
 
-// Helper: serialize ColorRGBA to JSON array [r, g, b, a]
-static nlohmann::json ColorToJson(const ColorRGBA& c) {
-    return nlohmann::json::array({c.r, c.g, c.b, c.a});
-}
-
-// Helper: deserialize JSON array [r, g, b, a] to ColorRGBA
-static ColorRGBA JsonToColor(const nlohmann::json& j, const ColorRGBA& fallback) {
-    if (!j.is_array() || j.size() < 4) return fallback;
-    for (size_t i = 0; i < 4; ++i) {
-        if (!j[i].is_number()) return fallback;
-        const double component = j[i].get<double>();
-        if (!std::isfinite(component) || component < 0.0 || component > 1.0) return fallback;
+    static nlohmann::json ContainerVisibilityToJson(const OverlayLayout::ContainerConfig::Visibility& vis) {
+        auto sanitized = vis;
+        OverlayLayout::Sanitize(sanitized);
+        return {
+            {"mode", OverlayLayout::ToConfigString(sanitized.mode)},
+            {"event", OverlayLayout::ToConfigString(sanitized.event)},
+            {"seconds", sanitized.seconds},
+            {"also_while_key_held", sanitized.alsoWhileKeyHeld},
+            {"hide_during_replay", sanitized.hideDuringReplay}};
     }
-    return {j[0].get<float>(), j[1].get<float>(), j[2].get<float>(), j[3].get<float>()};
-}
 
-static bool IsKnownMmrCategory(const std::string& category) {
-    return category == "best" || category == "1v1" ||
-           category == "2v2" || category == "3v3" ||
-           category == "casual" || category == "t" ||
-           category == "hoops" || category == "rumble" ||
-           category == "dropshot" || category == "snowday" ||
-           category == "heatseeker";
-}
+    struct FieldDescriptor {
+        std::string key;
+        std::function<void(const nlohmann::json&, ConfigData&, SecretStore&, bool& needsSave, bool& needsLegacyMigration)> load;
+        std::function<void(nlohmann::json&, const ConfigData&, SecretStore&)> save;
+    };
 
-static bool IsGraphMmrCategory(const std::string& category) {
-    return category != "best" && IsKnownMmrCategory(category);
-}
+    static FieldDescriptor MakeBoolField(const char* key, bool ConfigData::* member, bool defaultVal) {
+        return {
+            key,
+            [key, member, defaultVal](const nlohmann::json& j, ConfigData& cfg, SecretStore&, bool&, bool&) {
+                if (j.contains(key) && j[key].is_boolean()) {
+                    cfg.*member = j[key].get<bool>();
+                } else {
+                    cfg.*member = defaultVal;
+                }
+            },
+            [key, member](nlohmann::json& j, const ConfigData& cfg, SecretStore&) {
+                j[key] = cfg.*member;
+            }};
+    }
 
-static bool IsExtraMmrCategory(const std::string& category) {
-    return category == "hoops" || category == "rumble" ||
-           category == "dropshot" || category == "snowday" ||
-           category == "heatseeker";
-}
+    static FieldDescriptor MakeIntField(const char* key, int ConfigData::* member, int defaultVal,
+                                        std::optional<int> minVal = std::nullopt,
+                                        std::optional<int> maxVal = std::nullopt,
+                                        bool clamp = false) {
+        return {
+            key,
+            [key, member, defaultVal, minVal, maxVal, clamp](const nlohmann::json& j, ConfigData& cfg, SecretStore&, bool& needsSave, bool&) {
+                if (j.contains(key) && j[key].is_number_integer()) {
+                    const long double num = j[key].get<long double>();
+                    if (std::isfinite(num) && num >= (std::numeric_limits<int>::lowest)() && num <= (std::numeric_limits<int>::max)()) {
+                        const int val = static_cast<int>(num);
+                        if (clamp && minVal && maxVal) {
+                            const int clamped = std::clamp(val, *minVal, *maxVal);
+                            if (clamped != val) needsSave = true;
+                            cfg.*member = clamped;
+                            return;
+                        }
+                        if (minVal && val < *minVal) {
+                            cfg.*member = defaultVal;
+                            return;
+                        }
+                        if (maxVal && val > *maxVal) {
+                            cfg.*member = defaultVal;
+                            return;
+                        }
+                        cfg.*member = val;
+                        return;
+                    }
+                }
+                cfg.*member = defaultVal;
+            },
+            [key, member](nlohmann::json& j, const ConfigData& cfg, SecretStore&) {
+                j[key] = cfg.*member;
+            }};
+    }
+
+    static FieldDescriptor MakeFloatField(const char* key, float ConfigData::* member, float defaultVal,
+                                          std::optional<float> minVal = std::nullopt,
+                                          std::optional<float> maxVal = std::nullopt,
+                                          bool clamp = false) {
+        return {
+            key,
+            [key, member, defaultVal, minVal, maxVal, clamp](const nlohmann::json& j, ConfigData& cfg, SecretStore&, bool& needsSave, bool&) {
+                if (j.contains(key) && j[key].is_number()) {
+                    const long double num = j[key].get<long double>();
+                    if (std::isfinite(num) && num >= (std::numeric_limits<float>::lowest)() && num <= (std::numeric_limits<float>::max)()) {
+                        const float val = static_cast<float>(num);
+                        if (clamp && minVal && maxVal) {
+                            const float clamped = std::clamp(val, *minVal, *maxVal);
+                            if (clamped != val) needsSave = true;
+                            cfg.*member = clamped;
+                            return;
+                        }
+                        if (minVal && val < *minVal) {
+                            cfg.*member = defaultVal;
+                            return;
+                        }
+                        if (maxVal && val > *maxVal) {
+                            cfg.*member = defaultVal;
+                            return;
+                        }
+                        cfg.*member = val;
+                        return;
+                    }
+                }
+                cfg.*member = defaultVal;
+            },
+            [key, member](nlohmann::json& j, const ConfigData& cfg, SecretStore&) {
+                j[key] = cfg.*member;
+            }};
+    }
+
+    static FieldDescriptor MakeStringField(const char* key, std::string ConfigData::* member, std::string defaultVal,
+                                           std::function<bool(const std::string&)> validator = nullptr) {
+        return {
+            key,
+            [key, member, defaultVal, validator](const nlohmann::json& j, ConfigData& cfg, SecretStore&, bool& needsSave, bool&) {
+                if (j.contains(key) && j[key].is_string()) {
+                    std::string val = j[key].get<std::string>();
+                    if (!validator || validator(val)) {
+                        cfg.*member = std::move(val);
+                        return;
+                    }
+                    needsSave = true;
+                }
+                cfg.*member = defaultVal;
+            },
+            [key, member](nlohmann::json& j, const ConfigData& cfg, SecretStore&) {
+                j[key] = cfg.*member;
+            }};
+    }
+
+    static FieldDescriptor MakeSecretField(const char* key, std::string ConfigData::* member) {
+        return {
+            key,
+            [key, member](const nlohmann::json& j, ConfigData& cfg, SecretStore& secrets, bool&, bool& needsLegacyMigration) {
+                if (j.contains(key) && j[key].is_string()) {
+                    secrets.LoadSecretField(key, j[key].get<std::string>(), cfg.*member, needsLegacyMigration, cfg.credentials_decryption_failed);
+                } else {
+                    std::string empty;
+                    secrets.LoadSecretField(key, "", empty, needsLegacyMigration, cfg.credentials_decryption_failed);
+                    (cfg.*member).clear();
+                }
+            },
+            [key, member](nlohmann::json& j, const ConfigData& cfg, SecretStore& secrets) {
+                std::string diskVal;
+                secrets.SaveSecretField(key, cfg.*member, diskVal);
+                j[key] = diskVal;
+            }};
+    }
+
+    static FieldDescriptor MakeThemeColorField(const char* themeKey, ColorRGBA ConfigData::* member, ColorRGBA defaultVal) {
+        return {
+            std::string("theme.") + themeKey,
+            [themeKey, member, defaultVal](const nlohmann::json& j, ConfigData& cfg, SecretStore&, bool&, bool&) {
+                if (j.contains("theme") && j["theme"].is_object() && j["theme"].contains(themeKey)) {
+                    cfg.*member = JsonToColor(j["theme"][themeKey], defaultVal);
+                } else {
+                    cfg.*member = defaultVal;
+                }
+            },
+            [themeKey, member](nlohmann::json& j, const ConfigData& cfg, SecretStore&) {
+                j["theme"][themeKey] = ColorToJson(cfg.*member);
+            }};
+    }
+
+    static const std::vector<FieldDescriptor>& GetFieldDescriptors() {
+        static const ConfigData def{};
+        static const std::vector<FieldDescriptor> descriptors = {
+            MakeStringField("host", &ConfigData::host, def.host),
+            MakeIntField("port", &ConfigData::port, def.port),
+            MakeIntField("key_overlay", &ConfigData::key_overlay, def.key_overlay),
+            MakeIntField("key_cycle", &ConfigData::key_cycle, def.key_cycle),
+            MakeIntField("key_expand", &ConfigData::key_expand, def.key_expand),
+            MakeIntField("key_session", &ConfigData::key_session, def.key_session),
+            MakeIntField("key_menu", &ConfigData::key_menu, def.key_menu),
+            MakeIntField("key_graph_pan_left", &ConfigData::key_graph_pan_left, def.key_graph_pan_left),
+            MakeIntField("key_graph_pan_right", &ConfigData::key_graph_pan_right, def.key_graph_pan_right),
+            MakeIntField("key_lifetime_graph", &ConfigData::key_lifetime_graph, def.key_lifetime_graph),
+
+            MakeIntField("gamepad_overlay", &ConfigData::gamepad_overlay, def.gamepad_overlay),
+            MakeBoolField("gamepad_overlay_raw", &ConfigData::gamepad_overlay_raw, def.gamepad_overlay_raw),
+            MakeIntField("gamepad_overlay_raw_button", &ConfigData::gamepad_overlay_raw_button, def.gamepad_overlay_raw_button),
+            MakeIntField("gamepad_cycle", &ConfigData::gamepad_cycle, def.gamepad_cycle),
+            MakeBoolField("gamepad_cycle_raw", &ConfigData::gamepad_cycle_raw, def.gamepad_cycle_raw),
+            MakeIntField("gamepad_cycle_raw_button", &ConfigData::gamepad_cycle_raw_button, def.gamepad_cycle_raw_button),
+            MakeIntField("gamepad_expand", &ConfigData::gamepad_expand, def.gamepad_expand),
+            MakeBoolField("gamepad_expand_raw", &ConfigData::gamepad_expand_raw, def.gamepad_expand_raw),
+            MakeIntField("gamepad_expand_raw_button", &ConfigData::gamepad_expand_raw_button, def.gamepad_expand_raw_button),
+            MakeIntField("gamepad_session", &ConfigData::gamepad_session, def.gamepad_session),
+            MakeBoolField("gamepad_session_raw", &ConfigData::gamepad_session_raw, def.gamepad_session_raw),
+            MakeIntField("gamepad_session_raw_button", &ConfigData::gamepad_session_raw_button, def.gamepad_session_raw_button),
+            MakeIntField("gamepad_menu", &ConfigData::gamepad_menu, def.gamepad_menu),
+            MakeBoolField("gamepad_menu_raw", &ConfigData::gamepad_menu_raw, def.gamepad_menu_raw),
+            MakeIntField("gamepad_menu_raw_button", &ConfigData::gamepad_menu_raw_button, def.gamepad_menu_raw_button),
+            MakeIntField("gamepad_graph_pan_left", &ConfigData::gamepad_graph_pan_left, def.gamepad_graph_pan_left),
+            MakeBoolField("gamepad_graph_pan_left_raw", &ConfigData::gamepad_graph_pan_left_raw, def.gamepad_graph_pan_left_raw),
+            MakeIntField("gamepad_graph_pan_left_raw_button", &ConfigData::gamepad_graph_pan_left_raw_button, def.gamepad_graph_pan_left_raw_button),
+            MakeIntField("gamepad_graph_pan_right", &ConfigData::gamepad_graph_pan_right, def.gamepad_graph_pan_right),
+            MakeBoolField("gamepad_graph_pan_right_raw", &ConfigData::gamepad_graph_pan_right_raw, def.gamepad_graph_pan_right_raw),
+            MakeIntField("gamepad_graph_pan_right_raw_button", &ConfigData::gamepad_graph_pan_right_raw_button, def.gamepad_graph_pan_right_raw_button),
+
+            MakeStringField("mmr_category", &ConfigData::mmr_category, def.mmr_category, IsKnownMmrCategory),
+            MakeStringField("graph_mmr_category", &ConfigData::graph_mmr_category, def.graph_mmr_category, IsGraphMmrCategory),
+            MakeBoolField("graph_follow_current_playlist", &ConfigData::graph_follow_current_playlist, def.graph_follow_current_playlist),
+            MakeStringField("rank_progress_mmr_category", &ConfigData::rank_progress_mmr_category, def.rank_progress_mmr_category, IsKnownMmrCategory),
+            MakeBoolField("rank_progress_follow_current_playlist", &ConfigData::rank_progress_follow_current_playlist, def.rank_progress_follow_current_playlist),
+            MakeStringField("last_primary_id", &ConfigData::last_primary_id, def.last_primary_id),
+
+            {"known_primary_ids",
+             [](const nlohmann::json& j, ConfigData& cfg, SecretStore&, bool&, bool&) {
+                 cfg.known_primary_ids.clear();
+                 if (j.contains("known_primary_ids") && j["known_primary_ids"].is_array()) {
+                     for (const auto& item : j["known_primary_ids"]) {
+                         if (item.is_string()) cfg.known_primary_ids.push_back(item.get<std::string>());
+                     }
+                 }
+             },
+             [](nlohmann::json& j, const ConfigData& cfg, SecretStore&) {
+                 j["known_primary_ids"] = cfg.known_primary_ids;
+             }},
+
+            MakeBoolField("require_rl_focus", &ConfigData::require_rl_focus, def.require_rl_focus),
+            MakeBoolField("show_match_summary", &ConfigData::show_match_summary, def.show_match_summary),
+            MakeIntField("match_summary_seconds", &ConfigData::match_summary_seconds, def.match_summary_seconds, 5, 60, true),
+            MakeBoolField("discord_rpc_enabled", &ConfigData::discord_rpc_enabled, def.discord_rpc_enabled),
+            MakeBoolField("enable_mmr_tracking", &ConfigData::enable_mmr_tracking, def.enable_mmr_tracking),
+            MakeBoolField("auto_switch_mmr_category", &ConfigData::auto_switch_mmr_category, def.auto_switch_mmr_category),
+            MakeBoolField("enable_auto_updates", &ConfigData::enable_auto_updates, def.enable_auto_updates),
+            MakeBoolField("crash_reports_enabled", &ConfigData::crash_reports_enabled, def.crash_reports_enabled),
+            MakeBoolField("debug_logging", &ConfigData::debug_logging, def.debug_logging),
+            MakeBoolField("imperial_units", &ConfigData::imperial_units, def.imperial_units),
+            MakeBoolField("run_on_startup", &ConfigData::run_on_startup, def.run_on_startup),
+            MakeBoolField("reset_session_on_close", &ConfigData::reset_session_on_close, def.reset_session_on_close),
+            MakeBoolField("show_session_recap_on_close", &ConfigData::show_session_recap_on_close, def.show_session_recap_on_close),
+            MakeStringField("client_uuid", &ConfigData::client_uuid, def.client_uuid),
+            MakeStringField("privacy_policy_accepted_version", &ConfigData::privacy_policy_accepted_version, def.privacy_policy_accepted_version),
+            MakeStringField("terms_accepted_version", &ConfigData::terms_accepted_version, def.terms_accepted_version),
+            MakeStringField("privacy_accepted_at", &ConfigData::privacy_accepted_at, def.privacy_accepted_at),
+            MakeBoolField("onboarding_completed", &ConfigData::onboarding_completed, def.onboarding_completed),
+            MakeBoolField("account_link_prompt_shown", &ConfigData::account_link_prompt_shown, def.account_link_prompt_shown),
+
+            MakeStringField("position", &ConfigData::position, def.position),
+            MakeBoolField("show_running_indicator", &ConfigData::show_running_indicator, def.show_running_indicator),
+            MakeBoolField("use_roman_numerals", &ConfigData::use_roman_numerals, def.use_roman_numerals),
+            MakeBoolField("use_rank_icons", &ConfigData::use_rank_icons, def.use_rank_icons),
+            MakeBoolField("show_extra_playlists", &ConfigData::show_extra_playlists, def.show_extra_playlists),
+
+            MakeBoolField("custom_api_enabled", &ConfigData::custom_api_enabled, def.custom_api_enabled),
+            MakeSecretField("custom_api_key", &ConfigData::custom_api_key),
+
+            MakeStringField("account_signed_in_name", &ConfigData::account_signed_in_name, def.account_signed_in_name),
+            MakeStringField("account_device_public_id", &ConfigData::account_device_public_id, def.account_device_public_id),
+            MakeSecretField("account_refresh_token", &ConfigData::account_refresh_token),
+            MakeSecretField("account_device_key", &ConfigData::account_device_key),
+            MakeStringField("rocket_league_stats_api_config_path", &ConfigData::rocket_league_stats_api_config_path, def.rocket_league_stats_api_config_path),
+            MakeBoolField("check_stats_api_config_on_startup", &ConfigData::check_stats_api_config_on_startup, def.check_stats_api_config_on_startup),
+
+            MakeSecretField("ballchasing_token", &ConfigData::ballchasing_token),
+            MakeBoolField("auto_upload_replays", &ConfigData::auto_upload_replays, def.auto_upload_replays),
+            MakeBoolField("ballchasing_upload_notice_accepted", &ConfigData::ballchasing_upload_notice_accepted, def.ballchasing_upload_notice_accepted),
+            MakeStringField("ballchasing_visibility", &ConfigData::ballchasing_visibility, def.ballchasing_visibility, IsValidBallchasingVisibility),
+            MakeBoolField("ballchasing_filter_ranked_only", &ConfigData::ballchasing_filter_ranked_only, def.ballchasing_filter_ranked_only),
+            MakeBoolField("ballchasing_filter_wins_only", &ConfigData::ballchasing_filter_wins_only, def.ballchasing_filter_wins_only),
+            MakeBoolField("auto_save_replays", &ConfigData::auto_save_replays, def.auto_save_replays),
+            MakeIntField("key_save_replay", &ConfigData::key_save_replay, def.key_save_replay),
+
+            MakeThemeColorField("bg", &ConfigData::themeBg, def.themeBg),
+            MakeThemeColorField("settings_panel", &ConfigData::themeSettingsPanel, def.themeSettingsPanel),
+            MakeThemeColorField("topbar", &ConfigData::themeTopbar, def.themeTopbar),
+            MakeThemeColorField("graph_panel", &ConfigData::themeGraphPanel, def.themeGraphPanel),
+            MakeThemeColorField("text", &ConfigData::themeText, def.themeText),
+            MakeThemeColorField("accent", &ConfigData::themeAccent, def.themeAccent),
+            MakeThemeColorField("win", &ConfigData::themeWin, def.themeWin),
+            MakeThemeColorField("loss", &ConfigData::themeLoss, def.themeLoss),
+            MakeThemeColorField("dim", &ConfigData::themeDim, def.themeDim),
+            MakeThemeColorField("muted", &ConfigData::themeMuted, def.themeMuted),
+            MakeThemeColorField("graph_line", &ConfigData::themeGraphLine, def.themeGraphLine),
+            MakeThemeColorField("graph_baseline", &ConfigData::themeGraphBaseline, def.themeGraphBaseline),
+            MakeThemeColorField("roster_card", &ConfigData::themeRosterCard, def.themeRosterCard),
+            MakeThemeColorField("roster_card_self", &ConfigData::themeRosterCardSelf, def.themeRosterCardSelf),
+            MakeThemeColorField("scout_tag", &ConfigData::themeScoutTag, def.themeScoutTag),
+            MakeThemeColorField("stat_box", &ConfigData::themeStatBox, def.themeStatBox),
+            MakeThemeColorField("match_row", &ConfigData::themeMatchRow, def.themeMatchRow),
+            MakeThemeColorField("match_row_alt", &ConfigData::themeMatchRowAlt, def.themeMatchRowAlt),
+
+            MakeBoolField("show_session_record", &ConfigData::show_session_record, def.show_session_record),
+            MakeBoolField("show_session_goals", &ConfigData::show_session_goals, def.show_session_goals),
+            MakeBoolField("show_session_saves", &ConfigData::show_session_saves, def.show_session_saves),
+            MakeBoolField("show_session_demos", &ConfigData::show_session_demos, def.show_session_demos),
+            MakeBoolField("show_session_assists", &ConfigData::show_session_assists, def.show_session_assists),
+            MakeBoolField("show_session_goal_participation", &ConfigData::show_session_goal_participation, def.show_session_goal_participation),
+            MakeBoolField("show_session_mmr_change", &ConfigData::show_session_mmr_change, def.show_session_mmr_change),
+            MakeBoolField("show_session_boost", &ConfigData::show_session_boost, def.show_session_boost),
+            MakeBoolField("show_lobby_ranks_overlay", &ConfigData::show_lobby_ranks_overlay, def.show_lobby_ranks_overlay),
+            MakeBoolField("show_lobby_rank_1v1", &ConfigData::show_lobby_rank_1v1, def.show_lobby_rank_1v1),
+            MakeBoolField("show_lobby_rank_2v2", &ConfigData::show_lobby_rank_2v2, def.show_lobby_rank_2v2),
+            MakeBoolField("show_lobby_rank_3v3", &ConfigData::show_lobby_rank_3v3, def.show_lobby_rank_3v3),
+            MakeBoolField("show_lobby_rank_casual", &ConfigData::show_lobby_rank_casual, def.show_lobby_rank_casual),
+            MakeBoolField("show_lobby_rank_tourny", &ConfigData::show_lobby_rank_tourny, def.show_lobby_rank_tourny),
+            MakeBoolField("show_lobby_rank_hoops", &ConfigData::show_lobby_rank_hoops, def.show_lobby_rank_hoops),
+            MakeBoolField("show_lobby_rank_rumble", &ConfigData::show_lobby_rank_rumble, def.show_lobby_rank_rumble),
+            MakeBoolField("show_lobby_rank_dropshot", &ConfigData::show_lobby_rank_dropshot, def.show_lobby_rank_dropshot),
+            MakeBoolField("show_lobby_rank_snowday", &ConfigData::show_lobby_rank_snowday, def.show_lobby_rank_snowday),
+            MakeBoolField("show_lobby_rank_heatseeker", &ConfigData::show_lobby_rank_heatseeker, def.show_lobby_rank_heatseeker),
+            MakeBoolField("show_account_wins_overlay", &ConfigData::show_account_wins_overlay, def.show_account_wins_overlay),
+            MakeBoolField("show_demo_tracker_overlay", &ConfigData::show_demo_tracker_overlay, def.show_demo_tracker_overlay),
+            MakeBoolField("show_rank_progress", &ConfigData::show_rank_progress, def.show_rank_progress),
+            MakeBoolField("show_previous_games_summary", &ConfigData::show_previous_games_summary, def.show_previous_games_summary),
+            MakeIntField("previous_games_limit", &ConfigData::previous_games_limit, def.previous_games_limit, 10, 50, true),
+
+            MakeBoolField("show_tournaments", &ConfigData::show_tournaments, def.show_tournaments),
+            MakeStringField("tournament_region", &ConfigData::tournament_region, def.tournament_region, IsValidTournamentRegion),
+            MakeIntField("tournament_reminder_minutes", &ConfigData::tournament_reminder_minutes, def.tournament_reminder_minutes, 0, 15, false),
+            MakeBoolField("tournament_reminder_standard_only", &ConfigData::tournament_reminder_standard_only, def.tournament_reminder_standard_only),
+            MakeBoolField("tournament_sound_cue", &ConfigData::tournament_sound_cue, def.tournament_sound_cue),
+
+            MakeBoolField("show_streaks_stats", &ConfigData::show_streaks_stats, def.show_streaks_stats),
+            MakeBoolField("show_longest_loss_streak", &ConfigData::show_longest_loss_streak, def.show_longest_loss_streak),
+            MakeBoolField("show_gamemode_breakdown", &ConfigData::show_gamemode_breakdown, def.show_gamemode_breakdown),
+            MakeBoolField("show_gamemode_record_1v1", &ConfigData::show_gamemode_record_1v1, def.show_gamemode_record_1v1),
+            MakeBoolField("show_gamemode_record_2v2", &ConfigData::show_gamemode_record_2v2, def.show_gamemode_record_2v2),
+            MakeBoolField("show_gamemode_record_3v3", &ConfigData::show_gamemode_record_3v3, def.show_gamemode_record_3v3),
+            MakeStringField("gamemode_breakdown_scope", &ConfigData::gamemode_breakdown_scope, def.gamemode_breakdown_scope),
+            MakeStringField("crossbar_display_mode", &ConfigData::crossbar_display_mode, def.crossbar_display_mode),
+
+            MakeBoolField("second_monitor_mode", &ConfigData::second_monitor_mode, def.second_monitor_mode),
+            MakeBoolField("second_monitor_show_roster", &ConfigData::second_monitor_show_roster, def.second_monitor_show_roster),
+            MakeBoolField("second_monitor_show_session", &ConfigData::second_monitor_show_session, def.second_monitor_show_session),
+            MakeBoolField("second_monitor_show_settings", &ConfigData::second_monitor_show_settings, def.second_monitor_show_settings),
+            MakeBoolField("second_monitor_has_bounds", &ConfigData::second_monitor_has_bounds, def.second_monitor_has_bounds),
+            MakeIntField("second_monitor_x", &ConfigData::second_monitor_x, def.second_monitor_x),
+            MakeIntField("second_monitor_y", &ConfigData::second_monitor_y, def.second_monitor_y),
+            MakeIntField("second_monitor_w", &ConfigData::second_monitor_w, def.second_monitor_w),
+            MakeIntField("second_monitor_h", &ConfigData::second_monitor_h, def.second_monitor_h),
+
+            MakeFloatField("ui_scale", &ConfigData::ui_scale, def.ui_scale),
+            MakeStringField("font_ui", &ConfigData::font_ui, def.font_ui),
+            MakeStringField("font_mono", &ConfigData::font_mono, def.font_mono),
+            MakeStringField("font_display", &ConfigData::font_display, def.font_display),
+
+            MakeFloatField("session_view_x", &ConfigData::session_view_x, def.session_view_x),
+            MakeFloatField("session_view_y", &ConfigData::session_view_y, def.session_view_y),
+            MakeFloatField("match_summary_x", &ConfigData::match_summary_x, def.match_summary_x),
+            MakeFloatField("match_summary_y", &ConfigData::match_summary_y, def.match_summary_y),
+
+            MakeIntField("overlay_fps_cap", &ConfigData::overlay_fps_cap, def.overlay_fps_cap),
+            MakeBoolField("vsync", &ConfigData::vsync, def.vsync),
+
+            {"dashboard_layout",
+             [](const nlohmann::json& j, ConfigData& cfg, SecretStore&, bool&, bool&) {
+                 if (!j.contains("dashboard_layout") || !j["dashboard_layout"].is_object()) return;
+                 const auto& jl = j["dashboard_layout"];
+                 if (jl.contains("version") && jl["version"].is_number_integer()) cfg.dashboard_layout.version = jl["version"].get<int>();
+                 if (jl.contains("left_column_weight") && jl["left_column_weight"].is_number()) cfg.dashboard_layout.leftColumnWeight = jl["left_column_weight"].get<float>();
+                 if (jl.contains("widgets") && jl["widgets"].is_array()) {
+                     cfg.dashboard_layout.widgets.clear();
+                     for (const auto& jw : jl["widgets"]) {
+                         if (!jw.is_object()) continue;
+                         DashboardLayout::WidgetPlacement w;
+                         if (jw.contains("id") && jw["id"].is_string()) w.id = DashboardLayout::WidgetIdFromConfigString(jw["id"].get<std::string>());
+                         if (jw.contains("zone") && jw["zone"].is_string()) w.zone = DashboardLayout::ZoneFromConfigString(jw["zone"].get<std::string>());
+                         if (jw.contains("order") && jw["order"].is_number_integer()) w.order = jw["order"].get<int>();
+                         if (jw.contains("height") && jw["height"].is_number()) w.height = jw["height"].get<float>();
+                         if (jw.contains("collapsed") && jw["collapsed"].is_boolean()) w.collapsed = jw["collapsed"].get<bool>();
+                         if (jw.contains("enabled") && jw["enabled"].is_boolean()) w.enabled = jw["enabled"].get<bool>();
+                         cfg.dashboard_layout.widgets.push_back(w);
+                     }
+                 }
+                 DashboardLayout::Sanitize(cfg.dashboard_layout);
+             },
+             [](nlohmann::json& j, const ConfigData& cfg, SecretStore&) {
+                 nlohmann::json jl;
+                 jl["version"] = cfg.dashboard_layout.version;
+                 jl["left_column_weight"] = cfg.dashboard_layout.leftColumnWeight;
+                 nlohmann::json jw_arr = nlohmann::json::array();
+                 for (const auto& w : cfg.dashboard_layout.widgets) {
+                     jw_arr.push_back({{"id", DashboardLayout::ToConfigString(w.id)},
+                                       {"zone", DashboardLayout::ToConfigString(w.zone)},
+                                       {"order", w.order},
+                                       {"height", w.height},
+                                       {"collapsed", w.collapsed},
+                                       {"enabled", w.enabled}});
+                 }
+                 jl["widgets"] = jw_arr;
+                 j["dashboard_layout"] = jl;
+             }},
+
+            {"overlay_layout",
+             [](const nlohmann::json& j, ConfigData& cfg, SecretStore&, bool&, bool&) {
+                 if (!j.contains("overlay_layout") || !j["overlay_layout"].is_object()) return;
+                 const auto& jl = j["overlay_layout"];
+                 if (jl.contains("version") && jl["version"].is_number_integer()) cfg.overlay_layout.version = jl["version"].get<int>();
+                 if (jl.contains("toolbox_open") && jl["toolbox_open"].is_boolean()) cfg.overlay_layout.toolboxOpen = jl["toolbox_open"].get<bool>();
+                 cfg.overlay_layout.disabledWidgets.clear();
+                 if (jl.contains("disabled_widgets") && jl["disabled_widgets"].is_array()) {
+                     for (const auto& widget : jl["disabled_widgets"]) {
+                         if (widget.is_string()) cfg.overlay_layout.disabledWidgets.push_back(DashboardLayout::WidgetIdFromConfigString(widget.get<std::string>()));
+                     }
+                 }
+                 if (jl.contains("containers") && jl["containers"].is_array()) {
+                     cfg.overlay_layout.containers.clear();
+                     for (const auto& jc : jl["containers"]) {
+                         if (!jc.is_object()) continue;
+                         OverlayLayout::ContainerConfig c;
+                         if (jc.contains("id") && jc["id"].is_string()) c.id = jc["id"].get<std::string>();
+                         if (jc.contains("x") && jc["x"].is_number()) c.x = jc["x"].get<float>();
+                         if (jc.contains("y") && jc["y"].is_number()) c.y = jc["y"].get<float>();
+                         if (jc.contains("w") && jc["w"].is_number()) c.w = jc["w"].get<float>();
+                         if (jc.contains("h") && jc["h"].is_number()) c.h = jc["h"].get<float>();
+                         if (jc.contains("widgets") && jc["widgets"].is_array()) {
+                             for (const auto& jw : jc["widgets"]) {
+                                 if (jw.is_string()) c.widgets.push_back(DashboardLayout::WidgetIdFromConfigString(jw.get<std::string>()));
+                             }
+                         }
+                         if (jc.contains("visibility") && jc["visibility"].is_object()) {
+                             ReadContainerVisibility(jc["visibility"], c.visibility);
+                         }
+                         cfg.overlay_layout.containers.push_back(c);
+                     }
+                 }
+                 cfg.overlay_layout.widgetVisibility.clear();
+                 if (jl.contains("widget_visibility") && jl["widget_visibility"].is_object()) {
+                     for (const auto& [key, jv] : jl["widget_visibility"].items()) {
+                         if (!jv.is_object()) continue;
+                         const auto wid = DashboardLayout::WidgetIdFromConfigString(key);
+                         OverlayLayout::ContainerConfig::Visibility vis;
+                         ReadContainerVisibility(jv, vis);
+                         cfg.overlay_layout.widgetVisibility[wid] = vis;
+                     }
+                 }
+                 OverlayLayout::Sanitize(cfg.overlay_layout);
+             },
+             [](nlohmann::json& j, const ConfigData& cfg, SecretStore&) {
+                 nlohmann::json jol;
+                 jol["version"] = cfg.overlay_layout.version;
+                 jol["toolbox_open"] = cfg.overlay_layout.toolboxOpen;
+                 jol["disabled_widgets"] = nlohmann::json::array();
+                 for (auto widget : cfg.overlay_layout.disabledWidgets)
+                     jol["disabled_widgets"].push_back(DashboardLayout::ToConfigString(widget));
+                 nlohmann::json jwv = nlohmann::json::object();
+                 for (const auto& [wid, vis] : cfg.overlay_layout.widgetVisibility) {
+                     jwv[DashboardLayout::ToConfigString(wid)] = ContainerVisibilityToJson(vis);
+                 }
+                 jol["widget_visibility"] = jwv;
+                 nlohmann::json jc_arr = nlohmann::json::array();
+                 for (const auto& c : cfg.overlay_layout.containers) {
+                     nlohmann::json jc;
+                     jc["id"] = c.id;
+                     jc["x"] = c.x;
+                     jc["y"] = c.y;
+                     jc["w"] = c.w;
+                     jc["h"] = c.h;
+                     nlohmann::json jw_arr2 = nlohmann::json::array();
+                     for (auto w : c.widgets)
+                         jw_arr2.push_back(DashboardLayout::ToConfigString(w));
+                     jc["widgets"] = jw_arr2;
+                     jc["visibility"] = ContainerVisibilityToJson(c.visibility);
+                     jc_arr.push_back(jc);
+                 }
+                 jol["containers"] = jc_arr;
+                 j["overlay_layout"] = jol;
+             }}};
+        return descriptors;
+    }
+
+} // namespace
+
 namespace Config {
     static ConfigData Current;
     static std::shared_mutex Mutex;
+    static SecretStore s_secretStore;
+
+    static std::mutex s_saverMutex;
+    static std::condition_variable s_saverCv;
     static std::atomic<bool> s_pendingSave{false};
     static std::atomic<uint64_t> s_revision{1};
-    static std::atomic<bool> s_appRunning{true};
+    static std::atomic<bool> s_saverRunning{false};
     static std::jthread s_saveThread;
 
     ConfigData Read() {
@@ -239,25 +590,47 @@ namespace Config {
         return s_revision.load(std::memory_order_acquire);
     }
 
-    // Forward declaration of internal non-locking save
     static void SaveInternal();
 
     void InitSaver() {
-        s_appRunning.store(true);
-        s_saveThread = std::jthread([]() {
-            while (s_appRunning.load()) {
-                std::this_thread::sleep_for(std::chrono::milliseconds(500));
+        if (s_saverRunning.exchange(true)) return;
+        s_saveThread = std::jthread([](std::stop_token stopToken) {
+            std::unique_lock<std::mutex> lock(s_saverMutex);
+            while (!stopToken.stop_requested() && s_saverRunning.load()) {
+                s_saverCv.wait(lock, [&]() {
+                    return !s_saverRunning.load() || stopToken.stop_requested() || s_pendingSave.load();
+                });
+                if (!s_saverRunning.load() || stopToken.stop_requested()) break;
+
+                const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(500);
+                while (!stopToken.stop_requested() && s_saverRunning.load()) {
+                    if (s_saverCv.wait_until(lock, deadline, [&]() {
+                            return !s_saverRunning.load() || stopToken.stop_requested();
+                        })) {
+                        break;
+                    }
+                    if (std::chrono::steady_clock::now() >= deadline) {
+                        break;
+                    }
+                }
+
                 if (s_pendingSave.exchange(false)) {
-                    std::unique_lock<std::shared_mutex> lock(Mutex);
-                    SaveInternal();
+                    lock.unlock();
+                    {
+                        std::unique_lock<std::shared_mutex> configLock(Mutex);
+                        SaveInternal();
+                    }
+                    lock.lock();
                 }
             }
         });
     }
 
     void ShutdownSaver() {
-        s_appRunning.store(false);
+        if (!s_saverRunning.exchange(false)) return;
+        s_saverCv.notify_all();
         if (s_saveThread.joinable()) {
+            s_saveThread.request_stop();
             s_saveThread.join();
         }
         if (s_pendingSave.exchange(false)) {
@@ -269,15 +642,14 @@ namespace Config {
     void Update(std::function<void(ConfigData&)> fn, bool saveToDisk) {
         std::unique_lock<std::shared_mutex> lock(Mutex);
         if (fn) fn(Current);
-        // Fallback: Prevent the user from disabling every column.
+
         if (!Current.show_lobby_rank_1v1 && !Current.show_lobby_rank_2v2 &&
             !Current.show_lobby_rank_3v3 && !Current.show_lobby_rank_casual && !Current.show_lobby_rank_tourny &&
             !Current.show_lobby_rank_hoops && !Current.show_lobby_rank_rumble && !Current.show_lobby_rank_dropshot &&
             !Current.show_lobby_rank_snowday && !Current.show_lobby_rank_heatseeker) {
             Current.show_lobby_rank_2v2 = true;
         }
-        // Keep a small local cache of known primary ids so heuristics can prefer
-        // recently-used accounts when attempting to auto-detect identity.
+
         if (!Current.last_primary_id.empty()) {
             if (std::find(Current.known_primary_ids.begin(), Current.known_primary_ids.end(), Current.last_primary_id) == Current.known_primary_ids.end()) {
                 Current.known_primary_ids.push_back(Current.last_primary_id);
@@ -290,6 +662,7 @@ namespace Config {
         s_revision.fetch_add(1, std::memory_order_release);
         if (saveToDisk) {
             s_pendingSave.store(true);
+            s_saverCv.notify_one();
         }
     }
 
@@ -303,6 +676,7 @@ namespace Config {
         if (!fs::exists(configFile)) {
             std::cout << "[Config] No config found. Creating default config.\n";
             Current = ConfigData{};
+            s_secretStore.Reset();
             SaveInternal();
             s_revision.fetch_add(1, std::memory_order_release);
             return;
@@ -315,140 +689,47 @@ namespace Config {
                 file >> j;
             }
             if (!j.is_object()) throw std::invalid_argument("Configuration must be a JSON object");
+
             Current = ConfigData{};
-            s_savedCiphertexts.clear();
-            s_encryptedPlaintexts.clear();
+            s_secretStore.Reset();
             bool needsSave = false;
+            bool needsLegacyMigration = false;
 
-            // Safely load values, falling back to defaults if keys are missing
-            ReadField(j, "host", Current.host);
-            ReadField(j, "port", Current.port);
-            ReadField(j, "key_overlay", Current.key_overlay);
-            ReadField(j, "key_cycle", Current.key_cycle);
-            ReadField(j, "key_expand", Current.key_expand);
-            ReadField(j, "key_session", Current.key_session);
-            ReadField(j, "key_menu", Current.key_menu);
-            ReadField(j, "key_graph_pan_left", Current.key_graph_pan_left);
-            ReadField(j, "key_graph_pan_right", Current.key_graph_pan_right);
-            ReadField(j, "key_lifetime_graph", Current.key_lifetime_graph);
-            // Load gamepad overlay with migration for the old bad default
+            const auto& descriptors = GetFieldDescriptors();
+            for (const auto& desc : descriptors) {
+                desc.load(j, Current, s_secretStore, needsSave, needsLegacyMigration);
+            }
+
+            // Gamepad overlay default back button migration
             if (j.contains("gamepad_overlay")) {
-                ReadField(j, "gamepad_overlay", Current.gamepad_overlay);
-
-                // Old bug: default value was 6 (START), but intended as 4 (BACK).
-                // Migrate old configs one time so users get the intended Select/View/Back button.
                 bool migrated = false;
-                ReadField(j, "controller_default_back_migrated", migrated);
+                if (j.contains("controller_default_back_migrated") && j["controller_default_back_migrated"].is_boolean()) {
+                    migrated = j["controller_default_back_migrated"].get<bool>();
+                }
                 if (!migrated && Current.gamepad_overlay == 6) {
                     std::cout << "[Config] Migrating controller overlay bind from Start(6) to Back(4).\n";
-                    Current.gamepad_overlay = 4; // SDL_CONTROLLER_BUTTON_BACK
+                    Current.gamepad_overlay = 4;
                     needsSave = true;
                 }
             } else {
-                Current.gamepad_overlay = 4; // SDL_CONTROLLER_BUTTON_BACK
+                Current.gamepad_overlay = 4;
                 needsSave = true;
             }
-            ReadField(j, "gamepad_overlay_raw", Current.gamepad_overlay_raw);
-            ReadField(j, "gamepad_overlay_raw_button", Current.gamepad_overlay_raw_button);
-            ReadField(j, "gamepad_cycle", Current.gamepad_cycle);
-            ReadField(j, "gamepad_cycle_raw", Current.gamepad_cycle_raw);
-            ReadField(j, "gamepad_cycle_raw_button", Current.gamepad_cycle_raw_button);
-            ReadField(j, "gamepad_expand", Current.gamepad_expand);
-            ReadField(j, "gamepad_expand_raw", Current.gamepad_expand_raw);
-            ReadField(j, "gamepad_expand_raw_button", Current.gamepad_expand_raw_button);
-            ReadField(j, "gamepad_session", Current.gamepad_session);
-            ReadField(j, "gamepad_session_raw", Current.gamepad_session_raw);
-            ReadField(j, "gamepad_session_raw_button", Current.gamepad_session_raw_button);
-            ReadField(j, "gamepad_menu", Current.gamepad_menu);
-            ReadField(j, "gamepad_menu_raw", Current.gamepad_menu_raw);
-            ReadField(j, "gamepad_menu_raw_button", Current.gamepad_menu_raw_button);
-            ReadField(j, "gamepad_graph_pan_left", Current.gamepad_graph_pan_left);
-            ReadField(j, "gamepad_graph_pan_left_raw", Current.gamepad_graph_pan_left_raw);
-            ReadField(j, "gamepad_graph_pan_left_raw_button", Current.gamepad_graph_pan_left_raw_button);
-            ReadField(j, "gamepad_graph_pan_right", Current.gamepad_graph_pan_right);
-            ReadField(j, "gamepad_graph_pan_right_raw", Current.gamepad_graph_pan_right_raw);
-            ReadField(j, "gamepad_graph_pan_right_raw_button", Current.gamepad_graph_pan_right_raw_button);
-            if (j.contains("mmr_category") && j["mmr_category"].is_string()) {
-                Current.mmr_category = j["mmr_category"];
+
+            // Pro account legacy key migrations
+            if (!j.contains("custom_api_key") && j.contains("pro_api_key") && j["pro_api_key"].is_string()) {
+                s_secretStore.LoadSecretField("custom_api_key", j["pro_api_key"].get<std::string>(), Current.custom_api_key, needsLegacyMigration, Current.credentials_decryption_failed);
+                if (!Current.custom_api_key.empty()) needsLegacyMigration = true;
             }
-            if (!IsKnownMmrCategory(Current.mmr_category)) {
-                Current.mmr_category = "best";
-                needsSave = true;
+            if (!j.contains("custom_api_enabled") && j.contains("pro_account_enabled") && j["pro_account_enabled"].is_boolean()) {
+                Current.custom_api_enabled = j["pro_account_enabled"].get<bool>();
             }
-            ReadField(j, "last_primary_id", Current.last_primary_id);
-            ReadField(j, "require_rl_focus", Current.require_rl_focus);
-            ReadField(j, "show_match_summary", Current.show_match_summary);
-            ReadField(j, "discord_rpc_enabled", Current.discord_rpc_enabled);
-            ReadField(j, "enable_mmr_tracking", Current.enable_mmr_tracking);
-            ReadField(j, "auto_switch_mmr_category", Current.auto_switch_mmr_category);
-            if (j.contains("graph_mmr_category") &&
-                j["graph_mmr_category"].is_string() &&
-                IsGraphMmrCategory(j["graph_mmr_category"].get<std::string>())) {
-                Current.graph_mmr_category = j["graph_mmr_category"];
-            } else {
-                Current.graph_mmr_category =
-                    IsGraphMmrCategory(Current.mmr_category)
-                        ? Current.mmr_category
-                        : "2v2";
-                needsSave = true;
-            }
-            if (j.contains("graph_follow_current_playlist") &&
-                j["graph_follow_current_playlist"].is_boolean()) {
-                Current.graph_follow_current_playlist =
-                    j["graph_follow_current_playlist"];
-            } else {
-                Current.graph_follow_current_playlist =
-                    Current.auto_switch_mmr_category;
-                needsSave = true;
-            }
-            if (j.contains("rank_progress_mmr_category") &&
-                j["rank_progress_mmr_category"].is_string() &&
-                IsKnownMmrCategory(j["rank_progress_mmr_category"].get<std::string>())) {
-                Current.rank_progress_mmr_category = j["rank_progress_mmr_category"];
-            } else if (j.contains("rank_progress_mmr_category")) {
-                Current.rank_progress_mmr_category = "2v2";
-                needsSave = true;
-            } else {
-                Current.rank_progress_mmr_category =
-                    IsKnownMmrCategory(Current.mmr_category)
-                        ? Current.mmr_category
-                        : "2v2";
-                needsSave = true;
-            }
-            if (j.contains("rank_progress_follow_current_playlist") &&
-                j["rank_progress_follow_current_playlist"].is_boolean()) {
-                Current.rank_progress_follow_current_playlist =
-                    j["rank_progress_follow_current_playlist"];
-            } else {
-                Current.rank_progress_follow_current_playlist =
-                    Current.auto_switch_mmr_category;
-                needsSave = true;
-            }
-            // Update discovery is mandatory. Migrate older configs that explicitly
-            // disabled it so the persisted compatibility field also reflects the
-            // current behavior.
-            if (!j.contains("check_for_updates") || !j["check_for_updates"].is_boolean() ||
-                !j["check_for_updates"].get<bool>()) {
-                needsSave = true;
-            }
-            ReadField(j, "enable_auto_updates", Current.enable_auto_updates);
-            ReadField(j, "crash_reports_enabled", Current.crash_reports_enabled);
-            ReadField(j, "debug_logging", Current.debug_logging);
-            ReadField(j, "run_on_startup", Current.run_on_startup);
-            ReadField(j, "reset_session_on_close", Current.reset_session_on_close);
-            ReadField(j, "show_session_recap_on_close", Current.show_session_recap_on_close);
-            ReadField(j, "imperial_units", Current.imperial_units);
-            ReadField(j, "client_uuid", Current.client_uuid);
-            ReadField(j, "privacy_policy_accepted_version", Current.privacy_policy_accepted_version);
-            ReadField(j, "terms_accepted_version", Current.terms_accepted_version);
-            ReadField(j, "privacy_accepted_at", Current.privacy_accepted_at);
-            // Installs that accepted the privacy notice before onboarding existed
-            // already went through the old first-run prompts.
-            if (j.contains("onboarding_completed") && j["onboarding_completed"].is_boolean())
-                Current.onboarding_completed = j["onboarding_completed"];
-            else
+
+            // Onboarding migration
+            if (!j.contains("onboarding_completed")) {
                 Current.onboarding_completed = !Current.privacy_policy_accepted_version.empty();
-            ReadField(j, "account_link_prompt_shown", Current.account_link_prompt_shown);
+            }
+
             const auto nonEmptyJsonString = [&](const char* key) {
                 return j.contains(key) && j[key].is_string() && !j[key].get<std::string>().empty();
             };
@@ -459,316 +740,55 @@ namespace Config {
                 nonEmptyJsonString("last_primary_id") ||
                 j.contains("overlay_layout") ||
                 j.contains("dashboard_layout");
-            Current.match_summary_seconds = existingInstall ? 30 : 20;
-            ReadField(j, "match_summary_seconds", Current.match_summary_seconds);
-            Current.match_summary_seconds = std::clamp(Current.match_summary_seconds, 5, 60);
-            ReadField(j, "position", Current.position);
-            ReadField(j, "show_running_indicator", Current.show_running_indicator);
-            ReadField(j, "use_roman_numerals", Current.use_roman_numerals);
-            ReadField(j, "use_rank_icons", Current.use_rank_icons);
-            ReadField(j, "show_extra_playlists", Current.show_extra_playlists);
-            if (!Current.show_extra_playlists &&
-                IsExtraMmrCategory(Current.graph_mmr_category)) {
-                Current.graph_mmr_category = "2v2";
+
+            if (!j.contains("match_summary_seconds")) {
+                Current.match_summary_seconds = existingInstall ? 30 : 20;
+            } else {
+                Current.match_summary_seconds = std::clamp(Current.match_summary_seconds, 5, 60);
+            }
+
+            // MMR category fallbacks
+            if (!j.contains("graph_mmr_category") || !j["graph_mmr_category"].is_string() ||
+                !IsGraphMmrCategory(j["graph_mmr_category"].get<std::string>())) {
+                Current.graph_mmr_category = IsGraphMmrCategory(Current.mmr_category) ? Current.mmr_category : "2v2";
                 needsSave = true;
             }
-            if (!Current.show_extra_playlists &&
-                IsExtraMmrCategory(Current.rank_progress_mmr_category)) {
-                Current.rank_progress_mmr_category = "2v2";
+            if (!j.contains("graph_follow_current_playlist") || !j["graph_follow_current_playlist"].is_boolean()) {
+                Current.graph_follow_current_playlist = Current.auto_switch_mmr_category;
                 needsSave = true;
             }
-            if (j.contains("custom_api_enabled") && j["custom_api_enabled"].is_boolean()) {
-                Current.custom_api_enabled = j["custom_api_enabled"];
-            } else if (j.contains("pro_account_enabled") && j["pro_account_enabled"].is_boolean()) {
-                Current.custom_api_enabled = j["pro_account_enabled"];
-            } else {
-                Current.custom_api_enabled = true;
+            if (!j.contains("rank_progress_mmr_category") || !j["rank_progress_mmr_category"].is_string() ||
+                !IsKnownMmrCategory(j["rank_progress_mmr_category"].get<std::string>())) {
+                Current.rank_progress_mmr_category = j.contains("rank_progress_mmr_category") ? "2v2" : (IsKnownMmrCategory(Current.mmr_category) ? Current.mmr_category : "2v2");
+                needsSave = true;
             }
-            bool needsLegacyMigration = false;
-            const auto loadSecretField = [&](const std::string& fieldName, std::string& target) {
-                if (j.contains(fieldName) && j[fieldName].is_string()) {
-                    const std::string raw = j[fieldName].get<std::string>();
-                    const auto dec = DecryptSecret(raw);
-                    if (dec.success) {
-                        target = dec.value;
-                        if (dec.needsReencryption) {
-                            needsLegacyMigration = true;
-                            s_encryptedPlaintexts.erase(fieldName);
-                            if (HasDpapiSignature(HexToString(raw))) {
-                                s_savedCiphertexts[fieldName] = raw;
-                            } else {
-                                s_savedCiphertexts.erase(fieldName);
-                            }
-                        } else {
-                            s_savedCiphertexts[fieldName] = raw;
-                            s_encryptedPlaintexts[fieldName] = dec.value;
-                        }
-                    } else {
-                        target.clear();
-                        s_savedCiphertexts[fieldName] = raw;
-                        Current.credentials_decryption_failed = true;
-                        std::cerr << "[Config] Failed to decrypt " << fieldName << ". Preserving ciphertext.\n";
-                    }
-                } else {
-                    target.clear();
-                    s_savedCiphertexts.erase(fieldName);
-                    s_encryptedPlaintexts.erase(fieldName);
+            if (!j.contains("rank_progress_follow_current_playlist") || !j["rank_progress_follow_current_playlist"].is_boolean()) {
+                Current.rank_progress_follow_current_playlist = Current.auto_switch_mmr_category;
+                needsSave = true;
+            }
+            if (!Current.show_extra_playlists) {
+                if (IsExtraMmrCategory(Current.graph_mmr_category)) {
+                    Current.graph_mmr_category = "2v2";
+                    needsSave = true;
                 }
-            };
-
-            if (j.contains("custom_api_key") && j["custom_api_key"].is_string()) {
-                loadSecretField("custom_api_key", Current.custom_api_key);
-            } else if (j.contains("pro_api_key") && j["pro_api_key"].is_string()) {
-                loadSecretField("pro_api_key", Current.custom_api_key);
-                if (!Current.custom_api_key.empty()) {
-                    needsLegacyMigration = true;
-                }
-            } else {
-                Current.custom_api_key.clear();
-                s_savedCiphertexts.erase("custom_api_key");
-                s_encryptedPlaintexts.erase("custom_api_key");
-            }
-            if (j.contains("account_signed_in_name") && j["account_signed_in_name"].is_string()) {
-                Current.account_signed_in_name = j["account_signed_in_name"].get<std::string>();
-            } else {
-                Current.account_signed_in_name.clear();
-            }
-            if (j.contains("account_device_public_id") && j["account_device_public_id"].is_string()) {
-                Current.account_device_public_id = j["account_device_public_id"].get<std::string>();
-            } else {
-                Current.account_device_public_id.clear();
-            }
-            loadSecretField("account_refresh_token", Current.account_refresh_token);
-            loadSecretField("account_device_key", Current.account_device_key);
-            ReadField(j, "rocket_league_stats_api_config_path", Current.rocket_league_stats_api_config_path);
-            ReadField(j, "check_stats_api_config_on_startup", Current.check_stats_api_config_on_startup);
-            loadSecretField("ballchasing_token", Current.ballchasing_token);
-            ReadField(j, "auto_upload_replays", Current.auto_upload_replays);
-            ReadField(j, "ballchasing_upload_notice_accepted", Current.ballchasing_upload_notice_accepted);
-            if (j.contains("ballchasing_visibility") && j["ballchasing_visibility"].is_string()) {
-                std::string visibility = j["ballchasing_visibility"].get<std::string>();
-                if (visibility == "private" || visibility == "unlisted" || visibility == "public") {
-                    Current.ballchasing_visibility = visibility;
-                }
-            }
-            ReadField(j, "ballchasing_filter_ranked_only", Current.ballchasing_filter_ranked_only);
-            ReadField(j, "ballchasing_filter_wins_only", Current.ballchasing_filter_wins_only);
-            ReadField(j, "auto_save_replays", Current.auto_save_replays);
-            ReadField(j, "key_save_replay", Current.key_save_replay);
-
-            // Load session visibility flags
-            ReadField(j, "show_session_record", Current.show_session_record);
-            ReadField(j, "show_session_goals", Current.show_session_goals);
-            ReadField(j, "show_session_saves", Current.show_session_saves);
-            ReadField(j, "show_session_demos", Current.show_session_demos);
-            ReadField(j, "show_session_assists", Current.show_session_assists);
-            ReadField(j, "show_session_goal_participation", Current.show_session_goal_participation);
-            ReadField(j, "show_session_mmr_change", Current.show_session_mmr_change);
-            ReadField(j, "show_session_boost", Current.show_session_boost);
-            ReadField(j, "show_lobby_ranks_overlay", Current.show_lobby_ranks_overlay);
-            ReadField(j, "show_lobby_rank_1v1", Current.show_lobby_rank_1v1);
-            ReadField(j, "show_lobby_rank_2v2", Current.show_lobby_rank_2v2);
-            ReadField(j, "show_lobby_rank_3v3", Current.show_lobby_rank_3v3);
-            ReadField(j, "show_lobby_rank_casual", Current.show_lobby_rank_casual);
-            ReadField(j, "show_lobby_rank_tourny", Current.show_lobby_rank_tourny);
-            ReadField(j, "show_lobby_rank_hoops", Current.show_lobby_rank_hoops);
-            ReadField(j, "show_lobby_rank_rumble", Current.show_lobby_rank_rumble);
-            ReadField(j, "show_lobby_rank_dropshot", Current.show_lobby_rank_dropshot);
-            ReadField(j, "show_lobby_rank_snowday", Current.show_lobby_rank_snowday);
-            ReadField(j, "show_lobby_rank_heatseeker", Current.show_lobby_rank_heatseeker);
-
-            // Fallback: Prevent the user from disabling every column.
-            if (!Current.show_lobby_rank_1v1 && !Current.show_lobby_rank_2v2 &&
-                !Current.show_lobby_rank_3v3 && !Current.show_lobby_rank_casual && !Current.show_lobby_rank_tourny &&
-                !Current.show_lobby_rank_hoops && !Current.show_lobby_rank_rumble && !Current.show_lobby_rank_dropshot &&
-                !Current.show_lobby_rank_snowday && !Current.show_lobby_rank_heatseeker) {
-                Current.show_lobby_rank_2v2 = true;
-            }
-            ReadField(j, "show_account_wins_overlay", Current.show_account_wins_overlay);
-            ReadField(j, "show_demo_tracker_overlay", Current.show_demo_tracker_overlay);
-            ReadField(j, "show_rank_progress", Current.show_rank_progress);
-            ReadField(j, "show_previous_games_summary", Current.show_previous_games_summary);
-            ReadField(j, "previous_games_limit", Current.previous_games_limit);
-            Current.previous_games_limit = std::clamp(Current.previous_games_limit, 10, 50);
-            ReadField(j, "show_tournaments", Current.show_tournaments);
-            ReadField(j, "tournament_region", Current.tournament_region);
-            ReadField(j, "tournament_reminder_minutes", Current.tournament_reminder_minutes);
-            ReadField(j, "tournament_reminder_standard_only", Current.tournament_reminder_standard_only);
-            ReadField(j, "tournament_sound_cue", Current.tournament_sound_cue);
-            const auto& region = Current.tournament_region;
-            if (region != "auto" && region != "US" && region != "EU" && region != "OCE" &&
-                region != "SAM" && region != "ASIA" && region != "ME" && region != "SAF") Current.tournament_region = "auto";
-            const int reminder = Current.tournament_reminder_minutes;
-            if (reminder != 0 && reminder != 5 && reminder != 10 && reminder != 15) Current.tournament_reminder_minutes = 10;
-            ReadField(j, "show_streaks_stats", Current.show_streaks_stats);
-            ReadField(j, "show_longest_loss_streak", Current.show_longest_loss_streak);
-            ReadField(j, "show_gamemode_breakdown", Current.show_gamemode_breakdown);
-            ReadField(j, "show_gamemode_record_1v1", Current.show_gamemode_record_1v1);
-            ReadField(j, "show_gamemode_record_2v2", Current.show_gamemode_record_2v2);
-            ReadField(j, "show_gamemode_record_3v3", Current.show_gamemode_record_3v3);
-            ReadField(j, "gamemode_breakdown_scope", Current.gamemode_breakdown_scope);
-            ReadField(j, "crossbar_display_mode", Current.crossbar_display_mode);
-            ReadField(j, "second_monitor_mode", Current.second_monitor_mode);
-            ReadField(j, "second_monitor_show_roster", Current.second_monitor_show_roster);
-            ReadField(j, "second_monitor_show_session", Current.second_monitor_show_session);
-            ReadField(j, "second_monitor_show_settings", Current.second_monitor_show_settings);
-            ReadField(j, "second_monitor_has_bounds", Current.second_monitor_has_bounds);
-            ReadField(j, "second_monitor_x", Current.second_monitor_x);
-            ReadField(j, "second_monitor_y", Current.second_monitor_y);
-            ReadField(j, "second_monitor_w", Current.second_monitor_w);
-            ReadField(j, "second_monitor_h", Current.second_monitor_h);
-            ReadField(j, "ui_scale", Current.ui_scale);
-            if (j.contains("font_ui") && j["font_ui"].is_string()) Current.font_ui = j["font_ui"];
-            if (j.contains("font_mono") && j["font_mono"].is_string()) Current.font_mono = j["font_mono"];
-            if (j.contains("font_display") && j["font_display"].is_string()) Current.font_display = j["font_display"];
-            ReadField(j, "session_view_x", Current.session_view_x);
-            ReadField(j, "session_view_y", Current.session_view_y);
-            ReadField(j, "match_summary_x", Current.match_summary_x);
-            ReadField(j, "match_summary_y", Current.match_summary_y);
-            ReadField(j, "overlay_fps_cap", Current.overlay_fps_cap);
-            ReadField(j, "vsync", Current.vsync);
-
-            // Theme colors
-            if (j.contains("theme")) {
-                auto& t = j["theme"];
-                if (t.contains("bg")) Current.themeBg = JsonToColor(t["bg"], Current.themeBg);
-                if (t.contains("settings_panel")) Current.themeSettingsPanel = JsonToColor(t["settings_panel"], Current.themeSettingsPanel);
-                if (t.contains("topbar")) Current.themeTopbar = JsonToColor(t["topbar"], Current.themeTopbar);
-                if (t.contains("graph_panel")) Current.themeGraphPanel = JsonToColor(t["graph_panel"], Current.themeGraphPanel);
-                if (t.contains("text")) Current.themeText = JsonToColor(t["text"], Current.themeText);
-                if (t.contains("accent")) Current.themeAccent = JsonToColor(t["accent"], Current.themeAccent);
-                if (t.contains("win")) Current.themeWin = JsonToColor(t["win"], Current.themeWin);
-                if (t.contains("loss")) Current.themeLoss = JsonToColor(t["loss"], Current.themeLoss);
-                if (t.contains("dim")) Current.themeDim = JsonToColor(t["dim"], Current.themeDim);
-                if (t.contains("muted")) Current.themeMuted = JsonToColor(t["muted"], Current.themeMuted);
-                if (t.contains("graph_line")) Current.themeGraphLine = JsonToColor(t["graph_line"], Current.themeGraphLine);
-                if (t.contains("graph_baseline")) Current.themeGraphBaseline = JsonToColor(t["graph_baseline"], Current.themeGraphBaseline);
-                if (t.contains("roster_card")) Current.themeRosterCard = JsonToColor(t["roster_card"], Current.themeRosterCard);
-                if (t.contains("roster_card_self")) Current.themeRosterCardSelf = JsonToColor(t["roster_card_self"], Current.themeRosterCardSelf);
-                if (t.contains("scout_tag")) Current.themeScoutTag = JsonToColor(t["scout_tag"], Current.themeScoutTag);
-                if (t.contains("stat_box")) Current.themeStatBox = JsonToColor(t["stat_box"], Current.themeStatBox);
-                if (t.contains("match_row")) Current.themeMatchRow = JsonToColor(t["match_row"], Current.themeMatchRow);
-                if (t.contains("match_row_alt")) Current.themeMatchRowAlt = JsonToColor(t["match_row_alt"], Current.themeMatchRowAlt);
-            }
-
-            // Migration: if upgrading or first run, ensure theme background opacity is visible and safe.
-            if (Current.themeBg.a < 0.01f) {
-                Current.themeBg.a = 0.85f;
-                SaveInternal();
-            }
-
-            if (j.contains("known_primary_ids") && j["known_primary_ids"].is_array()) {
-                Current.known_primary_ids.clear();
-                for (const auto& item : j["known_primary_ids"]) {
-                    if (item.is_string()) Current.known_primary_ids.push_back(item.get<std::string>());
+                if (IsExtraMmrCategory(Current.rank_progress_mmr_category)) {
+                    Current.rank_progress_mmr_category = "2v2";
+                    needsSave = true;
                 }
             }
 
-            const auto readVisibility = [](const nlohmann::json& jv, OverlayLayout::ContainerConfig::Visibility& vis) {
-                if (jv.contains("mode")) {
-                    if (jv["mode"].is_string()) {
-                        vis.mode = OverlayLayout::VisibilityModeFromConfigString(jv["mode"].get<std::string>());
-                    } else if (jv["mode"].is_number_integer()) {
-                        vis.mode = static_cast<OverlayLayout::VisibilityMode>(jv["mode"].get<int>());
-                    } else {
-                        vis.mode = OverlayLayout::Visibility::KeyHeld;
-                    }
-                }
-                if (jv.contains("event")) {
-                    if (jv["event"].is_string()) {
-                        vis.event = OverlayLayout::VisibilityEventFromConfigString(jv["event"].get<std::string>());
-                    } else if (jv["event"].is_number_integer()) {
-                        vis.event = static_cast<OverlayLayout::VisibilityEvent>(jv["event"].get<int>());
-                    } else {
-                        vis.event = OverlayLayout::Visibility::FirstCountdown;
-                    }
-                }
-                if (jv.contains("seconds") && jv["seconds"].is_number_integer()) {
-                    vis.seconds = jv["seconds"].get<int>();
-                }
-                if (jv.contains("also_while_key_held") && jv["also_while_key_held"].is_boolean()) {
-                    vis.alsoWhileKeyHeld = jv["also_while_key_held"].get<bool>();
-                } else if (jv.contains("alsoWhileKeyHeld") && jv["alsoWhileKeyHeld"].is_boolean()) {
-                    vis.alsoWhileKeyHeld = jv["alsoWhileKeyHeld"].get<bool>();
-                }
-                if (jv.contains("hide_during_replay") && jv["hide_during_replay"].is_boolean()) {
-                    vis.hideDuringReplay = jv["hide_during_replay"].get<bool>();
-                } else if (jv.contains("hideDuringReplay") && jv["hideDuringReplay"].is_boolean()) {
-                    vis.hideDuringReplay = jv["hideDuringReplay"].get<bool>();
-                }
-                OverlayLayout::Sanitize(vis);
-            };
-
-            if (j.contains("dashboard_layout")) {
-                auto& jl = j["dashboard_layout"];
-                ReadField(jl, "version", Current.dashboard_layout.version);
-                ReadField(jl, "left_column_weight", Current.dashboard_layout.leftColumnWeight);
-                if (jl.contains("widgets") && jl["widgets"].is_array()) {
-                    Current.dashboard_layout.widgets.clear();
-                    for (const auto& jw : jl["widgets"]) {
-                        if (!jw.is_object()) continue;
-                        DashboardLayout::WidgetPlacement w;
-                        if (jw.contains("id") && jw["id"].is_string()) w.id = DashboardLayout::WidgetIdFromConfigString(jw["id"].get<std::string>());
-                        if (jw.contains("zone") && jw["zone"].is_string()) w.zone = DashboardLayout::ZoneFromConfigString(jw["zone"].get<std::string>());
-                        ReadField(jw, "order", w.order);
-                        ReadField(jw, "height", w.height);
-                        ReadField(jw, "collapsed", w.collapsed);
-                        ReadField(jw, "enabled", w.enabled);
-                        Current.dashboard_layout.widgets.push_back(w);
-                    }
-                }
-                DashboardLayout::Sanitize(Current.dashboard_layout);
+            // Tournament reminder fallbacks
+            if (!IsValidTournamentReminderMinutes(Current.tournament_reminder_minutes)) {
+                Current.tournament_reminder_minutes = 10;
             }
 
-            if (j.contains("overlay_layout")) {
-                auto& jl = j["overlay_layout"];
-                if (jl.contains("version") && jl["version"].is_number_integer()) {
-                    Current.overlay_layout.version = jl["version"].get<int>();
-                }
-                if (jl.contains("toolbox_open") && jl["toolbox_open"].is_boolean()) {
-                    Current.overlay_layout.toolboxOpen = jl["toolbox_open"].get<bool>();
-                }
-                Current.overlay_layout.disabledWidgets.clear();
-                if (jl.contains("disabled_widgets") && jl["disabled_widgets"].is_array()) {
-                    for (const auto& widget : jl["disabled_widgets"]) {
-                        if (widget.is_string()) Current.overlay_layout.disabledWidgets.push_back(DashboardLayout::WidgetIdFromConfigString(widget.get<std::string>()));
-                    }
-                }
-                if (jl.contains("containers") && jl["containers"].is_array()) {
-                    Current.overlay_layout.containers.clear();
-                    for (const auto& jc : jl["containers"]) {
-                        if (!jc.is_object()) continue;
-                        OverlayLayout::ContainerConfig c;
-                        if (jc.contains("id") && jc["id"].is_string()) c.id = jc["id"].get<std::string>();
-                        if (jc.contains("x") && jc["x"].is_number()) c.x = jc["x"].get<float>();
-                        if (jc.contains("y") && jc["y"].is_number()) c.y = jc["y"].get<float>();
-                        if (jc.contains("w") && jc["w"].is_number()) c.w = jc["w"].get<float>();
-                        if (jc.contains("h") && jc["h"].is_number()) c.h = jc["h"].get<float>();
-                        if (jc.contains("widgets") && jc["widgets"].is_array()) {
-                            for (const auto& jw : jc["widgets"]) {
-                                if (jw.is_string()) {
-                                    c.widgets.push_back(DashboardLayout::WidgetIdFromConfigString(jw.get<std::string>()));
-                                }
-                            }
-                        }
-                        if (jc.contains("visibility") && jc["visibility"].is_object()) {
-                            readVisibility(jc["visibility"], c.visibility);
-                        }
-                        Current.overlay_layout.containers.push_back(c);
-                    }
-                }
-                Current.overlay_layout.widgetVisibility.clear();
-                if (jl.contains("widget_visibility") && jl["widget_visibility"].is_object()) {
-                    for (const auto& [key, jv] : jl["widget_visibility"].items()) {
-                        if (!jv.is_object()) continue;
-                        const auto wid = DashboardLayout::WidgetIdFromConfigString(key);
-                        OverlayLayout::ContainerConfig::Visibility vis;
-                        readVisibility(jv, vis);
-                        Current.overlay_layout.widgetVisibility[wid] = vis;
-                    }
-                }
-                OverlayLayout::Sanitize(Current.overlay_layout);
-            } else {
+            // Check for updates migration
+            if (!j.contains("check_for_updates") || !j["check_for_updates"].is_boolean() || !j["check_for_updates"].get<bool>()) {
+                needsSave = true;
+            }
+
+            // Layout fallback for old install missing overlay_layout
+            if (!j.contains("overlay_layout")) {
                 Current.overlay_layout = OverlayLayout::DefaultOverlayLayout();
                 if (existingInstall) {
                     for (auto& c : Current.overlay_layout.containers) {
@@ -777,28 +797,27 @@ namespace Config {
                 }
             }
 
-            std::cout << "[Config] Loaded config.json successfully.\n";
-            if (needsLegacyMigration) {
-                bool migrationOk = true;
-                const auto checkMigration = [&](const std::string& fieldName, const std::string& plainVal) {
-                    if (!plainVal.empty() &&
-                        (s_encryptedPlaintexts.find(fieldName) == s_encryptedPlaintexts.end() ||
-                         s_encryptedPlaintexts[fieldName] != plainVal)) {
-                        const auto enc = EncryptSecret(plainVal);
-                        if (enc.success) {
-                            s_savedCiphertexts[fieldName] = enc.value;
-                            s_encryptedPlaintexts[fieldName] = plainVal;
-                        } else {
-                            migrationOk = false;
-                        }
-                    }
-                };
-                checkMigration("custom_api_key", Current.custom_api_key);
-                checkMigration("account_refresh_token", Current.account_refresh_token);
-                checkMigration("account_device_key", Current.account_device_key);
-                checkMigration("ballchasing_token", Current.ballchasing_token);
+            // Lobby rank fallback
+            if (!Current.show_lobby_rank_1v1 && !Current.show_lobby_rank_2v2 &&
+                !Current.show_lobby_rank_3v3 && !Current.show_lobby_rank_casual && !Current.show_lobby_rank_tourny &&
+                !Current.show_lobby_rank_hoops && !Current.show_lobby_rank_rumble && !Current.show_lobby_rank_dropshot &&
+                !Current.show_lobby_rank_snowday && !Current.show_lobby_rank_heatseeker) {
+                Current.show_lobby_rank_2v2 = true;
+            }
 
-                if (migrationOk) {
+            // Theme background minimum opacity safety
+            if (Current.themeBg.a < 0.01f) {
+                Current.themeBg.a = 0.85f;
+                SaveInternal();
+            }
+
+            if (needsLegacyMigration) {
+                const std::vector<std::pair<std::string, std::string>> secretsToMigrate = {
+                    {"custom_api_key", Current.custom_api_key},
+                    {"account_refresh_token", Current.account_refresh_token},
+                    {"account_device_key", Current.account_device_key},
+                    {"ballchasing_token", Current.ballchasing_token}};
+                if (s_secretStore.MigrateLegacySecrets(secretsToMigrate)) {
                     SaveInternal();
                 } else {
                     std::cerr << "[Config] Legacy credential migration encryption failed. Plaintext will not be rewritten.\n";
@@ -809,12 +828,14 @@ namespace Config {
                 s_pendingSave.store(true);
             }
             s_revision.fetch_add(1, std::memory_order_release);
+            std::cout << "[Config] Loaded config.json successfully.\n";
 
         } catch (const std::exception& e) {
             std::cout << "[Config] Failed to parse config.json: " << e.what() << "\n";
             std::error_code ec;
             fs::rename(configFile, configFile + ".corrupt", ec);
             Current = ConfigData{};
+            s_secretStore.Reset();
             SaveInternal();
             s_revision.fetch_add(1, std::memory_order_release);
         }
@@ -822,257 +843,13 @@ namespace Config {
 
     static void SaveInternal() {
         nlohmann::json j;
+        const auto& descriptors = GetFieldDescriptors();
+        for (const auto& desc : descriptors) {
+            desc.save(j, Current, s_secretStore);
+        }
 
-        j["host"] = Current.host;
-        j["port"] = Current.port;
-        j["key_overlay"] = Current.key_overlay;
-        j["key_cycle"] = Current.key_cycle;
-        j["key_expand"] = Current.key_expand;
-        j["key_session"] = Current.key_session;
-        j["key_menu"] = Current.key_menu;
-        j["key_graph_pan_left"] = Current.key_graph_pan_left;
-        j["key_graph_pan_right"] = Current.key_graph_pan_right;
-        j["key_lifetime_graph"] = Current.key_lifetime_graph;
-        j["gamepad_overlay"] = Current.gamepad_overlay;
-        j["gamepad_overlay_raw"] = Current.gamepad_overlay_raw;
-        j["gamepad_overlay_raw_button"] = Current.gamepad_overlay_raw_button;
-        j["gamepad_cycle"] = Current.gamepad_cycle;
-        j["gamepad_cycle_raw"] = Current.gamepad_cycle_raw;
-        j["gamepad_cycle_raw_button"] = Current.gamepad_cycle_raw_button;
-        j["gamepad_expand"] = Current.gamepad_expand;
-        j["gamepad_expand_raw"] = Current.gamepad_expand_raw;
-        j["gamepad_expand_raw_button"] = Current.gamepad_expand_raw_button;
-        j["gamepad_session"] = Current.gamepad_session;
-        j["gamepad_session_raw"] = Current.gamepad_session_raw;
-        j["gamepad_session_raw_button"] = Current.gamepad_session_raw_button;
-        j["gamepad_menu"] = Current.gamepad_menu;
-        j["gamepad_menu_raw"] = Current.gamepad_menu_raw;
-        j["gamepad_menu_raw_button"] = Current.gamepad_menu_raw_button;
-        j["gamepad_graph_pan_left"] = Current.gamepad_graph_pan_left;
-        j["gamepad_graph_pan_left_raw"] = Current.gamepad_graph_pan_left_raw;
-        j["gamepad_graph_pan_left_raw_button"] = Current.gamepad_graph_pan_left_raw_button;
-        j["gamepad_graph_pan_right"] = Current.gamepad_graph_pan_right;
-        j["gamepad_graph_pan_right_raw"] = Current.gamepad_graph_pan_right_raw;
-        j["gamepad_graph_pan_right_raw_button"] = Current.gamepad_graph_pan_right_raw_button;
-        j["controller_default_back_migrated"] = true;
-        j["mmr_category"] = Current.mmr_category;
-        j["graph_mmr_category"] = Current.graph_mmr_category;
-        j["graph_follow_current_playlist"] = Current.graph_follow_current_playlist;
-        j["rank_progress_mmr_category"] = Current.rank_progress_mmr_category;
-        j["rank_progress_follow_current_playlist"] = Current.rank_progress_follow_current_playlist;
-        j["last_primary_id"] = Current.last_primary_id;
-        j["known_primary_ids"] = Current.known_primary_ids;
-        j["require_rl_focus"] = Current.require_rl_focus;
-        j["show_match_summary"] = Current.show_match_summary;
-        j["match_summary_seconds"] = Current.match_summary_seconds;
-        j["discord_rpc_enabled"] = Current.discord_rpc_enabled;
-        j["enable_mmr_tracking"] = Current.enable_mmr_tracking;
-        j["auto_switch_mmr_category"] = Current.auto_switch_mmr_category;
         j["check_for_updates"] = true;
-        j["enable_auto_updates"] = Current.enable_auto_updates;
-        j["crash_reports_enabled"] = Current.crash_reports_enabled;
-        j["debug_logging"] = Current.debug_logging;
-        j["run_on_startup"] = Current.run_on_startup;
-        j["reset_session_on_close"] = Current.reset_session_on_close;
-        j["show_session_recap_on_close"] = Current.show_session_recap_on_close;
-        j["imperial_units"] = Current.imperial_units;
-        j["client_uuid"] = Current.client_uuid;
-        j["privacy_policy_accepted_version"] = Current.privacy_policy_accepted_version;
-        j["terms_accepted_version"] = Current.terms_accepted_version;
-        j["privacy_accepted_at"] = Current.privacy_accepted_at;
-        j["onboarding_completed"] = Current.onboarding_completed;
-        j["account_link_prompt_shown"] = Current.account_link_prompt_shown;
-        j["position"] = Current.position;
-        j["show_running_indicator"] = Current.show_running_indicator;
-        j["use_roman_numerals"] = Current.use_roman_numerals;
-        j["use_rank_icons"] = Current.use_rank_icons;
-        j["show_extra_playlists"] = Current.show_extra_playlists;
-        j["check_stats_api_config_on_startup"] = Current.check_stats_api_config_on_startup;
-        j["rocket_league_stats_api_config_path"] = Current.rocket_league_stats_api_config_path;
-        j["custom_api_enabled"] = Current.custom_api_enabled;
-        const auto saveSecretField = [&](const std::string& fieldName, const std::string& currentVal) {
-            if (currentVal.empty()) {
-                if (s_savedCiphertexts.count(fieldName) && !s_savedCiphertexts[fieldName].empty() &&
-                    s_encryptedPlaintexts.find(fieldName) == s_encryptedPlaintexts.end()) {
-                    j[fieldName] = s_savedCiphertexts[fieldName];
-                    return;
-                }
-                j[fieldName] = "";
-                s_savedCiphertexts.erase(fieldName);
-                s_encryptedPlaintexts.erase(fieldName);
-                return;
-            }
-            if (s_encryptedPlaintexts.count(fieldName) && s_encryptedPlaintexts[fieldName] == currentVal &&
-                s_savedCiphertexts.count(fieldName) && !s_savedCiphertexts[fieldName].empty()) {
-                j[fieldName] = s_savedCiphertexts[fieldName];
-                return;
-            }
-            const auto enc = EncryptSecret(currentVal);
-            if (enc.success) {
-                s_savedCiphertexts[fieldName] = enc.value;
-                s_encryptedPlaintexts[fieldName] = currentVal;
-                j[fieldName] = enc.value;
-            } else {
-                std::cerr << "[Config] Encryption failed for " << fieldName << ". Secret will not be written to disk in plaintext.\n";
-                if (s_savedCiphertexts.count(fieldName) && !s_savedCiphertexts[fieldName].empty()) {
-                    j[fieldName] = s_savedCiphertexts[fieldName];
-                } else {
-                    j[fieldName] = "";
-                }
-            }
-        };
-
-        saveSecretField("custom_api_key", Current.custom_api_key);
-        j["account_signed_in_name"] = Current.account_signed_in_name;
-        j["account_device_public_id"] = Current.account_device_public_id;
-        saveSecretField("account_refresh_token", Current.account_refresh_token);
-        saveSecretField("account_device_key", Current.account_device_key);
-        saveSecretField("ballchasing_token", Current.ballchasing_token);
-        j["auto_upload_replays"] = Current.auto_upload_replays;
-        j["ballchasing_upload_notice_accepted"] = Current.ballchasing_upload_notice_accepted;
-        j["ballchasing_visibility"] = Current.ballchasing_visibility;
-        j["ballchasing_filter_ranked_only"] = Current.ballchasing_filter_ranked_only;
-        j["ballchasing_filter_wins_only"] = Current.ballchasing_filter_wins_only;
-        j["auto_save_replays"] = Current.auto_save_replays;
-        j["key_save_replay"] = Current.key_save_replay;
-
-        // Save session visibility flags
-        j["show_session_record"] = Current.show_session_record;
-        j["show_session_goals"] = Current.show_session_goals;
-        j["show_session_saves"] = Current.show_session_saves;
-        j["show_session_demos"] = Current.show_session_demos;
-        j["show_session_assists"] = Current.show_session_assists;
-        j["show_session_goal_participation"] = Current.show_session_goal_participation;
-        j["show_session_mmr_change"] = Current.show_session_mmr_change;
-        j["show_session_boost"] = Current.show_session_boost;
-        j["show_lobby_ranks_overlay"] = Current.show_lobby_ranks_overlay;
-        j["show_lobby_rank_1v1"] = Current.show_lobby_rank_1v1;
-        j["show_lobby_rank_2v2"] = Current.show_lobby_rank_2v2;
-        j["show_lobby_rank_3v3"] = Current.show_lobby_rank_3v3;
-        j["show_lobby_rank_casual"] = Current.show_lobby_rank_casual;
-        j["show_lobby_rank_tourny"] = Current.show_lobby_rank_tourny;
-        j["show_lobby_rank_hoops"] = Current.show_lobby_rank_hoops;
-        j["show_lobby_rank_rumble"] = Current.show_lobby_rank_rumble;
-        j["show_lobby_rank_dropshot"] = Current.show_lobby_rank_dropshot;
-        j["show_lobby_rank_snowday"] = Current.show_lobby_rank_snowday;
-        j["show_lobby_rank_heatseeker"] = Current.show_lobby_rank_heatseeker;
-        j["show_account_wins_overlay"] = Current.show_account_wins_overlay;
-        j["show_demo_tracker_overlay"] = Current.show_demo_tracker_overlay;
-        j["show_rank_progress"] = Current.show_rank_progress;
-        j["show_previous_games_summary"] = Current.show_previous_games_summary;
-        j["previous_games_limit"] = Current.previous_games_limit;
-        j["show_tournaments"] = Current.show_tournaments;
-        j["tournament_region"] = Current.tournament_region;
-        j["tournament_reminder_minutes"] = Current.tournament_reminder_minutes;
-        j["tournament_reminder_standard_only"] = Current.tournament_reminder_standard_only;
-        j["tournament_sound_cue"] = Current.tournament_sound_cue;
-        j["show_streaks_stats"] = Current.show_streaks_stats;
-        j["show_longest_loss_streak"] = Current.show_longest_loss_streak;
-        j["show_gamemode_breakdown"] = Current.show_gamemode_breakdown;
-        j["show_gamemode_record_1v1"] = Current.show_gamemode_record_1v1;
-        j["show_gamemode_record_2v2"] = Current.show_gamemode_record_2v2;
-        j["show_gamemode_record_3v3"] = Current.show_gamemode_record_3v3;
-        j["gamemode_breakdown_scope"] = Current.gamemode_breakdown_scope;
-        j["crossbar_display_mode"] = Current.crossbar_display_mode;
-        j["second_monitor_mode"] = Current.second_monitor_mode;
-        j["second_monitor_show_roster"] = Current.second_monitor_show_roster;
-        j["second_monitor_show_session"] = Current.second_monitor_show_session;
-        j["second_monitor_show_settings"] = Current.second_monitor_show_settings;
-        j["second_monitor_has_bounds"] = Current.second_monitor_has_bounds;
-        j["second_monitor_x"] = Current.second_monitor_x;
-        j["second_monitor_y"] = Current.second_monitor_y;
-        j["second_monitor_w"] = Current.second_monitor_w;
-        j["second_monitor_h"] = Current.second_monitor_h;
-        j["ui_scale"] = Current.ui_scale;
-        j["font_ui"] = Current.font_ui;
-        j["font_mono"] = Current.font_mono;
-        j["font_display"] = Current.font_display;
-        j["session_view_x"] = Current.session_view_x;
-        j["session_view_y"] = Current.session_view_y;
-        j["match_summary_x"] = Current.match_summary_x;
-        j["match_summary_y"] = Current.match_summary_y;
-        j["overlay_fps_cap"] = Current.overlay_fps_cap;
-        j["vsync"] = Current.vsync;
-        nlohmann::json jl;
-        jl["version"] = Current.dashboard_layout.version;
-        jl["left_column_weight"] = Current.dashboard_layout.leftColumnWeight;
-        nlohmann::json jw_arr = nlohmann::json::array();
-        for (const auto& w : Current.dashboard_layout.widgets) {
-            nlohmann::json jw;
-            jw["id"] = DashboardLayout::ToConfigString(w.id);
-            jw["zone"] = DashboardLayout::ToConfigString(w.zone);
-            jw["order"] = w.order;
-            jw["height"] = w.height;
-            jw["collapsed"] = w.collapsed;
-            jw["enabled"] = w.enabled;
-            jw_arr.push_back(jw);
-        }
-        jl["widgets"] = jw_arr;
-        j["dashboard_layout"] = jl;
-
-        nlohmann::json jol;
-        jol["version"] = Current.overlay_layout.version;
-        jol["toolbox_open"] = Current.overlay_layout.toolboxOpen;
-        jol["disabled_widgets"] = nlohmann::json::array();
-        for (auto widget : Current.overlay_layout.disabledWidgets)
-            jol["disabled_widgets"].push_back(DashboardLayout::ToConfigString(widget));
-        nlohmann::json jwv = nlohmann::json::object();
-        for (const auto& [wid, vis] : Current.overlay_layout.widgetVisibility) {
-            auto sanitizedVis = vis;
-            OverlayLayout::Sanitize(sanitizedVis);
-            jwv[DashboardLayout::ToConfigString(wid)] = {
-                {"mode", OverlayLayout::ToConfigString(sanitizedVis.mode)},
-                {"event", OverlayLayout::ToConfigString(sanitizedVis.event)},
-                {"seconds", sanitizedVis.seconds},
-                {"also_while_key_held", sanitizedVis.alsoWhileKeyHeld},
-                {"hide_during_replay", sanitizedVis.hideDuringReplay}};
-        }
-        jol["widget_visibility"] = jwv;
-        nlohmann::json jc_arr = nlohmann::json::array();
-        for (const auto& c : Current.overlay_layout.containers) {
-            nlohmann::json jc;
-            jc["id"] = c.id;
-            jc["x"] = c.x;
-            jc["y"] = c.y;
-            jc["w"] = c.w;
-            jc["h"] = c.h;
-            nlohmann::json jw_arr2 = nlohmann::json::array();
-            for (auto w : c.widgets) {
-                jw_arr2.push_back(DashboardLayout::ToConfigString(w));
-            }
-            jc["widgets"] = jw_arr2;
-            auto sanitizedVis = c.visibility;
-            OverlayLayout::Sanitize(sanitizedVis);
-            jc["visibility"] = {
-                {"mode", OverlayLayout::ToConfigString(sanitizedVis.mode)},
-                {"event", OverlayLayout::ToConfigString(sanitizedVis.event)},
-                {"seconds", sanitizedVis.seconds},
-                {"also_while_key_held", sanitizedVis.alsoWhileKeyHeld},
-                {"hide_during_replay", sanitizedVis.hideDuringReplay}};
-            jc_arr.push_back(jc);
-        }
-        jol["containers"] = jc_arr;
-        j["overlay_layout"] = jol;
-
-        // Theme colors
-        j["theme"]["bg"] = ColorToJson(Current.themeBg);
-        j["theme"]["settings_panel"] = ColorToJson(Current.themeSettingsPanel);
-        j["theme"]["topbar"] = ColorToJson(Current.themeTopbar);
-        j["theme"]["graph_panel"] = ColorToJson(Current.themeGraphPanel);
-        j["theme"]["text"] = ColorToJson(Current.themeText);
-        j["theme"]["accent"] = ColorToJson(Current.themeAccent);
-        j["theme"]["win"] = ColorToJson(Current.themeWin);
-        j["theme"]["loss"] = ColorToJson(Current.themeLoss);
-        j["theme"]["dim"] = ColorToJson(Current.themeDim);
-        j["theme"]["muted"] = ColorToJson(Current.themeMuted);
-        j["theme"]["graph_line"] = ColorToJson(Current.themeGraphLine);
-        j["theme"]["graph_baseline"] = ColorToJson(Current.themeGraphBaseline);
-        j["theme"]["roster_card"] = ColorToJson(Current.themeRosterCard);
-        j["theme"]["roster_card_self"] = ColorToJson(Current.themeRosterCardSelf);
-        j["theme"]["scout_tag"] = ColorToJson(Current.themeScoutTag);
-        j["theme"]["stat_box"] = ColorToJson(Current.themeStatBox);
-        j["theme"]["match_row"] = ColorToJson(Current.themeMatchRow);
-        j["theme"]["match_row_alt"] = ColorToJson(Current.themeMatchRowAlt);
+        j["controller_default_back_migrated"] = true;
 
         std::string configFile = GetConfigPath();
         std::string tempFile = configFile + ".tmp";
@@ -1096,6 +873,7 @@ namespace Config {
 
     void RequestSave() {
         s_pendingSave.store(true);
+        s_saverCv.notify_one();
     }
 
     void SetWindowsAutoStart(bool enable) {
@@ -1106,7 +884,7 @@ namespace Config {
                 char exePath[MAX_PATH];
                 if (GetModuleFileNameA(NULL, exePath, MAX_PATH)) {
                     std::string pathStr = "\"" + std::string(exePath) + "\"";
-                    RegSetValueExA(hKey, "OmniStats", 0, REG_SZ, (const BYTE*)pathStr.c_str(), (DWORD)(pathStr.length() + 1));
+                    RegSetValueExA(hKey, "OmniStats", 0, REG_SZ, reinterpret_cast<const BYTE*>(pathStr.c_str()), static_cast<DWORD>(pathStr.length() + 1));
                 }
             } else {
                 RegDeleteValueA(hKey, "OmniStats");
@@ -1114,4 +892,16 @@ namespace Config {
             RegCloseKey(hKey);
         }
     }
-}
+
+#ifdef OMNISTATS_TEST_ENVIRONMENT
+    void SetCryptProtectHookForTests(CryptProtectHook hook) {
+        SecretStore::SetCryptProtectHookForTests(std::move(hook));
+    }
+    void SetCryptUnprotectHookForTests(CryptUnprotectHook hook) {
+        SecretStore::SetCryptUnprotectHookForTests(std::move(hook));
+    }
+    void ResetCryptHooksForTests() {
+        SecretStore::ResetCryptHooksForTests();
+    }
+#endif
+} // namespace Config

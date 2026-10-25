@@ -128,7 +128,7 @@ std::string RmlUiController::RenderSessionView() {
     const auto category = m_state ? m_state->ui.graphMmrCategory.load() : MmrCategory::TwoVTwo;
     const bool graph = m_state && m_state->ui.showGraphView.load();
     if (graph) {
-        TelemetryManager::RecordMilestone(TelemetryManager::Milestone::MmrGraphView);
+        if (m_telemetry) m_telemetry->RecordMilestone(TelemetryManager::Milestone::MmrGraphView);
     }
     const bool lifetime = graph && m_snap.showLifetimeGraph;
     std::ostringstream out;

@@ -177,8 +177,8 @@ ReplayFilterResult EvaluateReplayFilter(const ReplayFilterContext& ctx) {
     return ReplayFilterResult::Upload;
 }
 
-ReplayUploader::ReplayUploader(std::shared_ptr<SessionState> state, std::shared_ptr<DatabaseManager> db)
-    : m_state(std::move(state)), m_db(std::move(db)) {
+ReplayUploader::ReplayUploader(std::shared_ptr<SessionState> state, std::shared_ptr<DatabaseManager> db, std::shared_ptr<TelemetryManager> telemetry)
+    : m_state(std::move(state)), m_db(std::move(db)), m_telemetry(std::move(telemetry)) {
     if (m_db) {
         m_db->RecoverStuckUploadingReplays();
     }
@@ -445,7 +445,7 @@ void ReplayUploader::UploadReplayRecord(int64_t id, const std::string& path, con
         m_state->ui.lastBallchasingMatchGuid = matchGuid;
         m_state->ui.lastBallchasingUrl = decision.ballchasingUrl;
         m_state->ui.replayUploadVersion.fetch_add(1, std::memory_order_relaxed);
-        TelemetryManager::RecordMilestone(TelemetryManager::Milestone::ReplayUploadBallchasing);
+        if (m_telemetry) m_telemetry->RecordMilestone(TelemetryManager::Milestone::ReplayUploadBallchasing);
     }
 
     std::cout << "[ReplayUploader] Upload result for " << PrivacyLog::Sensitive(path, "replay path")

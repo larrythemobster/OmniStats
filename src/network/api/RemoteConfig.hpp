@@ -45,9 +45,6 @@ class RemoteConfig {
     static constexpr size_t kMaxAnnouncementsInPayload = 25;
 
     using ClockFn = std::function<int64_t()>;
-
-    static RemoteConfig& Instance();
-
     RemoteConfig();
     ~RemoteConfig();
 

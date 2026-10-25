@@ -56,11 +56,6 @@ namespace {
 
 } // namespace
 
-RemoteConfig& RemoteConfig::Instance() {
-    static RemoteConfig instance;
-    return instance;
-}
-
 RemoteConfig::RemoteConfig() = default;
 
 RemoteConfig::~RemoteConfig() {

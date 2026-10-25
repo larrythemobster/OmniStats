@@ -42,7 +42,7 @@ bool RmlUiController::WantsAttention() const {
 }
 
 void RmlUiController::OpenInsights() {
-    TelemetryManager::RecordMilestone(TelemetryManager::Milestone::SessionInsights);
+    if (m_telemetry) m_telemetry->RecordMilestone(TelemetryManager::Milestone::SessionInsights);
     ShowInsights(m_insights.CurrentTab(), false);
 }
 
@@ -244,7 +244,7 @@ void RmlUiController::SnapshotNotes() {
 
 void RmlUiController::ShowPlayerNote(const std::string& primaryId, const std::string& name, const std::string& context) {
     if (!m_playerNoteDoc || !m_state) return;
-    TelemetryManager::RecordMilestone(TelemetryManager::Milestone::PlayerLookup);
+    if (m_telemetry) m_telemetry->RecordMilestone(TelemetryManager::Milestone::PlayerLookup);
     const auto identity = PlayerNotes::IdentityFromPrimaryId(primaryId);
     if (m_playerNoteVisible && m_playerNote.IsDirty()) {
         if (!identity || !m_playerNote.Identity() || !(*identity == *m_playerNote.Identity()))
@@ -426,7 +426,7 @@ void RmlUiController::TriggerHistoryQuery(bool append) {
 }
 
 void RmlUiController::OpenHistoryDetail(int64_t matchId, const std::string& matchGuid) {
-    TelemetryManager::RecordMilestone(TelemetryManager::Milestone::MatchHistoryDetail);
+    if (m_telemetry) m_telemetry->RecordMilestone(TelemetryManager::Milestone::MatchHistoryDetail);
     const std::string effectivePrimary = m_snap.myPrimaryId.empty() ? m_config.last_primary_id : m_snap.myPrimaryId;
     const uint64_t reqId = m_history.BeginDetail(matchId);
     if (m_dbManager) {
@@ -511,7 +511,7 @@ void RmlUiController::ShowOnboarding() {
 
 void RmlUiController::FinishOnboarding() {
     if (!Config::HasCurrentConsent(Config::Read())) return;
-    TelemetryManager::RecordMilestone(TelemetryManager::Milestone::OnboardingCompleted);
+    if (m_telemetry) m_telemetry->RecordMilestone(TelemetryManager::Milestone::OnboardingCompleted);
     Config::Update([](ConfigData& c) {
         c.onboarding_completed = true;
         c.account_link_prompt_shown = true;
@@ -825,7 +825,7 @@ bool RmlUiController::HandleViewAction(const std::string& action, Rml::Element* 
             m_systemInterface.SetClipboardText(url);
             ShellExecuteA(nullptr, "open", url.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
             ShowToast("Opened the match card in your browser. Link copied.");
-            TelemetryManager::RecordMilestone(TelemetryManager::Milestone::MatchCardShared);
+            if (m_telemetry) m_telemetry->RecordMilestone(TelemetryManager::Milestone::MatchCardShared);
         } else {
             ShowToast("Match details not loaded.", true);
         }

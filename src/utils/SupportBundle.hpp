@@ -5,6 +5,7 @@
 #include <vector>
 #include <nlohmann/json.hpp>
 
+class RemoteConfig;
 namespace SupportBundle {
 
     nlohmann::json RedactConfig(const nlohmann::json& config);
@@ -17,8 +18,8 @@ namespace SupportBundle {
 
     std::string GetWindowsVersionInfo();
 
-    std::string BuildDiagnosticsSummary();
+    std::string BuildDiagnosticsSummary(const RemoteConfig* remoteConfig = nullptr);
 
-    bool CreateSupportBundle(std::string& outZipPath, std::string& outError);
+    bool CreateSupportBundle(std::string& outZipPath, std::string& outError, const RemoteConfig* remoteConfig = nullptr);
 
 } // namespace SupportBundle

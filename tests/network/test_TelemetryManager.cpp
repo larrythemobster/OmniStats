@@ -32,7 +32,7 @@ TEST(TelemetryManagerTest, MilestoneDeduplicationAndValidation) {
     auto db = std::make_shared<DatabaseManager>(state);
     ASSERT_TRUE(db->Initialize(":memory:"));
 
-    TelemetryManager::Initialize(db);
+    TelemetryManager tm(db);
 
     auto j = PendingAfterDrain(*db, "milestone_barrier_1");
     ASSERT_TRUE(j.is_array());
@@ -40,16 +40,16 @@ TEST(TelemetryManagerTest, MilestoneDeduplicationAndValidation) {
     EXPECT_EQ(j[0]["kind"], "onboarding");
     EXPECT_EQ(j[0]["name"], "first_launch");
 
-    TelemetryManager::RecordMilestone(TelemetryManager::Milestone::OverlayToggle);
+    tm.RecordMilestone(TelemetryManager::Milestone::OverlayToggle);
     EXPECT_EQ(PendingAfterDrain(*db, "milestone_barrier_2").size(), 2u);
 
-    TelemetryManager::RecordMilestone(TelemetryManager::Milestone::OverlayToggle);
+    tm.RecordMilestone(TelemetryManager::Milestone::OverlayToggle);
     EXPECT_EQ(PendingAfterDrain(*db, "milestone_barrier_3").size(), 2u);
 
-    TelemetryManager::RecordMilestone(TelemetryManager::Milestone::OnboardingCompleted);
+    tm.RecordMilestone(TelemetryManager::Milestone::OnboardingCompleted);
     EXPECT_EQ(PendingAfterDrain(*db, "milestone_barrier_4").size(), 3u);
 
-    TelemetryManager::Shutdown();
+    tm.Shutdown();
 }
 TEST(TelemetryManagerTest, FirstLaunchDecisionFreshVsExistingUUID) {
     {
@@ -58,7 +58,7 @@ TEST(TelemetryManagerTest, FirstLaunchDecisionFreshVsExistingUUID) {
         auto db = std::make_shared<DatabaseManager>(state);
         ASSERT_TRUE(db->Initialize(":memory:"));
 
-        TelemetryManager::Initialize(db);
+        TelemetryManager tm(db);
 
         auto j = PendingAfterDrain(*db, "barrier_fresh");
         ASSERT_TRUE(j.is_array());
@@ -68,7 +68,7 @@ TEST(TelemetryManagerTest, FirstLaunchDecisionFreshVsExistingUUID) {
         EXPECT_EQ(db->GetSetting("last_run_version"), AppVersion::Current);
         EXPECT_FALSE(db->GetSetting("client_uuid").empty());
 
-        TelemetryManager::Shutdown();
+        tm.Shutdown();
     }
 
     {
@@ -79,7 +79,7 @@ TEST(TelemetryManagerTest, FirstLaunchDecisionFreshVsExistingUUID) {
         const std::string existingUuid = "11111111-2222-4333-8444-555555555555";
         ASSERT_TRUE(db->SetSetting("client_uuid", existingUuid));
 
-        TelemetryManager::Initialize(db);
+        TelemetryManager tm(db);
 
         auto j = PendingAfterDrain(*db, "barrier_existing_db");
         ASSERT_TRUE(j.is_array());
@@ -87,7 +87,7 @@ TEST(TelemetryManagerTest, FirstLaunchDecisionFreshVsExistingUUID) {
         EXPECT_EQ(db->GetSetting("last_run_version"), AppVersion::Current);
         EXPECT_EQ(db->GetSetting("client_uuid"), existingUuid);
 
-        TelemetryManager::Shutdown();
+        tm.Shutdown();
     }
 
     {
@@ -97,7 +97,7 @@ TEST(TelemetryManagerTest, FirstLaunchDecisionFreshVsExistingUUID) {
         auto db = std::make_shared<DatabaseManager>(state);
         ASSERT_TRUE(db->Initialize(":memory:"));
 
-        TelemetryManager::Initialize(db);
+        TelemetryManager tm(db);
 
         auto j = PendingAfterDrain(*db, "barrier_existing_conf");
         ASSERT_TRUE(j.is_array());
@@ -105,13 +105,13 @@ TEST(TelemetryManagerTest, FirstLaunchDecisionFreshVsExistingUUID) {
         EXPECT_EQ(db->GetSetting("last_run_version"), AppVersion::Current);
         EXPECT_EQ(db->GetSetting("client_uuid"), existingUuid);
 
-        TelemetryManager::Shutdown();
+        tm.Shutdown();
     }
 }
 
 TEST(TelemetryManagerTest, OpenMinutesAccounting) {
-    using TelemetryManager::detail::CalculateHeartbeatMinutes;
-    using TelemetryManager::detail::k100nsPerMinute;
+    using TelemetryDetail::CalculateHeartbeatMinutes;
+    using TelemetryDetail::k100nsPerMinute;
 
     {
         const auto res = CalculateHeartbeatMinutes(0, 0);

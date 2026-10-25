@@ -44,6 +44,7 @@ namespace {
         }
         return std::string(path, length);
     }
+    static std::shared_ptr<TelemetryManager> s_telemetry;
 
     std::string GetDirectoryForPath(const std::string& path) {
         size_t lastSlash = path.find_last_of("\\/");
@@ -142,7 +143,7 @@ namespace {
         const std::string currentExePath = GetCurrentExecutablePath();
         if (currentExePath.empty()) {
             std::cout << "[UpdaterLauncher] Failed to resolve current executable path.\n";
-            TelemetryManager::RecordUpdaterEvent("update_check_failed", targetVersion, "resolve_exe_failed", AppVersion::Current);
+            if (s_telemetry) s_telemetry->RecordUpdaterEvent("update_check_failed", targetVersion, "resolve_exe_failed", AppVersion::Current);
             return false;
         }
 
@@ -155,7 +156,7 @@ namespace {
             arguments += " --target-version " + targetVersion;
         }
         if (!LaunchUpdater(arguments)) {
-            TelemetryManager::RecordUpdaterEvent("update_check_failed", targetVersion, "updater_missing", AppVersion::Current);
+            if (s_telemetry) s_telemetry->RecordUpdaterEvent("update_check_failed", targetVersion, "updater_missing", AppVersion::Current);
             return false;
         }
         return true;
@@ -167,7 +168,7 @@ namespace {
         std::string updaterPath;
         if (!FindUpdaterExecutable(updaterPath)) {
             std::cout << "[UpdaterLauncher] Installed updater not found; skipping update check.\n";
-            TelemetryManager::RecordUpdaterEvent("update_check_failed", "", "updater_missing", AppVersion::Current);
+            if (s_telemetry) s_telemetry->RecordUpdaterEvent("update_check_failed", "", "updater_missing", AppVersion::Current);
             return UpdateCheckResult::Failed;
         }
 
@@ -182,7 +183,7 @@ namespace {
         const std::string arguments = "--check --result-file \"" + resultPath + "\"";
         if (!LaunchUpdater(arguments, &processHandle) || !processHandle) {
             DeleteFileA(resultPath.c_str());
-            TelemetryManager::RecordUpdaterEvent("update_check_failed", "", "launch_failed", AppVersion::Current);
+            if (s_telemetry) s_telemetry->RecordUpdaterEvent("update_check_failed", "", "launch_failed", AppVersion::Current);
             return UpdateCheckResult::Failed;
         }
 
@@ -191,7 +192,7 @@ namespace {
             std::cout << "[UpdaterLauncher] Installed updater check timed out.\n";
             CloseHandle(processHandle);
             DeleteFileA(resultPath.c_str());
-            TelemetryManager::RecordUpdaterEvent("update_check_failed", "", "timeout", AppVersion::Current);
+            if (s_telemetry) s_telemetry->RecordUpdaterEvent("update_check_failed", "", "timeout", AppVersion::Current);
             return UpdateCheckResult::Failed;
         }
 
@@ -290,6 +291,9 @@ namespace {
 } // namespace
 
 namespace ExternalUpdaterLauncher {
+    void SetTelemetryManager(std::shared_ptr<TelemetryManager> tm) {
+        s_telemetry = std::move(tm);
+    }
 
     bool RunStartupUpdateCheck() {
         const ULONGLONG now = GetTickCount64();

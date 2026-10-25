@@ -326,7 +326,7 @@ namespace SupportBundle {
         return verString;
     }
 
-    std::string BuildDiagnosticsSummary() {
+    std::string BuildDiagnosticsSummary(const RemoteConfig* remoteConfig) {
         std::ostringstream out;
         out << "OmniStats Diagnostics Summary\n";
         out << "=============================\n";
@@ -358,20 +358,23 @@ namespace SupportBundle {
         out << GetDatabaseSummary(dbPath) << "\n";
 
         out << "[Remote Config & Announcements]\n";
-        const RemoteConfigData remoteSnap = RemoteConfig::Instance().GetSnapshot();
-        out << "Schema: " << remoteSnap.schema << "\n";
-        out << "TTL Seconds: " << remoteSnap.ttl_seconds << "\n";
-        out << "Min Supported Version: " << (remoteSnap.min_supported_version.empty() ? "(none)" : remoteSnap.min_supported_version) << "\n";
-        const auto announcements = RemoteConfig::Instance().ActiveAnnouncements();
-        out << "Active Announcements: " << announcements.size() << "\n";
-        for (const auto& ann : announcements) {
-            out << "  - [" << ann.severity << "] " << ann.id << ": " << ann.title << "\n";
+        if (remoteConfig) {
+            const RemoteConfigData remoteSnap = remoteConfig->GetSnapshot();
+            out << "Schema: " << remoteSnap.schema << "\n";
+            out << "TTL Seconds: " << remoteSnap.ttl_seconds << "\n";
+            out << "Min Supported Version: " << (remoteSnap.min_supported_version.empty() ? "(none)" : remoteSnap.min_supported_version) << "\n";
+            const auto announcements = remoteConfig->ActiveAnnouncements();
+            out << "Active Announcements: " << announcements.size() << "\n";
+            for (const auto& ann : announcements) {
+                out << "  - [" << ann.severity << "] " << ann.id << ": " << ann.title << "\n";
+            }
+        } else {
+            out << "Remote config unavailable.\n";
         }
-
         return out.str();
     }
 
-    bool CreateSupportBundle(std::string& outZipPath, std::string& outError) {
+    bool CreateSupportBundle(std::string& outZipPath, std::string& outError, const RemoteConfig* remoteConfig) {
         PWSTR desktopPath = nullptr;
         std::filesystem::path targetDir;
         if (SUCCEEDED(SHGetKnownFolderPath(FOLDERID_Desktop, 0, nullptr, &desktopPath)) && desktopPath) {
@@ -443,7 +446,7 @@ namespace SupportBundle {
 
         Core::ZipWriter zip;
 
-        const std::string summaryText = BuildDiagnosticsSummary();
+        const std::string summaryText = BuildDiagnosticsSummary(remoteConfig);
         zip.AddFile("summary.txt", summaryText);
 
         const std::filesystem::path configPath = Storage::GetDataDirectory() + "config.json";

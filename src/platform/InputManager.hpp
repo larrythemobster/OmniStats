@@ -13,6 +13,8 @@
 #define OMNISTATS_ENABLE_LOW_LEVEL_HOOK 0
 #endif
 
+class TelemetryManager;
+
 class InputManager {
   public:
     enum HotKeyId : int {
@@ -29,9 +31,10 @@ class InputManager {
     static void HandleHotKeyAction(
         SessionState& state,
         int hotKeyId,
-        bool showExtraPlaylists);
+        bool showExtraPlaylists,
+        TelemetryManager* telemetry);
 
-    InputManager(std::shared_ptr<SessionState> state);
+    InputManager(std::shared_ptr<SessionState> state, std::shared_ptr<TelemetryManager> telemetry = nullptr);
     ~InputManager();
 
     void Start();
@@ -49,6 +52,7 @@ class InputManager {
     void SetOverlayHeld(OverlayHoldSource source, bool held);
 
     std::shared_ptr<SessionState> m_state;
+    std::shared_ptr<TelemetryManager> m_telemetry;
     std::jthread m_keyboardThread;
     std::jthread m_gamepadThread;
     std::mutex m_gamepadWakeMutex;

@@ -25,8 +25,13 @@ using namespace RmlUiDetail;
 
 RmlUiController::RmlUiController(std::shared_ptr<SessionState> state,
                                  std::shared_ptr<DatabaseManager> dbManager,
-                                 std::shared_ptr<AccountManagerService> accounts)
-    : m_state(std::move(state)), m_dbManager(std::move(dbManager)), m_accountsService(std::move(accounts)), m_systemInterface(nullptr) {
+                                 std::shared_ptr<AccountManagerService> accounts,
+                                 std::shared_ptr<RemoteConfig> remoteConfig,
+                                 std::shared_ptr<Tournaments::TournamentScheduleService> tournamentService,
+                                 std::shared_ptr<TelemetryManager> telemetry)
+    : m_state(std::move(state)), m_dbManager(std::move(dbManager)), m_accountsService(std::move(accounts)),
+      m_remoteConfig(std::move(remoteConfig)), m_tournamentService(std::move(tournamentService)), m_telemetry(std::move(telemetry)),
+      m_systemInterface(nullptr) {
     if (m_state) m_lastShowMenu = m_state->ui.showMenu.load();
 }
 
@@ -672,7 +677,7 @@ void RmlUiController::RebuildVisibleUi(bool force, bool configChanged) {
         }
     }
     if (m_state && m_config.second_monitor_mode) {
-        HashAppend(runtimeStructuralHash, RemoteConfig::Instance().Version());
+        HashAppend(runtimeStructuralHash, m_remoteConfig ? m_remoteConfig->Version() : 0);
         const bool updateAvailable = m_state->ui.updateAvailable.load(std::memory_order_relaxed);
         HashAppend(runtimeStructuralHash, static_cast<uint64_t>(updateAvailable));
         HashAppend(runtimeStructuralHash, static_cast<uint64_t>(m_state->ui.updateDownloading.load(std::memory_order_relaxed)));
@@ -802,8 +807,8 @@ void RmlUiController::RebuildVisibleUi(bool force, bool configChanged) {
         HashAppend(settingsHash, AccountClient::Instance().GetStatus().version);
         HashAppend(settingsHash, static_cast<uint64_t>(m_onboarding.ShowFallback()));
         HashAppend(settingsHash, static_cast<uint64_t>(m_confirmReplayUploads));
-        HashAppend(settingsHash, RemoteConfig::Instance().Version());
-        HashAppend(settingsHash, Tournaments::TournamentScheduleService::Instance().Snapshot()->version);
+        HashAppend(settingsHash, m_remoteConfig ? m_remoteConfig->Version() : 0);
+        HashAppend(settingsHash, (m_tournamentService && m_tournamentService->Snapshot()) ? m_tournamentService->Snapshot()->version : 0);
         HashAppend(settingsHash, static_cast<uint64_t>(m_confirmDeleteHistory));
         HashAppend(settingsHash, m_editColorKey);
         HashAppend(settingsHash, m_statsApiPathError);
@@ -1291,7 +1296,7 @@ std::string RmlUiController::PlaylistImageForName(const std::string& playlist) {
 
 void RmlUiController::RefreshTournaments(bool force) {
     const int64_t now = static_cast<int64_t>(std::time(nullptr));
-    const auto snapshot = Tournaments::TournamentScheduleService::Instance().Snapshot();
+    const auto snapshot = m_tournamentService ? m_tournamentService->Snapshot() : std::make_shared<Tournaments::ScheduleSnapshot>();
     const bool enabled = AccountClient::Instance().IsSignedIn();
     if (enabled && !m_onboardingVisible) {
         const auto* next = Tournaments::NextSlot(snapshot->slots, now, m_config.tournament_reminder_standard_only);

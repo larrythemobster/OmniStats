@@ -128,7 +128,7 @@ std::string RmlUiController::RenderSettingsReminders() {
     out << SectionStart("Tournament reminders")
         << "<div class='setting-help section-help'>Reminders work even when the tournament countdown card is off.</div>";
     const bool signedIn = AccountClient::Instance().IsSignedIn();
-    const auto tournaments = Tournaments::TournamentScheduleService::Instance().Snapshot();
+    const auto tournaments = m_tournamentService ? m_tournamentService->Snapshot() : std::make_shared<Tournaments::ScheduleSnapshot>();
     if (!signedIn) out << "<div class='setting-notice'>Sign in under Accounts &amp; services to get the tournament schedule.</div>";
     const bool disabled = !signedIn;
     std::string regionHelp = "Not detected yet. Open Rocket League to detect your region.";

@@ -10,6 +10,7 @@
 
 class SessionState;
 class DatabaseManager;
+class TelemetryManager;
 
 enum class ReplayFilterResult {
     Upload,
@@ -51,7 +52,8 @@ inline constexpr auto kSaveReplayDelay = std::chrono::seconds(3);
 class ReplayUploader {
   public:
     ReplayUploader(std::shared_ptr<SessionState> state = nullptr,
-                   std::shared_ptr<DatabaseManager> db = nullptr);
+                   std::shared_ptr<DatabaseManager> db = nullptr,
+                   std::shared_ptr<TelemetryManager> telemetry = nullptr);
     ~ReplayUploader();
 
     void Start();
@@ -74,6 +76,7 @@ class ReplayUploader {
     std::shared_ptr<SessionState> m_state;
     std::shared_ptr<DatabaseManager> m_db;
 
+    std::shared_ptr<TelemetryManager> m_telemetry;
     std::string m_lastSavedGuid;
     std::string m_pendingSaveGuid;
     std::chrono::steady_clock::time_point m_pendingSaveSince{};

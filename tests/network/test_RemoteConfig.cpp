@@ -15,20 +15,21 @@ namespace {
     class RemoteConfigTestFixture : public ::testing::Test {
       protected:
         fs::path tempDir;
+        RemoteConfig remoteConfig;
 
         void SetUp() override {
-            RemoteConfig::Instance().ResetForTests();
+            remoteConfig.ResetForTests();
             AccountClient::Instance().ResetForTests();
             tempDir = fs::temp_directory_path() / "OmniStatsRemoteConfigTests";
             std::error_code ec;
             fs::remove_all(tempDir, ec);
             fs::create_directories(tempDir, ec);
-            RemoteConfig::Instance().SetCacheFilePathForTests((tempDir / "cache.json").string());
-            RemoteConfig::Instance().SetDismissedFilePathForTests((tempDir / "dismissed.json").string());
+            remoteConfig.SetCacheFilePathForTests((tempDir / "cache.json").string());
+            remoteConfig.SetDismissedFilePathForTests((tempDir / "dismissed.json").string());
         }
 
         void TearDown() override {
-            RemoteConfig::Instance().ResetForTests();
+            remoteConfig.ResetForTests();
             AccountClient::Instance().ResetForTests();
             OmniNet::SetTransportForTesting({});
             std::error_code ec;
@@ -126,26 +127,26 @@ TEST_F(RemoteConfigTestFixture, RejectsOversizedAndWrongTypePayloads) {
 TEST_F(RemoteConfigTestFixture, AnnouncementFilteringAndDismissalPersistence) {
     int64_t nowUnix = 0;
     ASSERT_TRUE(RemoteConfig::ParseRfc3339Unix("2026-10-08T12:00:00Z", nowUnix));
-    RemoteConfig::Instance().SetClockForTests([nowUnix]() { return nowUnix; });
+    remoteConfig.SetClockForTests([nowUnix]() { return nowUnix; });
 
     RemoteConfigData data;
     data.announcements = {
         {"a1", "info", "Active Dismissible", "Body 1", "https://omnistats.org/news", true, "2026-10-09T00:00:00Z"},
         {"a2", "critical", "Non-Dismissible Alert", "Body 2", "https://discord.gg/omnistats", false, ""},
         {"a3", "warning", "Expired Alert", "Body 3", "", true, "2026-10-08T11:59:59Z"}};
-    RemoteConfig::Instance().SetSnapshotForTests(data);
+    remoteConfig.SetSnapshotForTests(data);
 
-    auto active = RemoteConfig::Instance().ActiveAnnouncements();
+    auto active = remoteConfig.ActiveAnnouncements();
     ASSERT_EQ(active.size(), 2u);
     EXPECT_EQ(active[0].id, "a1");
     EXPECT_EQ(active[1].id, "a2");
 
     // Dismissing a1 hides it; dismissing non-dismissible a2 does NOT hide a2
-    RemoteConfig::Instance().DismissAnnouncement("a1");
-    RemoteConfig::Instance().DismissAnnouncement("a2");
-    EXPECT_TRUE(RemoteConfig::Instance().IsAnnouncementDismissed("a1"));
+    remoteConfig.DismissAnnouncement("a1");
+    remoteConfig.DismissAnnouncement("a2");
+    EXPECT_TRUE(remoteConfig.IsAnnouncementDismissed("a1"));
 
-    active = RemoteConfig::Instance().ActiveAnnouncements();
+    active = remoteConfig.ActiveAnnouncements();
     ASSERT_EQ(active.size(), 1u);
     EXPECT_EQ(active[0].id, "a2");
 }
@@ -161,9 +162,9 @@ TEST_F(RemoteConfigTestFixture, MinVersionIsWarningOnly) {
     RemoteConfigData data;
     data.min_supported_version = "2.3.0";
     data.min_version_message = "Update recommended.";
-    RemoteConfig::Instance().SetSnapshotForTests(data);
-    EXPECT_TRUE(RemoteConfig::Instance().IsBelowMinSupportedVersion("2.2.15"));
-    EXPECT_FALSE(RemoteConfig::Instance().IsBelowMinSupportedVersion("2.3.0"));
+    remoteConfig.SetSnapshotForTests(data);
+    EXPECT_TRUE(remoteConfig.IsBelowMinSupportedVersion("2.2.15"));
+    EXPECT_FALSE(remoteConfig.IsBelowMinSupportedVersion("2.3.0"));
 
     bool transportCalled = false;
     OmniNet::SetTransportForTesting([&](const OmniNet::Request& req) {
@@ -186,7 +187,7 @@ TEST_F(RemoteConfigTestFixture, MinVersionIsWarningOnly) {
 
 TEST_F(RemoteConfigTestFixture, CacheFallbackUnder24hAndDefaultResetAfter24h) {
     int64_t currentTime = 1760000000;
-    RemoteConfig::Instance().SetClockForTests([&currentTime]() { return currentTime; });
+    remoteConfig.SetClockForTests([&currentTime]() { return currentTime; });
 
     OmniNet::SetTransportForTesting([](const OmniNet::Request& req) {
         EXPECT_EQ(req.op, OmniNet::Op::ClientConfig);
@@ -195,8 +196,8 @@ TEST_F(RemoteConfigTestFixture, CacheFallbackUnder24hAndDefaultResetAfter24h) {
         res.body = R"({"schema":1,"ttl_seconds":600,"min_supported_version":"2.3.0"})";
         return res;
     });
-    EXPECT_TRUE(RemoteConfig::Instance().FetchOnce());
-    EXPECT_EQ(RemoteConfig::Instance().GetSnapshot().min_supported_version, "2.3.0");
+    EXPECT_TRUE(remoteConfig.FetchOnce());
+    EXPECT_EQ(remoteConfig.GetSnapshot().min_supported_version, "2.3.0");
 
     currentTime += 2 * 3600;
     OmniNet::SetTransportForTesting([](const OmniNet::Request&) {
@@ -204,10 +205,10 @@ TEST_F(RemoteConfigTestFixture, CacheFallbackUnder24hAndDefaultResetAfter24h) {
         res.transportError = 7;
         return res;
     });
-    EXPECT_FALSE(RemoteConfig::Instance().FetchOnce());
-    EXPECT_EQ(RemoteConfig::Instance().GetSnapshot().min_supported_version, "2.3.0");
+    EXPECT_FALSE(remoteConfig.FetchOnce());
+    EXPECT_EQ(remoteConfig.GetSnapshot().min_supported_version, "2.3.0");
 
     currentTime += 23 * 3600;
-    EXPECT_FALSE(RemoteConfig::Instance().FetchOnce());
-    EXPECT_TRUE(RemoteConfig::Instance().GetSnapshot().min_supported_version.empty());
+    EXPECT_FALSE(remoteConfig.FetchOnce());
+    EXPECT_TRUE(remoteConfig.GetSnapshot().min_supported_version.empty());
 }

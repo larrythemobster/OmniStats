@@ -11,15 +11,15 @@
 
 static constexpr uint64_t DISCORD_APP_ID = 1501709499168194590ULL;
 
-DiscordManager::DiscordManager(std::shared_ptr<SessionState> state)
-    : m_state(state) {}
+DiscordManager::DiscordManager(std::shared_ptr<SessionState> state, std::shared_ptr<TelemetryManager> telemetry)
+    : m_state(std::move(state)), m_telemetry(std::move(telemetry)) {}
 
 DiscordManager::~DiscordManager() {
     Shutdown();
 }
 
 void DiscordManager::Initialize() {
-    TelemetryManager::RecordMilestone(TelemetryManager::Milestone::DiscordRpcEnabled);
+    if (m_telemetry) m_telemetry->RecordMilestone(TelemetryManager::Milestone::DiscordRpcEnabled);
     if (m_running.exchange(true)) return;
     m_worker = std::jthread(&DiscordManager::CallbackThread, this);
 }

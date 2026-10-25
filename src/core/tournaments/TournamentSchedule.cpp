@@ -68,11 +68,6 @@ namespace Tournaments {
         m_fired.push_back(slot.startUnix);
         return true;
     }
-
-    TournamentScheduleService& TournamentScheduleService::Instance() {
-        static TournamentScheduleService service;
-        return service;
-    }
     TournamentScheduleService::~TournamentScheduleService() {
         Stop();
     }

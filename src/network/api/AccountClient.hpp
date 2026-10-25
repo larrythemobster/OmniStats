@@ -12,6 +12,8 @@
 #include <thread>
 #include <vector>
 
+class TelemetryManager;
+
 struct ConfigData;
 
 enum class AccountAuthState {
@@ -84,6 +86,9 @@ class AccountClient {
 
     static AccountClient& Instance();
     static bool EnsureSodiumInitialized();
+    void SetTelemetryManager(std::shared_ptr<TelemetryManager> tm) {
+        m_telemetry = std::move(tm);
+    }
 
     AccountClient();
     ~AccountClient();
@@ -206,4 +211,5 @@ class AccountClient {
     bool m_workerStarted = false;
     std::atomic<bool> m_cancelPolling{false};
     std::atomic<bool> m_stopWorker{false};
+    std::shared_ptr<TelemetryManager> m_telemetry;
 };

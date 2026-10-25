@@ -14,9 +14,11 @@ namespace discordpp {
     class Client;
 }
 
+class TelemetryManager;
+
 class DiscordManager {
   public:
-    DiscordManager(std::shared_ptr<SessionState> state);
+    DiscordManager(std::shared_ptr<SessionState> state, std::shared_ptr<TelemetryManager> telemetry = nullptr);
     virtual ~DiscordManager();
 
     void Initialize();
@@ -38,4 +40,5 @@ class DiscordManager {
     std::condition_variable m_cv;
     DiscordPresenceSnapshot m_latestSnapshot;
     DiscordActivityClock m_activityClock;
+    std::shared_ptr<TelemetryManager> m_telemetry;
 };

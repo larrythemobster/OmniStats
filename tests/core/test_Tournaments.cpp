@@ -78,9 +78,10 @@ TEST(TournamentSchedule, FetchUsesOmniNetAndParsesSchedule) {
         return res;
     });
 
+    Tournaments::TournamentScheduleService tourneyService;
     Tournaments::ScheduleSnapshot snap;
     snap.region = "USE";
-    EXPECT_TRUE(Tournaments::TournamentScheduleService::Instance().FetchForTests(snap));
+    EXPECT_TRUE(tourneyService.FetchForTests(snap));
     EXPECT_TRUE(transportCalled);
     EXPECT_EQ(capturedReq.op, OmniNet::Op::TournamentSchedule);
     EXPECT_EQ(capturedReq.accessToken, "tourney-access-token");
@@ -98,7 +99,7 @@ TEST(TournamentSchedule, FetchUsesOmniNetAndParsesSchedule) {
     });
     Tournaments::ScheduleSnapshot snapUpdate;
     snapUpdate.region = "USE";
-    EXPECT_FALSE(Tournaments::TournamentScheduleService::Instance().FetchForTests(snapUpdate));
+    EXPECT_FALSE(tourneyService.FetchForTests(snapUpdate));
 
     OmniNet::SetTransportForTesting({});
     account.ResetForTests();

@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 #include "core/config/Config.hpp"
+#include "core/config/SecretStore.hpp"
 #include "utils/Storage.hpp"
 
 #include <filesystem>
@@ -204,4 +205,71 @@ TEST_F(ConfigSecurityTest, MachineScopedCredentialsMigrateWithoutLosingTheSecret
                                    CRYPTPROTECT_UI_FORBIDDEN, &output));
     EXPECT_EQ(std::string(reinterpret_cast<char*>(output.pbData), output.cbData), secret);
     LocalFree(output.pbData);
+}
+TEST(SecretStoreInstanceTest, EncryptDecryptAndPreserveCiphertextOnFailure) {
+    SecretStore store;
+
+    const std::string plain = "super_secret_api_token_12345";
+    auto enc = store.EncryptSecret(plain);
+    ASSERT_TRUE(enc.success);
+    EXPECT_FALSE(enc.value.empty());
+    EXPECT_NE(enc.value, plain);
+    EXPECT_TRUE(SecretStore::IsHexString(enc.value));
+
+    auto dec = store.DecryptSecret(enc.value);
+    EXPECT_TRUE(dec.success);
+    EXPECT_EQ(dec.value, plain);
+
+    std::string loaded;
+    bool needsLegacyMigration = false;
+    bool decryptionFailed = false;
+    store.LoadSecretField("custom_api_key", enc.value, loaded, needsLegacyMigration, decryptionFailed);
+    EXPECT_EQ(loaded, plain);
+    EXPECT_FALSE(needsLegacyMigration);
+    EXPECT_FALSE(decryptionFailed);
+
+    std::string diskVal;
+    store.SaveSecretField("custom_api_key", loaded, diskVal);
+    EXPECT_EQ(diskVal, enc.value);
+
+    SecretStore::SetCryptProtectHookForTests([](const std::string&, std::string&, DWORD& err) {
+        err = 0x8009000B;
+        return false;
+    });
+
+    std::string diskValAfterFail;
+    store.SaveSecretField("custom_api_key", "new_secret_attempt", diskValAfterFail);
+    EXPECT_EQ(diskValAfterFail, enc.value);
+
+    SecretStore::ResetCryptHooksForTests();
+}
+
+TEST(SecretStoreInstanceTest, LegacyMigrationAndDecryptionErrorHandling) {
+    SecretStore store;
+
+    std::string loaded;
+    bool needsLegacyMigration = false;
+    bool decryptionFailed = false;
+    const std::string legacyPlain = "unencrypted_legacy_credential";
+    store.LoadSecretField("custom_api_key", legacyPlain, loaded, needsLegacyMigration, decryptionFailed);
+    EXPECT_EQ(loaded, legacyPlain);
+    EXPECT_TRUE(needsLegacyMigration);
+    EXPECT_FALSE(decryptionFailed);
+
+    const std::vector<std::pair<std::string, std::string>> toMigrate = {
+        {"custom_api_key", legacyPlain}};
+    EXPECT_TRUE(store.MigrateLegacySecrets(toMigrate));
+
+    std::string diskVal;
+    store.SaveSecretField("custom_api_key", legacyPlain, diskVal);
+    EXPECT_NE(diskVal, legacyPlain);
+    EXPECT_TRUE(SecretStore::IsHexString(diskVal));
+
+    std::string corruptedLoaded;
+    needsLegacyMigration = false;
+    decryptionFailed = false;
+    const std::string corruptedHex = "01000000d0029adf0e1c6443969482a170fb26fbdeadbeefcafebabe";
+    store.LoadSecretField("custom_api_key", corruptedHex, corruptedLoaded, needsLegacyMigration, decryptionFailed);
+    EXPECT_TRUE(corruptedLoaded.empty());
+    EXPECT_TRUE(decryptionFailed);
 }
