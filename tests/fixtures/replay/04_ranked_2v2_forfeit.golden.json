@@ -192,8 +192,8 @@
         "id": 1,
         "is_opponent": 0,
         "match_id": 1,
-        "mmr": 0,
-        "mmr_estimated": 0,
+        "mmr": 1191,
+        "mmr_estimated": 1,
         "name": "Hero",
         "primary_id": "steam|76561198000000001",
         "team": 0
@@ -436,7 +436,9 @@
     "maxBallSpeedSelf": 0.0,
     "maxGoalSpeed": 0.0,
     "maxGoalSpeedSelf": 0.0,
-    "mmrChangeByPlaylist": {},
+    "mmrChangeByPlaylist": {
+      "2v2": -9
+    },
     "ownGoals": 0,
     "ownGoalsSelf": 0,
     "saves": 0,
@@ -444,7 +446,7 @@
     "shots": 0,
     "shotsTotal": 0,
     "teamGoals": 0,
-    "totalMmrChange": 0.0,
+    "totalMmrChange": -9.0,
     "wins": 0
   }
 }

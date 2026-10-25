@@ -68,6 +68,7 @@ namespace omnistats::replay {
                 curl.slist_free_all = [](void*) {};
                 curl.easy_impersonate = [](void*, const char*, int) -> int { return 0; };
                 curl.SetReadyForTests(true);
+                OmniNet::ResetUpdateRequiredForTesting();
                 OmniNet::SetTransportForTesting([](const OmniNet::Request&) {
                     OmniNet::Response res;
                     res.status = 200;
@@ -90,6 +91,7 @@ namespace omnistats::replay {
                 curl.easy_impersonate = orig_impersonate;
                 curl.SetReadyForTests(orig_ready);
                 OmniNet::SetTransportForTesting({});
+                OmniNet::ResetUpdateRequiredForTesting();
             }
         };
 
@@ -443,7 +445,9 @@ namespace omnistats::replay {
         ScopedOfflineCurlMock curlMock;
         ConfigData origConfig = Config::Read();
         Config::Update([&](ConfigData& c) {
+            c = ConfigData{};
             c.reset_session_on_close = m_options.resetSessionOnClose;
+            c.enable_mmr_tracking = m_options.enableMmrTracking;
         },
                        false);
         struct ConfigGuard {

@@ -28,6 +28,7 @@ namespace omnistats::replay {
             int initialMatchesPlayed = 20;
             std::string initialPlaylist = "2v2";
             bool resetSessionOnClose = false;
+            bool enableMmrTracking = true;
             std::filesystem::path tempDbDirectory;
         };
 
