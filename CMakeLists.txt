@@ -64,6 +64,7 @@ find_package(unofficial-sqlite3 CONFIG REQUIRED)
 find_package(unofficial-sodium CONFIG REQUIRED)
 find_package(ZLIB REQUIRED)
 find_package(asio CONFIG REQUIRED)
+
 option(BUILD_TESTING "Build the testing tree" ON)
 option(OMNISTATS_BUILD_BENCHMARKS "Build the Google Benchmark executable" OFF)
 option(OMNISTATS_BUILD_FUZZER "Build the fuzzing executable" OFF)
@@ -73,9 +74,11 @@ option(ENABLE_COVERAGE "Enable code coverage instrumentation" OFF)
 option(OMNISTATS_BUILD_UPDATER "Build OmniStatsUpdater.exe" ON)
 option(OMNISTATS_BUILD_INSTALLER "Deprecated compatibility option; the WiX MSI is the only supported installer" OFF)
 option(OMNISTATS_ENABLE_LOW_LEVEL_HOOK "Enable the legacy low-level keyboard hook" OFF)
+
 if(OMNISTATS_BUILD_INSTALLER)
     message(FATAL_ERROR "The legacy bootstrap installer was retired. Build the supported WiX MSI from installer/wix.")
 endif()
+
 if(ENABLE_SANITIZERS)
     if(MSVC)
         add_compile_options(/fsanitize=address)
@@ -96,6 +99,7 @@ elseif(ENABLE_COVERAGE)
         add_link_options(--coverage)
     endif()
 endif()
+
 if(BUILD_TESTING)
     enable_testing()
     find_package(GTest CONFIG REQUIRED)
@@ -103,51 +107,135 @@ if(BUILD_TESTING)
         find_package(benchmark CONFIG REQUIRED)
     endif()
 endif()
+
 include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/DiscordSocialSdk.cmake")
 
-file(GLOB_RECURSE ALL_SOURCE_FILES CONFIGURE_DEPENDS "src/*.cpp" "src/*.h" "src/*.hpp")
-list(REMOVE_DUPLICATES ALL_SOURCE_FILES)
+# -----------------------------------------------------------------------------
+# Source Discovery (per-directory GLOB_RECURSE with CONFIGURE_DEPENDS)
+# -----------------------------------------------------------------------------
+file(GLOB_RECURSE UTILS_SOURCES CONFIGURE_DEPENDS
+    "src/utils/*.cpp" "src/utils/*.h" "src/utils/*.hpp"
+)
+file(GLOB_RECURSE PLATFORM_SOURCES CONFIGURE_DEPENDS
+    "src/platform/*.cpp" "src/platform/*.h" "src/platform/*.hpp"
+)
+file(GLOB_RECURSE DATABASE_SOURCES CONFIGURE_DEPENDS
+    "src/database/*.cpp" "src/database/*.h" "src/database/*.hpp"
+)
+file(GLOB_RECURSE NETWORK_SOURCES CONFIGURE_DEPENDS
+    "src/network/*.cpp" "src/network/*.h" "src/network/*.hpp"
+)
+file(GLOB_RECURSE CORE_SOURCES CONFIGURE_DEPENDS
+    "src/core/*.cpp" "src/core/*.h" "src/core/*.hpp"
+)
+file(GLOB_RECURSE APP_SOURCES CONFIGURE_DEPENDS
+    "src/app/*.cpp" "src/app/*.h" "src/app/*.hpp"
+)
+if(APP_SOURCES)
+    list(APPEND CORE_SOURCES ${APP_SOURCES})
+endif()
+file(GLOB_RECURSE UI_SOURCES CONFIGURE_DEPENDS
+    "src/ui/*.cpp" "src/ui/*.h" "src/ui/*.hpp"
+)
 
-set(MAIN_ENTRY_SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/src/main.cpp")
+# Updater sources: minimal source set kept separate
+file(GLOB UPDATER_ALL_SOURCES CONFIGURE_DEPENDS
+    "src/updater/*.cpp" "src/updater/*.h" "src/updater/*.hpp"
+)
 set(UPDATER_ENTRY_SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/src/updater/main.cpp")
-set(UPDATER_ONLY_SOURCES
-    "${CMAKE_CURRENT_SOURCE_DIR}/src/updater/UpdaterCommon.cpp"
-    "${CMAKE_CURRENT_SOURCE_DIR}/src/updater/UpdaterPaths.cpp"
-    "${CMAKE_CURRENT_SOURCE_DIR}/src/updater/UpdaterDownload.cpp"
-    "${CMAKE_CURRENT_SOURCE_DIR}/src/updater/UpdaterProcess.cpp"
-    "${CMAKE_CURRENT_SOURCE_DIR}/src/updater/ShortcutUtils.cpp"
-    "${CMAKE_CURRENT_SOURCE_DIR}/src/updater/StatsApiRepair.cpp"
-)
-set(UPDATER_RUNTIME_SOURCES
-    ${UPDATER_ONLY_SOURCES}
-)
-
-set(SHARED_NON_UPDATER_SOURCES ${ALL_SOURCE_FILES})
-list(REMOVE_ITEM SHARED_NON_UPDATER_SOURCES
-    "${MAIN_ENTRY_SOURCE}"
-    "${UPDATER_ENTRY_SOURCE}"
-    ${UPDATER_ONLY_SOURCES}
-)
-
-set(MAIN_APP_SOURCES
-    "${MAIN_ENTRY_SOURCE}"
-    ${SHARED_NON_UPDATER_SOURCES}
-)
-
+set(UPDATER_ONLY_SOURCES ${UPDATER_ALL_SOURCES})
+list(REMOVE_ITEM UPDATER_ONLY_SOURCES "${UPDATER_ENTRY_SOURCE}")
 set(UPDATER_SOURCES
     "${UPDATER_ENTRY_SOURCE}"
-    ${UPDATER_RUNTIME_SOURCES}
-)
-
-set(TEST_SUPPORT_SOURCES
-    ${SHARED_NON_UPDATER_SOURCES}
     ${UPDATER_ONLY_SOURCES}
 )
 
-set(OMNISTATS_NON_RMLUI_SOURCES ${ALL_SOURCE_FILES})
-list(FILTER OMNISTATS_NON_RMLUI_SOURCES EXCLUDE REGEX "/src/ui/rml/.*\\.cpp$")
-set_source_files_properties(${OMNISTATS_NON_RMLUI_SOURCES} PROPERTIES SKIP_PRECOMPILE_HEADERS ON)
+# -----------------------------------------------------------------------------
+# Precompiled Headers & Layer Library Helpers
+# -----------------------------------------------------------------------------
+function(omnistats_configure_layer_target target)
+    target_include_directories(${target} PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/src")
+    target_compile_definitions(${target} PRIVATE
+        OMNISTATS_ENABLE_LOW_LEVEL_HOOK=$<BOOL:${OMNISTATS_ENABLE_LOW_LEVEL_HOOK}>
+        OMNISTATS_VERSION="${OMNISTATS_VERSION}"
+    )
+    if(MSVC)
+        target_compile_options(${target} PRIVATE
+            $<$<BOOL:${OMNISTATS_WARNINGS_AS_ERRORS}>:/WX>
+            $<$<CONFIG:Release>:/O2>
+            $<$<CONFIG:Release>:/GF>
+            $<$<CONFIG:Release>:/Gy>
+            $<$<CONFIG:Release>:/Zi>
+        )
+    endif()
+endfunction()
 
+function(omnistats_enable_shared_pch target)
+    target_precompile_headers(${target} PRIVATE
+        "$<$<COMPILE_LANGUAGE:CXX>:${CMAKE_CURRENT_SOURCE_DIR}/src/pch/OmniStatsPch.hpp>"
+    )
+endfunction()
+
+function(omnistats_enable_rmlui_pch target)
+    target_precompile_headers(${target} PRIVATE
+        "$<$<COMPILE_LANGUAGE:CXX>:${CMAKE_CURRENT_SOURCE_DIR}/src/ui/rml/RmlUiPch.hpp>"
+    )
+endfunction()
+
+# Builds a static library for a layer, plus an optional test variant if the layer
+# contains OMNISTATS_TEST_ENVIRONMENT hooks. Other slices are removing these hooks;
+# once removed, remove HAS_TEST_VARIANT to cut over cleanly.
+function(omnistats_add_layer_library name)
+    cmake_parse_arguments(ARG "HAS_TEST_VARIANT" "" "SOURCES;LIBRARIES" ${ARGN})
+
+    # Clean production library (links into OmniStats.exe, no test hooks)
+    add_library(${name} STATIC ${ARG_SOURCES})
+    omnistats_configure_layer_target(${name})
+    if(ARG_LIBRARIES)
+        target_link_libraries(${name} PUBLIC ${ARG_LIBRARIES})
+    endif()
+
+    if(name STREQUAL "omnistats_ui")
+        omnistats_enable_rmlui_pch(${name})
+        set(ui_non_rml ${ARG_SOURCES})
+        list(FILTER ui_non_rml INCLUDE REGEX ".*\\.cpp$")
+        list(FILTER ui_non_rml EXCLUDE REGEX "/src/ui/rml/.*")
+        set_source_files_properties(${ui_non_rml} PROPERTIES SKIP_PRECOMPILE_HEADERS ON)
+        target_compile_definitions(${name} PRIVATE
+            $<$<CONFIG:Debug>:OMNISTATS_RML_DEV_DIR="${CMAKE_CURRENT_SOURCE_DIR}/resources/rml">
+        )
+    else()
+        omnistats_enable_shared_pch(${name})
+    endif()
+
+    # Test variant for targets with OMNISTATS_TEST_ENVIRONMENT hooks
+    if(BUILD_TESTING AND ARG_HAS_TEST_VARIANT)
+        set(test_target "${name}_test")
+        add_library(${test_target} STATIC ${ARG_SOURCES})
+        omnistats_configure_layer_target(${test_target})
+        target_compile_definitions(${test_target} PUBLIC OMNISTATS_TEST_ENVIRONMENT=1)
+        if(ARG_LIBRARIES)
+            target_link_libraries(${test_target} PUBLIC ${ARG_LIBRARIES})
+        endif()
+
+        if(name STREQUAL "omnistats_ui")
+            omnistats_enable_rmlui_pch(${test_target})
+            set(ui_non_rml ${ARG_SOURCES})
+            list(FILTER ui_non_rml INCLUDE REGEX ".*\\.cpp$")
+            list(FILTER ui_non_rml EXCLUDE REGEX "/src/ui/rml/.*")
+            set_source_files_properties(${ui_non_rml} PROPERTIES SKIP_PRECOMPILE_HEADERS ON)
+            target_compile_definitions(${test_target} PRIVATE
+                $<$<CONFIG:Debug>:OMNISTATS_RML_DEV_DIR="${CMAKE_CURRENT_SOURCE_DIR}/resources/rml">
+            )
+        else()
+            omnistats_enable_shared_pch(${test_target})
+        endif()
+    endif()
+endfunction()
+
+# -----------------------------------------------------------------------------
+# Private Service Module Integration
+# -----------------------------------------------------------------------------
 option(OMNISTATS_USE_PRIVATE_SERVICES "Use private OmniStats service module if present" ON)
 if(OMNISTATS_USE_PRIVATE_SERVICES AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/private/CMakeLists.txt")
     set(OMNISTATS_PUBLIC_SRC_DIR "${CMAKE_CURRENT_SOURCE_DIR}/src")
@@ -159,58 +247,134 @@ else()
     message(STATUS "OmniNet backend: stub (tracker.gg only, no sign-in/telemetry)")
 endif()
 
-# Embed application resources through the configured build-tree script.
+# -----------------------------------------------------------------------------
+# Static Layer Libraries
+# -----------------------------------------------------------------------------
+omnistats_add_layer_library(omnistats_utils
+    HAS_TEST_VARIANT
+    SOURCES ${UTILS_SOURCES}
+    LIBRARIES
+        nlohmann_json::nlohmann_json
+        unofficial::sqlite3::sqlite3
+        ZLIB::ZLIB
+        crypt32.lib
+        shell32.lib
+        ole32.lib
+)
+
+omnistats_add_layer_library(omnistats_platform
+    SOURCES ${PLATFORM_SOURCES}
+    LIBRARIES
+        SDL2::SDL2-static
+        Imm32.lib
+        Setupapi.lib
+        winmm.lib
+        version.lib
+)
+
+omnistats_add_layer_library(omnistats_database
+    SOURCES ${DATABASE_SOURCES}
+    LIBRARIES
+        unofficial::sqlite3::sqlite3
+        nlohmann_json::nlohmann_json
+)
+
+omnistats_add_layer_library(omnistats_network
+    HAS_TEST_VARIANT
+    SOURCES ${NETWORK_SOURCES}
+    LIBRARIES
+        omnistats_omninet
+        CURL::libcurl
+        unofficial-sodium::sodium
+        nlohmann_json::nlohmann_json
+        asio::asio
+        DiscordSocialSdk
+        crypt32.lib
+        Ws2_32.lib
+        Wldap32.lib
+        Normaliz.lib
+        bcrypt.lib
+        wintrust.lib
+)
+
+omnistats_add_layer_library(omnistats_core
+    HAS_TEST_VARIANT
+    SOURCES ${CORE_SOURCES}
+    LIBRARIES
+        nlohmann_json::nlohmann_json
+        DiscordSocialSdk
+        crypt32.lib
+        shell32.lib
+        ole32.lib
+        uuid.lib
+)
+
+omnistats_add_layer_library(omnistats_ui
+    SOURCES ${UI_SOURCES}
+    LIBRARIES
+        RmlUi::RmlUi
+        SDL2::SDL2-static
+        d3d11.lib
+        d3dcompiler.lib
+        dxgi.lib
+        gdiplus.lib
+        windowscodecs.lib
+        comdlg32.lib
+        Imm32.lib
+        Setupapi.lib
+        winmm.lib
+        version.lib
+        ole32.lib
+        uuid.lib
+        shell32.lib
+)
+
+if(BUILD_TESTING)
+    add_library(omnistats_updater_test STATIC ${UPDATER_ONLY_SOURCES})
+    omnistats_configure_layer_target(omnistats_updater_test)
+    omnistats_enable_shared_pch(omnistats_updater_test)
+    target_compile_definitions(omnistats_updater_test PUBLIC OMNISTATS_TEST_ENVIRONMENT=1)
+    target_link_libraries(omnistats_updater_test PUBLIC
+        CURL::libcurl
+        version.lib
+        crypt32.lib
+        wintrust.lib
+        Ws2_32.lib
+        Wldap32.lib
+        Normaliz.lib
+        bcrypt.lib
+        ZLIB::ZLIB
+        ole32.lib
+        uuid.lib
+    )
+endif()
+
+# -----------------------------------------------------------------------------
+# Main Application Executable (OmniStats.exe)
+# -----------------------------------------------------------------------------
 set(RESOURCE_FILE "${OMNISTATS_APP_RESOURCE_FILE}")
 
-add_executable(${PROJECT_NAME} ${MAIN_APP_SOURCES} ${RESOURCE_FILE})
+add_executable(${PROJECT_NAME}
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/main.cpp"
+    ${RESOURCE_FILE}
+)
 omnistats_copy_discord_sdk(${PROJECT_NAME})
 
-function(omnistats_enable_rmlui_pch target)
-    target_precompile_headers(${target} PRIVATE
-        "$<$<COMPILE_LANGUAGE:CXX>:${CMAKE_CURRENT_SOURCE_DIR}/src/ui/rml/RmlUiPch.hpp>"
-    )
-endfunction()
-
 target_include_directories(${PROJECT_NAME} PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
-omnistats_enable_rmlui_pch(${PROJECT_NAME})
 target_compile_definitions(${PROJECT_NAME} PRIVATE
     OMNISTATS_ENABLE_LOW_LEVEL_HOOK=$<BOOL:${OMNISTATS_ENABLE_LOW_LEVEL_HOOK}>
     OMNISTATS_VERSION="${OMNISTATS_VERSION}"
-    # Debug builds read RML/RCSS from the source tree; Ctrl+Shift+R reloads them.
     $<$<CONFIG:Debug>:OMNISTATS_RML_DEV_DIR="${CMAKE_CURRENT_SOURCE_DIR}/resources/rml">
 )
 
-# Application dependencies
 target_link_libraries(${PROJECT_NAME} PRIVATE
-    nlohmann_json::nlohmann_json
-    omnistats_omninet
-    RmlUi::RmlUi
-    CURL::libcurl
-    SDL2::SDL2-static
-    unofficial::sqlite3::sqlite3
-    unofficial-sodium::sodium
-    ZLIB::ZLIB
-    asio::asio
-    DiscordSocialSdk
-    d3d11.lib
-    d3dcompiler.lib
-    dxgi.lib
-    winmm.lib
-    version.lib
-    Imm32.lib
-    Setupapi.lib
-    crypt32.lib
-    Ws2_32.lib
-    Wldap32.lib
-    Normaliz.lib
-    gdiplus.lib
-    ole32.lib
+    omnistats_ui
+    omnistats_platform
+    omnistats_network
+    omnistats_database
+    omnistats_core
+    omnistats_utils
     dbghelp.lib
-    bcrypt.lib
-    shell32.lib
-    uuid.lib
-    comdlg32.lib
-    windowscodecs.lib
 )
 
 include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/ThirdPartyNotices.cmake")
@@ -221,26 +385,27 @@ add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
 )
 
 if(MSVC)
-    # Target-specific compiler options for MSVC
     target_compile_options(${PROJECT_NAME} PRIVATE
         $<$<BOOL:${OMNISTATS_WARNINGS_AS_ERRORS}>:/WX>
-        $<$<CONFIG:Release>:/O2>          # Optimize for speed
-        $<$<CONFIG:Release>:/GF>          # Eliminate Duplicate Strings
-        $<$<CONFIG:Release>:/Gy>          # Function-Level Linking
-        $<$<CONFIG:Release>:/Zi>          # Generate debug information (PDB)
+        $<$<CONFIG:Release>:/O2>
+        $<$<CONFIG:Release>:/GF>
+        $<$<CONFIG:Release>:/Gy>
+        $<$<CONFIG:Release>:/Zi>
     )
 
-    # Target-specific linker options for MSVC
     target_link_options(${PROJECT_NAME} PRIVATE
         "/MANIFESTINPUT:${CMAKE_CURRENT_SOURCE_DIR}/resources/app.manifest"
-        $<$<CONFIG:Release>:/OPT:REF>     # Remove Unreferenced Functions/Data (Dead code elimination)
-        $<$<CONFIG:Release>:/OPT:ICF>     # Merge Identical COMDATs (Identical template folding)
-        $<$<CONFIG:Release>:/DEBUG>       # Generate PDB file
+        $<$<CONFIG:Release>:/OPT:REF>
+        $<$<CONFIG:Release>:/OPT:ICF>
+        $<$<CONFIG:Release>:/DEBUG>
         $<$<CONFIG:Release>:/SUBSYSTEM:WINDOWS>
         $<$<CONFIG:Release>:/ENTRY:mainCRTStartup>
     )
 endif()
 
+# -----------------------------------------------------------------------------
+# Updater Target (OmniStatsUpdater.exe)
+# -----------------------------------------------------------------------------
 if(OMNISTATS_BUILD_UPDATER)
     add_executable(OmniStatsUpdater
         ${UPDATER_SOURCES}
@@ -282,19 +447,20 @@ if(OMNISTATS_BUILD_UPDATER)
     endif()
 endif()
 
+# -----------------------------------------------------------------------------
+# Test Target (OmniStatsTests.exe)
+# -----------------------------------------------------------------------------
 if(BUILD_TESTING)
-    file(GLOB_RECURSE TEST_SOURCES "tests/*.cpp")
-    file(GLOB_RECURSE FUZZ_SOURCES "tests/fuzz/*.cpp")
+    file(GLOB_RECURSE TEST_SOURCES CONFIGURE_DEPENDS "tests/*.cpp")
+    file(GLOB_RECURSE FUZZ_SOURCES CONFIGURE_DEPENDS "tests/fuzz/*.cpp")
     if(FUZZ_SOURCES)
         list(REMOVE_ITEM TEST_SOURCES ${FUZZ_SOURCES})
     endif()
-    set_source_files_properties(${TEST_SOURCES} PROPERTIES SKIP_PRECOMPILE_HEADERS ON)
 
-
-    add_executable(OmniStatsTests ${TEST_SOURCES} ${TEST_SUPPORT_SOURCES})
+    add_executable(OmniStatsTests ${TEST_SOURCES})
     omnistats_copy_discord_sdk(OmniStatsTests)
     target_include_directories(OmniStatsTests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
-    omnistats_enable_rmlui_pch(OmniStatsTests)
+    omnistats_enable_shared_pch(OmniStatsTests)
     target_compile_definitions(OmniStatsTests PRIVATE
         OMNISTATS_TEST_ENVIRONMENT=1
         OMNISTATS_ENABLE_LOW_LEVEL_HOOK=$<BOOL:${OMNISTATS_ENABLE_LOW_LEVEL_HOOK}>
@@ -306,34 +472,14 @@ if(BUILD_TESTING)
     target_link_libraries(OmniStatsTests PRIVATE
         GTest::gtest_main
         GTest::gmock
-        nlohmann_json::nlohmann_json
-        omnistats_omninet
-        RmlUi::RmlUi
-        CURL::libcurl
-        SDL2::SDL2-static
-        unofficial::sqlite3::sqlite3
-        unofficial-sodium::sodium
-        ZLIB::ZLIB
-        asio::asio
-        DiscordSocialSdk
-        d3d11.lib
-        d3dcompiler.lib
-        dxgi.lib
-        winmm.lib
-        version.lib
-        Imm32.lib
-        Setupapi.lib
-        crypt32.lib
-        wintrust.lib
-        Ws2_32.lib
-        Wldap32.lib
-        Normaliz.lib
-        gdiplus.lib
-        bcrypt.lib
-        ole32.lib
-        uuid.lib
-        windowscodecs.lib
-        shell32.lib
+        omnistats_ui
+        omnistats_platform
+        omnistats_network_test
+        omnistats_database
+        omnistats_core_test
+        omnistats_utils_test
+        omnistats_updater_test
+        dbghelp.lib
     )
 
     if(MSVC)
@@ -354,17 +500,16 @@ if(BUILD_TESTING)
 
     add_test(NAME OmniStatsTests COMMAND OmniStatsTests)
 
-    # -------------------------------------------------------------
+    # -------------------------------------------------------------------------
     # Google Benchmark Target
-    # -------------------------------------------------------------
-    file(GLOB_RECURSE BENCH_SOURCES "benchmarks/*.cpp")
-    set_source_files_properties(${BENCH_SOURCES} PROPERTIES SKIP_PRECOMPILE_HEADERS ON)
+    # -------------------------------------------------------------------------
+    file(GLOB_RECURSE BENCH_SOURCES CONFIGURE_DEPENDS "benchmarks/*.cpp")
 
     if(BENCH_SOURCES AND OMNISTATS_BUILD_BENCHMARKS)
-        add_executable(OmniStatsBenchmarks ${BENCH_SOURCES} ${SHARED_NON_UPDATER_SOURCES})
+        add_executable(OmniStatsBenchmarks ${BENCH_SOURCES})
         omnistats_copy_discord_sdk(OmniStatsBenchmarks)
         target_include_directories(OmniStatsBenchmarks PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
-        omnistats_enable_rmlui_pch(OmniStatsBenchmarks)
+        omnistats_enable_shared_pch(OmniStatsBenchmarks)
         target_compile_definitions(OmniStatsBenchmarks PRIVATE
             OMNISTATS_TEST_ENVIRONMENT=1
             OMNISTATS_ENABLE_LOW_LEVEL_HOOK=$<BOOL:${OMNISTATS_ENABLE_LOW_LEVEL_HOOK}>
@@ -372,30 +517,13 @@ if(BUILD_TESTING)
         )
         target_link_libraries(OmniStatsBenchmarks PRIVATE
             benchmark::benchmark_main
-            nlohmann_json::nlohmann_json
-            RmlUi::RmlUi
-            omnistats_omninet
-            CURL::libcurl
-            SDL2::SDL2-static
-            unofficial::sqlite3::sqlite3
-            unofficial-sodium::sodium
-            ZLIB::ZLIB
-            asio::asio
-            DiscordSocialSdk
-            d3d11.lib
-            d3dcompiler.lib
-            dxgi.lib
-            winmm.lib
-            version.lib
-            Imm32.lib
-            Setupapi.lib
-            crypt32.lib
-            Ws2_32.lib
-            Wldap32.lib
-            Normaliz.lib
-            gdiplus.lib
-            bcrypt.lib
-            ole32.lib
+            omnistats_ui
+            omnistats_platform
+            omnistats_network_test
+            omnistats_database
+            omnistats_core_test
+            omnistats_utils_test
+            dbghelp.lib
         )
         if(MSVC)
             target_compile_options(OmniStatsBenchmarks PRIVATE
@@ -412,45 +540,27 @@ if(BUILD_TESTING)
         endif()
     endif()
 
-    # -------------------------------------------------------------
+    # -------------------------------------------------------------------------
     # Fuzzer Target
-    # -------------------------------------------------------------
+    # -------------------------------------------------------------------------
     if(FUZZ_SOURCES AND OMNISTATS_BUILD_FUZZER)
         set_source_files_properties(${FUZZ_SOURCES} PROPERTIES SKIP_PRECOMPILE_HEADERS ON)
-        add_executable(OmniStatsFuzzer ${FUZZ_SOURCES} ${SHARED_NON_UPDATER_SOURCES})
+        add_executable(OmniStatsFuzzer ${FUZZ_SOURCES})
         omnistats_copy_discord_sdk(OmniStatsFuzzer)
         target_include_directories(OmniStatsFuzzer PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
-        omnistats_enable_rmlui_pch(OmniStatsFuzzer)
         target_compile_definitions(OmniStatsFuzzer PRIVATE
             OMNISTATS_TEST_ENVIRONMENT=1
             OMNISTATS_ENABLE_LOW_LEVEL_HOOK=$<BOOL:${OMNISTATS_ENABLE_LOW_LEVEL_HOOK}>
             OMNISTATS_VERSION="${OMNISTATS_VERSION}"
         )
         target_link_libraries(OmniStatsFuzzer PRIVATE
-            nlohmann_json::nlohmann_json
-            RmlUi::RmlUi
-            omnistats_omninet
-            CURL::libcurl
-            SDL2::SDL2-static
-            unofficial::sqlite3::sqlite3
-            unofficial-sodium::sodium
-            ZLIB::ZLIB
-            asio::asio
-            DiscordSocialSdk
-            d3d11.lib
-            d3dcompiler.lib
-            dxgi.lib
-            winmm.lib
-            version.lib
-            Imm32.lib
-            Setupapi.lib
-            crypt32.lib
-            Ws2_32.lib
-            Wldap32.lib
-            Normaliz.lib
-            gdiplus.lib
-            bcrypt.lib
-            ole32.lib
+            omnistats_ui
+            omnistats_platform
+            omnistats_network_test
+            omnistats_database
+            omnistats_core_test
+            omnistats_utils_test
+            dbghelp.lib
         )
         if(MSVC)
             # Only clang-cl implements libFuzzer on Windows. Plain cl.exe ignores
