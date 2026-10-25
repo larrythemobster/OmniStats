@@ -1,9 +1,9 @@
 #include <gtest/gtest.h>
 #include "network/mmr/MMRFetcher.hpp"
+#include "core/state/LiveMatchStore.hpp"
 #include "core/state/SessionState.hpp"
 #include "core/config/Config.hpp"
 #include "core/reducer/TelemetryReducer.hpp"
-#include "core/effects/SideEffectExecutor.hpp"
 #include "database/DatabaseManager.hpp"
 #include <map>
 #include <memory>
@@ -30,7 +30,7 @@ namespace {
             Config::Update([](ConfigData& config) { config.enable_mmr_tracking = true; }, false);
             state = std::make_shared<SessionState>();
             fetcher = std::make_shared<MMRFetcher>(state);
-            state->game.myPrimaryId = kMe;
+            state->liveMatch->SetLocalPrimaryId(kMe);
         }
 
         void TearDown() override {
@@ -44,7 +44,7 @@ namespace {
             req.primaryId = primaryId;
             req.name = "Player";
             req.reason = MMRRequestReason::Roster;
-            req.sessionGeneration = fetchedInSession.value_or(state->game.sessionGeneration.load());
+            req.sessionGeneration = fetchedInSession.value_or(state->liveMatch->GetSnapshot()->sessionGeneration);
             NormalizedProfileResult profile;
             for (const auto& [playlist, rating] : playlists) {
                 profile.playlistMMRs[playlist] = rating.mmr;
@@ -67,29 +67,23 @@ namespace {
         }
 
         void StartNewSession() {
-            std::unique_lock gameLock(state->game.mutex);
             std::unique_lock historyLock(state->history.mutex);
             state->startNewSessionLocked(1700000000);
         }
-
         void SwitchAccount(const std::string& primaryId) {
-            std::unique_lock gameLock(state->game.mutex);
-            state->game.myPrimaryId = primaryId;
             std::unique_lock historyLock(state->history.mutex);
             state->selectMmrOwnerLocked(primaryId);
         }
 
         std::optional<int> SessionChange(const std::string& playlist) {
-            std::shared_lock lock(state->game.mutex);
-            const auto& changes = state->game.sessionTotals.mmrChangeByPlaylist;
+            const auto& changes = state->liveMatch->GetSnapshot()->sessionTotals.mmrChangeByPlaylist;
             const auto it = changes.find(playlist);
             if (it == changes.end()) return std::nullopt;
             return it->second;
         }
 
         int TotalChange() {
-            std::shared_lock lock(state->game.mutex);
-            return static_cast<int>(state->game.sessionTotals.totalMmrChange);
+            return static_cast<int>(state->liveMatch->GetSnapshot()->sessionTotals.totalMmrChange);
         }
 
         std::vector<float> Graph(const std::string& playlist) {
@@ -106,21 +100,20 @@ namespace {
         }
 
         void RecordCountedGames(int wins) {
-            std::unique_lock lock(state->game.mutex);
-            state->game.sessionTotals.wins += wins;
+            state->liveMatch->UpdateMatchStateForTests([wins](MatchState& ms) {
+                ms.sessionTotals.wins += wins;
+            });
         }
 
         std::optional<int> RecapChange(const std::string& playlist) {
-            std::shared_lock lock(state->game.mutex);
-            const auto& changes = state->game.lastSessionRecap.totals.mmrChangeByPlaylist;
+            const auto& changes = state->liveMatch->GetSnapshot()->lastSessionRecap.totals.mmrChangeByPlaylist;
             const auto it = changes.find(playlist);
             if (it == changes.end()) return std::nullopt;
             return it->second;
         }
 
         int RecapTotal() {
-            std::shared_lock lock(state->game.mutex);
-            return static_cast<int>(state->game.lastSessionRecap.totals.totalMmrChange);
+            return static_cast<int>(state->liveMatch->GetSnapshot()->lastSessionRecap.totals.totalMmrChange);
         }
 
         std::shared_ptr<SessionState> state;
@@ -237,18 +230,14 @@ TEST_F(SessionMmrLifecycleTest, SwitchingAccountsNeverMixesSessionMmr) {
 
 TEST_F(SessionMmrLifecycleTest, ProfileFetchedBeforeTheResetCannotSeedTheNewSession) {
     PublishRoster({{"2v2", {1200, 50}}});
-    const uint64_t previousSession = state->game.sessionGeneration.load();
+    const uint64_t previousSession = state->liveMatch->GetSnapshot()->sessionGeneration;
     StartNewSession();
 
     PublishRoster({{"2v2", {1210, 51}}}, kMe, previousSession);
     EXPECT_TRUE(Graph("2v2").empty());
     EXPECT_EQ(Baseline("2v2"), std::nullopt);
     EXPECT_EQ(SessionChange("2v2"), std::nullopt);
-    {
-        std::shared_lock lock(state->game.mutex);
-        EXPECT_EQ(state->game.roster.at(kMe).playlists.at("2v2"), 1210);
-    }
-
+    EXPECT_EQ(state->liveMatch->GetSnapshot()->roster.at(kMe).playlists.at("2v2"), 1210);
     PublishRoster({{"2v2", {1220, 52}}});
     PlayMatch("s2-g1", "2v2", false, {1220, 52}, {1211, 53});
     EXPECT_EQ(Baseline("2v2"), 1220);
@@ -324,10 +313,9 @@ TEST_F(SessionMmrLifecycleTest, MissingPreMatchRatingNeverBecomesTheBaseline) {
 }
 
 TEST_F(SessionMmrLifecycleTest, BestPlaylistMmrIsNeverUsedAsAPlaylistBaseline) {
-    {
-        std::unique_lock lock(state->game.mutex);
-        state->game.roster[kMe] = PlayerData{.primaryId = kMe, .name = "Player", .mmr = 1500};
-    }
+    state->liveMatch->UpdateMatchStateForTests([](MatchState& ms) {
+        ms.roster[kMe] = PlayerData{.primaryId = kMe, .name = "Player", .mmr = 1500};
+    });
     EnqueueMatch("unknown-twos", "2v2", true, {0, -1});
     fetcher->ProcessPostMatchResponseForTests("unknown-twos", 0, -1);
     EXPECT_TRUE(fetcher->PlaylistMatchPointsForTests("2v2").empty());
@@ -366,10 +354,9 @@ TEST_F(SessionMmrLifecycleTest, UntrackedMatchesInvalidateTheReconstructedBaseli
 }
 
 TEST_F(SessionMmrLifecycleTest, NewSessionFetchesAFreshProfileInsteadOfTheCachedOne) {
-    {
-        std::unique_lock lock(state->game.mutex);
-        state->game.roster[kMe] = PlayerData{.primaryId = kMe, .name = "Player"};
-    }
+    state->liveMatch->UpdateMatchStateForTests([](MatchState& ms) {
+        ms.roster[kMe] = PlayerData{.primaryId = kMe, .name = "Player"};
+    });
     PublishRoster({{"2v2", {1220, 52}}});
     fetcher->Enqueue(kMe, "Player");
     EXPECT_EQ(fetcher->PendingRequestCountForTests(), 0u);
@@ -387,7 +374,7 @@ TEST_F(SessionMmrLifecycleTest, RestartedAppStartsTrackingFromItsFirstProfile) {
     fetcher.reset();
     state = std::make_shared<SessionState>();
     fetcher = std::make_shared<MMRFetcher>(state);
-    state->game.myPrimaryId = kMe;
+    state->liveMatch->SetLocalPrimaryId(kMe);
     EXPECT_EQ(SessionChange("2v2"), std::nullopt);
     EXPECT_TRUE(Graph("2v2").empty());
 
@@ -479,19 +466,20 @@ TEST_F(SessionMmrLifecycleTest, ThreeMatchesThenSimulatedClosePersistsSessionAnd
         db->SaveMatch(snap);
 
         PlayMatch(guid, "2v2", won, pre, post);
-        std::unique_lock lock(state->game.mutex);
-        if (won)
-            state->game.sessionTotals.wins++;
-        else
-            state->game.sessionTotals.losses++;
-        state->game.sessionTotals.goals += goals;
-        state->game.sessionTotals.saves += saves;
-        state->game.sessionGamemodes["2v2"].wins += won ? 1 : 0;
-        state->game.sessionGamemodes["2v2"].losses += won ? 0 : 1;
-        state->game.sessionGamemodes["2v2"].total++;
-        if (state->game.sessionStartedAtUnix == 0) state->game.sessionStartedAtUnix = tsSec;
-        state->game.lastMatchEndedAtUnix = tsSec;
-        state->game.sessionMatchGuids.push_back(guid);
+        state->liveMatch->UpdateMatchStateForTests([won, goals, saves, tsSec, guid](MatchState& ms) {
+            if (won)
+                ms.sessionTotals.wins++;
+            else
+                ms.sessionTotals.losses++;
+            ms.sessionTotals.goals += goals;
+            ms.sessionTotals.saves += saves;
+            ms.sessionGamemodes["2v2"].wins += won ? 1 : 0;
+            ms.sessionGamemodes["2v2"].losses += won ? 0 : 1;
+            ms.sessionGamemodes["2v2"].total++;
+            if (ms.sessionStartedAtUnix == 0) ms.sessionStartedAtUnix = tsSec;
+            ms.lastMatchEndedAtUnix = tsSec;
+            ms.sessionMatchGuids.push_back(guid);
+        });
     };
 
     saveAndPlay("s1-m1", true, {1200, 50}, {1210, 51}, 2, 1, 1700000100);
@@ -499,8 +487,9 @@ TEST_F(SessionMmrLifecycleTest, ThreeMatchesThenSimulatedClosePersistsSessionAnd
     saveAndPlay("s1-m3", true, {1201, 52}, {1212, 53}, 3, 1, 1700000700);
 
     StartNewSession();
-    ASSERT_TRUE(state->game.lastSessionRecap.valid);
-    const int64_t sessionId = db->SaveSession(state->game.lastSessionRecap);
+    auto snap = state->liveMatch->GetSnapshot();
+    ASSERT_TRUE(snap->lastSessionRecap.valid);
+    const int64_t sessionId = db->SaveSession(snap->lastSessionRecap);
     ASSERT_GT(sessionId, 0);
 
     const auto sessions = db->ListSessions(kMe, 0, 10);
@@ -536,20 +525,22 @@ TEST_F(SessionMmrLifecycleTest, InactivityCloseAfterTwoHoursSavesSessionWithoutR
     ASSERT_TRUE(db->Initialize(":memory:"));
 
     {
-        std::unique_lock gameLock(state->game.mutex);
         std::unique_lock historyLock(state->history.mutex);
-        state->game.sessionTotals.wins = 3;
-        state->game.sessionTotals.losses = 1;
-        state->game.sessionStartedAtUnix = 1700000000;
-        state->game.lastMatchEndedAtUnix = 1700001200;
+        state->liveMatch->UpdateMatchStateForTests([](MatchState& ms) {
+            ms.sessionTotals.wins = 3;
+            ms.sessionTotals.losses = 1;
+            ms.sessionStartedAtUnix = 1700000000;
+            ms.lastMatchEndedAtUnix = 1700001200;
+        });
         EXPECT_FALSE(state->closeSessionIfInactiveLocked(1700001200 + Insights::kSessionGapSeconds));
         EXPECT_TRUE(state->closeSessionIfInactiveLocked(1700001200 + Insights::kSessionGapSeconds + 1));
     }
 
-    ASSERT_TRUE(state->game.lastSessionRecap.valid);
-    EXPECT_EQ(state->game.lastSessionRecap.endedAtUnix, 1700001200);
-    EXPECT_EQ(state->game.sessionTotals.wins, 0);
-    const int64_t sid = db->SaveSession(state->game.lastSessionRecap);
+    auto snap = state->liveMatch->GetSnapshot();
+    ASSERT_TRUE(snap->lastSessionRecap.valid);
+    EXPECT_EQ(snap->lastSessionRecap.endedAtUnix, 1700001200);
+    EXPECT_EQ(snap->sessionTotals.wins, 0);
+    const int64_t sid = db->SaveSession(snap->lastSessionRecap);
     ASSERT_GT(sid, 0);
     const auto sessions = db->ListSessions(kMe, 0, 10);
     ASSERT_EQ(sessions.size(), 1u);
@@ -560,20 +551,19 @@ TEST_F(SessionMmrLifecycleTest, InactivityCloseAfterTwoHoursSavesSessionWithoutR
 TEST_F(SessionMmrLifecycleTest, LateProfileForDepartedPlayerDoesNotRecreateRosterEntry) {
     const std::string departed = "Epic|departed";
     const std::string present = "Epic|present";
-    {
-        std::unique_lock lock(state->game.mutex);
-        state->game.roster[present] = PlayerData{.primaryId = present, .name = "Present", .team = 1};
-    }
-    const uint64_t oldGeneration = state->game.sessionGeneration.load();
+    state->liveMatch->UpdateMatchStateForTests([&](MatchState& ms) {
+        ms.roster[present] = PlayerData{.primaryId = present, .name = "Present", .team = 1};
+    });
+    const uint64_t oldGeneration = state->liveMatch->GetSnapshot()->sessionGeneration;
     PublishRoster({{"2v2", {1300, 80}}}, departed);
     StartNewSession();
     PublishRoster({{"2v2", {1350, 90}}}, present, oldGeneration);
     PublishRoster({{"2v2", {1250, 60}}});
 
-    std::shared_lock lock(state->game.mutex);
-    EXPECT_EQ(state->game.roster.count(departed), 0u);
-    ASSERT_EQ(state->game.roster.count(present), 1u);
-    EXPECT_FALSE(state->game.roster.at(present).fetched);
-    ASSERT_EQ(state->game.roster.count(kMe), 1u);
-    EXPECT_EQ(state->game.roster.at(kMe).playlists.at("2v2"), 1250);
+    auto endSnap = state->liveMatch->GetSnapshot();
+    EXPECT_EQ(endSnap->roster.count(departed), 0u);
+    ASSERT_EQ(endSnap->roster.count(present), 1u);
+    EXPECT_FALSE(endSnap->roster.at(present).fetched);
+    ASSERT_EQ(endSnap->roster.count(kMe), 1u);
+    EXPECT_EQ(endSnap->roster.at(kMe).playlists.at("2v2"), 1250);
 }

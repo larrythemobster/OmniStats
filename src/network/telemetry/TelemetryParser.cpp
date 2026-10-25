@@ -1,6 +1,7 @@
 #include "network/telemetry/TelemetryParser.hpp"
 #include "core/config/Config.hpp"
 #include "network/telemetry/TelemetryManager.hpp"
+#include <nlohmann/json.hpp>
 #include <iostream>
 #include <stdexcept>
 
@@ -20,7 +21,7 @@ void TelemetryParser::Stop() {
     }
 }
 
-void TelemetryParser::ConnectAndRead(JsonLineCallback onJsonLine) {
+void TelemetryParser::ConnectAndRead(MessageCallback onMessage) {
     m_stopping.store(false);
     if (m_socket.is_open()) {
         asio::error_code ec;
@@ -182,13 +183,7 @@ void TelemetryParser::ConnectAndRead(JsonLineCallback onJsonLine) {
 
             if (endIdx != std::string::npos) {
                 std::string jsonStr = dataBuffer.substr(searchPos, endIdx - searchPos + 1);
-                if (onJsonLine) {
-                    try {
-                        onJsonLine(jsonStr);
-                    } catch (const std::exception& e) {
-                        std::cout << "[StatsClient] JSON Parse Error: " << e.what() << "\n";
-                    }
-                }
+                if (onMessage) onMessage(jsonStr);
                 searchPos = endIdx + 1;
             } else {
                 break;

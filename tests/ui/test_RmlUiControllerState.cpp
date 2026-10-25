@@ -1,4 +1,5 @@
 #include "ui/rml/widgets/TournamentWidget.hpp"
+#include "core/state/LiveMatchStore.hpp"
 #include <gtest/gtest.h>
 #include <RmlUi/Core/Core.h>
 #include <RmlUi/Core/ComputedValues.h>
@@ -344,42 +345,38 @@ TEST_F(RmlUiControllerStateTest, HeadlessUpdateHandlesEmptyAndMalformedRoster) {
     state->ui.showOverlay.store(true);
     EXPECT_NO_THROW(controller.Update(config));
 
-    {
-        std::unique_lock lock(state->game.mutex);
-        state->game.inMatch.store(true);
-        state->game.myPrimaryId = "steam|111";
+    state->liveMatch->UpdateMatchStateForTests([](MatchState& ms) {
+        ms.inMatch = true;
+        ms.myPrimaryId = "steam|111";
 
         PlayerData local;
         local.primaryId = "steam|111";
         local.name = "\x80\x81\x82\xFE\xFF";
         local.team = 0;
         local.mmr = 1200;
-        state->game.roster[local.primaryId] = local;
+        ms.roster[local.primaryId] = local;
 
         PlayerData opponent;
         opponent.primaryId = "epic|222";
         opponent.name = "Player\xC0\xAF\xE0\x80";
         opponent.team = 1;
         opponent.mmr = 1100;
-        state->game.roster[opponent.primaryId] = opponent;
-        state->game.version.fetch_add(1);
-    }
+        ms.roster[opponent.primaryId] = opponent;
+    });
 
     EXPECT_NO_THROW(controller.Update(config));
 }
 
 TEST_F(RmlUiControllerStateTest, RosterKeepsLegacyPlatformLabelsAndBotsNonClickable) {
     auto state = std::make_shared<SessionState>();
-    {
-        std::unique_lock lock(state->game.mutex);
+    state->liveMatch->UpdateMatchStateForTests([](MatchState& ms) {
         PlayerData bot;
         bot.primaryId = "Unknown|Bot_01";
         bot.name = "Merlin";
         bot.team = 0;
         bot.fetched = true;
-        state->game.roster[bot.primaryId] = bot;
-        state->game.version.fetch_add(1);
-    }
+        ms.roster[bot.primaryId] = bot;
+    });
 
     RmlUiController controller(state, nullptr);
     controller.Update(Config::Read());
@@ -392,9 +389,8 @@ TEST_F(RmlUiControllerStateTest, RosterKeepsLegacyPlatformLabelsAndBotsNonClicka
 
 TEST_F(RmlUiControllerStateTest, RosterSeparatesUnloadedFirstMeetingAndBothEncounterRecords) {
     auto state = std::make_shared<SessionState>();
-    {
-        std::unique_lock lock(state->game.mutex);
-        state->game.myPrimaryId = "Steam|self";
+    state->liveMatch->UpdateMatchStateForTests([](MatchState& ms) {
+        ms.myPrimaryId = "Steam|self";
 
         const auto add = [&](const std::string& id, const std::string& name, bool loaded, int ww, int lw, int wa, int la) {
             PlayerData p;
@@ -407,14 +403,13 @@ TEST_F(RmlUiControllerStateTest, RosterSeparatesUnloadedFirstMeetingAndBothEncou
             p.lifetimeLossesWith = lw;
             p.lifetimeWinsAgainst = wa;
             p.lifetimeLossesAgainst = la;
-            state->game.roster[id] = p;
+            ms.roster[id] = p;
         };
         add("Steam|self", "Self", false, 0, 0, 0, 0);
         add("Epic|pending", "StillLoading", false, 0, 0, 0, 0);
         add("Epic|new", "FirstEncounter", true, 0, 0, 0, 0);
         add("Epic|both", "BothSides", true, 5, 3, 4, 2);
-        state->game.version.fetch_add(1);
-    }
+    });
 
     RmlUiController controller(state, nullptr);
     controller.Update(Config::Read());
@@ -447,25 +442,25 @@ TEST_F(RmlUiControllerStateTest, RosterSortFallsBackToBestMmrWhenSelectedPlaylis
     auto state = std::make_shared<SessionState>();
     state->ui.rosterMmrCategory.store(MmrCategory::TwoVTwo);
     {
-        std::unique_lock lock(state->game.mutex);
-        PlayerData fallback;
-        fallback.primaryId = "Unknown|Fallback";
-        fallback.name = "FallbackHigh";
-        fallback.team = 0;
-        fallback.mmr = 1500;
-        fallback.fetched = true;
-        state->game.roster[fallback.primaryId] = fallback;
+        state->liveMatch->UpdateMatchStateForTests([](MatchState& ms) {
+            PlayerData fallback;
+            fallback.primaryId = "Unknown|Fallback";
+            fallback.name = "FallbackHigh";
+            fallback.team = 0;
+            fallback.mmr = 1500;
+            fallback.fetched = true;
+            ms.roster[fallback.primaryId] = fallback;
 
-        PlayerData selected;
-        selected.primaryId = "Steam|123";
-        selected.name = "SelectedLow";
-        selected.team = 0;
-        selected.mmr = 1200;
-        selected.playlists["2v2"] = 1200;
-        selected.playlistTiers["2v2"] = "Champion I Division I";
-        selected.fetched = true;
-        state->game.roster[selected.primaryId] = selected;
-        state->game.version.fetch_add(1);
+            PlayerData selected;
+            selected.primaryId = "Steam|123";
+            selected.name = "SelectedLow";
+            selected.team = 0;
+            selected.mmr = 1200;
+            selected.playlists["2v2"] = 1200;
+            selected.playlistTiers["2v2"] = "Champion I Division I";
+            selected.fetched = true;
+            ms.roster[selected.primaryId] = selected;
+        });
     }
 
     RmlUiController controller(state, nullptr);
@@ -505,12 +500,13 @@ TEST_F(RmlUiControllerStateTest, LobbyRanksKeepsEnabledPlaylistColumnHeaders) {
 TEST_F(RmlUiControllerStateTest, RankWidgetsExplainMissingRankSourceUntilOneIsEnabled) {
     auto state = std::make_shared<SessionState>();
     {
-        std::unique_lock lock(state->game.mutex);
-        PlayerData player;
-        player.primaryId = "Epic|unranked";
-        player.name = "NoSource";
-        player.team = 0;
-        state->game.roster[player.primaryId] = player;
+        state->liveMatch->UpdateMatchStateForTests([](MatchState& ms) {
+            PlayerData player;
+            player.primaryId = "Epic|unranked";
+            player.name = "NoSource";
+            player.team = 0;
+            ms.roster[player.primaryId] = player;
+        });
     }
     AccountClient::Instance().ResetForTests();
     ConfigData config = Config::Read();
@@ -539,19 +535,19 @@ TEST_F(RmlUiControllerStateTest, RankWidgetsExplainMissingRankSourceUntilOneIsEn
 TEST_F(RmlUiControllerStateTest, RosterBestUsesUnderlyingPlaylistMatchCountWhenSyntheticBestIsMissing) {
     auto state = std::make_shared<SessionState>();
     {
-        std::unique_lock lock(state->game.mutex);
-        PlayerData player;
-        player.primaryId = "Epic|test1";
-        player.name = "TestPlayer";
-        player.team = 0;
-        player.mmr = 1250;
-        player.rankTier = "Diamond II Div III";
-        player.playlists["2v2"] = 1250;
-        player.playlistTiers["2v2"] = "Diamond II Div III";
-        player.playlistMatches["2v2"] = 45;
-        player.fetched = true;
-        state->game.roster[player.primaryId] = player;
-        state->game.version.fetch_add(1);
+        state->liveMatch->UpdateMatchStateForTests([](MatchState& ms) {
+            PlayerData player;
+            player.primaryId = "Epic|test1";
+            player.name = "TestPlayer";
+            player.team = 0;
+            player.mmr = 1250;
+            player.rankTier = "Diamond II Div III";
+            player.playlists["2v2"] = 1250;
+            player.playlistTiers["2v2"] = "Diamond II Div III";
+            player.playlistMatches["2v2"] = 45;
+            player.fetched = true;
+            ms.roster[player.primaryId] = player;
+        });
     }
 
     RmlUiController controller(state, nullptr);
@@ -566,8 +562,7 @@ TEST_F(RmlUiControllerStateTest, RosterBestUsesUnderlyingPlaylistMatchCountWhenS
 
 TEST_F(RmlUiControllerStateTest, LobbyRanksCalculatesRanksPerPlaylistForUnrankedPlacementPlayers) {
     auto state = std::make_shared<SessionState>();
-    {
-        std::unique_lock lock(state->game.mutex);
+    state->liveMatch->UpdateMatchStateForTests([](MatchState& ms) {
         PlayerData player;
         player.primaryId = "Epic|test1";
         player.name = "TestPlayer";
@@ -582,9 +577,8 @@ TEST_F(RmlUiControllerStateTest, LobbyRanksCalculatesRanksPerPlaylistForUnranked
         player.playlists["t"] = 1122;
         player.playlistTiers["t"] = "Unranked";
         player.fetched = true;
-        state->game.roster[player.primaryId] = player;
-        state->game.version.fetch_add(1);
-    }
+        ms.roster[player.primaryId] = player;
+    });
 
     ConfigData config = Config::Read();
     config.show_lobby_rank_1v1 = true;
@@ -615,12 +609,10 @@ TEST_F(RmlUiControllerStateTest, LobbyRanksCalculatesRanksPerPlaylistForUnranked
 
 TEST_F(RmlUiControllerStateTest, PreviousGamesKeepsSessionRecordWhileHistoryIsLoadingOrEmpty) {
     auto state = std::make_shared<SessionState>();
-    {
-        std::unique_lock lock(state->game.mutex);
-        state->game.sessionTotals.wins = 3;
-        state->game.sessionTotals.losses = 2;
-        state->game.version.fetch_add(1);
-    }
+    state->liveMatch->UpdateMatchStateForTests([](MatchState& ms) {
+        ms.sessionTotals.wins = 3;
+        ms.sessionTotals.losses = 2;
+    });
 
     RmlUiController controller(state, nullptr);
     controller.Update(Config::Read());
@@ -641,18 +633,16 @@ TEST_F(RmlUiControllerStateTest, PreviousGamesKeepsSessionRecordWhileHistoryIsLo
 
 TEST_F(RmlUiControllerStateTest, IdentitySelectorExcludesUnknownLobbyIdsButKeepsSavedIdentity) {
     auto state = std::make_shared<SessionState>();
-    {
-        std::unique_lock lock(state->game.mutex);
+    state->liveMatch->UpdateMatchStateForTests([](MatchState& ms) {
         PlayerData unknown;
         unknown.primaryId = "Unknown|Bot_01";
         unknown.name = "Bot";
-        state->game.roster[unknown.primaryId] = unknown;
+        ms.roster[unknown.primaryId] = unknown;
         PlayerData valid;
         valid.primaryId = "Steam|123";
         valid.name = "Player";
-        state->game.roster[valid.primaryId] = valid;
-        state->game.version.fetch_add(1);
-    }
+        ms.roster[valid.primaryId] = valid;
+    });
 
     ConfigData config = Config::Read();
     config.last_primary_id.clear();
@@ -991,14 +981,12 @@ TEST_F(RmlUiControllerStateTest, LifetimeGraphKeepsLatestTwentyFiveDottedMatches
 
 TEST_F(RmlUiControllerStateTest, DashboardAndOverlaySessionCardsKeepCompactLegacySemantics) {
     auto state = std::make_shared<SessionState>();
-    {
-        std::unique_lock lock(state->game.mutex);
-        state->game.sessionTotals.wins = 2;
-        state->game.sessionTotals.losses = 1;
-        state->game.sessionTotals.shots = 4;
-        state->game.sessionTotals.shotsTotal = 9;
-        state->game.version.fetch_add(1);
-    }
+    state->liveMatch->UpdateMatchStateForTests([](MatchState& ms) {
+        ms.sessionTotals.wins = 2;
+        ms.sessionTotals.losses = 1;
+        ms.sessionTotals.shots = 4;
+        ms.sessionTotals.shotsTotal = 9;
+    });
 
     RmlUiController controller(state, nullptr);
     controller.Update(Config::Read());
@@ -1074,11 +1062,9 @@ TEST_F(RmlUiControllerStateTest, CompactSessionKeepsLegacySignedZeroMmrChange) {
     auto state = std::make_shared<SessionState>();
     ConfigData config = Config::Read();
     config.show_session_mmr_change = true;
-    {
-        std::unique_lock lock(state->game.mutex);
-        state->game.sessionTotals.totalMmrChange = 0.0f;
-        state->game.version.fetch_add(1);
-    }
+    state->liveMatch->UpdateMatchStateForTests([](MatchState& ms) {
+        ms.sessionTotals.totalMmrChange = 0.0f;
+    });
 
     RmlUiController controller(state, nullptr);
     controller.Update(config);
@@ -1090,13 +1076,11 @@ TEST_F(RmlUiControllerStateTest, CompactSessionKeepsLegacySignedZeroMmrChange) {
 
 TEST_F(RmlUiControllerStateTest, CompactSessionUsesFinalizedDemoTotalsOnly) {
     auto state = std::make_shared<SessionState>();
-    {
-        std::unique_lock lock(state->game.mutex);
-        state->game.sessionTotals.demos = 3;
-        state->game.currentMatch.demosSelf = 2;
-        state->game.matchFinalized = false;
-        state->game.version.fetch_add(1);
-    }
+    state->liveMatch->UpdateMatchStateForTests([](MatchState& ms) {
+        ms.sessionTotals.demos = 3;
+        ms.currentMatch.demosSelf = 2;
+        ms.matchFinalized = false;
+    });
 
     ConfigData config = Config::Read();
     config.show_session_demos = true;
@@ -1125,12 +1109,10 @@ TEST_F(RmlUiControllerStateTest, TelemetryUpdatesBoundTextWithoutRebuildingWidge
     },
                    true);
     auto state = std::make_shared<SessionState>();
-    {
-        std::unique_lock lock(state->game.mutex);
-        state->game.currentMatch.demosSelf = 2;
-        state->game.currentMatch.demoedSelf = 1;
-        state->game.version.fetch_add(1);
-    }
+    state->liveMatch->UpdateMatchStateForTests([](MatchState& ms) {
+        ms.currentMatch.demosSelf = 2;
+        ms.currentMatch.demoedSelf = 1;
+    });
     RmlUiController controller(state, nullptr);
     ASSERT_TRUE(controller.Initialize(nullptr, device.Get(), context.Get(), 1200, 900, 1.0f));
     controller.Update(Config::Read(), false);
@@ -1146,11 +1128,9 @@ TEST_F(RmlUiControllerStateTest, TelemetryUpdatesBoundTextWithoutRebuildingWidge
     EXPECT_EQ(before->GetInnerRML(), "2.00");
     EXPECT_TRUE(before->IsClassSet("win"));
 
-    {
-        std::unique_lock lock(state->game.mutex);
-        state->game.currentMatch.demoedSelf = 4;
-        state->game.version.fetch_add(1);
-    }
+    state->liveMatch->UpdateMatchStateForTests([](MatchState& ms) {
+        ms.currentMatch.demoedSelf = 4;
+    });
     controller.Update(Config::Read(), false);
     controller.Render();
 
@@ -1165,8 +1145,7 @@ TEST_F(RmlUiControllerStateTest, LiveTelemetryDoesNotInvalidateOpenSettingsDom) 
     ConfigData config = Config::Read();
     state->ui.showMenu.store(true);
 
-    {
-        std::unique_lock lock(state->game.mutex);
+    state->liveMatch->UpdateMatchStateForTests([](MatchState& ms) {
         PlayerData local;
         local.primaryId = "Epic|local";
         local.name = "Local Player";
@@ -1175,10 +1154,9 @@ TEST_F(RmlUiControllerStateTest, LiveTelemetryDoesNotInvalidateOpenSettingsDom) 
         local.mmr = 1200;
         local.playlists["2v2"] = 1200;
         local.playlistTiers["2v2"] = "Diamond I Division I";
-        state->game.myPrimaryId = local.primaryId;
-        state->game.roster[local.primaryId] = local;
-        state->game.version.fetch_add(1);
-    }
+        ms.myPrimaryId = local.primaryId;
+        ms.roster[local.primaryId] = local;
+    });
 
     RmlUiController controller(state, nullptr);
     controller.Update(config);
@@ -1189,13 +1167,11 @@ TEST_F(RmlUiControllerStateTest, LiveTelemetryDoesNotInvalidateOpenSettingsDom) 
     // of the identity/rank fields rendered by the General settings page. The
     // Settings DOM should therefore remain stable instead of being recreated
     // under the mouse every telemetry tick.
-    {
-        std::unique_lock lock(state->game.mutex);
-        state->game.currentMatch.goals += 1;
-        state->game.currentMatch.shots += 2;
-        state->game.sessionTotals.goals += 1;
-        state->game.version.fetch_add(1);
-    }
+    state->liveMatch->UpdateMatchStateForTests([](MatchState& ms) {
+        ms.currentMatch.goals += 1;
+        ms.currentMatch.shots += 2;
+        ms.sessionTotals.goals += 1;
+    });
     controller.Update(config);
     EXPECT_EQ(LastSettingsFingerprint(controller), before);
 }
@@ -1310,8 +1286,7 @@ TEST_F(RmlUiControllerStateTest, LobbyRanksContainerWidthGrowsWithEnabledColumns
 TEST_F(RmlUiControllerStateTest, RosterMmrChipShowsOnlyMmrWhenRankIconsEnabled) {
     auto state = std::make_shared<SessionState>();
     state->ui.rosterMmrCategory.store(MmrCategory::TwoVTwo);
-    {
-        std::unique_lock lock(state->game.mutex);
+    state->liveMatch->UpdateMatchStateForTests([](MatchState& ms) {
         PlayerData player;
         player.primaryId = "Epic|test1";
         player.name = "TestPlayer";
@@ -1320,9 +1295,8 @@ TEST_F(RmlUiControllerStateTest, RosterMmrChipShowsOnlyMmrWhenRankIconsEnabled) 
         player.playlists["2v2"] = 1114;
         player.playlistTiers["2v2"] = "Champion I Division II";
         player.fetched = true;
-        state->game.roster[player.primaryId] = player;
-        state->game.version.fetch_add(1);
-    }
+        ms.roster[player.primaryId] = player;
+    });
 
     ConfigData config = Config::Read();
     config.use_rank_icons = true;
@@ -1627,11 +1601,9 @@ TEST_F(RmlUiControllerStateTest, OverlayControlsStayClickableWhileTelemetryUpdat
     controller.ProcessWindowMessage(hwnd, WM_LBUTTONDOWN, MK_LBUTTON, position);
 
     // A telemetry tick between press and release must not invalidate the target.
-    {
-        std::unique_lock lock(state->game.mutex);
-        state->game.currentMatch.goals += 1;
-        state->game.version.fetch_add(1);
-    }
+    state->liveMatch->UpdateMatchStateForTests([](MatchState& ms) {
+        ms.currentMatch.goals += 1;
+    });
     controller.Update(Config::Read());
     controller.Render();
     EXPECT_EQ(OverlayRoot(controller)->QuerySelector("[data-action='overlay-toggle-toolbox']"), toggle);
@@ -1680,15 +1652,13 @@ TEST_F(RmlUiControllerStateTest, ShortOverlayCardCanBeDraggedToTheBottomOfTheScr
 
     auto state = std::make_shared<SessionState>();
     state->ui.showMenu.store(true);
-    {
-        std::unique_lock lock(state->game.mutex);
+    state->liveMatch->UpdateMatchStateForTests([](MatchState& ms) {
         PlayerData player;
         player.primaryId = "Epic|drag";
         player.name = "Dragged Player";
         player.fetched = true;
-        state->game.roster[player.primaryId] = player;
-        state->game.version.fetch_add(1);
-    }
+        ms.roster[player.primaryId] = player;
+    });
 
     RmlUiController controller(state, nullptr);
     ASSERT_TRUE(controller.Initialize(hwnd, device.Get(), context.Get(), 1920, 1080, 1.0f));
@@ -1868,7 +1838,7 @@ TEST_F(RmlUiControllerStateTest, LongSettingsPagesScrollAndPreservePositionAfter
             const std::string value = "qa-token-with-many-characters";
             for (char ch : value) {
                 controller.ProcessWindowMessage(hwnd, WM_CHAR, static_cast<WPARAM>(ch), 0);
-                state->game.version.fetch_add(1);
+                state->liveMatch->UpdateMatchStateForTests([](MatchState&) {});
                 // Mirror Overlay::RunLoop: the render loop reports the config
                 // revision it observed, so a local edit is not mistaken for an
                 // external change that would rebuild the focused Settings DOM.
@@ -1912,12 +1882,10 @@ TEST_F(RmlUiControllerStateTest, DemoTrackerFormatsKdClassesAndSpacing) {
     EXPECT_NE(RenderDemoTracker(controller).find("style='margin-left:6dp'"), std::string::npos);
 
     // 3. 13-4 formats with two decimals and reads as winning.
-    {
-        std::unique_lock lock(state->game.mutex);
-        state->game.currentMatch.demosSelf = 13;
-        state->game.currentMatch.demoedSelf = 4;
-        state->game.version.fetch_add(1);
-    }
+    state->liveMatch->UpdateMatchStateForTests([](MatchState& ms) {
+        ms.currentMatch.demosSelf = 13;
+        ms.currentMatch.demoedSelf = 4;
+    });
     controller.Update(config);
     live = ComputeLiveValues(Snapshot(controller), config);
     EXPECT_EQ(live.demo_game_count, "13-4");
@@ -2045,13 +2013,11 @@ TEST_F(RmlUiControllerStateTest, InsightsButtonShowsEndedSessionAfterReset) {
     WarpDevice warp;
     if (!warp.Create(1280, 800)) GTEST_SKIP() << "WARP not available.";
     auto state = std::make_shared<SessionState>();
-    {
-        std::unique_lock lock(state->game.mutex);
-        state->game.lastSessionRecap.valid = true;
-        state->game.lastSessionRecap.totals.wins = 4;
-        state->game.lastSessionRecap.totals.losses = 2;
-        state->game.version.fetch_add(1);
-    }
+    state->liveMatch->UpdateMatchStateForTests([](MatchState& ms) {
+        ms.lastSessionRecap.valid = true;
+        ms.lastSessionRecap.totals.wins = 4;
+        ms.lastSessionRecap.totals.losses = 2;
+    });
     RmlUiController controller(state, nullptr);
     ASSERT_TRUE(controller.Initialize(nullptr, warp.device.Get(), warp.context.Get(), 1280, 800, 1.0f));
     controller.Update(Config::Read(), false);
@@ -2060,11 +2026,9 @@ TEST_F(RmlUiControllerStateTest, InsightsButtonShowsEndedSessionAfterReset) {
 
     // With games in the live session, the button shows the live session.
     controller.Shutdown();
-    {
-        std::unique_lock lock(state->game.mutex);
-        state->game.sessionTotals.wins = 1;
-        state->game.version.fetch_add(1);
-    }
+    state->liveMatch->UpdateMatchStateForTests([](MatchState& ms) {
+        ms.sessionTotals.wins = 1;
+    });
     RmlUiController live(state, nullptr);
     ASSERT_TRUE(live.Initialize(nullptr, warp.device.Get(), warp.context.Get(), 1280, 800, 1.0f));
     live.Update(Config::Read(), false);
@@ -2076,14 +2040,12 @@ TEST_F(RmlUiControllerStateTest, RecapCardRendersAndCapturesToPng) {
     WarpDevice warp;
     if (!warp.Create(1280, 800)) GTEST_SKIP() << "WARP not available.";
     auto state = std::make_shared<SessionState>();
-    {
-        std::unique_lock lock(state->game.mutex);
-        state->game.sessionTotals.wins = 3;
-        state->game.sessionTotals.losses = 1;
-        state->game.sessionTotals.goals = 5;
-        state->game.sessionGamemodes["2v2"] = {3, 1, 4};
-        state->game.version.fetch_add(1);
-    }
+    state->liveMatch->UpdateMatchStateForTests([](MatchState& ms) {
+        ms.sessionTotals.wins = 3;
+        ms.sessionTotals.losses = 1;
+        ms.sessionTotals.goals = 5;
+        ms.sessionGamemodes["2v2"] = {3, 1, 4};
+    });
     RmlUiController controller(state, nullptr);
     ASSERT_TRUE(controller.Initialize(nullptr, warp.device.Get(), warp.context.Get(), 1280, 800, 1.0f));
     controller.Update(Config::Read(), false);
@@ -2234,10 +2196,11 @@ TEST_F(RmlUiControllerStateTest, IdleOverlayLayoutRequestsNoWakeDeadlineAndDoesN
     // Trigger FirstCountdown in match: lobby_ranks (AfterEvent FirstCountdown 8s) becomes visible
     // and schedules a wake deadline at firstCountdownMs + 8000 without rendering extra frames in between.
     const int64_t nowMs = RmlUiDetail::SteadyNowMs();
-    state->game.inMatch.store(true);
+    state->liveMatch->UpdateMatchStateForTests([](MatchState& ms) {
+        ms.inMatch = true;
+    });
     state->ui.lastMatchStartMs.store(nowMs - 500);
     state->ui.firstCountdownOfMatchMs.store(nowMs);
-    state->game.version.fetch_add(1);
 
     controller.Update(config, false);
     EXPECT_EQ(controller.NextVisibilityWakeMs(), std::optional<int64_t>(nowMs + 8000));
@@ -2257,7 +2220,9 @@ TEST_F(RmlUiControllerStateTest, IdleOverlayLayoutRequestsNoWakeDeadlineAndDoesN
 
 TEST_F(RmlUiControllerStateTest, OldLayoutPreservesDemoTrackerInMatchWithoutTabAndHonorsReplayHide) {
     auto state = std::make_shared<SessionState>();
-    state->game.inMatch.store(true);
+    state->liveMatch->UpdateMatchStateForTests([](MatchState& ms) {
+        ms.inMatch = true;
+    });
     state->ui.showOverlay.store(false);
 
     ConfigData config = Config::Read();
@@ -2381,14 +2346,12 @@ TEST_F(RmlUiControllerStateTest, SessionsTabRendersRowsOpensArchivedRecapAndComp
         ASSERT_GT(db->SaveSession(backfilled), 0);
     }
 
-    {
-        std::unique_lock lock(state->game.mutex);
-        state->game.myPrimaryId = pid;
-        state->game.sessionTotals.wins = 1;
-        state->game.sessionTotals.losses = 0;
-        state->game.sessionTotals.mmrChangeByPlaylist["2v2"] = 10;
-        state->game.version.fetch_add(1);
-    }
+    state->liveMatch->UpdateMatchStateForTests([&](MatchState& ms) {
+        ms.myPrimaryId = pid;
+        ms.sessionTotals.wins = 1;
+        ms.sessionTotals.losses = 0;
+        ms.sessionTotals.mmrChangeByPlaylist["2v2"] = 10;
+    });
     {
         std::lock_guard lock(state->insights.mutex);
         state->insights.primaryId = pid;
@@ -2480,11 +2443,9 @@ TEST_F(RmlUiControllerStateTest, HistoryViewOpensClosesIgnoresStaleResponsesAndO
     ASSERT_TRUE(db->Initialize(":memory:"));
 
     const std::string me = "Steam|hist_ui_user";
-    {
-        std::unique_lock lock(state->game.mutex);
-        state->game.myPrimaryId = me;
-        state->game.version.fetch_add(1);
-    }
+    state->liveMatch->UpdateMatchStateForTests([&](MatchState& ms) {
+        ms.myPrimaryId = me;
+    });
 
     for (int i = 0; i < 2; ++i) {
         MatchSaveSnapshot snap;
@@ -2625,15 +2586,13 @@ TEST_F(RmlUiControllerStateTest, HistoryViewOpensClosesIgnoresStaleResponsesAndO
     EXPECT_NE(prevGamesHtml.find("previous-games-view-all"), std::string::npos);
     EXPECT_NE(prevGamesHtml.find("data-action='history-open' data-match-id='2'"), std::string::npos);
 
-    {
-        std::unique_lock lock(state->game.mutex);
-        state->game.matchGuid = "ui-hist-guid-2";
-        state->game.lastMatchWasVoid = false;
-        state->game.matchSummaryMyTeam = 0;
-        state->game.matchSummaryWinnerTeam = 1;
-        state->game.matchSummaryScore = {1, 2};
-        state->game.version.fetch_add(1);
-    }
+    state->liveMatch->UpdateMatchStateForTests([](MatchState& ms) {
+        ms.matchGuid = "ui-hist-guid-2";
+        ms.lastMatchWasVoid = false;
+        ms.matchSummaryMyTeam = 0;
+        ms.matchSummaryWinnerTeam = 1;
+        ms.matchSummaryScore = {1, 2};
+    });
     state->ui.showMatchSummary.store(true);
     state->ui.matchSummaryStartMs.store(RmlUiDetail::SteadyNowMs());
     controller.Update(Config::Read(), true);
@@ -2666,10 +2625,11 @@ TEST_F(RmlUiControllerStateTest, DragHoldClearsExpiredVisibilityDeadlineWithoutP
     ASSERT_TRUE(controller.Initialize(nullptr, warp.device.Get(), warp.context.Get(), 1280, 800, 1.0f));
 
     const int64_t nowMs = RmlUiDetail::SteadyNowMs();
-    state->game.inMatch.store(true);
+    state->liveMatch->UpdateMatchStateForTests([](MatchState& ms) {
+        ms.inMatch = true;
+    });
     state->ui.lastMatchStartMs.store(nowMs - 500);
     state->ui.firstCountdownOfMatchMs.store(nowMs);
-    state->game.version.fetch_add(1);
 
     ConfigData config = Config::Read();
     config.second_monitor_mode = false;
@@ -2746,9 +2706,8 @@ namespace {
 TEST_F(RmlUiControllerStateTest, RosterShowsEscapedNoteBadgeOnlyForStableIdentities) {
     const std::string otherId = "Epic|fedcba9876543210fedcba9876543210|0";
     auto state = std::make_shared<SessionState>();
-    {
-        std::unique_lock lock(state->game.mutex);
-        state->game.myPrimaryId = kSelfId;
+    state->liveMatch->UpdateMatchStateForTests([&](MatchState& ms) {
+        ms.myPrimaryId = kSelfId;
         for (const auto& [id, name] : std::vector<std::pair<std::string, std::string>>{
                  {kSelfId, "Me"}, {kRivalId, "Rival"}, {otherId, "Stranger"}, {"Unknown|Bot", "Bot"}}) {
             PlayerData p;
@@ -2756,10 +2715,9 @@ TEST_F(RmlUiControllerStateTest, RosterShowsEscapedNoteBadgeOnlyForStableIdentit
             p.name = name;
             p.team = 0;
             p.fetched = true;
-            state->game.roster[id] = p;
+            ms.roster[id] = p;
         }
-        state->game.version.fetch_add(1);
-    }
+    });
     {
         std::lock_guard lock(state->notes.mutex);
         state->notes.loaded = true;
@@ -2798,19 +2756,17 @@ TEST_F(RmlUiControllerStateTest, RosterShowsEscapedNoteBadgeOnlyForStableIdentit
 
 TEST_F(RmlUiControllerStateTest, RosterShowsEscapedTagChipsWithOverflow) {
     auto state = std::make_shared<SessionState>();
-    {
-        std::unique_lock lock(state->game.mutex);
-        state->game.myPrimaryId = kSelfId;
+    state->liveMatch->UpdateMatchStateForTests([&](MatchState& ms) {
+        ms.myPrimaryId = kSelfId;
         for (const auto& [id, name] : std::vector<std::pair<std::string, std::string>>{{kSelfId, "Me"}, {kRivalId, "Rival"}}) {
             PlayerData p;
             p.primaryId = id;
             p.name = name;
             p.team = 0;
             p.fetched = true;
-            state->game.roster[id] = p;
+            ms.roster[id] = p;
         }
-        state->game.version.fetch_add(1);
-    }
+    });
     {
         std::lock_guard lock(state->notes.mutex);
         state->notes.loaded = true;
@@ -2850,17 +2806,15 @@ TEST_F(RmlUiControllerStateTest, OverlayNoteBadgeOpensTheEditorInsteadOfMovingTh
         true);
     auto state = std::make_shared<SessionState>();
     state->ui.showMenu.store(true);
-    {
-        std::unique_lock lock(state->game.mutex);
-        state->game.myPrimaryId = kSelfId;
+    state->liveMatch->UpdateMatchStateForTests([&](MatchState& ms) {
+        ms.myPrimaryId = kSelfId;
         PlayerData rival;
         rival.primaryId = kRivalId;
         rival.name = "Rival";
         rival.team = 1;
         rival.fetched = true;
-        state->game.roster[kRivalId] = rival;
-        state->game.version.fetch_add(1);
-    }
+        ms.roster[kRivalId] = rival;
+    });
     {
         std::lock_guard lock(state->notes.mutex);
         state->notes.loaded = true;
@@ -2905,17 +2859,15 @@ TEST_F(RmlUiControllerStateTest, PlayerNoteEditorSavesEditsDeletesAndGuardsUnsav
     auto state = std::make_shared<SessionState>();
     auto db = std::make_shared<DatabaseManager>(state);
     ASSERT_TRUE(db->Initialize(":memory:"));
-    {
-        std::unique_lock lock(state->game.mutex);
-        state->game.myPrimaryId = kSelfId;
+    state->liveMatch->UpdateMatchStateForTests([&](MatchState& ms) {
+        ms.myPrimaryId = kSelfId;
         PlayerData rival;
         rival.primaryId = kRivalId;
         rival.name = "Rival";
         rival.team = 1;
         rival.fetched = true;
-        state->game.roster[kRivalId] = rival;
-        state->game.version.fetch_add(1);
-    }
+        ms.roster[kRivalId] = rival;
+    });
     int barrier = 0;
     const auto drain = [&]() {
         const std::string key = "note_ui_barrier_" + std::to_string(++barrier);
@@ -3007,9 +2959,8 @@ TEST_F(RmlUiControllerStateTest, LastGoalSpeedSitsBelowMaxAndFollowsUnitSetting)
 
 namespace {
     void SeedGraph(SessionState& state, const std::string& playlist, std::vector<float> points, int rosterMmr, const std::string& rosterTier) {
-        {
-            std::unique_lock lock(state.game.mutex);
-            state.game.myPrimaryId = kSelfId;
+        state.liveMatch->UpdateMatchStateForTests([&](MatchState& ms) {
+            ms.myPrimaryId = kSelfId;
             PlayerData self;
             self.primaryId = kSelfId;
             self.name = "Me";
@@ -3017,9 +2968,8 @@ namespace {
             self.fetched = true;
             if (rosterMmr > 0) self.playlists[playlist] = rosterMmr;
             if (!rosterTier.empty()) self.playlistTiers[playlist] = rosterTier;
-            state.game.roster[kSelfId] = self;
-            state.game.version.fetch_add(1);
-        }
+            ms.roster[kSelfId] = self;
+        });
         std::unique_lock lock(state.history.mutex);
         if (!points.empty()) state.history.playlistHistoryY[playlist] = std::move(points);
         state.history.version.fetch_add(1);
@@ -3117,9 +3067,8 @@ TEST_F(RmlUiControllerStateTest, DashboardLobbyRanksFitANarrowColumnWithoutScrol
         },
         true);
     auto state = std::make_shared<SessionState>();
-    {
-        std::unique_lock lock(state->game.mutex);
-        state->game.myPrimaryId = kSelfId;
+    state->liveMatch->UpdateMatchStateForTests([&](MatchState& ms) {
+        ms.myPrimaryId = kSelfId;
         for (const auto& [id, name] : std::vector<std::pair<std::string, std::string>>{{kSelfId, "SparePrinter948"}, {kRivalId, "AVeryLongOpponentName"}}) {
             PlayerData p;
             p.primaryId = id;
@@ -3129,10 +3078,9 @@ TEST_F(RmlUiControllerStateTest, DashboardLobbyRanksFitANarrowColumnWithoutScrol
                 p.playlists[key] = 1749;
                 p.playlistMatches[key] = 114;
             }
-            state->game.roster[id] = p;
+            ms.roster[id] = p;
         }
-        state->game.version.fetch_add(1);
-    }
+    });
     RmlUiController controller(state, nullptr);
     ASSERT_TRUE(controller.Initialize(nullptr, warp.device.Get(), warp.context.Get(), 800, 1000, 1.0f));
     controller.Update(Config::Read(), false);

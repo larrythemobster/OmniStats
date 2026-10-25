@@ -1,11 +1,11 @@
 #include <gtest/gtest.h>
 
-#include <memory>
-
 #include "core/config/Config.hpp"
 #include "core/config/Constants.hpp"
 #include "core/reducer/TelemetryReducer.hpp"
 #include "core/state/SessionState.hpp"
+#include "network/telemetry/TelemetryEvents.hpp"
+#include <nlohmann/json.hpp>
 #include "utils/Storage.hpp"
 
 namespace {
@@ -21,32 +21,38 @@ namespace {
     }
 
     struct Fixture {
-        std::shared_ptr<SessionState> state = std::make_shared<SessionState>();
-        TelemetryReducer reducer{state};
+        TelemetryReducer reducer;
+        UIState ui;
+        ReducerContext ctx;
         Fixture() {
             Storage::InitializeEnvironment();
             Config::Update([](ConfigData& c) { c.last_primary_id.clear(); });
-            std::unique_lock lock(state->game.mutex);
-            state->game.myPrimaryId.clear();
+            reducer.State().myPrimaryId.clear();
+            ctx = MakeReducerContext(ui);
         }
-        std::string MyId() {
-            std::shared_lock lock(state->game.mutex);
-            return state->game.myPrimaryId;
+        void SendUpdate(const nlohmann::json& json) {
+            auto ev = TelemetryEvents::ParseEventFromJson(Constants::EVT_UPDATE_STATE, json.dump());
+            if (ev) {
+                reducer.Reduce(*ev, ctx);
+            }
+        }
+        std::string MyId() const {
+            return reducer.State().myPrimaryId;
         }
     };
 }
 
 TEST(TelemetryReducerIdentity, CameraTargetIdentifiesYouEvenWhenTeammatesSendCarState) {
     Fixture f;
-    f.reducer.Reduce(std::string(Constants::EVT_UPDATE_STATE), LiveState(true));
+    f.SendUpdate(LiveState(true));
     EXPECT_EQ(f.MyId(), "Epic|me|0");
 }
 
 TEST(TelemetryReducerIdentity, NoCameraTargetLeavesIdentityUndecided) {
     Fixture f;
     for (int i = 0; i < 5; ++i)
-        f.reducer.Reduce(std::string(Constants::EVT_UPDATE_STATE), LiveState(false));
+        f.SendUpdate(LiveState(false));
     EXPECT_EQ(f.MyId(), "");
-    f.reducer.Reduce(std::string(Constants::EVT_UPDATE_STATE), LiveState(true));
+    f.SendUpdate(LiveState(true));
     EXPECT_EQ(f.MyId(), "Epic|me|0");
 }

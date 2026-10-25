@@ -430,6 +430,8 @@ struct ReplayUploadStatus {
     bool operator==(const ReplayUploadStatus&) const = default;
 };
 
+struct ConfigData;
+
 // Decomposed state sections
 struct UIState {
     // Visibility & UI Flags controlled by InputManager/Overlay Settings
@@ -450,7 +452,7 @@ struct UIState {
     // Auto match summary popup
     std::atomic<bool> showMatchSummary{false};
     std::atomic<int64_t> matchSummaryStartMs{0};
-    // Set when a finished session was captured into game.lastSessionRecap.
+    // Set when a finished session was captured into lastSessionRecap.
     std::atomic<bool> showSessionRecap{false};
 
     // Steady-clock millisecond timestamps for event-driven overlay visibility.
@@ -471,6 +473,9 @@ struct UIState {
         lastPodiumMs.store(0, std::memory_order_relaxed);
         inGoalReplay.store(false, std::memory_order_relaxed);
     }
+
+    // Initial applies the pinned rank-progress playlist; later revisions only drop hidden extra playlists.
+    void ApplyRankProgressConfig(const ConfigData& config, bool initial);
 
     // Dashboard layout edit mode
     std::atomic<bool> dashboardLayoutEditMode{false};
@@ -515,73 +520,6 @@ struct UIState {
     std::string lastBallchasingMatchGuid;
     std::string lastBallchasingUrl;
     std::atomic<uint64_t> replayUploadVersion{0};
-};
-
-struct GameState {
-    std::shared_mutex mutex;
-    std::atomic<uint64_t> version{1};
-    // Work stamped with an older generation must not touch session state.
-    std::atomic<uint64_t> sessionGeneration{0};
-
-    // Match Lifecycle State
-    std::atomic<bool> inMatch{false};
-    std::atomic<bool> inReplay{false};
-    int myTeam = -1;
-    std::string myPrimaryId = ""; // PrimaryId of the local player when identified
-    std::string arenaName = "";
-    std::string arenaAsset = "";
-    std::string matchGuid = "";
-    int playlistId = -1;
-    uint64_t activeMatchGeneration = 0;
-    std::array<int, 2> score{};
-    // Legacy-only observations for telemetry that never supplies Game.PlaylistId.
-    // Authoritative playlist matches do not populate or consult these fields.
-    int legacyMaxPlayersSeen = 0;
-
-    bool roundEverStarted = false;
-    bool localPlayerWasActive = false;
-    bool localPlayerWasSpectator = false;
-    bool localPlayerPresenceObserved = false;
-    bool localPlayerPresentInLatestUpdate = false;
-    bool explicitLocalForfeit = false;
-    bool excludedEarlyExitContext = false;
-    std::string earlyExitExclusionReason;
-    // Legacy telemetry fallback context. These are consulted only when
-    // Game.PlaylistId is absent; an authoritative ID always wins.
-    bool fallbackCasualContext = false;
-    bool fallbackNonRecordableContext = false;
-    std::string fallbackNonRecordableReason;
-    bool legacyLobbyWasEverFull = false;
-    std::array<int, 2> legacyCurrentTeamPlayersSeen{0, 0};
-    std::array<int, 2> legacyMaxTeamPlayersSeen{0, 0};
-
-    bool lastMatchWasVoid = false;
-    std::string lastMatchVoidReason;
-    std::array<int, 2> matchSummaryScore{};
-    int matchSummaryMyTeam = -1;
-    int matchSummaryWinnerTeam = -1;
-    float matchSummaryOvertimeSeconds = 0.0f;
-    float timeSeconds = 0.0f;
-    bool bOvertime = false;
-
-    // Global Collections
-    MatchStats currentMatch;
-    SessionTotals sessionTotals;
-    // Session-scoped so a goal survives freeplay -> match and match -> menu
-    // transitions; 0 means no goal recorded yet. Speeds are in kph.
-    float lastGoalSpeed = 0.0f;
-    float lastGoalSpeedSelf = 0.0f;
-    std::unordered_map<std::string, PlayerData> roster;
-    std::unordered_map<std::string, PlayerData> matchRoster;
-    std::map<std::string, GamemodeStat> sessionGamemodes;
-    // First valid local Tracker snapshot observed during each match. Finalization
-    // reads this instead of the mutable live roster.
-    std::unordered_map<std::string, LocalPreMatchMmrSnapshot> preMatchMmrByGuid;
-    bool matchFinalized = false;
-    int64_t sessionStartedAtUnix = 0;
-    int64_t lastMatchEndedAtUnix = 0;
-    std::vector<std::string> sessionMatchGuids;
-    SessionRecap lastSessionRecap;
 };
 
 struct AccountMmrHistory {
@@ -655,20 +593,24 @@ struct PlayerScoutState {
     PlayerScoutProfile profile;
 };
 
+class LiveMatchStore;
+
 class SessionState : public std::enable_shared_from_this<SessionState> {
   public:
     UIState ui;
-    GameState game;
+    SessionState();
+    ~SessionState();
+
+    std::shared_ptr<LiveMatchStore> liveMatch;
     HistoryState history;
     InsightsState insights;
     HistoryViewState historyView;
     PlayerNotesState notes;
     PlayerScoutState scout;
 
-    void resetMatch(const std::string& newArena, const std::string& newArenaAsset = "");
     void clearActiveMatchOnDisconnect();
 
-    // Callers hold game.mutex and history.mutex exclusively.
+    // Session management methods.
     // Returns whether a recap was captured.
     bool startNewSessionLocked(int64_t endedAtUnix);
     bool closeSessionIfInactiveLocked(int64_t nowUnix);

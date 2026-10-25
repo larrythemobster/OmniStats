@@ -4,6 +4,7 @@
 #include "utils/PrivacyLog.hpp"
 #include "utils/Storage.hpp"
 #include "core/state/SessionState.hpp"
+#include "core/state/LiveMatchStore.hpp"
 #include "database/DatabaseManager.hpp"
 #include "network/telemetry/TelemetryManager.hpp"
 #include <nlohmann/json.hpp>
@@ -220,11 +221,13 @@ void ReplayUploader::CheckAndSaveReplay() {
     bool inMatch = false;
     int myTeam = -1;
     std::string guid;
-    {
-        std::shared_lock<std::shared_mutex> lock(m_state->game.mutex);
-        inMatch = m_state->game.inMatch;
-        myTeam = m_state->game.myTeam;
-        guid = m_state->game.matchGuid;
+    if (m_state && m_state->liveMatch) {
+        auto liveSnap = m_state->liveMatch->GetSnapshot();
+        if (liveSnap) {
+            inMatch = liveSnap->inMatch;
+            myTeam = liveSnap->myTeam;
+            guid = liveSnap->matchGuid;
+        }
     }
     const auto now = std::chrono::steady_clock::now();
 

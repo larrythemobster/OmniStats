@@ -1,6 +1,7 @@
 #include "ui/rml/RmlUiPch.hpp"
 #include "ui/rml/widgets/TournamentWidget.hpp"
 #include "ui/rml/controller/RmlUiController.hpp"
+#include "core/state/LiveMatchStore.hpp"
 #include <mmsystem.h>
 #include <shobjidl.h>
 #include <commdlg.h>
@@ -472,33 +473,32 @@ void RmlUiController::SetRootRml(const char* id, const std::string& rml) {
 
 void RmlUiController::SnapshotState() {
     if (!m_state) return;
-    {
-        std::shared_lock lock(m_state->game.mutex);
-        const auto version = m_state->game.version.load();
-        if (version != m_lastGameVersion) {
-            m_lastGameVersion = version;
-            m_snap.matchGuid = m_state->game.matchGuid;
-            m_snap.arenaName = m_state->game.arenaName;
-            m_snap.score[0] = m_state->game.score[0];
-            m_snap.score[1] = m_state->game.score[1];
-            m_snap.inMatch = m_state->game.inMatch.load();
-            m_snap.inReplay = m_state->game.inReplay.load();
-            m_snap.matchFinalized = m_state->game.matchFinalized;
-            m_snap.myPrimaryId = m_state->game.myPrimaryId;
-            m_snap.myTeam = m_state->game.myTeam;
-            m_snap.currentMatch = m_state->game.currentMatch;
-            m_snap.lastGoalSpeed = m_state->game.lastGoalSpeed;
-            m_snap.lastGoalSpeedSelf = m_state->game.lastGoalSpeedSelf;
-            m_snap.sessionTotals = m_state->game.sessionTotals;
-            m_snap.roster = m_state->game.roster;
-            m_snap.sessionGamemodes = m_state->game.sessionGamemodes;
-            m_snap.lastMatchWasVoid = m_state->game.lastMatchWasVoid;
-            m_snap.lastMatchVoidReason = m_state->game.lastMatchVoidReason;
-            m_snap.matchSummaryScore[0] = m_state->game.matchSummaryScore[0];
-            m_snap.matchSummaryScore[1] = m_state->game.matchSummaryScore[1];
-            m_snap.matchSummaryMyTeam = m_state->game.matchSummaryMyTeam;
-            m_snap.matchSummaryWinnerTeam = m_state->game.matchSummaryWinnerTeam;
-            m_snap.matchSummaryOvertimeSeconds = m_state->game.matchSummaryOvertimeSeconds;
+    if (m_state && m_state->liveMatch) {
+        auto liveSnap = m_state->liveMatch->GetSnapshot();
+        if (liveSnap && liveSnap->version != m_lastGameVersion) {
+            m_lastGameVersion = liveSnap->version;
+            m_snap.matchGuid = liveSnap->matchGuid;
+            m_snap.arenaName = liveSnap->arenaName;
+            m_snap.score[0] = liveSnap->score[0];
+            m_snap.score[1] = liveSnap->score[1];
+            m_snap.inMatch = liveSnap->inMatch;
+            m_snap.inReplay = liveSnap->inReplay;
+            m_snap.matchFinalized = liveSnap->matchFinalized;
+            m_snap.myPrimaryId = liveSnap->myPrimaryId;
+            m_snap.myTeam = liveSnap->myTeam;
+            m_snap.currentMatch = liveSnap->currentMatch;
+            m_snap.lastGoalSpeed = liveSnap->lastGoalSpeed;
+            m_snap.lastGoalSpeedSelf = liveSnap->lastGoalSpeedSelf;
+            m_snap.sessionTotals = liveSnap->sessionTotals;
+            m_snap.roster = liveSnap->roster;
+            m_snap.sessionGamemodes = liveSnap->sessionGamemodes;
+            m_snap.lastMatchWasVoid = liveSnap->lastMatchWasVoid;
+            m_snap.lastMatchVoidReason = liveSnap->lastMatchVoidReason;
+            m_snap.matchSummaryScore[0] = liveSnap->matchSummaryScore[0];
+            m_snap.matchSummaryScore[1] = liveSnap->matchSummaryScore[1];
+            m_snap.matchSummaryMyTeam = liveSnap->matchSummaryMyTeam;
+            m_snap.matchSummaryWinnerTeam = liveSnap->matchSummaryWinnerTeam;
+            m_snap.matchSummaryOvertimeSeconds = liveSnap->matchSummaryOvertimeSeconds;
         }
     }
     {
@@ -1406,11 +1406,8 @@ void RmlUiController::DeleteLocalHistory() {
     DeleteFileA((Storage::GetDataDirectory() + "matches.jsonl").c_str());
     DeleteFileA((Storage::GetDataDirectory() + "mmr_history.jsonl").c_str());
     if (m_state) {
-        {
-            std::unique_lock lock(m_state->game.mutex);
-            m_state->game.myPrimaryId.clear();
-            m_state->game.myTeam = -1;
-            m_state->game.version++;
+        if (m_state->liveMatch) {
+            m_state->liveMatch->SetLocalPrimaryId("");
         }
         {
             std::unique_lock lock(m_state->history.mutex);

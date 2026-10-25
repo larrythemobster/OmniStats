@@ -6,6 +6,52 @@
 #include "core/config/Constants.hpp"
 #include "core/game/GamemodeUtils.hpp"
 #include "network/mmr/MMRFetcher.hpp"
+#include "core/effects/EffectRouter.hpp"
+#include "network/telemetry/TelemetryEvents.hpp"
+#include <nlohmann/json.hpp>
+
+namespace {
+    struct TestState : public SessionState {
+        struct GameProxy : public MatchState {
+            mutable std::shared_mutex mutex;
+        };
+        GameProxy game;
+        ReducerContext ctx = MakeReducerContext(ui);
+
+        bool startNewSessionLocked(int64_t endedAtUnix) {
+            return game.StartNewSession(endedAtUnix, &history);
+        }
+
+        SideEffects Reduce(const std::string& eventName, const nlohmann::json& data) {
+            ctx = MakeReducerContext(ui);
+            auto ev = TelemetryEvents::ParseEventFromJson(eventName, data.is_string() ? data.get<std::string>() : data.dump());
+            if (!ev) return SideEffects{};
+            SideEffects effects = ::TelemetryReducer::ReduceInPlace(game, *ev, ctx);
+            EffectRouter::Route(SideEffects(effects), nullptr, nullptr, nullptr, nullptr, shared_from_this());
+            return effects;
+        }
+    };
+
+    struct TestTelemetryReducer : public ::TelemetryReducer {
+        std::shared_ptr<TestState> state;
+        explicit TestTelemetryReducer(std::shared_ptr<TestState> s) : state(std::move(s)) {}
+        SideEffects Reduce(const std::string& eventName, const nlohmann::json& data) {
+            return state->Reduce(eventName, data);
+        }
+        SideEffects ConfirmPendingDestroyedMatch(const std::string& matchGuid, bool won, const ReducerContext& c = {}) {
+            return ::TelemetryReducer::ConfirmPendingDestroyedMatch(state->game, matchGuid, won, c.nowMs > 0 ? c : state->ctx);
+        }
+        void OnTelemetryDisconnected() {
+            ::TelemetryReducer::OnTelemetryDisconnected(state->game);
+        }
+        void OnConfigChanged() {
+            state->ui.ApplyRankProgressConfig(Config::Read(), true);
+        }
+    };
+} // namespace
+
+#define SessionState TestState
+#define TelemetryReducer TestTelemetryReducer
 #include <memory>
 
 namespace {

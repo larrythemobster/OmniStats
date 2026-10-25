@@ -4,6 +4,9 @@
 #include "core/state/SessionState.hpp"
 #include "utils/Storage.hpp"
 #include "core/reducer/TelemetryReducer.hpp"
+#include "core/effects/EffectRouter.hpp"
+#include "network/telemetry/TelemetryEvents.hpp"
+#include <nlohmann/json.hpp>
 #include <memory>
 
 namespace {
@@ -46,8 +49,35 @@ namespace {
             {"Players", PlayersForTeams(blue, orange)}};
     }
 
-    void CreateMatch(TelemetryReducer& reducer,
-                     const std::shared_ptr<SessionState>& state,
+    struct TestState {
+        TelemetryReducer reducer;
+        std::shared_ptr<SessionState> session = std::make_shared<SessionState>();
+        MatchState& game;
+        UIState& ui;
+        ReducerContext ctx;
+
+        TestState() : game(reducer.State()), ui(session->ui), ctx(MakeReducerContext(session->ui)) {}
+
+        SideEffects Reduce(const std::string& eventName, const nlohmann::json& data) {
+            ctx = MakeReducerContext(ui);
+            auto ev = TelemetryEvents::ParseEventFromJson(eventName, data.is_string() ? data.get<std::string>() : data.dump());
+            if (!ev) return SideEffects{};
+            SideEffects effects = reducer.Reduce(*ev, ctx);
+            EffectRouter::Route(SideEffects(effects), nullptr, nullptr, nullptr, nullptr, session);
+            return effects;
+        }
+    };
+
+    struct TestTelemetryReducer {
+        std::shared_ptr<TestState> state;
+        explicit TestTelemetryReducer(std::shared_ptr<TestState> s) : state(std::move(s)) {}
+        SideEffects Reduce(const std::string& eventName, const nlohmann::json& data) {
+            return state->Reduce(eventName, data);
+        }
+    };
+
+    void CreateMatch(TestTelemetryReducer& reducer,
+                     const std::shared_ptr<TestState>& state,
                      const std::string& guid) {
         state->game.myPrimaryId = "Steam|1";
         reducer.Reduce(
@@ -55,8 +85,8 @@ namespace {
             nlohmann::json{{"MatchGuid", guid}});
     }
 
-    SideEffects EndMatch(TelemetryReducer& reducer,
-                         const std::shared_ptr<SessionState>& state,
+    SideEffects EndMatch(TestTelemetryReducer& reducer,
+                         const std::shared_ptr<TestState>& state,
                          int winner = 0) {
         return reducer.Reduce(
             std::string(Constants::EVT_MATCH_ENDED),
@@ -74,10 +104,10 @@ TEST(TelemetryReducerPlaylistAuthority, PlaylistIdOverridesUiArenaAndCasualFlag)
     },
                    false);
 
-    auto state = std::make_shared<SessionState>();
+    auto state = std::make_shared<TestState>();
     state->ui.rosterMmrCategory.store(MmrCategory::Rumble);
     state->ui.graphMmrCategory.store(MmrCategory::Rumble);
-    TelemetryReducer reducer(state);
+    TestTelemetryReducer reducer(state);
 
     CreateMatch(reducer, state, "authoritative-ranked-ones");
     nlohmann::json rankedUpdate =
@@ -110,10 +140,10 @@ TEST(TelemetryReducerPlaylistAuthority, UnknownPlaylistFailsClosedInsteadOfGuess
     },
                    false);
 
-    auto state = std::make_shared<SessionState>();
+    auto state = std::make_shared<TestState>();
     state->ui.rosterMmrCategory.store(MmrCategory::TwoVTwo);
     state->ui.graphMmrCategory.store(MmrCategory::TwoVTwo);
-    TelemetryReducer reducer(state);
+    TestTelemetryReducer reducer(state);
 
     CreateMatch(reducer, state, "unknown-playlist");
     reducer.Reduce(
@@ -143,8 +173,8 @@ TEST(TelemetryReducerPlaylistAuthority, CasualBackfillUsesPlaylistIdAndDoesNotPo
         c.show_extra_playlists = true;
     },
                    false);
-    auto state = std::make_shared<SessionState>();
-    TelemetryReducer reducer(state);
+    auto state = std::make_shared<TestState>();
+    TestTelemetryReducer reducer(state);
 
     CreateMatch(reducer, state, "casual-backfill");
     reducer.Reduce(
@@ -174,8 +204,8 @@ TEST(TelemetryReducerPlaylistAuthority, CasualBackfillUsesPlaylistIdAndDoesNotPo
 
 TEST(TelemetryReducerPlaylistAuthority, RankedPlaylistClearsTransientExclusionAndLatchesAcrossUpdates) {
     Storage::InitializeEnvironment();
-    auto state = std::make_shared<SessionState>();
-    TelemetryReducer reducer(state);
+    auto state = std::make_shared<TestState>();
+    TestTelemetryReducer reducer(state);
 
     CreateMatch(reducer, state, "playlist-latch");
     reducer.Reduce(
@@ -219,8 +249,8 @@ TEST(TelemetryReducerPlaylistAuthority, RankedPlaylistClearsTransientExclusionAn
 
 TEST(TelemetryReducerPlaylistAuthority, CasualHeatseekerLtmUsesSingleCasualMmrBucket) {
     Storage::InitializeEnvironment();
-    auto state = std::make_shared<SessionState>();
-    TelemetryReducer reducer(state);
+    auto state = std::make_shared<TestState>();
+    TestTelemetryReducer reducer(state);
 
     CreateMatch(reducer, state, "heatseeker-ltm");
     reducer.Reduce(
@@ -242,8 +272,8 @@ TEST(TelemetryReducerPlaylistAuthority, CasualHeatseekerLtmUsesSingleCasualMmrBu
 
 TEST(TelemetryReducerPlaylistAuthority, BackToBackMatchesCanUseDifferentAuthoritativePlaylists) {
     Storage::InitializeEnvironment();
-    auto state = std::make_shared<SessionState>();
-    TelemetryReducer reducer(state);
+    auto state = std::make_shared<TestState>();
+    TestTelemetryReducer reducer(state);
 
     CreateMatch(reducer, state, "back-to-back-one");
     reducer.Reduce(std::string(Constants::EVT_UPDATE_STATE), Update(10, 1, 1));
@@ -275,10 +305,10 @@ TEST(TelemetryReducerPlaylistAuthority, LegacyCasualSignalBeatsArenaAndUiHeurist
     },
                    false);
 
-    auto state = std::make_shared<SessionState>();
+    auto state = std::make_shared<TestState>();
     state->ui.rosterMmrCategory.store(MmrCategory::Hoops);
     state->ui.graphMmrCategory.store(MmrCategory::Hoops);
-    TelemetryReducer reducer(state);
+    TestTelemetryReducer reducer(state);
     CreateMatch(reducer, state, "legacy-casual-hoops-arena");
 
     nlohmann::json update = Update(17, 2, 2, "hoops_dunkhouse_p", true);
@@ -302,8 +332,8 @@ TEST(TelemetryReducerPlaylistAuthority, LegacyNonRecordableSignalsFailClosedWith
     Storage::InitializeEnvironment();
 
     const auto runCase = [](const char* flag, const char* guid) {
-        auto state = std::make_shared<SessionState>();
-        TelemetryReducer reducer(state);
+        auto state = std::make_shared<TestState>();
+        TestTelemetryReducer reducer(state);
         CreateMatch(reducer, state, guid);
 
         nlohmann::json update = Update(10, 1, 1);
@@ -342,8 +372,8 @@ TEST(TelemetryReducerPlaylistAuthority, AuthoritativeNonRecordablePlaylistsNever
 
     for (const auto& testCase : cases) {
         SCOPED_TRACE(testCase.guid);
-        auto state = std::make_shared<SessionState>();
-        TelemetryReducer reducer(state);
+        auto state = std::make_shared<TestState>();
+        TestTelemetryReducer reducer(state);
         CreateMatch(reducer, state, testCase.guid);
         reducer.Reduce(
             std::string(Constants::EVT_UPDATE_STATE),
@@ -365,8 +395,8 @@ TEST(TelemetryReducerPlaylistAuthority, AuthoritativeNonRecordablePlaylistsNever
 
 TEST(TelemetryReducerPlaylistAuthority, RankedFreeplayRankedTransitionDoesNotCarryPlaylistTruth) {
     Storage::InitializeEnvironment();
-    auto state = std::make_shared<SessionState>();
-    TelemetryReducer reducer(state);
+    auto state = std::make_shared<TestState>();
+    TestTelemetryReducer reducer(state);
 
     CreateMatch(reducer, state, "ranked-before-freeplay");
     reducer.Reduce(std::string(Constants::EVT_UPDATE_STATE), Update(11, 2, 2));
@@ -406,8 +436,8 @@ TEST(TelemetryReducerPlaylistAuthority, RankedFreeplayRankedTransitionDoesNotCar
 
 TEST(TelemetryReducerPlaylistAuthority, RankedPlaylistDoesNotUseObservedPlayerCountForValidity) {
     Storage::InitializeEnvironment();
-    auto state = std::make_shared<SessionState>();
-    TelemetryReducer reducer(state);
+    auto state = std::make_shared<TestState>();
+    TestTelemetryReducer reducer(state);
 
     CreateMatch(reducer, state, "ranked-incomplete-observation");
     // Playlist 11 is authoritative Ranked Doubles. Only one player per team is
@@ -436,8 +466,8 @@ TEST(TelemetryReducerPlaylistAuthority, RankedPlaylistDoesNotUseObservedPlayerCo
 
 TEST(TelemetryReducerPlaylistAuthority, TrainingDirectlyToOnlineGameStartsNewLifecycleAndEnqueuesAllPlayers) {
     Storage::InitializeEnvironment();
-    auto state = std::make_shared<SessionState>();
-    TelemetryReducer reducer(state);
+    auto state = std::make_shared<TestState>();
+    TestTelemetryReducer reducer(state);
 
     // 1. Enter Training
     nlohmann::json trainingUpdate = Update(9, 1, 0, "Park_P");
@@ -479,8 +509,8 @@ TEST(TelemetryReducerPlaylistAuthority, TrainingDirectlyToOnlineGameStartsNewLif
 
 TEST(TelemetryReducerPlaylistAuthority, TrainingToRankedSameArenaUpdateBeforeMatchCreatedResetsMatch) {
     Storage::InitializeEnvironment();
-    auto state = std::make_shared<SessionState>();
-    TelemetryReducer reducer(state);
+    auto state = std::make_shared<TestState>();
+    TestTelemetryReducer reducer(state);
 
     // 1. Enter Training
     nlohmann::json trainingUpdate = Update(73, 1, 0, "Park_P");
@@ -506,8 +536,8 @@ TEST(TelemetryReducerPlaylistAuthority, TrainingToRankedSameArenaUpdateBeforeMat
 }
 
 TEST(TelemetryReducerPlaylistAuthority, DiscordPresenceStartsBeforeFirstGoalAndTracksLateTrainingArena) {
-    auto state = std::make_shared<SessionState>();
-    TelemetryReducer reducer(state);
+    auto state = std::make_shared<TestState>();
+    TestTelemetryReducer reducer(state);
     auto created = reducer.Reduce(std::string(Constants::EVT_MATCH_CREATED), nlohmann::json{});
     EXPECT_TRUE(created.pushDiscord);
     EXPECT_TRUE(created.discordSnapshot.showPresence);

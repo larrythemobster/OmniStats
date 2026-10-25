@@ -1,4 +1,5 @@
 #include "network/mmr/MMRFetcher.hpp"
+#include "core/state/LiveMatchStore.hpp"
 #include "network/http/CurlImpersonate.hpp"
 #include "network/api/AccountClient.hpp"
 #include "core/config/Config.hpp"
@@ -55,9 +56,10 @@ bool MMRFetcher::TrySatisfyLocalRosterRequest(const std::string& primaryId) {
     bool postMatchRefreshPending = false;
     {
         std::lock_guard<std::mutex> lock(m_queueMutex);
+        const uint64_t currentSessionGen = (m_state && m_state->liveMatch && m_state->liveMatch->GetSnapshot()) ? m_state->liveMatch->GetSnapshot()->sessionGeneration : 0;
         if (m_localProfileCache.valid &&
             m_localProfileCache.primaryId == primaryId &&
-            m_localProfileCache.sessionGeneration == m_state->game.sessionGeneration.load()) {
+            m_localProfileCache.sessionGeneration == currentSessionGen) {
             cached = m_localProfileCache;
             hasCachedProfile = true;
         } else {
@@ -77,46 +79,23 @@ bool MMRFetcher::TrySatisfyLocalRosterRequest(const std::string& primaryId) {
 
     if (!hasCachedProfile) return postMatchRefreshPending;
 
-    std::unique_lock<std::shared_mutex> gameLock(m_state->game.mutex);
-    if (m_state->game.myPrimaryId != primaryId) return false;
-
-    const auto playerIt = m_state->game.roster.find(primaryId);
-    if (playerIt == m_state->game.roster.end()) return false;
-
-    auto& player = playerIt->second;
-    player.playlists = cached.playlists;
-    player.playlistTiers = cached.playlistTiers;
-    player.playlistMatches = cached.playlistMatches;
-    if (cached.totalWins >= 0) {
-        player.totalWins = cached.totalWins;
+    if (m_state && m_state->liveMatch) {
+        auto liveSnap = m_state->liveMatch->GetSnapshot();
+        if (liveSnap && liveSnap->myPrimaryId != primaryId) return false;
+        if (liveSnap && liveSnap->roster.find(primaryId) == liveSnap->roster.end()) return false;
+        m_state->liveMatch->UpdateRosterMmr(primaryId, cached.playlists, cached.playlistMatches);
+        m_state->liveMatch->PostAction([primaryId, cached](MatchState& state, SideEffects&) {
+            auto it = state.roster.find(primaryId);
+            if (it != state.roster.end()) {
+                it->second.playlistTiers = cached.playlistTiers;
+                if (cached.totalWins >= 0) it->second.totalWins = cached.totalWins;
+                it->second.mmr = cached.bestMmr;
+                it->second.rankTier = cached.bestTier;
+            }
+        });
+        return true;
     }
-    player.mmr = cached.bestMmr;
-    player.rankTier = cached.bestTier;
-    player.fetched = true;
-    player.fetchFailed = false;
-
-    // If the cached value is still valid, it is also the correct pre-match
-    // baseline for a newly joined game. This preserves post-match MMR tracking
-    // without fetching the local profile again at match start.
-    if (m_state->game.inMatch &&
-        !m_state->game.matchGuid.empty() &&
-        m_state->game.preMatchMmrByGuid.count(m_state->game.matchGuid) == 0) {
-        const bool hasPlaylistMmr = std::any_of(
-            cached.playlists.begin(), cached.playlists.end(),
-            [](const auto& entry) {
-                return entry.first != "best" && entry.second > 0;
-            });
-        if (hasPlaylistMmr) {
-            m_state->game.preMatchMmrByGuid.emplace(
-                m_state->game.matchGuid,
-                LocalPreMatchMmrSnapshot{
-                    .playlistMmrs = cached.playlists,
-                    .playlistMatches = cached.playlistMatches});
-        }
-    }
-
-    m_state->game.version++;
-    return true;
+    return false;
 }
 
 void MMRFetcher::StoreLocalProfileCache(
@@ -128,12 +107,11 @@ void MMRFetcher::StoreLocalProfileCache(
     const std::map<std::string, int>& playlistMatches,
     int totalWins,
     bool postMatchConfirmed) {
-    {
-        std::shared_lock<std::shared_mutex> gameLock(m_state->game.mutex);
-        if (m_state->game.myPrimaryId != req.primaryId) return;
-        if (req.sessionGeneration != m_state->game.sessionGeneration.load()) return;
+    if (m_state && m_state->liveMatch) {
+        auto liveSnap = m_state->liveMatch->GetSnapshot();
+        if (liveSnap && liveSnap->myPrimaryId != req.primaryId) return;
+        if (liveSnap && req.sessionGeneration != liveSnap->sessionGeneration) return;
     }
-
     std::lock_guard<std::mutex> lock(m_queueMutex);
 
     // Once a match completes, the old cache is deliberately invalid. Do not
@@ -271,12 +249,8 @@ void MMRFetcher::PublishFetchFailure(const MMRRequest& req, TrackedAccountFetchS
         RecordTrackedOutcome(req, std::move(event));
         return;
     }
-    std::unique_lock<std::shared_mutex> gameLock(m_state->game.mutex);
-    if (m_state->game.roster.count(req.primaryId)) {
-        auto& player = m_state->game.roster[req.primaryId];
-        player.fetched = true;
-        player.fetchFailed = true;
-        m_state->game.version++;
+    if (m_state && m_state->liveMatch) {
+        m_state->liveMatch->SetRosterFetchFailed(req.primaryId);
     }
 }
 
@@ -306,7 +280,7 @@ void MMRFetcher::EnqueuePostMatch(const std::string& primaryId,
 
         ResetPublicationBaselineForCounterRollbackLocked(
             primaryId, playlist, previousMatches);
-        const uint64_t sessionGeneration = m_state->game.sessionGeneration.load();
+        const uint64_t sessionGeneration = (m_state && m_state->liveMatch && m_state->liveMatch->GetSnapshot()) ? m_state->liveMatch->GetSnapshot()->sessionGeneration : 0;
         auto& pendingGuids = m_pendingPostMatchesByPlaylist[PendingPostMatchKey(primaryId, playlist)];
         const bool followsPreviousSessionMatch = std::any_of(
             pendingGuids.begin(), pendingGuids.end(), [&](const std::string& guid) {
@@ -379,7 +353,7 @@ void MMRFetcher::EnqueuePendingDestroyedMatch(
 
         ResetPublicationBaselineForCounterRollbackLocked(
             pending.primaryId, pending.playlist, pending.previousMatches);
-        const uint64_t sessionGeneration = m_state->game.sessionGeneration.load();
+        const uint64_t sessionGeneration = (m_state && m_state->liveMatch && m_state->liveMatch->GetSnapshot()) ? m_state->liveMatch->GetSnapshot()->sessionGeneration : 0;
         auto& pendingGuids = m_pendingPostMatchesByPlaylist[PendingPostMatchKey(pending.primaryId, pending.playlist)];
         const bool followsPreviousSessionMatch = std::any_of(
             pendingGuids.begin(), pendingGuids.end(), [&](const std::string& guid) {
@@ -492,7 +466,7 @@ void MMRFetcher::WorkerLoop() {
         if (postMatchIt != m_queue.end()) {
             MMRRequest req = std::move(*postMatchIt);
             m_queue.erase(postMatchIt);
-            req.sessionGeneration = m_state->game.sessionGeneration.load();
+            req.sessionGeneration = (m_state && m_state->liveMatch && m_state->liveMatch->GetSnapshot()) ? m_state->liveMatch->GetSnapshot()->sessionGeneration : 0;
             lock.unlock();
 
             const bool requeued = FetchProfile(req);
@@ -527,7 +501,7 @@ void MMRFetcher::WorkerLoop() {
 
             MMRRequest req = std::move(*nextIt);
             m_queue.erase(nextIt);
-            req.sessionGeneration = m_state->game.sessionGeneration.load();
+            req.sessionGeneration = (m_state && m_state->liveMatch && m_state->liveMatch->GetSnapshot()) ? m_state->liveMatch->GetSnapshot()->sessionGeneration : 0;
             lock.unlock();
 
             NotifyTrackedRequests({req}, TrackedAccountFetchStatus::Fetching);
@@ -624,7 +598,7 @@ AssembledBatch MMRFetcher::DrainBatchLocked(MMRRequestReason reason,
     AssembledBatch batch;
     batch.playlist = playlist;
     batch.playlistId = CustomApiPlaylistIdForName(playlist);
-    const uint64_t sessionGen = m_state->game.sessionGeneration.load();
+    const uint64_t sessionGen = (m_state && m_state->liveMatch && m_state->liveMatch->GetSnapshot()) ? m_state->liveMatch->GetSnapshot()->sessionGeneration : 0;
     for (auto it = m_queue.begin(); it != m_queue.end() && batch.requests.size() < kMaxCustomApiBatchSize;) {
         if (it->reason == reason && it->playlist == playlist && it->notBefore <= now) {
             MMRRequest item = std::move(*it);

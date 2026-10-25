@@ -1,4 +1,5 @@
 #include "DatabaseManager.hpp"
+#include "core/state/LiveMatchStore.hpp"
 #include "DatabaseDetail.hpp"
 #include "core/config/Config.hpp"
 
@@ -329,25 +330,13 @@ void DatabaseManager::AsyncGetPlayerEncounterRecord(const std::string& primaryId
     // Not coalesced: a lookup queued after a match save must not be absorbed by
     // an older pending lookup that would run before the save.
     (void)EnqueueDbJob([this, pid]() {
-        std::string account;
-        {
-            std::shared_lock<std::shared_mutex> lk(m_state->game.mutex);
-            account = m_state->game.myPrimaryId;
-        }
+        if (!m_state || !m_state->liveMatch) return;
+        auto liveSnap = m_state->liveMatch->GetSnapshot();
+        const std::string account = liveSnap ? liveSnap->myPrimaryId : std::string{};
         if (account.empty() || account == pid) return;
         const auto record = GetPlayerEncounterRecord(account, pid);
         if (!record) return;
-        std::unique_lock<std::shared_mutex> lk(m_state->game.mutex);
-        if (m_state->game.myPrimaryId != account) return;
-        auto it = m_state->game.roster.find(pid);
-        if (it == m_state->game.roster.end()) return;
-        auto& player = it->second;
-        player.lifetimeWinsWith = record->winsWith;
-        player.lifetimeLossesWith = record->lossesWith;
-        player.lifetimeWinsAgainst = record->winsAgainst;
-        player.lifetimeLossesAgainst = record->lossesAgainst;
-        player.hasLifetimeData = true;
-        m_state->game.version++;
+        m_state->liveMatch->UpdatePlayerLifetimeData(pid, record->winsWith, record->lossesWith, record->winsAgainst, record->lossesAgainst);
     });
 }
 

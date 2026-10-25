@@ -13,6 +13,7 @@
 #include "core/accounts/AccountManager.hpp"
 #include "core/config/Config.hpp"
 #include "core/state/SessionState.hpp"
+#include "core/state/LiveMatchStore.hpp"
 #include "utils/Storage.hpp"
 #include "core/accounts/TrackedAccounts.hpp"
 #include "database/DatabaseManager.hpp"
@@ -414,10 +415,7 @@ TEST_F(AccountsViewTest, ActiveAccountHighlighting) {
     service->AddManual(TrackedAccounts::Platform::Steam, "76561198000000001", "LocalUser");
     service->FlushForTests();
 
-    {
-        std::unique_lock lock(state->game.mutex);
-        state->game.myPrimaryId = "Steam|76561198000000001|0";
-    }
+    state->liveMatch->SetLocalPrimaryId("Steam|76561198000000001|0");
 
     RmlUiController controller(state, db, service);
     ASSERT_TRUE(controller.Initialize(nullptr, warp.device.Get(), warp.context.Get(), 1280, 800, 1.0f));

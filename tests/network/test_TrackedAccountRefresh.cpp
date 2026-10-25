@@ -3,6 +3,7 @@
 #include "core/accounts/AccountManager.hpp"
 #include "core/config/Config.hpp"
 #include "core/state/SessionState.hpp"
+#include "core/state/LiveMatchStore.hpp"
 #include "database/DatabaseManager.hpp"
 #include "network/api/AccountClient.hpp"
 #include "network/http/CurlImpersonate.hpp"
@@ -578,14 +579,13 @@ TEST_F(TrackedAccountRefreshTest, TrackerHandleFillsMissingInGameNameOnly) {
 
 TEST_F(TrackedAccountRefreshTest, TrackedRefreshNeverTouchesLiveGameState) {
     const std::string liveId = kSteam;
-    {
-        std::unique_lock gameLock(state->game.mutex);
-        state->game.myPrimaryId = liveId;
-        state->game.inMatch = true;
-        state->game.matchGuid = "live-match";
-        state->game.roster[liveId] = PlayerData{.primaryId = liveId, .name = "Me", .team = 0, .mmr = 1200, .fetched = true};
-        state->game.roster[liveId].playlists = {{"2v2", 1200}};
-    }
+    state->liveMatch->UpdateMatchStateForTests([&](MatchState& ms) {
+        ms.myPrimaryId = liveId;
+        ms.inMatch = true;
+        ms.matchGuid = "live-match";
+        ms.roster[liveId] = PlayerData{.primaryId = liveId, .name = "Me", .team = 0, .mmr = 1200, .fetched = true};
+        ms.roster[liveId].playlists = {{"2v2", 1200}};
+    });
     {
         std::unique_lock historyLock(state->history.mutex);
         state->history.SelectMmrOwner(liveId);
@@ -593,7 +593,7 @@ TEST_F(TrackedAccountRefreshTest, TrackedRefreshNeverTouchesLiveGameState) {
         state->history.playlistHistoryY["2v2"] = {1190.0f, 1200.0f};
         state->history.playlistInitialMmr["2v2"] = 1190;
     }
-    const uint64_t gameVersion = state->game.version.load();
+    const uint64_t gameVersion = state->liveMatch->GetSnapshot()->version;
     const uint64_t historyVersion = state->history.version.load();
 
     g_apiBody = Players({Player("Steam", "76561198000000001", {Skill(11, 1777)}),
@@ -608,21 +608,21 @@ TEST_F(TrackedAccountRefreshTest, TrackedRefreshNeverTouchesLiveGameState) {
     ProcessNextBatch();
     ASSERT_EQ(LastTerminal(liveId)->status, TrackedAccountFetchStatus::Failed);
 
-    std::shared_lock gameLock(state->game.mutex);
     std::shared_lock historyLock(state->history.mutex);
-    EXPECT_EQ(state->game.myPrimaryId, liveId);
-    ASSERT_EQ(state->game.roster.size(), 1u);
-    EXPECT_EQ(state->game.roster.at(liveId).mmr, 1200);
-    EXPECT_EQ(state->game.roster.at(liveId).playlists.at("2v2"), 1200);
-    EXPECT_TRUE(state->game.roster.at(liveId).fetched);
-    EXPECT_FALSE(state->game.roster.at(liveId).fetchFailed);
-    EXPECT_TRUE(state->game.preMatchMmrByGuid.empty());
+    auto snap = state->liveMatch->GetSnapshot();
+    EXPECT_EQ(snap->myPrimaryId, liveId);
+    ASSERT_EQ(snap->roster.size(), 1u);
+    EXPECT_EQ(snap->roster.at(liveId).mmr, 1200);
+    EXPECT_EQ(snap->roster.at(liveId).playlists.at("2v2"), 1200);
+    EXPECT_TRUE(snap->roster.at(liveId).fetched);
+    EXPECT_FALSE(snap->roster.at(liveId).fetchFailed);
+    EXPECT_TRUE(snap->preMatchMmrByGuid.empty());
     EXPECT_EQ(state->history.mmrOwnerPrimaryId, liveId);
     EXPECT_EQ(state->history.mmrHistoryY, (std::vector<float>{1190.0f, 1200.0f}));
     EXPECT_EQ(state->history.playlistHistoryY.at("2v2"), (std::vector<float>{1190.0f, 1200.0f}));
     EXPECT_EQ(state->history.playlistInitialMmr.at("2v2"), 1190);
     EXPECT_TRUE(state->history.playlistMatchPoints.empty());
-    EXPECT_EQ(state->game.version.load(), gameVersion);
+    EXPECT_EQ(snap->version, gameVersion);
     EXPECT_EQ(state->history.version.load(), historyVersion);
 }
 

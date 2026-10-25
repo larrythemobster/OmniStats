@@ -1,48 +1,73 @@
 #pragma once
-#include <memory>
-#include <string>
-#include <unordered_map>
-#include <unordered_set>
+
 #include <chrono>
+#include <cstdint>
 #include <functional>
-#include <vector>
+#include <memory>
 #include <optional>
-#include <nlohmann/json.hpp>
-#include "core/state/SessionState.hpp"
-#include "core/game/MatchAnalytics.hpp"
+#include <string>
+#include <utility>
+#include <vector>
+
 #include "core/config/Config.hpp"
 #include "core/effects/SideEffects.hpp"
+#include "core/state/DiscordPresenceSnapshot.hpp"
+#include "core/state/MatchState.hpp"
+#include "network/telemetry/TelemetryEvents.hpp"
+
+struct ReducerContext {
+    int64_t nowMs = 0;       // Monotonic clock ms (for UI timestamps, interval checks)
+    double nowSeconds = 0.0; // Monotonic clock seconds (for analytics play time)
+    int64_t nowUnix = 0;     // System clock Unix epoch seconds (for match/session persistence)
+    ConfigData config{};
+    // Categories currently shown, so following respects user overrides made between events.
+    MmrCategory rosterMmrCategory = MmrCategory::Best;
+    MmrCategory rankProgressMmrCategory = MmrCategory::TwoVTwo;
+};
+
+struct UIState;
+
+ReducerContext MakeReducerContext(const UIState& ui);
+
+struct ReducerResult {
+    MatchState state;
+    SideEffects effects;
+};
 
 class TelemetryReducer {
   public:
-    explicit TelemetryReducer(std::shared_ptr<SessionState> state);
+    TelemetryReducer() = default;
+    explicit TelemetryReducer(MatchState initialState) : m_state(std::move(initialState)) {}
 
-    void SetClockForTests(std::function<std::chrono::steady_clock::time_point()> clockFn);
+    // Pure functional API: (MatchState, Event, ReducerContext) -> (MatchState, SideEffects)
+    static ReducerResult Reduce(MatchState state,
+                                const TelemetryEvents::TelemetryEvent& event,
+                                const ReducerContext& context);
 
-    SideEffects Reduce(const std::string& eventName, const nlohmann::json& data);
-    void OnConfigChanged();
-    void OnTelemetryDisconnected();
-    SideEffects ConfirmPendingDestroyedMatch(const std::string& matchGuid, bool won);
+    // In-place reduction for zero copy
+    static SideEffects ReduceInPlace(MatchState& state,
+                                     const TelemetryEvents::TelemetryEvent& event,
+                                     const ReducerContext& context);
 
-  private:
-    void HandleUpdateState(const nlohmann::json& data, SideEffects& effects);
-    void CapturePreMatchMmrLocked();
-    // Encounter records are relative to the local account, so a new identity
-    // invalidates every roster player's record.
-    void RequeueEncounterRecordsLocked(SideEffects& effects);
-    void HandleStatFeed(const nlohmann::json& data);
-    void RecordJournalEventLocked(const std::string& type, const nlohmann::json& data,
-                                  const char* actorField, const char* secondaryField,
-                                  const char* source);
-    void HandleGoalScored(const nlohmann::json& data, SideEffects& effects);
-    void HandleBallHit(const nlohmann::json& data);
-    void HandleCrossbarHit(const nlohmann::json& data);
-    void HandleMatchEnded(const nlohmann::json& data, SideEffects& effects);
-    void HandleMatchDestroyed(const nlohmann::json& data, SideEffects& effects);
-    bool IsSelf(const std::string& name) const;
-    bool IsSelfById(const std::string& pid) const;
-    std::string ResolveRosterPlayerIdLocked(const nlohmann::json& target) const;
-    DiscordPresenceSnapshot BuildDiscordSnapshotLocked() const;
+    static SideEffects ConfirmPendingDestroyedMatch(MatchState& state,
+                                                    const std::string& matchGuid,
+                                                    bool won,
+                                                    const ReducerContext& context);
+
+    static void OnTelemetryDisconnected(MatchState& state);
+
+    // Instance convenience methods
+    SideEffects Reduce(const TelemetryEvents::TelemetryEvent& event, const ReducerContext& context) {
+        return ReduceInPlace(m_state, event, context);
+    }
+    const MatchState& State() const {
+        return m_state;
+    }
+    MatchState& State() {
+        return m_state;
+    }
+
+    static DiscordPresenceSnapshot BuildDiscordSnapshot(const MatchState& state);
 
     enum class MatchFinalizeSource {
         MatchEnded,
@@ -50,66 +75,6 @@ class TelemetryReducer {
         LocalForfeit,
         TrackerConfirmedDestroyed
     };
-
-    struct CapturedMatch {
-        std::string arenaName;
-        std::string arenaAsset;
-        std::string matchGuid;
-        int playlistId = -1;
-        uint64_t matchGeneration = 0;
-        uint64_t sessionGeneration = 0;
-        std::string myPrimaryId;
-        int myTeam = -1;
-        std::array<int, 2> score{};
-        int legacyMaxPlayersSeen = 0;
-        std::array<int, 2> legacyMaxTeamPlayersSeen{};
-        bool roundEverStarted = false;
-        bool localPlayerWasActive = false;
-        bool localPlayerWasSpectator = false;
-        bool legacyLobbyWasEverFull = false;
-        bool localPlayerDisappeared = false;
-        bool explicitLocalForfeit = false;
-        bool fallbackCasualContext = false;
-        bool fallbackNonRecordableContext = false;
-        std::string fallbackNonRecordableReason;
-        bool nonLiveReplay = false;
-        MatchStats stats;
-        std::unordered_map<std::string, PlayerData> roster;
-        MmrCategory rosterMmrCategory = MmrCategory::Best;
-        std::string mode;
-        LocalPreMatchMmrSnapshot preMatchMmr;
-        bool hasPreMatchMmr = false;
-        int64_t endedAtUnixMs = 0;
-        float durationSeconds = 0.0f;
-        float overtimeSeconds = 0.0f;
-        std::vector<MatchJournalEvent> events;
-        std::optional<MatchAnalytics> analytics;
-    };
-
-    void FinalizeMatchLocked(int winnerTeam, MatchFinalizeSource source, SideEffects& effects);
-    void AddMatchToSessionTotalsLocked(const CapturedMatch& match,
-                                       bool iWon,
-                                       SessionTotals& sessionTotals,
-                                       std::map<std::string, GamemodeStat>& sessionGamemodes);
-    void FinalizeCapturedMatchLocked(CapturedMatch match,
-                                     int winnerTeam,
-                                     MatchFinalizeSource source,
-                                     bool enqueueMmrRefresh,
-                                     SideEffects& effects);
-    CapturedMatch CaptureMatchLocked() const;
-    bool BuildPostMatchMmrRefreshLocked(const CapturedMatch& match,
-                                        bool won,
-                                        PostMatchMmrRefresh& refresh) const;
-    void RecordTerminalMatchGuidLocked(const std::string& matchGuid);
-    void MarkDestroyedMatchVoidLocked(const std::string& reason, SideEffects& effects);
-    bool IsValidEarlyCompetitiveExitLocked(std::string& mode, std::string& voidReason) const;
-    void UpdateLifecycleSignalsLocked(const nlohmann::json& data);
-    static bool HasExplicitLocalForfeitSignal(const nlohmann::json& data, int localTeam);
-    bool AttachTerminalGuidToCurrentLocked(const std::string& eventMatchGuid);
-    bool AcceptsAnalyticsEventLocked(const nlohmann::json& data, bool duringReplay = false) const;
-    double AnalyticsNowSeconds() const;
-    bool AcceptsUiMatchEventLocked(const nlohmann::json& data, int64_t nowMs);
-    bool TargetsCurrentActiveMatchUiLocked(const nlohmann::json& data);
 
     struct MatchEndDecision {
         bool shouldCount = false;
@@ -119,60 +84,13 @@ class TelemetryReducer {
         std::string voidReason;
     };
 
-    MatchEndDecision ClassifyMatchEndLocked(const CapturedMatch& match, int winnerTeam) const;
-    // Roster is left empty; callers move or copy it in.
-    static MatchSaveSnapshot BuildMatchSaveSnapshot(const CapturedMatch& match,
-                                                    int winnerTeam,
-                                                    const MatchEndDecision& decision);
+    static CapturedMatch CaptureMatch(const MatchState& state);
+    static MatchEndDecision ClassifyMatchEnd(const CapturedMatch& match, int winnerTeam, const ConfigData& config);
+    static MatchSaveSnapshot BuildMatchSaveSnapshot(const CapturedMatch& match, int winnerTeam, const MatchEndDecision& decision);
+    static void FinalizeMatch(MatchState& state, int winnerTeam, MatchFinalizeSource source, const ReducerContext& context, SideEffects& effects);
+    static bool IsValidEarlyCompetitiveExit(const MatchState& state, std::string& mode, std::string& voidReason);
     static int LegacyExpectedTeamSizeForMode(const std::string& mode);
 
-    std::shared_ptr<SessionState> m_state;
-    ConfigData m_cachedConf;
-    uint64_t m_cachedConfigRevision = 0;
-
-    std::string m_lastSavedMatchGuid;
-    std::vector<MatchJournalEvent> m_matchEvents;
-    std::unordered_set<std::string> m_eventNativeKeys;
-    MatchAnalyticsTracker m_analytics;
-    bool m_hasObservedMatchClock = false;
-    std::chrono::steady_clock::time_point m_lastMatchClockSampleAt{};
-    std::string m_lastEventSignature;
-    std::chrono::steady_clock::time_point m_lastEventAt{};
-    std::unordered_map<std::string, int> m_lastPlayerBoost;
-    std::unordered_set<std::string> m_boostRespawnPending;
-    std::unordered_map<std::string, CapturedMatch> m_pendingDestroyedMatches;
-    std::unordered_set<std::string> m_finalizedMatchGuids;
-    uint64_t m_nextMatchGeneration = 0;
-    bool m_missingGuidAssociationBlockedByReconnect = false;
-    bool m_nonLiveReplayActive = false;
-    std::unordered_map<std::string, std::chrono::steady_clock::time_point> m_lastPlayerSeen;
-
-    bool m_roundActive = true;
-    std::string m_uiMatchGuid;
-    bool m_countdownSeenThisRound = false;
-    std::unordered_set<std::string> m_identityCandidates;
-    int m_missedMyIdCount = 0;
-    std::string m_lastKnownMyId;
-    std::string m_lastConfirmedLocalAccount;
-    MmrCategory m_autoSwitchedPlaylistCategory = MmrCategory::Best;
-    MmrCategory m_followedGraphPlaylistCategory = MmrCategory::Best;
-    struct PauseInterval {
-        std::chrono::steady_clock::time_point start;
-        std::chrono::steady_clock::time_point end;
-    };
-    // Regulation time comes from the game clock so goal replays and kickoff countdowns are excluded.
-    std::optional<float> m_regulationClockStart;
-    float m_regulationClockLatest = 0.0f;
-    std::optional<std::chrono::steady_clock::time_point> m_overtimeStartedAt;
-    std::optional<std::chrono::steady_clock::time_point> m_currentPauseStart;
-    std::vector<PauseInterval> m_pauseIntervals;
-
-    std::function<std::chrono::steady_clock::time_point()> m_clockFn;
-    std::chrono::steady_clock::time_point Now() const {
-        if (m_clockFn) return m_clockFn();
-        return std::chrono::steady_clock::now();
-    }
-    float PausedSecondsWithin(std::chrono::steady_clock::time_point windowStart,
-                              std::chrono::steady_clock::time_point windowEnd) const;
-    void ResetMatchTimingState();
+  private:
+    MatchState m_state;
 };

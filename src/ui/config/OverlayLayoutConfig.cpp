@@ -1,5 +1,6 @@
 #include "ui/config/OverlayLayoutConfig.hpp"
 #include "core/state/SessionState.hpp"
+#include "core/state/LiveMatchStore.hpp"
 #include <algorithm>
 #include <cctype>
 #include <set>
@@ -294,9 +295,10 @@ namespace OverlayLayout {
         snap.timestamps.matchEndMs = state.ui.lastMatchEndMs.load(std::memory_order_relaxed);
         snap.timestamps.podiumMs = state.ui.lastPodiumMs.load(std::memory_order_relaxed);
         snap.keyHeld = state.ui.showOverlay.load(std::memory_order_relaxed);
-        snap.inMatch = state.game.inMatch.load(std::memory_order_relaxed);
+        auto liveSnap = state.liveMatch ? state.liveMatch->GetSnapshot() : nullptr;
+        snap.inMatch = liveSnap ? liveSnap->inMatch : false;
         snap.inReplay = state.ui.inGoalReplay.load(std::memory_order_relaxed);
-        snap.inMenus = !snap.inMatch && !state.game.inReplay.load(std::memory_order_relaxed);
+        snap.inMenus = !snap.inMatch && !(liveSnap ? liveSnap->inReplay : false);
         snap.editMode = editMode;
         return snap;
     }

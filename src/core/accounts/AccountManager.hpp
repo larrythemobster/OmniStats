@@ -11,7 +11,7 @@
 #include <unordered_set>
 #include <vector>
 
-#include "core/effects/SideEffectExecutor.hpp"
+#include "utils/WorkQueue.hpp"
 #include "core/accounts/TrackedAccounts.hpp"
 #include "network/mmr/MMRFetcher.hpp"
 
@@ -169,7 +169,7 @@ class AccountManagerService {
     std::function<int64_t()> m_clock;
     std::atomic<uint64_t> m_version{1};
 
-    SideEffectExecutor m_worker;
+    WorkQueue m_worker;
 };
 
 const char* RefreshStateKey(AccountManagerService::RefreshState state);

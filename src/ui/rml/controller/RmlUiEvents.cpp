@@ -808,15 +808,8 @@ void RmlUiController::HandleChange(Rml::Element* target, Rml::Event& event) {
     if (key == "run_on_startup") Config::SetWindowsAutoStart(checked);
     if (key == "identity" && m_state) {
         {
-            std::unique_lock lock(m_state->game.mutex);
-            m_state->game.myPrimaryId = value;
             std::unique_lock historyLock(m_state->history.mutex);
             m_state->selectMmrOwnerLocked(value);
-            m_state->game.myTeam = -1;
-            if (!value.empty()) {
-                if (auto it = m_state->game.roster.find(value); it != m_state->game.roster.end()) m_state->game.myTeam = it->second.team;
-            }
-            m_state->game.version.fetch_add(1, std::memory_order_relaxed);
         }
         // Force account-scoped async data to refresh for the newly selected identity.
         m_lastDbFetchPrimaryId.clear();

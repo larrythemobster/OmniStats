@@ -12,9 +12,10 @@ class TelemetryParser {
     TelemetryParser();
     ~TelemetryParser();
 
-    using JsonLineCallback = std::function<void(const std::string& jsonLine)>;
+    // Receives each complete JSON message from the Stats API stream.
+    using MessageCallback = std::function<void(const std::string& message)>;
 
-    void ConnectAndRead(JsonLineCallback onJsonLine);
+    void ConnectAndRead(MessageCallback onMessage);
     void Stop();
     void SetTelemetryManager(std::shared_ptr<TelemetryManager> tm) {
         m_telemetry = std::move(tm);

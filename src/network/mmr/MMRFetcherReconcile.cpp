@@ -1,4 +1,5 @@
 #include "network/mmr/MMRFetcher.hpp"
+#include "core/state/LiveMatchStore.hpp"
 #include "network/http/CurlImpersonate.hpp"
 #include "core/config/Config.hpp"
 #include "core/game/GamemodeUtils.hpp"
@@ -454,13 +455,14 @@ bool MMRFetcher::ReconcileTrackerResponse(const MMRRequest& req, int fetchedMmr,
             }
         }
 
-        std::unique_lock<std::shared_mutex> gameLock(m_state->game.mutex);
         std::unique_lock<std::shared_mutex> historyLock(m_state->history.mutex);
-        ScopedMmrHistoryOwner owner(m_state->history, req.primaryId, m_state->game.myPrimaryId);
+        auto liveSnap = m_state->liveMatch ? m_state->liveMatch->GetSnapshot() : nullptr;
+        const std::string myPrimaryId = liveSnap ? liveSnap->myPrimaryId : std::string{};
+        const uint64_t sessionGeneration = liveSnap ? liveSnap->sessionGeneration : 0;
+        ScopedMmrHistoryOwner owner(m_state->history, req.primaryId, myPrimaryId);
         auto& points = m_state->history.playlistMatchPoints[req.playlist];
         auto& projection = m_state->history.playlistHistoryY[req.playlist];
         auto& initialMmrByPlaylist = m_state->history.playlistInitialMmr;
-        const uint64_t sessionGeneration = m_state->game.sessionGeneration.load();
         const bool oldestInSession = oldestRecord.sessionGeneration == sessionGeneration;
 
         int pathBaselineMmr = oldestRecord.preMatchMmrIsPlaylistSpecific
@@ -553,7 +555,7 @@ bool MMRFetcher::ReconcileTrackerResponse(const MMRRequest& req, int fetchedMmr,
         const bool reconciledPathAvailable =
             reconciledPath.size() == coveredCount;
         int chainMmr = pathBaselineMmr;
-        auto& recap = m_state->game.lastSessionRecap;
+        SessionRecap recap = liveSnap ? liveSnap->lastSessionRecap : SessionRecap{};
         const bool recapOwnsRequest =
             recap.valid && recap.sessionGeneration != sessionGeneration &&
             recap.mmrOwnerPrimaryId == req.primaryId;
@@ -700,7 +702,9 @@ bool MMRFetcher::ReconcileTrackerResponse(const MMRRequest& req, int fetchedMmr,
             recap.totals.totalMmrChange = static_cast<float>(
                 CalculateTrackedSessionMmrChange(recap.totals.mmrChangeByPlaylist));
             updatedRecap = recap;
-            m_state->game.version++;
+            if (m_state->liveMatch) {
+                m_state->liveMatch->UpdateLastSessionRecapMmr(recap.totals.mmrChangeByPlaylist, recap.totals.totalMmrChange);
+            }
         }
         if (allPendingCovered) m_pendingPostMatchesByPlaylist.erase(pendingIt);
 
@@ -715,37 +719,27 @@ bool MMRFetcher::ReconcileTrackerResponse(const MMRRequest& req, int fetchedMmr,
         }
 
         // The live match's snapshot may predate this confirmation.
-        if (allPendingCovered && fetchedMatches >= 0 &&
-            m_state->game.inMatch && !m_state->game.matchFinalized &&
-            req.primaryId == m_state->game.myPrimaryId) {
-            for (auto& [snapshotGuid, snapshot] : m_state->game.preMatchMmrByGuid) {
-                if (m_postMatchRecordsByGuid.count(snapshotGuid) > 0 ||
-                    m_completedPostMatchGuids.count(snapshotGuid) > 0) {
-                    continue;
+        if (allPendingCovered && fetchedMatches >= 0 && m_state->liveMatch) {
+            m_state->liveMatch->PostAction([req, fetchedMatches, fetchedMmr, allPendingCovered](MatchState& state, SideEffects&) {
+                if (allPendingCovered && fetchedMatches >= 0 &&
+                    state.inMatch && !state.matchFinalized &&
+                    req.primaryId == state.myPrimaryId) {
+                    for (auto& [snapshotGuid, snapshot] : state.preMatchMmrByGuid) {
+                        const auto matchesIt = snapshot.playlistMatches.find(req.playlist);
+                        if (matchesIt == snapshot.playlistMatches.end() ||
+                            matchesIt->second < 0 ||
+                            matchesIt->second >= fetchedMatches) {
+                            continue;
+                        }
+                        matchesIt->second = fetchedMatches;
+                        snapshot.playlistMmrs[req.playlist] = fetchedMmr;
+                    }
                 }
-                const auto matchesIt = snapshot.playlistMatches.find(req.playlist);
-                if (matchesIt == snapshot.playlistMatches.end() ||
-                    matchesIt->second < 0 ||
-                    matchesIt->second >= fetchedMatches) {
-                    continue;
-                }
-                const auto mmrIt = snapshot.playlistMmrs.find(req.playlist);
-                std::cout
-                    << "[MMRFetcher] Refreshed in-progress pre-match snapshot: matchGuid="
-                    << PrivacyLog::Sensitive(snapshotGuid, "match GUID")
-                    << ", playlist=" << req.playlist
-                    << ", matches=" << matchesIt->second << "->" << fetchedMatches
-                    << ", mmr="
-                    << (mmrIt != snapshot.playlistMmrs.end() ? mmrIt->second : 0)
-                    << "->" << fetchedMmr << ".\n";
-                matchesIt->second = fetchedMatches;
-                snapshot.playlistMmrs[req.playlist] = fetchedMmr;
-            }
+            });
         }
 
-        if (req.primaryId == m_state->game.myPrimaryId) {
+        if (req.primaryId == myPrimaryId) {
             m_state->syncSessionMmrChangeLocked();
-            m_state->game.version++;
         }
         m_state->history.version++;
     }
@@ -794,10 +788,12 @@ void MMRFetcher::EnsureProvisionalPoint(const MMRRequest& req,
             record.firstObservedMatchesPlayed = fetchedMatches;
         }
 
-        std::unique_lock<std::shared_mutex> gameLock(m_state->game.mutex);
         std::unique_lock<std::shared_mutex> historyLock(m_state->history.mutex);
-        if (record.sessionGeneration != m_state->game.sessionGeneration.load()) return;
-        ScopedMmrHistoryOwner owner(m_state->history, req.primaryId, m_state->game.myPrimaryId);
+        auto liveSnap = m_state->liveMatch ? m_state->liveMatch->GetSnapshot() : nullptr;
+        const uint64_t sessionGeneration = liveSnap ? liveSnap->sessionGeneration : 0;
+        const std::string myPrimaryId = liveSnap ? liveSnap->myPrimaryId : std::string{};
+        if (record.sessionGeneration != sessionGeneration) return;
+        ScopedMmrHistoryOwner owner(m_state->history, req.primaryId, myPrimaryId);
         auto& projection = m_state->history.playlistHistoryY[req.playlist];
         auto& points = m_state->history.playlistMatchPoints[req.playlist];
         auto pointIt = std::find_if(points.begin(), points.end(), [&](const SessionMmrPoint& point) {
@@ -836,10 +832,10 @@ void MMRFetcher::EnsureProvisionalPoint(const MMRRequest& req,
             // include this match. Own the point, but do not apply the result twice.
             baselineMmr = fetchedMmr;
         }
-        if (baselineMmr <= 0) {
+        if (baselineMmr <= 0 && liveSnap) {
             // Best MMR belongs to another playlist.
-            const auto playerIt = m_state->game.roster.find(req.primaryId);
-            if (playerIt != m_state->game.roster.end()) {
+            const auto playerIt = liveSnap->roster.find(req.primaryId);
+            if (playerIt != liveSnap->roster.end()) {
                 const auto playlistIt = playerIt->second.playlists.find(req.playlist);
                 if (playlistIt != playerIt->second.playlists.end() && playlistIt->second > 0) {
                     baselineMmr = playlistIt->second;
@@ -892,9 +888,8 @@ void MMRFetcher::EnsureProvisionalPoint(const MMRRequest& req,
         record.valueEstimated = true;
         record.reconciliationState = PostMatchReconciliationState::Provisional;
         m_completedPostMatchGuids.insert(req.matchGuid);
-        if (req.primaryId == m_state->game.myPrimaryId) {
+        if (req.primaryId == myPrimaryId) {
             m_state->syncSessionMmrChangeLocked();
-            m_state->game.version++;
         }
         m_state->history.version++;
         appended = true;
@@ -968,7 +963,7 @@ bool MMRFetcher::PublishProfileResult(const MMRRequest& req, const NormalizedPro
         if (!postMatchConfirmed) {
             EnsureProvisionalPoint(req, req.previousMmr, postMatchMmr, postMatchMatches);
         }
-    } else if (req.primaryId == m_state->game.myPrimaryId) {
+    } else if (req.primaryId == (m_state->liveMatch && m_state->liveMatch->GetSnapshot() ? m_state->liveMatch->GetSnapshot()->myPrimaryId : std::string{})) {
         // Roster refreshes may confirm provisional points, but the pending
         // match records remain the sole owners of graph cardinality.
         std::vector<MMRRequest> pendingPlaylists;
@@ -1040,60 +1035,62 @@ bool MMRFetcher::PublishProfileResult(const MMRRequest& req, const NormalizedPro
     }
 
     {
-        std::unique_lock<std::shared_mutex> gameLock(m_state->game.mutex);
         std::unique_lock<std::shared_mutex> historyLock(m_state->history.mutex);
+        auto liveSnap = m_state->liveMatch ? m_state->liveMatch->GetSnapshot() : nullptr;
         const bool fetchedThisSession =
-            req.sessionGeneration == m_state->game.sessionGeneration.load();
+            liveSnap && (req.sessionGeneration == liveSnap->sessionGeneration);
+        const std::string myPrimaryId = liveSnap ? liveSnap->myPrimaryId : std::string{};
+        const bool isLocalPlayer = req.primaryId == myPrimaryId;
 
         if (req.reason == MMRRequestReason::Roster &&
             fetchedThisSession &&
-            req.primaryId == m_state->game.myPrimaryId &&
-            m_state->game.inMatch &&
-            !m_state->game.matchGuid.empty() &&
-            m_state->game.preMatchMmrByGuid.count(m_state->game.matchGuid) == 0) {
-            const bool hasPlaylistMmr = std::any_of(
-                profile.playlistMMRs.begin(), profile.playlistMMRs.end(),
-                [](const auto& entry) {
-                    return entry.first != "best" && entry.second > 0;
-                });
-            if (hasPlaylistMmr) {
-                m_state->game.preMatchMmrByGuid.emplace(
-                    m_state->game.matchGuid,
-                    LocalPreMatchMmrSnapshot{
-                        .playlistMmrs = profile.playlistMMRs,
-                        .playlistMatches = profile.playlistMatches});
-                std::cout
-                    << "[MMRFetcher] Captured pre-match MMR snapshot: matchGuid="
-                    << PrivacyLog::Sensitive(
-                           m_state->game.matchGuid,
-                           "match GUID")
-                    << ".\n";
-            }
+            m_state->liveMatch) {
+            m_state->liveMatch->PostAction([req, profile](MatchState& state, SideEffects&) {
+                if (req.primaryId == state.myPrimaryId &&
+                    state.inMatch &&
+                    !state.matchGuid.empty() &&
+                    state.preMatchMmrByGuid.count(state.matchGuid) == 0) {
+                    const bool hasPlaylistMmr = std::any_of(
+                        profile.playlistMMRs.begin(), profile.playlistMMRs.end(),
+                        [](const auto& entry) {
+                            return entry.first != "best" && entry.second > 0;
+                        });
+                    if (hasPlaylistMmr) {
+                        state.preMatchMmrByGuid.emplace(
+                            state.matchGuid,
+                            LocalPreMatchMmrSnapshot{
+                                .playlistMmrs = profile.playlistMMRs,
+                                .playlistMatches = profile.playlistMatches});
+                    }
+                }
+            });
         }
 
-        // Other players' results may arrive after they left or after a session reset; only the local player is re-added.
-        const bool isLocalPlayer = req.primaryId == m_state->game.myPrimaryId;
-        auto rosterIt = m_state->game.roster.find(req.primaryId);
-        if (rosterIt == m_state->game.roster.end() && isLocalPlayer)
-            rosterIt = m_state->game.roster.try_emplace(req.primaryId).first;
-        if (rosterIt != m_state->game.roster.end() && (isLocalPlayer || fetchedThisSession)) {
-            auto& player = rosterIt->second;
-            player.primaryId = req.primaryId;
-            if (player.name.empty()) player.name = req.name;
-            player.playlists = profile.playlistMMRs;
-            player.playlistTiers = profile.playlistTiers;
-            player.playlistMatches = profile.playlistMatches;
-            if (profile.totalWins >= 0) {
-                player.totalWins = profile.totalWins;
-            }
-            player.mmr = profile.bestMmr;
-            player.rankTier = profile.bestTier;
-            player.fetched = true;
-            player.fetchFailed = false;
-            player.rankVerificationSource = profile.rankVerificationSource;
+        if (m_state->liveMatch) {
+            m_state->liveMatch->PostAction([req, profile, isLocalPlayer, fetchedThisSession](MatchState& state, SideEffects&) {
+                auto rosterIt = state.roster.find(req.primaryId);
+                if (rosterIt == state.roster.end() && isLocalPlayer)
+                    rosterIt = state.roster.try_emplace(req.primaryId).first;
+                if (rosterIt != state.roster.end() && (isLocalPlayer || fetchedThisSession)) {
+                    auto& player = rosterIt->second;
+                    player.primaryId = req.primaryId;
+                    if (player.name.empty()) player.name = req.name;
+                    player.playlists = profile.playlistMMRs;
+                    player.playlistTiers = profile.playlistTiers;
+                    player.playlistMatches = profile.playlistMatches;
+                    if (profile.totalWins >= 0) {
+                        player.totalWins = profile.totalWins;
+                    }
+                    player.mmr = profile.bestMmr;
+                    player.rankTier = profile.bestTier;
+                    player.fetched = true;
+                    player.fetchFailed = false;
+                    player.rankVerificationSource = profile.rankVerificationSource;
+                }
+            });
         }
 
-        if (req.primaryId == m_state->game.myPrimaryId && fetchedThisSession) {
+        if (isLocalPlayer && fetchedThisSession) {
             m_state->history.SelectMmrOwner(req.primaryId);
             if (m_state->history.initialMmr == -1 && profile.bestMmr > 0) {
                 m_state->history.initialMmr = profile.bestMmr;
@@ -1124,7 +1121,6 @@ bool MMRFetcher::PublishProfileResult(const MMRRequest& req, const NormalizedPro
 
         std::cout << "[MMRFetcher] Updated: " << PrivacyLog::Sensitive(req.name, "player name")
                   << " -> Best: " << profile.bestMmr << "\n";
-        m_state->game.version++;
         m_state->history.version++;
     }
     return false;

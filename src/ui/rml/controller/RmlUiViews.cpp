@@ -1,4 +1,5 @@
 #include "ui/rml/controller/RmlUiController.hpp"
+#include "core/state/LiveMatchStore.hpp"
 
 #include <RmlUi/Core.h>
 #include <RmlUi/Core/Context.h>
@@ -87,8 +88,10 @@ void RmlUiController::ShowInsights(InsightsView::Tab tab, bool endedSession) {
     // the useful recap.
     bool showEnded = endedSession;
     if (!showEnded && m_state && m_snap.sessionTotals.wins + m_snap.sessionTotals.losses == 0) {
-        std::shared_lock lock(m_state->game.mutex);
-        showEnded = m_state->game.lastSessionRecap.valid;
+        if (m_state->liveMatch) {
+            auto liveSnap = m_state->liveMatch->GetSnapshot();
+            showEnded = liveSnap ? liveSnap->lastSessionRecap.valid : false;
+        }
     }
     m_insightsShowsEndedSession = showEnded;
     m_insights.ClearArchivedSelection();
@@ -117,9 +120,11 @@ void RmlUiController::RefreshInsights(bool force) {
     if (force || m_lastRecapGameVersion != m_lastGameVersion) {
         m_lastRecapGameVersion = m_lastGameVersion;
         SessionRecap endedRecap;
-        {
-            std::shared_lock lock(m_state->game.mutex);
-            endedRecap = m_state->game.lastSessionRecap;
+        if (m_state && m_state->liveMatch) {
+            auto liveSnap = m_state->liveMatch->GetSnapshot();
+            if (liveSnap) {
+                endedRecap = liveSnap->lastSessionRecap;
+            }
         }
         SessionRecap liveRecap{true, 0, m_snap.sessionTotals, m_snap.sessionGamemodes};
         m_insights.SetLiveAndEndedSession(liveRecap, endedRecap, m_insightsShowsEndedSession);

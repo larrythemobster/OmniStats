@@ -3,6 +3,62 @@
 #include "core/state/SessionState.hpp"
 #include "core/config/Constants.hpp"
 #include "utils/Storage.hpp"
+#include "core/effects/EffectRouter.hpp"
+#include "network/telemetry/TelemetryEvents.hpp"
+#include <nlohmann/json.hpp>
+
+namespace {
+    struct TestState : public SessionState {
+        struct GameProxy : public MatchState {
+            mutable std::shared_mutex mutex;
+        };
+        GameProxy game;
+        ReducerContext ctx = MakeReducerContext(ui);
+        bool clockOverridden = false;
+
+        bool startNewSessionLocked(int64_t endedAtUnix) {
+            return game.StartNewSession(endedAtUnix, &history);
+        }
+
+        SideEffects Reduce(const std::string& eventName, const nlohmann::json& data) {
+            if (clockOverridden) {
+                const int64_t nowMs = ctx.nowMs;
+                const double nowSeconds = ctx.nowSeconds;
+                ctx = MakeReducerContext(ui);
+                ctx.nowMs = nowMs;
+                ctx.nowSeconds = nowSeconds;
+            } else {
+                ctx = MakeReducerContext(ui);
+            }
+            auto ev = TelemetryEvents::ParseEventFromJson(eventName, data.is_string() ? data.get<std::string>() : data.dump());
+            if (!ev) return SideEffects{};
+            SideEffects effects = ::TelemetryReducer::ReduceInPlace(game, *ev, ctx);
+            EffectRouter::Route(SideEffects(effects), nullptr, nullptr, nullptr, nullptr, shared_from_this());
+            return effects;
+        }
+    };
+
+    struct TestTelemetryReducer : public ::TelemetryReducer {
+        std::shared_ptr<TestState> state;
+        std::function<std::chrono::steady_clock::time_point()> clockFn;
+        explicit TestTelemetryReducer(std::shared_ptr<TestState> s) : state(std::move(s)) {}
+        void SetClockForTests(std::function<std::chrono::steady_clock::time_point()> fn) {
+            clockFn = std::move(fn);
+        }
+        SideEffects Reduce(const std::string& eventName, const nlohmann::json& data) {
+            if (clockFn) {
+                const auto tp = clockFn();
+                state->clockOverridden = true;
+                state->ctx.nowMs = std::chrono::duration_cast<std::chrono::milliseconds>(tp.time_since_epoch()).count();
+                state->ctx.nowSeconds = std::chrono::duration<double>(tp.time_since_epoch()).count();
+            }
+            return state->Reduce(eventName, data);
+        }
+    };
+} // namespace
+
+#define SessionState TestState
+#define TelemetryReducer TestTelemetryReducer
 #include <memory>
 #include <thread>
 #include <chrono>
@@ -484,7 +540,7 @@ TEST(TelemetryReducerStats, RejectedOrDuplicateTerminalEventsDoNotRestartVisibil
     reducer.Reduce(std::string(Constants::EVT_GOAL_REPLAY_START), nlohmann::json{{"MatchGuid", "vis-term-1"}});
     EXPECT_TRUE(state->ui.inGoalReplay.load());
     reducer.Reduce(std::string(Constants::EVT_MATCH_DESTROYED), nlohmann::json{{"MatchGuid", "vis-term-1"}});
-    ASSERT_FALSE(state->game.inMatch.load());
+    ASSERT_FALSE(state->game.inMatch);
     EXPECT_FALSE(state->ui.inGoalReplay.load());
 
     std::this_thread::sleep_for(std::chrono::milliseconds(5));

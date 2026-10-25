@@ -5,6 +5,7 @@
 #include "network/api/AccountClient.hpp"
 #include "network/mmr/MMRFetcherDetail.hpp"
 #include "core/state/SessionState.hpp"
+#include "core/state/LiveMatchStore.hpp"
 #include "core/config/Config.hpp"
 
 using namespace MMRFetcherDetail;
@@ -789,7 +790,7 @@ TEST_F(MMRFetcherTest, SequentialCountlessFallbackCarriesPlaylistBaseline) {
 }
 
 TEST_F(MMRFetcherTest, RosterResponseWithoutMatchesPlayedFallsBackToRating) {
-    sessionState->game.myPrimaryId = "Steam|123";
+    sessionState->liveMatch->SetLocalPrimaryId("Steam|123");
     EnqueuePostMatch("roster-missing-count", true);
     g_mock_response_code = 200;
     g_mock_response = R"({
@@ -843,7 +844,7 @@ TEST_F(MMRFetcherTest, KnownPreMatchMmrWithUnknownCountUsesFirstRatingChange) {
 }
 
 TEST_F(MMRFetcherTest, RosterRefreshDoesNotApplyResultToBestMmrFallback) {
-    sessionState->game.myPrimaryId = "Steam|123";
+    sessionState->liveMatch->SetLocalPrimaryId("Steam|123");
     EnqueuePostMatch("best-fallback", true, 1300, 50, "2v2", false);
     g_mock_response_code = 200;
     g_mock_response = R"({
@@ -1122,29 +1123,31 @@ TEST_F(MMRFetcherTest, ImpossibleLowMmrPathDoesNotInferDestroyedLoss) {
 }
 
 TEST_F(MMRFetcherTest, ConfirmationDuringNextMatchRefreshesItsPreMatchBaseline) {
-    sessionState->game.myPrimaryId = "Steam|123";
     std::vector<std::pair<std::string, bool>> confirmations;
     fetcher->SetDestroyedMatchConfirmationCallback(
         [&](const std::string& matchGuid, bool won) {
             confirmations.emplace_back(matchGuid, won);
         });
     EnqueueDestroyedMatch("previous-loss", 1015, 46, "2v2", {1, 2});
-    sessionState->game.inMatch = true;
-    sessionState->game.matchGuid = "next-win";
-    sessionState->game.preMatchMmrByGuid["next-win"] =
-        LocalPreMatchMmrSnapshot{
-            .playlistMmrs = {{"2v2", 1015}},
-            .playlistMatches = {{"2v2", 46}}};
+    sessionState->liveMatch->UpdateMatchStateForTests([](MatchState& ms) {
+        ms.myPrimaryId = "Steam|123";
+        ms.inMatch = true;
+        ms.matchGuid = "next-win";
+        ms.preMatchMmrByGuid["next-win"] =
+            LocalPreMatchMmrSnapshot{
+                .playlistMmrs = {{"2v2", 1015}},
+                .playlistMatches = {{"2v2", 46}}};
+    });
 
     fetcher->ProcessPostMatchResponseForTests("previous-loss", 1005, 47);
 
     ASSERT_EQ(confirmations.size(), 1u);
     EXPECT_FALSE(confirmations[0].second);
-    const auto& snapshot = sessionState->game.preMatchMmrByGuid.at("next-win");
+    const auto snapshot = sessionState->liveMatch->GetSnapshot()->preMatchMmrByGuid.at("next-win");
     EXPECT_EQ(snapshot.playlistMmrs.at("2v2"), 1005);
     EXPECT_EQ(snapshot.playlistMatches.at("2v2"), 47);
 
-    sessionState->game.inMatch = false;
+    sessionState->liveMatch->UpdateMatchStateForTests([](MatchState& ms) { ms.inMatch = false; });
     PendingDestroyedMatchMmrRefresh next;
     next.matchGuid = "next-win";
     next.primaryId = "Steam|123";
@@ -1166,8 +1169,7 @@ TEST_F(MMRFetcherTest, ConfirmationDuringNextMatchRefreshesItsPreMatchBaseline) 
 }
 
 TEST(SessionMmrAggregationTest, SumsOnlyTrackedCompetitivePlaylists) {
-    SessionState state;
-    state.game.sessionTotals.mmrChangeByPlaylist = {
+    std::map<std::string, int> mmrChangeByPlaylist = {
         {"1v1", 18},
         {"2v2", 27},
         {"3v3", 9},
@@ -1177,15 +1179,13 @@ TEST(SessionMmrAggregationTest, SumsOnlyTrackedCompetitivePlaylists) {
         {"casual", 25},
         {"2v2_alias", 27}};
 
-    state.ui.graphMmrCategory.store(MmrCategory::OneVOne);
-    state.game.sessionTotals.totalMmrChange = static_cast<float>(
-        CalculateTrackedSessionMmrChange(state.game.sessionTotals.mmrChangeByPlaylist));
-    EXPECT_EQ(state.game.sessionTotals.totalMmrChange, 40);
+    float totalMmrChange = static_cast<float>(
+        CalculateTrackedSessionMmrChange(mmrChangeByPlaylist));
+    EXPECT_EQ(totalMmrChange, 40);
 
-    state.ui.graphMmrCategory.store(MmrCategory::Dropshot);
-    state.game.sessionTotals.totalMmrChange = static_cast<float>(
-        CalculateTrackedSessionMmrChange(state.game.sessionTotals.mmrChangeByPlaylist));
-    EXPECT_EQ(state.game.sessionTotals.totalMmrChange, 40);
+    totalMmrChange = static_cast<float>(
+        CalculateTrackedSessionMmrChange(mmrChangeByPlaylist));
+    EXPECT_EQ(totalMmrChange, 40);
 }
 
 TEST(MMRFetcherPostMatchTest, KeepsPostMatchRequestBehindRosterRequest) {
@@ -1251,9 +1251,11 @@ TEST_F(MMRFetcherTest, ConfiguredLegacyKeyAloneCannotAuthorizeRankLookups) {
     EXPECT_EQ(MMRFetcher::ActiveRankProvider(), RankProvider::Tracker);
     EXPECT_FALSE(fetcher->IsCustomApiActiveSourceForTests());
 
-    sessionState->game.myPrimaryId = "Epic|test_epic_id|0";
-    sessionState->game.roster["Epic|test_epic_id|0"] =
-        PlayerData{.primaryId = "Epic|test_epic_id|0", .name = "TestPlayer"};
+    sessionState->liveMatch->UpdateMatchStateForTests([](MatchState& ms) {
+        ms.myPrimaryId = "Epic|test_epic_id|0";
+        ms.roster["Epic|test_epic_id|0"] =
+            PlayerData{.primaryId = "Epic|test_epic_id|0", .name = "TestPlayer"};
+    });
     g_mock_response_code = 403;
     g_mock_custom_api_response_code = 200;
     g_mock_custom_api_response =
@@ -1283,12 +1285,14 @@ TEST_F(MMRFetcherTest, CustomApiMultipleSkillsParsesAllAndSetsBest) {
         }]
     })";
 
-    sessionState->game.roster["Epic|test_epic_id"] = PlayerData{.primaryId = "Epic|test_epic_id", .name = "TestPlayer"};
+    sessionState->liveMatch->UpdateMatchStateForTests([](MatchState& ms) {
+        ms.roster["Epic|test_epic_id"] = PlayerData{.primaryId = "Epic|test_epic_id", .name = "TestPlayer"};
+    });
     fetcher->FetchRosterProfileForTests("Epic|test_epic_id", "TestPlayer");
 
-    std::shared_lock<std::shared_mutex> lock(sessionState->game.mutex);
-    ASSERT_TRUE(sessionState->game.roster.count("Epic|test_epic_id") > 0);
-    const auto& player = sessionState->game.roster["Epic|test_epic_id"];
+    auto snap = sessionState->liveMatch->GetSnapshot();
+    ASSERT_TRUE(snap->roster.count("Epic|test_epic_id") > 0);
+    const auto& player = snap->roster.at("Epic|test_epic_id");
     EXPECT_TRUE(player.fetched);
     EXPECT_FALSE(player.fetchFailed);
     EXPECT_EQ(player.rankVerificationSource, "ServerA");
@@ -1317,16 +1321,18 @@ TEST_F(MMRFetcherTest, CustomApiSingleSkillParsesCorrectly) {
         }]
     })";
 
-    sessionState->game.roster["Steam|76561198000000000|0"] = PlayerData{.primaryId = "Steam|76561198000000000|0", .name = "SteamPlayer"};
+    sessionState->liveMatch->UpdateMatchStateForTests([](MatchState& ms) {
+        ms.roster["Steam|76561198000000000|0"] = PlayerData{.primaryId = "Steam|76561198000000000|0", .name = "SteamPlayer"};
+    });
     MMRRequest req;
     req.primaryId = "Steam|76561198000000000|0";
     req.name = "SteamPlayer";
     const auto res = fetcher->FetchProfileFromCustomApiForTests(req);
     EXPECT_EQ(res, CustomApiFetchResult::SuccessFinished);
 
-    std::shared_lock<std::shared_mutex> lock(sessionState->game.mutex);
-    ASSERT_TRUE(sessionState->game.roster.count("Steam|76561198000000000|0") > 0);
-    const auto& player = sessionState->game.roster["Steam|76561198000000000|0"];
+    auto snap = sessionState->liveMatch->GetSnapshot();
+    ASSERT_TRUE(snap->roster.count("Steam|76561198000000000|0") > 0);
+    const auto& player = snap->roster.at("Steam|76561198000000000|0");
     EXPECT_TRUE(player.fetched);
     EXPECT_FALSE(player.fetchFailed);
     EXPECT_EQ(player.mmr, 1050);
@@ -1355,9 +1361,9 @@ TEST_F(MMRFetcherTest, CustomApiEmptySkillsReturnsUnusableDataAndPreventsFalseSu
     // Now test full path: Tracker 403 followed by custom API fallback
     fetcher->FetchRosterProfileForTests("XboxOne|2535421607154237|0", "RollrTraks2x");
 
-    std::shared_lock<std::shared_mutex> lock(sessionState->game.mutex);
-    if (sessionState->game.roster.count("XboxOne|2535421607154237|0")) {
-        const auto& player = sessionState->game.roster["XboxOne|2535421607154237|0"];
+    auto snap = sessionState->liveMatch->GetSnapshot();
+    if (snap->roster.count("XboxOne|2535421607154237|0")) {
+        const auto& player = snap->roster.at("XboxOne|2535421607154237|0");
         // Must NOT be marked fetched with empty ranks!
         EXPECT_FALSE(player.fetched && !player.fetchFailed);
     }
@@ -1468,16 +1474,18 @@ TEST_F(MMRFetcherTest, CustomApiXboxPlayerResponseHandledCorrectly) {
         }]
     })";
 
-    sessionState->game.roster["XboxOne|2535421607154237|0"] = PlayerData{.primaryId = "XboxOne|2535421607154237|0", .name = "RollrTraks2x"};
+    sessionState->liveMatch->UpdateMatchStateForTests([](MatchState& ms) {
+        ms.roster["XboxOne|2535421607154237|0"] = PlayerData{.primaryId = "XboxOne|2535421607154237|0", .name = "RollrTraks2x"};
+    });
     MMRRequest req;
     req.primaryId = "XboxOne|2535421607154237|0";
     req.name = "RollrTraks2x";
     const auto res = fetcher->FetchProfileFromCustomApiForTests(req);
     EXPECT_EQ(res, CustomApiFetchResult::SuccessFinished);
 
-    std::shared_lock<std::shared_mutex> lock(sessionState->game.mutex);
-    ASSERT_TRUE(sessionState->game.roster.count("XboxOne|2535421607154237|0") > 0);
-    const auto& player = sessionState->game.roster["XboxOne|2535421607154237|0"];
+    auto snap = sessionState->liveMatch->GetSnapshot();
+    ASSERT_TRUE(snap->roster.count("XboxOne|2535421607154237|0") > 0);
+    const auto& player = snap->roster.at("XboxOne|2535421607154237|0");
     EXPECT_TRUE(player.fetched);
     EXPECT_FALSE(player.fetchFailed);
     EXPECT_EQ(player.rankVerificationSource, "ServerA");
@@ -1510,21 +1518,21 @@ TEST_F(MMRFetcherTest, CustomApiPlatformMappingsSupported) {
             }]
         })";
 
-        sessionState->game.roster[primaryId] = PlayerData{.primaryId = primaryId, .name = "PlatformTestPlayer"};
+        sessionState->liveMatch->UpdateMatchStateForTests([&](MatchState& ms) { ms.roster[primaryId] = PlayerData{.primaryId = primaryId, .name = "PlatformTestPlayer"}; });
         MMRRequest req;
         req.primaryId = primaryId;
         req.name = "PlatformTestPlayer";
         const auto res = fetcher->FetchProfileFromCustomApiForTests(req);
         EXPECT_EQ(res, CustomApiFetchResult::SuccessFinished);
 
-        std::shared_lock<std::shared_mutex> lock(sessionState->game.mutex);
-        ASSERT_TRUE(sessionState->game.roster.count(primaryId) > 0);
-        EXPECT_EQ(sessionState->game.roster[primaryId].mmr, 1000);
+        auto snap = sessionState->liveMatch->GetSnapshot();
+        ASSERT_TRUE(snap->roster.count(primaryId) > 0);
+        EXPECT_EQ(snap->roster.at(primaryId).mmr, 1000);
     }
 }
 
 TEST_F(MMRFetcherTest, CustomApiUpdatesLocalPlayerHistoryAndCache) {
-    sessionState->game.myPrimaryId = "Epic|local_hero_id|0";
+    sessionState->liveMatch->SetLocalPrimaryId("Epic|local_hero_id|0");
     SetUpSignedInDeviceAuth(false);
     g_mock_custom_api_response_code = 200;
     g_mock_custom_api_response = R"({
@@ -1545,7 +1553,6 @@ TEST_F(MMRFetcherTest, CustomApiUpdatesLocalPlayerHistoryAndCache) {
     EXPECT_EQ(res, CustomApiFetchResult::SuccessFinished);
 
     {
-        std::shared_lock<std::shared_mutex> gameLock(sessionState->game.mutex);
         std::shared_lock<std::shared_mutex> histLock(sessionState->history.mutex);
         EXPECT_EQ(sessionState->history.initialMmr, 1250);
         EXPECT_EQ(sessionState->history.playlistInitialMmr["2v2"], 1250);
@@ -1574,12 +1581,12 @@ TEST_F(MMRFetcherTest, SwitchingAccountsKeepsEachSessionGraphOnItsOwnRating) {
         return fetcher->FetchProfileFromCustomApiForTests(req);
     };
 
-    sessionState->game.myPrimaryId = firstId;
+    sessionState->liveMatch->SetLocalPrimaryId(firstId);
     ASSERT_EQ(fetch(firstId, "first_account", 1425, 63), CustomApiFetchResult::SuccessFinished);
     fetcher->EnqueuePostMatch(firstId, "First", "first-loss", "2v2", 1425, 63, true, false);
     fetcher->ProcessPostMatchResponseForTests("first-loss", 1416, 64);
 
-    sessionState->game.myPrimaryId = secondId;
+    sessionState->liveMatch->SetLocalPrimaryId(secondId);
     {
         std::unique_lock lock(sessionState->history.mutex);
         sessionState->history.SelectMmrOwner(secondId);
@@ -1593,7 +1600,7 @@ TEST_F(MMRFetcherTest, SwitchingAccountsKeepsEachSessionGraphOnItsOwnRating) {
         EXPECT_EQ(sessionState->history.playlistHistoryY.at("2v2"), (std::vector<float>{1379.0f}));
     }
 
-    sessionState->game.myPrimaryId = firstId;
+    sessionState->liveMatch->SetLocalPrimaryId(firstId);
     {
         std::unique_lock lock(sessionState->history.mutex);
         sessionState->history.SelectMmrOwner(firstId);
@@ -1639,8 +1646,10 @@ TEST_F(MMRFetcherTest, SignedInUsesBearerHeadersAndIsPrimaryForAllPlayers) {
         }]
     })";
 
-    sessionState->game.myPrimaryId = "Epic|local_id";
-    sessionState->game.roster["Epic|opp_id"] = PlayerData{.primaryId = "Epic|opp_id", .name = "Opponent"};
+    sessionState->liveMatch->UpdateMatchStateForTests([](MatchState& ms) {
+        ms.myPrimaryId = "Epic|local_id";
+        ms.roster["Epic|opp_id"] = PlayerData{.primaryId = "Epic|opp_id", .name = "Opponent"};
+    });
     OmniNet::Request capturedReq;
     OmniNet::SetTransportForTesting([&](const OmniNet::Request& req) {
         capturedReq = req;
@@ -1657,10 +1666,10 @@ TEST_F(MMRFetcherTest, SignedInUsesBearerHeadersAndIsPrimaryForAllPlayers) {
     EXPECT_EQ(capturedReq.op, OmniNet::Op::Ranks);
     EXPECT_EQ(capturedReq.accessToken, "bearer_token_abc");
     EXPECT_EQ(capturedReq.devicePublicId, keyPair.publicId);
-    std::shared_lock<std::shared_mutex> lock(sessionState->game.mutex);
-    ASSERT_TRUE(sessionState->game.roster.count("Epic|opp_id") > 0);
-    EXPECT_EQ(sessionState->game.roster.at("Epic|opp_id").mmr, 1310);
-    EXPECT_EQ(sessionState->game.roster.at("Epic|opp_id").rankVerificationSource, "ServerA");
+    auto snap = sessionState->liveMatch->GetSnapshot();
+    ASSERT_TRUE(snap->roster.count("Epic|opp_id") > 0);
+    EXPECT_EQ(snap->roster.at("Epic|opp_id").mmr, 1310);
+    EXPECT_EQ(snap->roster.at("Epic|opp_id").rankVerificationSource, "ServerA");
 }
 
 TEST_F(MMRFetcherTest, SignedIn401RefreshesOnceAndRetriesOnceBeforeSigningOutOnSecond401) {
@@ -1762,13 +1771,15 @@ TEST_F(MMRFetcherTest, SignedInCustomApiFailureOnlyFallsBackToTrackerWhenMmrTrac
         }
     })";
 
-    sessionState->game.roster["Steam|76561198000000099"] =
-        PlayerData{.primaryId = "Steam|76561198000000099", .name = "TestTarget"};
+    sessionState->liveMatch->UpdateMatchStateForTests([](MatchState& ms) {
+        ms.roster["Steam|76561198000000099"] =
+            PlayerData{.primaryId = "Steam|76561198000000099", .name = "TestTarget"};
+    });
     fetcher->FetchRosterProfileForTests("Steam|76561198000000099", "TestTarget");
     EXPECT_EQ(g_mock_perform_count.load(), 1);
     {
-        std::shared_lock<std::shared_mutex> lock(sessionState->game.mutex);
-        EXPECT_TRUE(sessionState->game.roster.at("Steam|76561198000000099").fetchFailed);
+        auto snap = sessionState->liveMatch->GetSnapshot();
+        EXPECT_TRUE(snap->roster.at("Steam|76561198000000099").fetchFailed);
     }
 
     g_mock_perform_count.store(0);
@@ -1776,10 +1787,10 @@ TEST_F(MMRFetcherTest, SignedInCustomApiFailureOnlyFallsBackToTrackerWhenMmrTrac
     fetcher->FetchRosterProfileForTests("Steam|76561198000000099", "TestTarget");
     EXPECT_EQ(g_mock_perform_count.load(), 2);
     {
-        std::shared_lock<std::shared_mutex> lock(sessionState->game.mutex);
-        EXPECT_FALSE(sessionState->game.roster.at("Steam|76561198000000099").fetchFailed);
-        EXPECT_EQ(sessionState->game.roster.at("Steam|76561198000000099").mmr, 1350);
-        EXPECT_EQ(sessionState->game.roster.at("Steam|76561198000000099").rankVerificationSource, "Tracker");
+        auto snap = sessionState->liveMatch->GetSnapshot();
+        EXPECT_FALSE(snap->roster.at("Steam|76561198000000099").fetchFailed);
+        EXPECT_EQ(snap->roster.at("Steam|76561198000000099").mmr, 1350);
+        EXPECT_EQ(snap->roster.at("Steam|76561198000000099").rankVerificationSource, "Tracker");
     }
 }
 TEST(MMRFetcherBatchTest, SixRosterRequestsFormSingleBatchWithSixPlayers) {
@@ -1958,7 +1969,7 @@ TEST_F(MMRFetcherTest, WholeBatchHttpFailureYieldsPerPlayerFailures) {
     AssembledBatch batch;
     for (int i = 1; i <= 3; ++i) {
         const std::string id = "Epic|fail_player_" + std::to_string(i) + "|0";
-        sessionState->game.roster[id] = PlayerData{.primaryId = id, .name = "FailPlayer" + std::to_string(i)};
+        sessionState->liveMatch->UpdateMatchStateForTests([&](MatchState& ms) { ms.roster[id] = PlayerData{.primaryId = id, .name = "FailPlayer" + std::to_string(i)}; });
         MMRRequest req;
         req.primaryId = id;
         req.name = "FailPlayer" + std::to_string(i);
@@ -1970,12 +1981,12 @@ TEST_F(MMRFetcherTest, WholeBatchHttpFailureYieldsPerPlayerFailures) {
     g_mock_custom_api_response_code = 500;
     fetcher->ProcessCustomApiBatchForTests(batch);
 
-    std::shared_lock<std::shared_mutex> lock(sessionState->game.mutex);
+    auto snap = sessionState->liveMatch->GetSnapshot();
     for (int i = 1; i <= 3; ++i) {
         const std::string id = "Epic|fail_player_" + std::to_string(i) + "|0";
-        ASSERT_TRUE(sessionState->game.roster.count(id));
-        EXPECT_TRUE(sessionState->game.roster.at(id).fetched);
-        EXPECT_TRUE(sessionState->game.roster.at(id).fetchFailed);
+        ASSERT_TRUE(snap->roster.count(id));
+        EXPECT_TRUE(snap->roster.at(id).fetched);
+        EXPECT_TRUE(snap->roster.at(id).fetchFailed);
     }
 }
 
@@ -1996,7 +2007,7 @@ TEST_F(MMRFetcherTest, EndToEndCoalescesQueuedRosterRequestsIntoSingleHttpCall) 
 
     for (int i = 1; i <= 6; ++i) {
         const std::string id = "Epic|batch_player_" + std::to_string(i) + "|0";
-        sessionState->game.roster[id] = PlayerData{.primaryId = id, .name = "LobbyPlayer" + std::to_string(i)};
+        sessionState->liveMatch->UpdateMatchStateForTests([&](MatchState& ms) { ms.roster[id] = PlayerData{.primaryId = id, .name = "LobbyPlayer" + std::to_string(i)}; });
         fetcher->Enqueue(id, "LobbyPlayer" + std::to_string(i));
     }
 
@@ -2011,14 +2022,14 @@ TEST_F(MMRFetcherTest, EndToEndCoalescesQueuedRosterRequestsIntoSingleHttpCall) 
     ASSERT_TRUE(postedJson.contains("players"));
     EXPECT_EQ(postedJson["players"].size(), 6u);
 
-    std::shared_lock<std::shared_mutex> lock(sessionState->game.mutex);
+    auto snap = sessionState->liveMatch->GetSnapshot();
     for (int i = 1; i <= 6; ++i) {
         const std::string id = "Epic|batch_player_" + std::to_string(i) + "|0";
-        ASSERT_TRUE(sessionState->game.roster.count(id));
-        EXPECT_TRUE(sessionState->game.roster.at(id).fetched);
-        EXPECT_FALSE(sessionState->game.roster.at(id).fetchFailed);
-        EXPECT_EQ(sessionState->game.roster.at(id).mmr, 1000 + i * 50);
-        EXPECT_EQ(sessionState->game.roster.at(id).rankVerificationSource, "ServerA");
+        ASSERT_TRUE(snap->roster.count(id));
+        EXPECT_TRUE(snap->roster.at(id).fetched);
+        EXPECT_FALSE(snap->roster.at(id).fetchFailed);
+        EXPECT_EQ(snap->roster.at(id).mmr, 1000 + i * 50);
+        EXPECT_EQ(snap->roster.at(id).rankVerificationSource, "ServerA");
     }
 }
 
@@ -2062,15 +2073,17 @@ TEST_F(MMRFetcherTest, UpdateRequiredOnRanksDoesNotSignOutAndFallsBackToTracker)
         return res;
     });
 
-    sessionState->game.roster["Epic|test_epic_id|0"] = PlayerData{.primaryId = "Epic|test_epic_id|0", .name = "TrackerPlayer"};
+    sessionState->liveMatch->UpdateMatchStateForTests([](MatchState& ms) {
+        ms.roster["Epic|test_epic_id|0"] = PlayerData{.primaryId = "Epic|test_epic_id|0", .name = "TrackerPlayer"};
+    });
     fetcher->FetchRosterProfileForTests("Epic|test_epic_id|0", "TrackerPlayer");
 
     EXPECT_TRUE(account.IsSignedIn());
     EXPECT_FALSE(Config::Read().account_refresh_token.empty());
 
-    std::shared_lock<std::shared_mutex> lock(sessionState->game.mutex);
-    ASSERT_TRUE(sessionState->game.roster.count("Epic|test_epic_id|0") > 0);
-    const auto& player = sessionState->game.roster["Epic|test_epic_id|0"];
+    auto snap = sessionState->liveMatch->GetSnapshot();
+    ASSERT_TRUE(snap->roster.count("Epic|test_epic_id|0") > 0);
+    const auto& player = snap->roster.at("Epic|test_epic_id|0");
     EXPECT_TRUE(player.fetched);
     EXPECT_EQ(player.playlists.at("2v2"), 1150);
 }
@@ -2090,7 +2103,9 @@ TEST_F(MMRFetcherTest, UpdateRequiredOnRanksWithoutTrackerFailsWithUpdateMessage
         return res;
     });
 
-    sessionState->game.roster["Epic|test_epic_id|0"] = PlayerData{.primaryId = "Epic|test_epic_id|0", .name = "TestPlayer"};
+    sessionState->liveMatch->UpdateMatchStateForTests([](MatchState& ms) {
+        ms.roster["Epic|test_epic_id|0"] = PlayerData{.primaryId = "Epic|test_epic_id|0", .name = "TestPlayer"};
+    });
     fetcher->FetchRosterProfileForTests("Epic|test_epic_id|0", "TestPlayer");
 
     EXPECT_TRUE(account.IsSignedIn());

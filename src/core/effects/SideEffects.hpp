@@ -46,6 +46,25 @@ struct ConfirmedLocalAccount {
     std::string name;
 };
 
+struct UiStateUpdate {
+    std::optional<int64_t> lastMatchStartMs;
+    std::optional<int64_t> firstCountdownOfMatchMs;
+    std::optional<int64_t> lastCountdownMs;
+    std::optional<int64_t> lastGoalMs;
+    std::optional<int64_t> lastMatchEndMs;
+    std::optional<int64_t> lastPodiumMs;
+    std::optional<bool> inGoalReplay;
+    std::optional<bool> showMatchSummary;
+    std::optional<int64_t> matchSummaryStartMs;
+    std::optional<MmrCategory> rosterMmrCategory;
+    std::optional<MmrCategory> graphMmrCategory;
+    std::optional<MmrCategory> rankProgressMmrCategory;
+    bool resetTimestamps = false;
+    int64_t resetMatchStartMs = 0;
+    // A new match lifecycle hides the held overlay and the previous match summary.
+    bool matchReset = false;
+};
+
 struct SideEffects {
     bool pushDiscord = false;
     DiscordPresenceSnapshot discordSnapshot;
@@ -57,6 +76,7 @@ struct SideEffects {
     std::vector<std::pair<std::string, std::string>> fetchMmrQueue;
     std::optional<PostMatchMmrRefresh> postMatchMmrRefresh;
     std::optional<PendingDestroyedMatchMmrRefresh> pendingDestroyedMatch;
+    std::optional<SessionMatchSummary> pendingMatchHistory;
     std::optional<ResolvedDestroyedMatch> resolvedDestroyedMatch;
     std::vector<std::string> fetchEncounterQueue;
     bool saveMatch = false;
@@ -65,4 +85,5 @@ struct SideEffects {
     std::optional<SessionRecap> persistSession;
     std::optional<SessionRecap> updateSession;
     std::optional<ConfirmedLocalAccount> confirmedLocalAccount;
+    std::optional<UiStateUpdate> uiUpdate;
 };

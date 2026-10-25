@@ -1,4 +1,5 @@
 #include "DatabaseManager.hpp"
+#include "core/state/LiveMatchStore.hpp"
 #include "DatabaseDetail.hpp"
 #include "core/config/Config.hpp"
 #include "core/game/PlaylistMetadata.hpp"
@@ -1141,12 +1142,9 @@ bool DatabaseManager::GetMatchDetail(int64_t matchId, MatchDetail& outDetail, co
     std::string resolvedAccount;
     if (hasPlayerInMatch(accountPrimaryId)) {
         resolvedAccount = accountPrimaryId;
-    } else if (m_state) {
-        std::string statePid;
-        {
-            std::shared_lock<std::shared_mutex> gLock(m_state->game.mutex);
-            statePid = m_state->game.myPrimaryId;
-        }
+    } else if (m_state && m_state->liveMatch) {
+        auto liveSnap = m_state->liveMatch->GetSnapshot();
+        const std::string statePid = liveSnap ? liveSnap->myPrimaryId : std::string{};
         if (hasPlayerInMatch(statePid)) {
             resolvedAccount = statePid;
         }

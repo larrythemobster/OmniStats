@@ -1,5 +1,6 @@
 #include <benchmark/benchmark.h>
 #include "network/api/StatsClient.hpp"
+#include "core/state/LiveMatchStore.hpp"
 #include "core/state/SessionState.hpp"
 #include "network/mmr/MMRFetcher.hpp"
 #include "database/DatabaseManager.hpp"
@@ -56,13 +57,12 @@ static void BM_ParseStatFeed(benchmark::State& state) {
     StatsClient client(session, fetcher, db);
 
     // Preset player in roster
-    {
-        std::unique_lock<std::shared_mutex> lock(session->game.mutex);
-        session->game.roster["steam|123456789"] = PlayerData{
+    session->liveMatch->UpdateMatchStateForTests([](MatchState& ms) {
+        ms.roster["steam|123456789"] = PlayerData{
             .primaryId = "steam|123456789",
             .name = "Player1",
             .team = 0};
-    }
+    });
 
     std::string line = R"({
         "Event": "StatfeedEvent",

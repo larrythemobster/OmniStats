@@ -1,4 +1,5 @@
 #include "DatabaseManager.hpp"
+#include "core/state/LiveMatchStore.hpp"
 #include "DatabaseDetail.hpp"
 #include "core/config/Config.hpp"
 #include "core/game/GamemodeUtils.hpp"
@@ -248,9 +249,9 @@ int64_t DatabaseManager::SaveSessionLocked(const SessionRecap& recap) {
     if (recap.totals.wins + recap.totals.losses <= 0 && !recap.valid) return 0;
 
     std::string account = !recap.account.empty() ? recap.account : recap.mmrOwnerPrimaryId;
-    if (account.empty() && m_state) {
-        std::shared_lock<std::shared_mutex> lk(m_state->game.mutex);
-        account = m_state->game.myPrimaryId;
+    if (account.empty() && m_state && m_state->liveMatch) {
+        auto liveSnap = m_state->liveMatch->GetSnapshot();
+        if (liveSnap) account = liveSnap->myPrimaryId;
     }
     if (account.empty()) {
         account = Config::Read().last_primary_id;
@@ -342,9 +343,9 @@ bool DatabaseManager::UpdateSessionLocked(const SessionRecap& recap) {
     if (!m_db || !HasSessionsTableLocked()) return false;
 
     std::string account = !recap.account.empty() ? recap.account : recap.mmrOwnerPrimaryId;
-    if (account.empty() && m_state) {
-        std::shared_lock<std::shared_mutex> lk(m_state->game.mutex);
-        account = m_state->game.myPrimaryId;
+    if (account.empty() && m_state && m_state->liveMatch) {
+        auto liveSnap = m_state->liveMatch->GetSnapshot();
+        if (liveSnap) account = liveSnap->myPrimaryId;
     }
     if (account.empty()) {
         account = Config::Read().last_primary_id;
@@ -694,12 +695,14 @@ int DatabaseManager::BackfillSessionsChunkLocked(int chunkSize, bool& outMoreRem
 
     std::unordered_set<std::string> activeSessionGuids;
     std::string preferredAccount;
-    if (m_state) {
-        std::shared_lock<std::shared_mutex> lk(m_state->game.mutex);
-        preferredAccount = m_state->game.myPrimaryId;
-        if (m_state->game.sessionTotals.wins + m_state->game.sessionTotals.losses > 0) {
-            for (const auto& g : m_state->game.sessionMatchGuids) {
-                if (!g.empty()) activeSessionGuids.insert(g);
+    if (m_state && m_state->liveMatch) {
+        auto liveSnap = m_state->liveMatch->GetSnapshot();
+        if (liveSnap) {
+            preferredAccount = liveSnap->myPrimaryId;
+            if (liveSnap->sessionTotals.wins + liveSnap->sessionTotals.losses > 0) {
+                for (const auto& g : liveSnap->sessionMatchGuids) {
+                    if (!g.empty()) activeSessionGuids.insert(g);
+                }
             }
         }
     }
@@ -972,12 +975,14 @@ std::vector<SessionRecap> DatabaseManager::ListSessions(const std::string& accou
         sqlite3* db = read.db;
         if (!db || !HasSessionsTable(db)) return out;
         bool liveOrEndedInMemory = false;
-        if (m_state) {
-            std::shared_lock<std::shared_mutex> lk(m_state->game.mutex);
-            liveOrEndedInMemory =
-                (m_state->game.sessionTotals.wins + m_state->game.sessionTotals.losses > 0) ||
-                m_state->game.lastSessionRecap.valid ||
-                m_state->game.inMatch.load();
+        if (m_state && m_state->liveMatch) {
+            auto liveSnap = m_state->liveMatch->GetSnapshot();
+            if (liveSnap) {
+                liveOrEndedInMemory =
+                    (liveSnap->sessionTotals.wins + liveSnap->sessionTotals.losses > 0) ||
+                    liveSnap->lastSessionRecap.valid ||
+                    liveSnap->inMatch;
+            }
         }
         if (!liveOrEndedInMemory) {
             sqlite3_stmt* chkStmt = nullptr;

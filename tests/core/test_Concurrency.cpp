@@ -2,6 +2,7 @@
 #include "core/config/Config.hpp"
 #include "utils/Storage.hpp"
 #include "core/state/SessionState.hpp"
+#include "core/state/LiveMatchStore.hpp"
 #include "database/DatabaseManager.hpp"
 #include <thread>
 #include <vector>
@@ -53,14 +54,13 @@ TEST(ConcurrencyTest, SessionStateConcurrentRoster) {
     std::thread writer([&running, session]() {
         int i = 0;
         while (running) {
-            {
-                std::unique_lock<std::shared_mutex> lock(session->game.mutex);
-                std::string id = "steam|" + std::to_string(i % 10);
-                session->game.roster[id] = PlayerData{
+            std::string id = "steam|" + std::to_string(i % 10);
+            session->liveMatch->UpdateMatchStateForTests([&](MatchState& ms) {
+                ms.roster[id] = PlayerData{
                     .primaryId = id,
                     .name = "Player" + std::to_string(i % 10),
                     .team = i % 2};
-            }
+            });
             std::this_thread::yield();
             i++;
         }
@@ -71,8 +71,8 @@ TEST(ConcurrencyTest, SessionStateConcurrentRoster) {
     for (int t = 0; t < 4; ++t) {
         readers.emplace_back([&running, session]() {
             while (running) {
-                std::shared_lock<std::shared_mutex> lock(session->game.mutex);
-                for (const auto& [id, p] : session->game.roster) {
+                auto snap = session->liveMatch->GetSnapshot();
+                for (const auto& [id, p] : snap->roster) {
                     EXPECT_FALSE(id.empty());
                     EXPECT_FALSE(p.name.empty());
                 }

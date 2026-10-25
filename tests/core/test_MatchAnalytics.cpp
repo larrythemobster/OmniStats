@@ -3,6 +3,9 @@
 #include <nlohmann/json.hpp>
 
 #include "core/game/MatchAnalytics.hpp"
+#include "core/game/MatchAnalyticsTracker.hpp"
+#include "core/config/Constants.hpp"
+#include "network/telemetry/TelemetryEvents.hpp"
 
 namespace {
     using nlohmann::json;
@@ -34,9 +37,59 @@ namespace {
         return {{"Scorer", {{"Name", scorer}, {"TeamNum", team}, {"Shortcut", shortcut}}}, {"GoalSpeed", 90.0}};
     }
 
+    template <typename Event>
+    Event Parse(std::string_view eventName, const json& j) {
+        auto ev = TelemetryEvents::ParseEventFromJson(eventName, j.dump());
+        return ev ? std::get<Event>(*ev) : Event{};
+    }
+
+    // Feeds wire-format JSON through the production parser into the tracker.
+    class JsonTracker {
+      public:
+        void OnUpdateState(const json& j, double now) {
+            m_tracker.OnUpdateState(Parse<TelemetryEvents::UpdateStateEvent>(Constants::EVT_UPDATE_STATE, j), now);
+        }
+        void OnRoundStarted(double now) {
+            m_tracker.OnRoundStarted(now);
+        }
+        void OnCountdownBegin() {
+            m_tracker.OnCountdownBegin();
+        }
+        void OnBallHit(const json& j, double now) {
+            m_tracker.OnBallHit(Parse<TelemetryEvents::BallHitEvent>(Constants::EVT_BALL_HIT, j), now);
+        }
+        void OnGoalScored(const json& j) {
+            m_tracker.OnGoalScored(Parse<TelemetryEvents::GoalScoredEvent>(Constants::EVT_GOAL_SCORED, j));
+        }
+        void OnBoostPickup(const json& j) {
+            m_tracker.OnBoostPickup(Parse<TelemetryEvents::BoostPickupEvent>(Constants::EVT_BOOST_PICKUP, j));
+        }
+        void OnPaused(double now) {
+            m_tracker.OnPaused(now);
+        }
+        void OnUnpaused(double now) {
+            m_tracker.OnUnpaused(now);
+        }
+        void OnStatfeed(const json& j) {
+            m_tracker.OnStatfeed(Parse<TelemetryEvents::StatfeedEvent>(Constants::EVT_STATFEED, j));
+        }
+        void OnPlayerLeft(const json& j) {
+            m_tracker.OnPlayerLeft(Parse<TelemetryEvents::PlayerLeftEvent>(Constants::EVT_PLAYER_LEFT, j));
+        }
+        void OnMatchEnded() {
+            m_tracker.OnMatchEnded();
+        }
+        MatchAnalytics Snapshot() const {
+            return m_tracker.Snapshot();
+        }
+
+      private:
+        MatchAnalyticsTracker m_tracker;
+    };
+
     // Streams `seconds` of 0.1 s UpdateState packets built by `make(clock)`.
     template <typename F>
-    double Play(MatchAnalyticsTracker& t, double now, float seconds, float& clock, F make) {
+    double Play(JsonTracker& t, double now, float seconds, float& clock, F make) {
         for (int i = 0; i < static_cast<int>(seconds * 10.0f + 0.5f); ++i) {
             now += 0.1;
             clock -= 0.1f;
@@ -47,7 +100,7 @@ namespace {
 }
 
 TEST(MatchAnalyticsTest, BoostAccountingIgnoresKickoffAndRespawnRefills) {
-    MatchAnalyticsTracker t;
+    JsonTracker t;
     float clock = 300.0f;
     double now = 0.0;
     t.OnUpdateState(State({Car("Steam|1", "Me", 0, 1, 33)}, clock), now);
@@ -83,7 +136,7 @@ TEST(MatchAnalyticsTest, BoostAccountingIgnoresKickoffAndRespawnRefills) {
 }
 
 TEST(MatchAnalyticsTest, BoostPickupEventsReplaceDeltaPadHeuristicAndCountSteals) {
-    MatchAnalyticsTracker t;
+    JsonTracker t;
     float clock = 300.0f;
     double now = 0.0;
     t.OnUpdateState(State({Car("Steam|1", "Me", 1, 1, 33)}, clock), now);
@@ -109,7 +162,7 @@ TEST(MatchAnalyticsTest, BoostPickupEventsReplaceDeltaPadHeuristicAndCountSteals
 
 TEST(MatchAnalyticsTest, CarSpeedUnitsAreNormalizedFromObservedRange) {
     auto run = [](float rawSpeed) {
-        MatchAnalyticsTracker t;
+        JsonTracker t;
         float clock = 300.0f;
         double now = 0.0;
         t.OnUpdateState(State({Car("Steam|1", "Me", 0, 1, 50)}, clock), now);
@@ -129,7 +182,7 @@ TEST(MatchAnalyticsTest, CarSpeedUnitsAreNormalizedFromObservedRange) {
 }
 
 TEST(MatchAnalyticsTest, MovementStatesSplitGroundWallAirAndCountPowerslides) {
-    MatchAnalyticsTracker t;
+    JsonTracker t;
     float clock = 300.0f;
     double now = 0.0;
     t.OnUpdateState(State({Car("Steam|1", "Me", 0, 1, 50)}, clock), now);
@@ -148,7 +201,7 @@ TEST(MatchAnalyticsTest, MovementStatesSplitGroundWallAirAndCountPowerslides) {
 }
 
 TEST(MatchAnalyticsTest, PausesReplaysAndDeadBallTimeDoNotCountAsPlay) {
-    MatchAnalyticsTracker t;
+    JsonTracker t;
     float clock = 300.0f;
     double now = 0.0;
     auto state = [&](float c) { return State({Remote("Steam|1", "Me", 0, 1)}, c, 0); };
@@ -170,7 +223,7 @@ TEST(MatchAnalyticsTest, PausesReplaysAndDeadBallTimeDoNotCountAsPlay) {
 }
 
 TEST(MatchAnalyticsTest, JoiningMidRoundStartsTrackingOnceTheClockMoves) {
-    MatchAnalyticsTracker t;
+    JsonTracker t;
     float clock = 200.0f;
     double now = 0.0;
     auto state = [&](float c) { return State({Remote("Steam|1", "Me", 0, 1)}, c, 1); };
@@ -179,7 +232,7 @@ TEST(MatchAnalyticsTest, JoiningMidRoundStartsTrackingOnceTheClockMoves) {
 }
 
 TEST(MatchAnalyticsTest, HitsAreAttributedByThirdFromEachTeamsPerspective) {
-    MatchAnalyticsTracker t;
+    JsonTracker t;
     float clock = 300.0f;
     double now = 0.0;
     auto state = [&](float c) { return State({Remote("Steam|1", "Blue", 0, 1), Remote("Epic|2", "Orange", 1, 2)}, c); };
@@ -207,7 +260,7 @@ TEST(MatchAnalyticsTest, HitsAreAttributedByThirdFromEachTeamsPerspective) {
 }
 
 TEST(MatchAnalyticsTest, KickoffRecordsPossessionAfterThreeSecondsAndQuickGoals) {
-    MatchAnalyticsTracker t;
+    JsonTracker t;
     float clock = 300.0f;
     double now = 0.0;
     int ballTeam = 255;
@@ -233,7 +286,7 @@ TEST(MatchAnalyticsTest, KickoffRecordsPossessionAfterThreeSecondsAndQuickGoals)
 }
 
 TEST(MatchAnalyticsTest, StatfeedCountsEveryEventAndTracksDemoVictims) {
-    MatchAnalyticsTracker t;
+    JsonTracker t;
     t.OnUpdateState(State({Remote("Steam|1", "Blue", 0, 1), Remote("Epic|2", "Orange", 1, 2)}, 300.0f), 0.0);
     t.OnStatfeed({{"EventName", "Demolish"},
                   {"MainTarget", {{"Name", "Blue"}, {"TeamNum", 0}, {"Shortcut", 1}}},
@@ -285,7 +338,7 @@ TEST(MatchAnalyticsTest, ScorelineDetectsComebacksBlownLeadsAndLateWinners) {
 }
 
 TEST(MatchAnalyticsTest, EndingWithRegulationTimeLeftIsAnEarlyEnd) {
-    MatchAnalyticsTracker t;
+    JsonTracker t;
     float clock = 300.0f;
     double now = 0.0;
     auto state = [&](float c) { return State({Remote("Steam|1", "Me", 0, 1)}, c, 0); };
@@ -297,7 +350,7 @@ TEST(MatchAnalyticsTest, EndingWithRegulationTimeLeftIsAnEarlyEnd) {
 }
 
 TEST(MatchAnalyticsTest, JsonRoundTripPreservesStoredAnalytics) {
-    MatchAnalyticsTracker t;
+    JsonTracker t;
     float clock = 300.0f;
     double now = 0.0;
     auto state = [&](float c) {
@@ -344,7 +397,7 @@ TEST(MatchAnalyticsTest, UnknownFormatVersionIsRejected) {
 }
 
 TEST(MatchAnalyticsTest, OmittedCarFieldsMeanZeroAndOpponentsWithoutCarStateAreNotTracked) {
-    MatchAnalyticsTracker t;
+    JsonTracker t;
     float clock = 300.0f;
     double now = 0.0;
     // Live payloads drop zero and false values; opponents never carry bHasCar outside replays.
@@ -366,7 +419,7 @@ TEST(MatchAnalyticsTest, OmittedCarFieldsMeanZeroAndOpponentsWithoutCarStateAreN
 }
 
 TEST(MatchAnalyticsTest, GoalReplayEchoSuppliesLocationWithoutAddingAGoal) {
-    MatchAnalyticsTracker t;
+    JsonTracker t;
     t.OnUpdateState(State({Remote("Steam|1", "Me", 1, 6)}, 300.0f), 0.0);
     t.OnRoundStarted(0.0);
     json live = Goal("Me", 1, 6);
@@ -387,7 +440,7 @@ TEST(MatchAnalyticsTest, GoalReplayEchoSuppliesLocationWithoutAddingAGoal) {
 }
 
 TEST(MatchAnalyticsTest, ReusedShortcutAfterBotReplacementResolvesByName) {
-    MatchAnalyticsTracker t;
+    JsonTracker t;
     t.OnUpdateState(State({Remote("Unknown|0|0", "Middy", 1, 6)}, 300.0f), 0.0);
     t.OnUpdateState(State({Remote("Epic|me", "Me", 1, 6)}, 299.0f), 1.0);
     t.OnBallHit(Hit("Middy", 1, 6, 0, 0, 93, 50), 1.0);
@@ -399,7 +452,7 @@ TEST(MatchAnalyticsTest, ReusedShortcutAfterBotReplacementResolvesByName) {
 }
 
 TEST(MatchAnalyticsTest, ConsecutiveContactFramesCountAsOneTouchWithTheHardestSpeed) {
-    MatchAnalyticsTracker t;
+    JsonTracker t;
     t.OnUpdateState(State({Remote("Steam|1", "Me", 0, 1)}, 300.0f), 0.0);
     t.OnRoundStarted(0.0);
     // One push as recorded: a hit message per physics frame, 10-20 ms apart.
@@ -417,7 +470,7 @@ TEST(MatchAnalyticsTest, ConsecutiveContactFramesCountAsOneTouchWithTheHardestSp
 }
 
 TEST(MatchAnalyticsTest, ReplayEndLocationIsKeptAfterInstantSkipAndRejectedOnTheWrongSide) {
-    MatchAnalyticsTracker t;
+    JsonTracker t;
     t.OnUpdateState(State({Remote("Steam|1", "Me", 1, 6), Remote("Epic|2", "Opp", 0, 1)}, 300.0f), 0.0);
     t.OnRoundStarted(0.0);
     const json echoScorer = {{"Name", ""}, {"Shortcut", 0}, {"TeamNum", 0}};

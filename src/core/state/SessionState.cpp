@@ -1,4 +1,6 @@
+#include "core/state/LiveMatchStore.hpp"
 #include "core/state/SessionState.hpp"
+#include "core/config/Config.hpp"
 #include <cmath>
 #include <algorithm>
 
@@ -96,82 +98,28 @@ void HistoryState::ResetSessionMmr() {
     version++;
 }
 
-void SessionState::resetMatch(const std::string& newArena, const std::string& newArenaAsset) {
-    game.inMatch = true;
-    game.inReplay = false;
-    game.myTeam = -1;
-    game.arenaName = newArena;
-    game.arenaAsset = newArenaAsset;
-    game.playlistId = -1;
-    game.score[0] = 0;
-    game.score[1] = 0;
-    game.legacyMaxPlayersSeen = 0;
-    game.roundEverStarted = false;
-
-    game.localPlayerWasActive = false;
-    game.localPlayerWasSpectator = false;
-    game.localPlayerPresenceObserved = false;
-    game.localPlayerPresentInLatestUpdate = false;
-    game.explicitLocalForfeit = false;
-    game.excludedEarlyExitContext = false;
-    game.earlyExitExclusionReason.clear();
-    game.fallbackCasualContext = false;
-    game.fallbackNonRecordableContext = false;
-    game.fallbackNonRecordableReason.clear();
-    game.legacyLobbyWasEverFull = false;
-    game.legacyCurrentTeamPlayersSeen = {0, 0};
-    game.legacyMaxTeamPlayersSeen = {0, 0};
-    game.lastMatchWasVoid = false;
-    game.lastMatchVoidReason.clear();
-    game.matchSummaryScore = {0, 0};
-    game.matchSummaryMyTeam = -1;
-    game.matchSummaryWinnerTeam = -1;
-    game.matchSummaryOvertimeSeconds = 0.0f;
-    game.timeSeconds = 0.0f;
-    game.bOvertime = false;
-
-    game.currentMatch = MatchStats{};
-    game.roster.clear();
-    game.matchRoster.clear();
-    game.preMatchMmrByGuid.clear();
-    game.matchFinalized = false;
-    ui.showOverlay = false;
-    ui.showMatchSummary = false;
-    ui.ResetMatchTimestamps(0);
+void UIState::ApplyRankProgressConfig(const ConfigData& config, bool initial) {
+    if (!config.show_extra_playlists && IsExtraMmrCategory(rankProgressMmrCategory.load())) {
+        rankProgressMmrCategory.store(MmrCategory::TwoVTwo);
+    }
+    if (initial && !config.rank_progress_follow_current_playlist) {
+        MmrCategory fallback = StringToMmrCategory(config.rank_progress_mmr_category);
+        if (!config.show_extra_playlists && IsExtraMmrCategory(fallback)) {
+            fallback = MmrCategory::TwoVTwo;
+        }
+        rankProgressMmrCategory.store(fallback);
+    }
 }
 
+SessionState::SessionState()
+    : liveMatch(std::make_shared<LiveMatchStore>()) {}
+
+SessionState::~SessionState() = default;
+
 void SessionState::clearActiveMatchOnDisconnect() {
-    game.inMatch = false;
-    game.inReplay = false;
-    game.myTeam = -1;
-    game.arenaName.clear();
-    game.arenaAsset.clear();
-    game.matchGuid.clear();
-    game.playlistId = -1;
-    game.score = {0, 0};
-    game.legacyMaxPlayersSeen = 0;
-    game.roundEverStarted = false;
-    game.localPlayerWasActive = false;
-    game.localPlayerWasSpectator = false;
-    game.localPlayerPresenceObserved = false;
-    game.localPlayerPresentInLatestUpdate = false;
-    game.explicitLocalForfeit = false;
-    game.excludedEarlyExitContext = false;
-    game.earlyExitExclusionReason.clear();
-    game.fallbackCasualContext = false;
-    game.fallbackNonRecordableContext = false;
-    game.fallbackNonRecordableReason.clear();
-    game.legacyLobbyWasEverFull = false;
-    game.legacyCurrentTeamPlayersSeen = {0, 0};
-    game.legacyMaxTeamPlayersSeen = {0, 0};
-    game.timeSeconds = 0.0f;
-    game.bOvertime = false;
-    game.matchSummaryOvertimeSeconds = 0.0f;
-    game.currentMatch = MatchStats{};
-    game.roster.clear();
-    game.matchRoster.clear();
-    game.preMatchMmrByGuid.clear();
-    game.matchFinalized = false;
+    if (liveMatch) {
+        liveMatch->ClearActiveMatchOnDisconnect();
+    }
     ui.inGoalReplay.store(false, std::memory_order_relaxed);
     ui.firstCountdownOfMatchMs.store(0, std::memory_order_relaxed);
     ui.lastCountdownMs.store(0, std::memory_order_relaxed);
@@ -180,68 +128,31 @@ void SessionState::clearActiveMatchOnDisconnect() {
 }
 
 bool SessionState::startNewSessionLocked(int64_t endedAtUnix) {
-    const bool captureRecap = game.sessionTotals.wins + game.sessionTotals.losses > 0;
-    if (captureRecap) {
-        std::vector<std::string> matchGuids = std::move(game.sessionMatchGuids);
-        for (const auto& [playlist, points] : history.playlistMatchPoints) {
-            for (const auto& pt : points) {
-                if (!pt.matchGuid.empty() &&
-                    std::find(matchGuids.begin(), matchGuids.end(), pt.matchGuid) == matchGuids.end()) {
-                    matchGuids.push_back(pt.matchGuid);
-                }
-            }
-        }
-        const std::string account = !game.myPrimaryId.empty() ? game.myPrimaryId : history.mmrOwnerPrimaryId;
-        const int64_t startedAt = game.sessionStartedAtUnix > 0 ? std::min(game.sessionStartedAtUnix, endedAtUnix) : 0;
-        game.lastSessionRecap = {
-            .valid = true,
-            .endedAtUnix = endedAtUnix,
-            .totals = std::move(game.sessionTotals),
-            .gamemodes = std::move(game.sessionGamemodes),
-            .sessionGeneration = game.sessionGeneration.load(),
-            .mmrOwnerPrimaryId = history.mmrOwnerPrimaryId.empty() ? account : history.mmrOwnerPrimaryId,
-            .playlistInitialMmr = history.playlistInitialMmr,
-            .id = 0,
-            .account = account,
-            .startedAtUnix = startedAt,
-            .source = "live",
-            .matchGuids = std::move(matchGuids)};
-    }
-    game.sessionTotals = SessionTotals();
-    game.lastGoalSpeed = 0.0f;
-    game.lastGoalSpeedSelf = 0.0f;
-    game.sessionGamemodes.clear();
-    game.sessionStartedAtUnix = 0;
-    game.lastMatchEndedAtUnix = 0;
-    game.sessionMatchGuids.clear();
-    game.sessionGeneration.fetch_add(1);
-    history.ResetSessionMmr();
+    const bool capture = liveMatch ? liveMatch->StartNewSession(endedAtUnix, &history) : false;
     ui.graphOffset.store(0);
-    game.version++;
-    return captureRecap;
+    return capture;
 }
 
 bool SessionState::closeSessionIfInactiveLocked(int64_t nowUnix) {
-    if (game.inMatch) return false;
-    if (game.sessionTotals.wins + game.sessionTotals.losses <= 0) return false;
-    if (game.lastMatchEndedAtUnix <= 0) return false;
-    if (!Insights::StartsNewSession(game.lastMatchEndedAtUnix, nowUnix, true)) return false;
-    return startNewSessionLocked(game.lastMatchEndedAtUnix);
+    return liveMatch ? liveMatch->CloseSessionIfInactive(nowUnix, &history) : false;
 }
 
 void SessionState::syncSessionMmrChangeLocked() {
-    auto& changes = game.sessionTotals.mmrChangeByPlaylist;
-    changes.clear();
+    if (!liveMatch) return;
+    std::map<std::string, int> changes;
     for (const auto& [playlist, projection] : history.playlistHistoryY) {
         const auto initialIt = history.playlistInitialMmr.find(playlist);
         if (projection.empty() || initialIt == history.playlistInitialMmr.end() || initialIt->second <= 0) continue;
         changes[playlist] = static_cast<int>(std::lround(projection.back())) - initialIt->second;
     }
-    game.sessionTotals.totalMmrChange = static_cast<float>(CalculateTrackedSessionMmrChange(changes));
+    const float total = static_cast<float>(CalculateTrackedSessionMmrChange(changes));
+    liveMatch->SyncSessionMmrChange(changes, total);
 }
 
 void SessionState::selectMmrOwnerLocked(const std::string& primaryId) {
     history.SelectMmrOwner(primaryId);
+    if (liveMatch) {
+        liveMatch->SetLocalPrimaryId(primaryId);
+    }
     syncSessionMmrChangeLocked();
-    game.version++;
 }

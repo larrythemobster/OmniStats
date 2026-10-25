@@ -371,8 +371,8 @@ namespace omnistats::replay {
         // 8. Final Session Totals
         nlohmann::json jTotals;
         if (state) {
-            std::shared_lock<std::shared_mutex> lock(state->game.mutex);
-            const auto& totals = state->game.sessionTotals;
+            const auto snapshot = state->liveMatch->GetSnapshot();
+            const auto& totals = snapshot->sessionTotals;
             jTotals["wins"] = totals.wins;
             jTotals["losses"] = totals.losses;
             jTotals["goals"] = totals.goals;
@@ -472,19 +472,18 @@ namespace omnistats::replay {
         const auto dbPath = tempDir / "replay.db";
 
         auto state = std::make_shared<SessionState>();
-        {
-            std::unique_lock<std::shared_mutex> lock(state->game.mutex);
-            state->game.myPrimaryId = m_options.initialPrimaryId;
-            state->game.roster[m_options.initialPrimaryId] = PlayerData{
+        state->liveMatch->UpdateMatchStateForTests([this](MatchState& match) {
+            match.myPrimaryId = m_options.initialPrimaryId;
+            match.roster[m_options.initialPrimaryId] = PlayerData{
                 .primaryId = m_options.initialPrimaryId,
                 .name = m_options.initialHeroName,
                 .team = 0,
                 .mmr = m_options.initialMmr,
                 .playlists = {{m_options.initialPlaylist, m_options.initialMmr}},
                 .playlistMatches = {{m_options.initialPlaylist, m_options.initialMatchesPlayed}}};
-            state->ui.rosterMmrCategory.store(MmrCategory::TwoVTwo);
-            state->ui.graphMmrCategory.store(MmrCategory::TwoVTwo);
-        }
+        });
+        state->ui.rosterMmrCategory.store(MmrCategory::TwoVTwo);
+        state->ui.graphMmrCategory.store(MmrCategory::TwoVTwo);
 
         auto dbManager = std::make_shared<DatabaseManager>(state);
         if (!dbManager->Initialize(dbPath.string())) {
@@ -494,23 +493,15 @@ namespace omnistats::replay {
         }
 
         auto mmrFetcher = std::make_shared<MMRFetcher>(state, dbManager);
-        auto reducer = std::make_unique<TelemetryReducer>(state);
-        auto executor = std::make_unique<SideEffectExecutor>();
-
-        int64_t currentClockMs = 0;
-        reducer->SetClockForTests([&currentClockMs] {
-            return std::chrono::steady_clock::time_point(std::chrono::milliseconds(currentClockMs));
-        });
 
         ReplayPipelineContext ctx{
             .state = state,
             .dbManager = dbManager,
-            .mmrFetcher = mmrFetcher,
-            .reducer = std::move(reducer),
-            .executor = std::move(executor)};
+            .mmrFetcher = mmrFetcher};
 
         std::vector<StepSideEffectsSummary> emittedEffects;
 
+        int64_t currentClockMs = 0;
         for (const auto& rec : records) {
             if (rec.timestampMs > 0) {
                 currentClockMs = rec.timestampMs;
@@ -536,8 +527,7 @@ namespace omnistats::replay {
         result.success = true;
 
         // Teardown:
-        ctx.executor->Stop();
-        ctx.reducer.reset();
+        mmrFetcher.reset();
         dbManager.reset();
 
         std::filesystem::remove_all(tempDir, ec);

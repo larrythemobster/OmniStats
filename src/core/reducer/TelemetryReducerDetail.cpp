@@ -1,22 +1,21 @@
 #include "core/reducer/TelemetryReducerDetail.hpp"
+
+#include <algorithm>
+#include <cctype>
+#include <iostream>
+#include <optional>
+#include <utility>
+
 #include "core/config/Config.hpp"
 #include "core/config/Constants.hpp"
 #include "core/game/GamemodeUtils.hpp"
 #include "core/game/PlaylistMetadata.hpp"
 #include "utils/PrivacyLog.hpp"
-#include <iostream>
-#include <algorithm>
-#include <utility>
-#include <cctype>
-#include <optional>
 
 namespace TelemetryReducerDetail {
-    // Game.PlaylistId is authoritative when Rocket League provides it. Playlist
-    // metadata is centralized in PlaylistMetadata so gameplay, persistence, and
-    // Tracker parsing cannot silently drift apart.
 
     MmrCategory CategoryFromTeamCounts(const std::array<int, 2>& teamCounts, bool roundStarted) {
-        int teamSize = std::min(teamCounts[0], teamCounts[1]);
+        int teamSize = (std::min)(teamCounts[0], teamCounts[1]);
         if (teamSize >= 3) return MmrCategory::ThreeVThree;
         if (teamSize >= 2) return MmrCategory::TwoVTwo;
         if (roundStarted && teamCounts[0] == 1 && teamCounts[1] == 1) return MmrCategory::OneVOne;
@@ -35,44 +34,52 @@ namespace TelemetryReducerDetail {
         return MmrCategory::Best;
     }
 
-    std::string InferModeFromMatchState(
-        const GameState& game,
-        MmrCategory rosterCategory) {
-        if (PlaylistMetadata::HasAuthoritativeId(game.playlistId)) {
-            const std::string playlistMode =
-                PlaylistMetadata::CanonicalMode(game.playlistId);
+    template <typename T>
+    static std::string InferModeImpl(const T& match, MmrCategory rosterCategory) {
+        if (PlaylistMetadata::HasAuthoritativeId(match.playlistId)) {
+            const std::string playlistMode = PlaylistMetadata::CanonicalMode(match.playlistId);
             return playlistMode.empty() ? "unknown" : playlistMode;
         }
 
-        // Legacy fallback for telemetry that genuinely did not provide PlaylistId.
-        // Explicit telemetry context is stronger than UI/arena heuristics.
-        if (game.fallbackCasualContext) return "casual";
-        if (game.fallbackNonRecordableContext) return "unknown";
+        if (match.fallbackCasualContext) return "casual";
+        if (match.fallbackNonRecordableContext) return "unknown";
 
-        // UI selection, arena, and observed player counts are never allowed to
-        // override an authoritative (including unknown-to-us) playlist ID.
-        std::string arenaKey = !game.arenaAsset.empty()
-                                   ? game.arenaAsset
-                                   : game.arenaName;
+        std::string arenaKey = !match.arenaAsset.empty() ? match.arenaAsset : match.arenaName;
         return GamemodeUtils::InferFromSnapshot(
-            game.legacyMaxPlayersSeen,
-            static_cast<int>(game.roster.size()),
+            match.legacyMaxPlayersSeen,
+            static_cast<int>(match.roster.size()),
             rosterCategory,
             arenaKey);
     }
 
-    MmrCategory CategoryFromMatchContext(const GameState& game) {
-        if (PlaylistMetadata::HasAuthoritativeId(game.playlistId)) {
-            return PlaylistMetadata::Category(game.playlistId);
+    std::string InferModeFromMatchState(const MatchState& match, MmrCategory rosterCategory) {
+        return InferModeImpl(match, rosterCategory);
+    }
+
+    std::string InferModeFromMatchState(const LiveMatchSnapshot& match, MmrCategory rosterCategory) {
+        return InferModeImpl(match, rosterCategory);
+    }
+
+    template <typename T>
+    static MmrCategory CategoryFromMatchContextImpl(const T& match) {
+        if (PlaylistMetadata::HasAuthoritativeId(match.playlistId)) {
+            return PlaylistMetadata::Category(match.playlistId);
         }
 
-        // Legacy-only inference when Game.PlaylistId was absent.
-        if (game.fallbackNonRecordableContext) return MmrCategory::Best;
-        if (game.fallbackCasualContext) return MmrCategory::Casual;
-        std::string arenaKey = !game.arenaAsset.empty() ? game.arenaAsset : game.arenaName;
+        if (match.fallbackNonRecordableContext) return MmrCategory::Best;
+        if (match.fallbackCasualContext) return MmrCategory::Casual;
+        std::string arenaKey = !match.arenaAsset.empty() ? match.arenaAsset : match.arenaName;
         MmrCategory arenaCategory = CategoryFromMode(GamemodeUtils::InferFromArenaName(arenaKey));
         if (arenaCategory != MmrCategory::Best) return arenaCategory;
-        return CategoryFromTeamCounts(game.legacyMaxTeamPlayersSeen, game.roundEverStarted);
+        return CategoryFromTeamCounts(match.legacyMaxTeamPlayersSeen, match.roundEverStarted);
+    }
+
+    MmrCategory CategoryFromMatchContext(const MatchState& match) {
+        return CategoryFromMatchContextImpl(match);
+    }
+
+    MmrCategory CategoryFromMatchContext(const LiveMatchSnapshot& match) {
+        return CategoryFromMatchContextImpl(match);
     }
 
     bool IsSupportedMmrCategory(MmrCategory category) {
@@ -109,39 +116,34 @@ namespace TelemetryReducerDetail {
         return value;
     }
 
-    bool ReadTrueBoolean(const nlohmann::json& object,
-                         std::initializer_list<const char*> keys) {
-        if (!object.is_object()) return false;
-        for (const char* key : keys) {
-            if (object.contains(key) && object[key].is_boolean() &&
-                object[key].get<bool>()) {
-                return true;
-            }
+    bool AcceptsAnalyticsEvent(const MatchState& state, const std::string& eventMatchGuid, bool duringReplay) {
+        if (!state.inMatch || state.matchFinalized || (state.inReplay && !duringReplay) || state.nonLiveReplayActive ||
+            state.fallbackNonRecordableContext || PlaylistMetadata::IsNonRecordable(state.playlistId)) {
+            return false;
         }
-        return false;
+        if (eventMatchGuid.empty()) {
+            return !(state.missingGuidAssociationBlockedByReconnect && state.matchGuid.empty());
+        }
+        if (!state.matchGuid.empty() && eventMatchGuid != state.matchGuid) return false;
+        return state.finalizedMatchGuids.count(eventMatchGuid) == 0 &&
+               state.pendingDestroyedMatches.count(eventMatchGuid) == 0;
     }
 
-    std::optional<int> ReadInteger(const nlohmann::json& object,
-                                   std::initializer_list<const char*> keys) {
-        if (!object.is_object()) return std::nullopt;
-        for (const char* key : keys) {
-            if (object.contains(key) && object[key].is_number_integer()) {
-                return object[key].get<int>();
-            }
+    void PublishUiTimestamps(MatchState& state, SideEffects& effects) {
+        UiStateUpdate& ui = effects.uiUpdate ? *effects.uiUpdate : effects.uiUpdate.emplace();
+        ui.resetTimestamps = false;
+        if (state.hideOverlayRequested) {
+            ui.matchReset = true;
+            state.hideOverlayRequested = false;
         }
-        return std::nullopt;
+        ui.lastMatchStartMs = state.lastMatchStartMs;
+        ui.firstCountdownOfMatchMs = state.firstCountdownOfMatchMs;
+        ui.lastCountdownMs = state.lastCountdownMs;
+        ui.lastGoalMs = state.lastGoalMs;
+        ui.lastMatchEndMs = state.lastMatchEndMs;
+        ui.lastPodiumMs = state.lastPodiumMs;
+        ui.inGoalReplay = state.inGoalReplay;
+        ui.matchSummaryStartMs = state.matchSummaryStartMs;
     }
 
-    bool MatchTypeContains(const nlohmann::json& game,
-                           std::initializer_list<const char*> keywords) {
-        if (!game.is_object()) return false;
-        for (const char* key : {"Playlist", "PlaylistName", "MatchType", "GameMode"}) {
-            if (!game.contains(key) || !game[key].is_string()) continue;
-            const std::string value = Lowercase(game[key].get<std::string>());
-            for (const char* keyword : keywords) {
-                if (value.find(keyword) != std::string::npos) return true;
-            }
-        }
-        return false;
-    }
-}
+} // namespace TelemetryReducerDetail

@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 #include "core/state/SessionState.hpp"
+#include "core/state/LiveMatchStore.hpp"
 #include "network/api/StatsClient.hpp"
 #include "network/mmr/MMRFetcher.hpp"
 #include "database/DatabaseManager.hpp"
@@ -140,26 +141,18 @@ class OmniStatsPipelineTest : public ::testing::Test {
         int localScore,
         int opponentScore,
         int previousMatches = 11) {
-        {
-            std::unique_lock<std::shared_mutex> lock(
-                session->game.mutex);
-            session->game.myPrimaryId =
-                "steam|76561198000000001";
-            session->game.roster
-                ["steam|76561198000000001"] =
-                PlayerData{
-                    .primaryId =
-                        "steam|76561198000000001",
-                    .name = "Hero",
-                    .team = 0,
-                    .mmr = 1200,
-                    .playlists = {{"1v1", 1200}},
-                    .playlistMatches = {{"1v1", previousMatches}}};
-            session->ui.rosterMmrCategory.store(
-                MmrCategory::OneVOne);
-            session->ui.graphMmrCategory.store(
-                MmrCategory::OneVOne);
-        }
+        session->liveMatch->UpdateMatchStateForTests([&](MatchState& ms) {
+            ms.myPrimaryId = "steam|76561198000000001";
+            ms.roster["steam|76561198000000001"] = PlayerData{
+                .primaryId = "steam|76561198000000001",
+                .name = "Hero",
+                .team = 0,
+                .mmr = 1200,
+                .playlists = {{"1v1", 1200}},
+                .playlistMatches = {{"1v1", previousMatches}}};
+        });
+        session->ui.rosterMmrCategory.store(MmrCategory::OneVOne);
+        session->ui.graphMmrCategory.store(MmrCategory::OneVOne);
         client->HandleLine(
             nlohmann::json{
                 {"Event", "MatchCreated"},
@@ -265,11 +258,10 @@ TEST_F(OmniStatsPipelineTest, FullLifecycleMatchFlow) {
         }
     })");
 
-    {
-        std::unique_lock<std::shared_mutex> lock(session->game.mutex);
-        session->game.myPrimaryId = "steam|76561198000000001";
-        session->game.myTeam = 0;
-    }
+    session->liveMatch->UpdateMatchStateForTests([](MatchState& ms) {
+        ms.myPrimaryId = "steam|76561198000000001";
+        ms.myTeam = 0;
+    });
 
     // 3. Round Starts
     client->HandleLine(R"({"Event": "RoundStarted", "Data": {}})");
@@ -318,10 +310,10 @@ TEST_F(OmniStatsPipelineTest, FullLifecycleMatchFlow) {
 
     // 7. Verify in-memory SessionState updates
     {
-        std::shared_lock<std::shared_mutex> lock(session->game.mutex);
-        EXPECT_EQ(session->game.currentMatch.savesSelf, 1);
-        EXPECT_EQ(session->game.currentMatch.shotsSelf, 1);
-        EXPECT_EQ(session->game.sessionTotals.wins, 1);
+        auto snap = session->liveMatch->GetSnapshot();
+        EXPECT_EQ(snap->currentMatch.savesSelf, 1);
+        EXPECT_EQ(snap->currentMatch.shotsSelf, 1);
+        EXPECT_EQ(snap->sessionTotals.wins, 1);
     }
 
     // 8. Verify the match was successfully written to SQLite
@@ -335,9 +327,9 @@ TEST_F(OmniStatsPipelineTest, FullLifecycleMatchFlow) {
 
     // Finalization queues a lookup behind the save, so the live roster reflects
     // the stored record without in-memory increments.
-    std::shared_lock<std::shared_mutex> lock(session->game.mutex);
-    const auto opponent = session->game.roster.find("epic|opponent2222");
-    ASSERT_NE(opponent, session->game.roster.end());
+    auto snap = session->liveMatch->GetSnapshot();
+    const auto opponent = snap->roster.find("epic|opponent2222");
+    ASSERT_NE(opponent, snap->roster.end());
     EXPECT_TRUE(opponent->second.hasLifetimeData);
     EXPECT_EQ(opponent->second.lifetimeWinsAgainst, 1);
     EXPECT_EQ(opponent->second.lifetimeWinsWith + opponent->second.lifetimeLossesWith, 0);
@@ -381,12 +373,11 @@ TEST_F(OmniStatsPipelineTest, MatchEndedFollowedByMatchDestroyedDoesNotDoubleSav
         }
     })");
 
-    {
-        std::unique_lock<std::shared_mutex> lock(session->game.mutex);
-        session->game.myPrimaryId = "steam|76561198000000001";
-        session->game.myTeam = 0;
-        session->game.localPlayerWasActive = true;
-    }
+    session->liveMatch->UpdateMatchStateForTests([](MatchState& ms) {
+        ms.myPrimaryId = "steam|76561198000000001";
+        ms.myTeam = 0;
+        ms.localPlayerWasActive = true;
+    });
 
     // 3. Round Starts
     client->HandleLine(R"({"Event": "RoundStarted", "Data": {}})");
@@ -409,9 +400,8 @@ TEST_F(OmniStatsPipelineTest, MatchEndedFollowedByMatchDestroyedDoesNotDoubleSav
 
     // Verify session totals and recent history size
     {
-        std::shared_lock<std::shared_mutex> lock1(session->game.mutex);
         std::shared_lock<std::shared_mutex> lock2(session->history.mutex);
-        EXPECT_EQ(session->game.sessionTotals.wins, 1);
+        EXPECT_EQ(session->liveMatch->GetSnapshot()->sessionTotals.wins, 1);
         EXPECT_EQ(session->history.recentSavedMatches.size(), 1);
     }
 
@@ -430,9 +420,8 @@ TEST_F(OmniStatsPipelineTest, MatchEndedFollowedByMatchDestroyedDoesNotDoubleSav
 
     // Verify no second save, no second win, no duplicate recent saved match
     {
-        std::shared_lock<std::shared_mutex> lock1(session->game.mutex);
         std::shared_lock<std::shared_mutex> lock2(session->history.mutex);
-        EXPECT_EQ(session->game.sessionTotals.wins, 1);
+        EXPECT_EQ(session->liveMatch->GetSnapshot()->sessionTotals.wins, 1);
         EXPECT_EQ(session->history.recentSavedMatches.size(), 1);
     }
 
@@ -459,10 +448,9 @@ TEST_F(
         fetcher->HasPendingDestroyedMatchForTests(
             "pipeline-replay-forfeit-guid"));
     {
-        std::shared_lock<std::shared_mutex> lock(
-            session->game.mutex);
-        EXPECT_EQ(session->game.sessionTotals.wins, 0);
-        EXPECT_EQ(session->game.sessionTotals.losses, 1);
+        auto snap = session->liveMatch->GetSnapshot();
+        EXPECT_EQ(snap->sessionTotals.wins, 0);
+        EXPECT_EQ(snap->sessionTotals.losses, 1);
     }
     {
         const auto points =
@@ -518,9 +506,8 @@ TEST_F(
         fetcher->PlaylistMatchPointsForTests("1v1").size(),
         1u);
     {
-        std::shared_lock<std::shared_mutex> lock(
-            session->game.mutex);
-        EXPECT_EQ(session->game.sessionTotals.losses, 1);
+        auto snap = session->liveMatch->GetSnapshot();
+        EXPECT_EQ(snap->sessionTotals.losses, 1);
     }
 }
 
@@ -550,10 +537,9 @@ TEST_F(
         "pipeline_cumulative_catch_up_barrier"));
 
     {
-        std::shared_lock<std::shared_mutex> lock(
-            session->game.mutex);
-        EXPECT_EQ(session->game.sessionTotals.wins, 1);
-        EXPECT_EQ(session->game.sessionTotals.losses, 1);
+        auto snap = session->liveMatch->GetSnapshot();
+        EXPECT_EQ(snap->sessionTotals.wins, 1);
+        EXPECT_EQ(snap->sessionTotals.losses, 1);
     }
 
     const auto points =
@@ -621,32 +607,23 @@ TEST_F(
         "partial-created-pipeline-b", 3, 2, 17);
     uint64_t generationB = 0;
     {
-        std::shared_lock<std::shared_mutex> lock(
-            session->game.mutex);
-        generationB =
-            session->game.activeMatchGeneration;
-        ASSERT_EQ(
-            session->game.matchGuid,
-            "partial-created-pipeline-b");
-        ASSERT_TRUE(session->game.roundEverStarted);
+        auto snap = session->liveMatch->GetSnapshot();
+        generationB = snap->activeMatchGeneration;
+        ASSERT_EQ(snap->matchGuid, "partial-created-pipeline-b");
+        ASSERT_TRUE(snap->roundEverStarted);
     }
 
     client->HandleLine(
         R"({"Event":"MatchCreated","Data":{}})");
 
     {
-        std::shared_lock<std::shared_mutex> lock(
-            session->game.mutex);
-        EXPECT_EQ(
-            session->game.activeMatchGeneration,
-            generationB);
-        EXPECT_EQ(
-            session->game.matchGuid,
-            "partial-created-pipeline-b");
-        EXPECT_TRUE(session->game.roundEverStarted);
-        EXPECT_TRUE(session->game.legacyLobbyWasEverFull);
-        EXPECT_EQ(session->game.score[0], 3);
-        EXPECT_EQ(session->game.score[1], 2);
+        auto snap = session->liveMatch->GetSnapshot();
+        EXPECT_EQ(snap->activeMatchGeneration, generationB);
+        EXPECT_EQ(snap->matchGuid, "partial-created-pipeline-b");
+        EXPECT_TRUE(snap->roundEverStarted);
+        EXPECT_TRUE(snap->legacyLobbyWasEverFull);
+        EXPECT_EQ(snap->score[0], 3);
+        EXPECT_EQ(snap->score[1], 2);
     }
 
     client->HandleLine(
@@ -660,15 +637,10 @@ TEST_F(
         "partial_created_pipeline_barrier"));
 
     {
-        std::shared_lock<std::shared_mutex> gameLock(
-            session->game.mutex);
-        std::shared_lock<std::shared_mutex> historyLock(
-            session->history.mutex);
-        EXPECT_EQ(session->game.sessionTotals.wins, 2);
-        EXPECT_EQ(session->game.sessionTotals.losses, 0);
-        EXPECT_EQ(
-            session->history.recentSavedMatches.size(),
-            2u);
+        std::shared_lock<std::shared_mutex> historyLock(session->history.mutex);
+        EXPECT_EQ(session->liveMatch->GetSnapshot()->sessionTotals.wins, 2);
+        EXPECT_EQ(session->liveMatch->GetSnapshot()->sessionTotals.losses, 0);
+        EXPECT_EQ(session->history.recentSavedMatches.size(), 2u);
     }
 
     std::vector<SessionMatchSummary> matches;

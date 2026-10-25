@@ -4,11 +4,13 @@
 #include "core/config/Config.hpp"
 #include "core/config/Constants.hpp"
 #include "core/state/SessionState.hpp"
+#include "core/state/LiveMatchStore.hpp"
 #include "utils/Storage.hpp"
 #include "core/reducer/TelemetryReducer.hpp"
 #include "core/accounts/TrackedAccounts.hpp"
 #include "database/DatabaseManager.hpp"
 #include "network/mmr/MMRFetcher.hpp"
+#include "network/telemetry/TelemetryEvents.hpp"
 
 #include <memory>
 
@@ -164,27 +166,34 @@ class TrackedAccountDiscoveryTest : public ::testing::Test {
 };
 
 TEST_F(TrackedAccountDiscoveryTest, ReducerConfirmsOnlyTheIdentifiedLocalPlayerOnce) {
-    TelemetryReducer reducer(state);
+    TelemetryReducer reducer;
+    ReducerContext ctx;
+    ctx.config = Config::Read();
+    auto reduceLobby = [&](const std::string& id, const std::string& name) {
+        auto ev = TelemetryEvents::ParseEventFromJson(Constants::EVT_UPDATE_STATE, Lobby(id, name).dump());
+        return ev ? reducer.Reduce(*ev, ctx) : SideEffects{};
+    };
+
     const std::string me = "Steam|" + kSteamId + "|0";
 
-    auto effects = reducer.Reduce(std::string(Constants::EVT_UPDATE_STATE), Lobby(me, "Me"));
+    auto effects = reduceLobby(me, "Me");
     ASSERT_TRUE(effects.confirmedLocalAccount.has_value());
     EXPECT_EQ(effects.confirmedLocalAccount->primaryId, me);
     EXPECT_EQ(effects.confirmedLocalAccount->name, "Me");
 
-    effects = reducer.Reduce(std::string(Constants::EVT_UPDATE_STATE), Lobby(me, "Me"));
+    effects = reduceLobby(me, "Me");
     EXPECT_FALSE(effects.confirmedLocalAccount.has_value());
 
-    effects = reducer.Reduce(std::string(Constants::EVT_UPDATE_STATE), Lobby(me, "Me Renamed"));
+    effects = reduceLobby(me, "Me Renamed");
     ASSERT_TRUE(effects.confirmedLocalAccount.has_value());
     EXPECT_EQ(effects.confirmedLocalAccount->name, "Me Renamed");
 
     const std::string alt = "Steam|" + kSteamOtherId + "|0";
-    effects = reducer.Reduce(std::string(Constants::EVT_UPDATE_STATE), Lobby(alt, "Alt"));
+    effects = reduceLobby(alt, "Alt");
     ASSERT_TRUE(effects.confirmedLocalAccount.has_value());
     EXPECT_EQ(effects.confirmedLocalAccount->primaryId, alt);
 
-    effects = reducer.Reduce(std::string(Constants::EVT_UPDATE_STATE), Lobby(me, "Me Renamed"));
+    effects = reduceLobby(me, "Me Renamed");
     ASSERT_TRUE(effects.confirmedLocalAccount.has_value());
     EXPECT_EQ(effects.confirmedLocalAccount->primaryId, me);
 }
@@ -289,8 +298,7 @@ TEST_F(TrackedAccountDiscoveryTest, ImportDeduplicatesAndLeavesLiveIdentityAlone
     EXPECT_EQ(db->GetTrackedAccount("Epic|" + kEpicHex)->discoverySource, DiscoverySource::Import);
     EXPECT_EQ(Config::Read().last_primary_id, "Epic|" + kEpicHex + "|0");
     EXPECT_EQ(Config::Read().known_primary_ids.size(), 7u);
-    std::shared_lock lock(state->game.mutex);
-    EXPECT_TRUE(state->game.myPrimaryId.empty());
+    EXPECT_TRUE(state->liveMatch->GetSnapshot()->myPrimaryId.empty());
 }
 
 TEST_F(TrackedAccountDiscoveryTest, ImportedAndManualAccountsTakeTheirNameFromMatchHistory) {

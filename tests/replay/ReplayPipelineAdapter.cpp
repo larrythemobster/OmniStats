@@ -1,4 +1,10 @@
 #include "ReplayPipelineAdapter.hpp"
+
+#include "core/effects/EffectRouter.hpp"
+#include "core/reducer/TelemetryReducer.hpp"
+#include "core/state/LiveMatchStore.hpp"
+#include "network/telemetry/TelemetryEvents.hpp"
+
 #include <cmath>
 #include <iostream>
 
@@ -153,24 +159,13 @@ namespace omnistats::replay {
         }
 
         const std::string eventName = msg["Event"].get<std::string>();
-        nlohmann::json dataObj;
-        if (msg["Data"].is_string()) {
-            try {
-                dataObj = nlohmann::json::parse(msg["Data"].get<std::string>());
-            } catch (...) {
-                dataObj = msg["Data"];
-            }
-        } else {
-            dataObj = msg["Data"];
-        }
+        const std::string dataStr = msg["Data"].is_string() ? msg["Data"].get<std::string>() : msg["Data"].dump();
 
-        // Special test stream events for connection drops:
+        // Test-stream marker for a dropped Stats API connection.
         if (eventName == "TelemetryDisconnected" || eventName == "__Disconnect__") {
-            if (ctx.reducer) ctx.reducer->OnTelemetryDisconnected();
             if (ctx.state) {
-                std::unique_lock<std::shared_mutex> lock(ctx.state->game.mutex);
+                ctx.state->liveMatch->OnTelemetryDisconnected();
                 ctx.state->clearActiveMatchOnDisconnect();
-                ctx.state->game.version++;
             }
             StepSideEffectsSummary discSummary;
             discSummary.hasEffects = true;
@@ -181,33 +176,27 @@ namespace omnistats::replay {
             return discSummary;
         }
 
+        // Recordings compress idle gaps; age the last match end so inactivity rules see the recorded gap.
         const int64_t elapsedMs = ctx.lastMatchEndedClockMs > 0 ? (ctx.currentClockMs - ctx.lastMatchEndedClockMs) : 0;
         if (eventName == "MatchCreated" && elapsedMs >= 7200 * 1000 && ctx.state) {
-            std::unique_lock<std::shared_mutex> lock(ctx.state->game.mutex);
-            if (ctx.state->game.lastMatchEndedAtUnix > 0) {
-                ctx.state->game.lastMatchEndedAtUnix -= (elapsedMs / 1000);
-            }
+            ctx.state->liveMatch->UpdateMatchStateForTests([elapsedMs](MatchState& match) {
+                if (match.lastMatchEndedAtUnix > 0) match.lastMatchEndedAtUnix -= elapsedMs / 1000;
+            });
         }
 
-        SideEffects effects;
-        if (ctx.reducer) {
-            effects = ctx.reducer->Reduce(eventName, dataObj);
-        }
+        const auto event = TelemetryEvents::ParseEventFromJson(eventName, dataStr);
+        if (!event || !ctx.state) return {};
+
+        ReducerContext reducerContext = MakeReducerContext(ctx.state->ui);
+        reducerContext.nowMs = ctx.currentClockMs > 0 ? ctx.currentClockMs : 1;
+        reducerContext.nowSeconds = static_cast<double>(ctx.currentClockMs) / 1000.0;
+        SideEffects effects = ctx.state->liveMatch->ApplyEvent(*event, reducerContext);
         if (effects.saveMatch || eventName == "MatchEnded") {
             ctx.lastMatchEndedClockMs = ctx.currentClockMs;
         }
 
         StepSideEffectsSummary summary = SummarizeSideEffects(eventName, effects);
-
-        if (ctx.executor) {
-            ctx.executor->Execute(
-                std::move(effects),
-                ctx.dbManager,
-                nullptr /* discordManager */,
-                ctx.mmrFetcher,
-                nullptr /* accountManager */);
-        }
-
+        EffectRouter::Route(std::move(effects), ctx.dbManager, nullptr, ctx.mmrFetcher, nullptr, ctx.state);
         return summary;
     }
 

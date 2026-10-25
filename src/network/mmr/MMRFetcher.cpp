@@ -1,4 +1,5 @@
 #include "network/mmr/MMRFetcher.hpp"
+#include "core/state/LiveMatchStore.hpp"
 #include "network/http/CurlImpersonate.hpp"
 #include "core/config/Config.hpp"
 #include "core/game/GamemodeUtils.hpp"
@@ -50,7 +51,7 @@ void MMRFetcher::ProcessPostMatchResponseForTests(const std::string& matchGuid,
         req.previousMmrIsPlaylistSpecific = it->second.preMatchMmrIsPlaylistSpecific;
         req.won = it->second.won;
         req.resultKnown = it->second.resultKnown;
-        req.sessionGeneration = m_state->game.sessionGeneration.load();
+        req.sessionGeneration = (m_state && m_state->liveMatch && m_state->liveMatch->GetSnapshot()) ? m_state->liveMatch->GetSnapshot()->sessionGeneration : 0;
     }
     if (!ReconcileTrackerResponse(req, fetchedMmr, fetchedMatches)) {
         EnsureProvisionalPoint(req, req.previousMmr, fetchedMmr, fetchedMatches);
@@ -63,7 +64,7 @@ void MMRFetcher::FetchRosterProfileForTests(const std::string& primaryId,
     req.primaryId = primaryId;
     req.name = name;
     req.reason = MMRRequestReason::Roster;
-    req.sessionGeneration = m_state->game.sessionGeneration.load();
+    req.sessionGeneration = (m_state && m_state->liveMatch && m_state->liveMatch->GetSnapshot()) ? m_state->liveMatch->GetSnapshot()->sessionGeneration : 0;
     (void)FetchProfile(std::move(req));
 }
 

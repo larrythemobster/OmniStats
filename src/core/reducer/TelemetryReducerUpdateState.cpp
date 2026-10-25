@@ -1,925 +1,589 @@
 #include "core/reducer/TelemetryReducer.hpp"
+
+#include <algorithm>
+#include <chrono>
+#include <iostream>
+#include <string>
+#include <utility>
+
 #include "core/config/Config.hpp"
-#include "core/config/Constants.hpp"
 #include "core/game/ArenaNames.hpp"
 #include "core/game/GamemodeUtils.hpp"
 #include "core/game/PlaylistMetadata.hpp"
-#include "utils/PrivacyLog.hpp"
-#include <iostream>
-#include <algorithm>
-#include <utility>
-#include <cctype>
-#include <optional>
 #include "core/reducer/TelemetryReducerDetail.hpp"
+#include "utils/PrivacyLog.hpp"
 
 using namespace TelemetryReducerDetail;
 
-namespace {
-    // Outside spectator mode Game.Target is the car your camera follows, i.e. you. It is cleared during
-    // replays and while demolished; empty means no identity signal in this update.
-    std::string CameraTargetPlayerId(const nlohmann::json& data) {
-        if (!data.contains("Game") || !data["Game"].is_object()) return {};
-        const auto& game = data["Game"];
-        if (!game.contains("bHasTarget") || !game["bHasTarget"].is_boolean() || !game["bHasTarget"].get<bool>() ||
-            !game.contains("Target") || !game["Target"].is_object())
-            return {};
-        const auto& target = game["Target"];
-        if (!target.contains("Name") || !target["Name"].is_string()) return std::string{};
-        const std::string name = target["Name"].get<std::string>();
-        const int team = target.contains("TeamNum") && target["TeamNum"].is_number_integer() ? target["TeamNum"].get<int>() : -1;
-        if (name.empty() || !data.contains("Players") || !data["Players"].is_array()) return std::string{};
-        std::string match;
-        for (const auto& p : data["Players"]) {
-            if (!p.contains("PrimaryId") || !p["PrimaryId"].is_string() || !p.contains("Name") || !p["Name"].is_string() ||
-                p["Name"].get<std::string>() != name)
-                continue;
-            if (team != -1 && (!p.contains("TeamNum") || !p["TeamNum"].is_number_integer() || p["TeamNum"].get<int>() != team))
-                continue;
-            if (!match.empty()) return std::string{};
-            match = p["PrimaryId"].get<std::string>();
-            if (match == "Unknown" || match.rfind("Unknown|", 0) == 0) match = "Unknown|" + name;
-        }
-        return match;
-    }
-} // namespace
+namespace TelemetryReducerDetail {
 
-void TelemetryReducer::CapturePreMatchMmrLocked() {
-    const std::string& matchGuid = m_state->game.matchGuid;
-    if (matchGuid.empty() ||
-        m_state->game.preMatchMmrByGuid.count(matchGuid) > 0 ||
-        m_state->game.myPrimaryId.empty()) {
-        return;
-    }
-
-    const auto playerIt = m_state->game.roster.find(m_state->game.myPrimaryId);
-    if (playerIt == m_state->game.roster.end()) return;
-
-    bool hasPlaylistMmr = false;
-    for (const auto& [playlist, mmr] : playerIt->second.playlists) {
-        if (playlist != "best" && mmr > 0) {
-            hasPlaylistMmr = true;
-            break;
-        }
-    }
-    if (!hasPlaylistMmr) return;
-
-    m_state->game.preMatchMmrByGuid.emplace(
-        matchGuid,
-        LocalPreMatchMmrSnapshot{
-            .playlistMmrs = playerIt->second.playlists,
-            .playlistMatches = playerIt->second.playlistMatches});
-    std::cout
-        << "[TelemetryReducer] Captured pre-match MMR snapshot: matchGuid="
-        << PrivacyLog::Sensitive(matchGuid, "match GUID")
-        << ".\n";
-}
-
-bool TelemetryReducer::AttachTerminalGuidToCurrentLocked(
-    const std::string& eventMatchGuid) {
-    if (eventMatchGuid.empty() ||
-        !m_state->game.inMatch ||
-        m_state->game.matchFinalized ||
-        !m_state->game.matchGuid.empty() ||
-        m_missingGuidAssociationBlockedByReconnect ||
-        m_finalizedMatchGuids.count(eventMatchGuid) > 0 ||
-        m_pendingDestroyedMatches.count(eventMatchGuid) > 0) {
-        return false;
-    }
-
-    auto guidlessSnapshot =
-        m_state->game.preMatchMmrByGuid.extract("");
-    if (!guidlessSnapshot.empty()) {
-        guidlessSnapshot.key() = eventMatchGuid;
-        m_state->game.preMatchMmrByGuid.insert(
-            std::move(guidlessSnapshot));
-    }
-    m_state->game.matchGuid = eventMatchGuid;
-    CapturePreMatchMmrLocked();
-    return true;
-}
-
-bool TelemetryReducer::HasExplicitLocalForfeitSignal(const nlohmann::json& data,
-                                                     int localTeam) {
-    const auto scopeHasSignal = [&](const nlohmann::json& scope) {
-        if (ReadTrueBoolean(
-                scope,
-                {"bLocalPlayerForfeit",
-                 "bLocalForfeit",
-                 "LocalPlayerForfeit",
-                 "bLocalPlayerAbandoned",
-                 "bLocalPlayerAbandon",
-                 "LocalPlayerAbandoned"})) {
-            return true;
+    void CapturePreMatchMmr(MatchState& state) {
+        const std::string& matchGuid = state.matchGuid;
+        if (matchGuid.empty() ||
+            state.preMatchMmrByGuid.count(matchGuid) > 0 ||
+            state.myPrimaryId.empty()) {
+            return;
         }
 
-        if (!ReadTrueBoolean(scope, {"bForfeit", "Forfeit"})) return false;
+        const auto playerIt = state.roster.find(state.myPrimaryId);
+        if (playerIt == state.roster.end()) return;
 
-        const auto forfeitingTeam = ReadInteger(
-            scope,
-            {"ForfeitTeamNum", "ForfeitingTeamNum", "AbandoningTeamNum"});
-        if (forfeitingTeam && (*forfeitingTeam == 0 || *forfeitingTeam == 1)) {
-            return *forfeitingTeam == localTeam;
-        }
-
-        const auto winner =
-            ReadInteger(scope, {"WinnerTeamNum", "winner_team_num"});
-        return winner && (*winner == 0 || *winner == 1) &&
-               (localTeam == 0 || localTeam == 1) && *winner != localTeam;
-    };
-
-    if (scopeHasSignal(data)) return true;
-    return data.contains("Game") && data["Game"].is_object() &&
-           scopeHasSignal(data["Game"]);
-}
-
-void TelemetryReducer::UpdateLifecycleSignalsLocked(const nlohmann::json& data) {
-    if (HasExplicitLocalForfeitSignal(data, m_state->game.myTeam)) {
-        m_state->game.explicitLocalForfeit = true;
-    }
-
-    const nlohmann::json* game =
-        data.contains("Game") && data["Game"].is_object() ? &data["Game"] : nullptr;
-    if (!game) return;
-
-    // PlaylistId is stronger than optional flags/strings. Only consult the
-    // latter when Rocket League genuinely omitted PlaylistId; stale UI/context
-    // flags must not demote an authoritative ranked playlist.
-    if (PlaylistMetadata::HasAuthoritativeId(m_state->game.playlistId)) {
-        // Recompute this from the authoritative ID on every update. A transient
-        // intermission/unknown ID can arrive before the real match playlist;
-        // once a known recordable playlist arrives it must clear the stale
-        // exclusion rather than poisoning the rest of the match.
-        m_state->game.excludedEarlyExitContext = false;
-        m_state->game.earlyExitExclusionReason.clear();
-        if (!PlaylistMetadata::IsKnown(m_state->game.playlistId)) {
-            m_state->game.excludedEarlyExitContext = true;
-            m_state->game.earlyExitExclusionReason = "unknown_playlist_id";
-        } else if (const char* reason =
-                       PlaylistMetadata::NonRecordableReason(
-                           m_state->game.playlistId)) {
-            m_state->game.excludedEarlyExitContext = true;
-            m_state->game.earlyExitExclusionReason = reason;
-        } else if (PlaylistMetadata::IsCasual(m_state->game.playlistId)) {
-            m_state->game.excludedEarlyExitContext = true;
-            m_state->game.earlyExitExclusionReason = "casual_playlist";
-        }
-        m_state->game.fallbackCasualContext = false;
-        m_state->game.fallbackNonRecordableContext = false;
-        m_state->game.fallbackNonRecordableReason.clear();
-    } else {
-        const bool explicitNonRecordable =
-            ReadTrueBoolean(
-                *game,
-                {"bPrivateMatch",
-                 "bTraining",
-                 "bExhibition",
-                 "bTournamentSpectator"}) ||
-            MatchTypeContains(
-                *game, {"private", "training", "exhibition", "freeplay"});
-        const bool explicitCasual =
-            ReadTrueBoolean(*game, {"bCasualMatch"}) ||
-            MatchTypeContains(*game, {"casual"});
-
-        if (explicitNonRecordable) {
-            m_state->game.fallbackNonRecordableContext = true;
-            m_state->game.fallbackNonRecordableReason =
-                "explicit_non_competitive_context";
-        } else if (explicitCasual) {
-            m_state->game.fallbackCasualContext = true;
-        }
-
-        if (m_state->game.fallbackNonRecordableContext) {
-            m_state->game.excludedEarlyExitContext = true;
-            m_state->game.earlyExitExclusionReason =
-                m_state->game.fallbackNonRecordableReason;
-        } else if (m_state->game.fallbackCasualContext) {
-            m_state->game.excludedEarlyExitContext = true;
-            m_state->game.earlyExitExclusionReason = "casual_context";
-        }
-    }
-}
-
-void TelemetryReducer::HandleUpdateState(const nlohmann::json& data, SideEffects& effects) {
-    bool gameReplayActive = false;
-    bool isSpectator = false;
-
-    if (!m_nonLiveReplayActive) {
-        (void)AcceptsUiMatchEventLocked(data, SteadyNowMs());
-    }
-    if (data.contains("Game") && data["Game"].is_object()) {
-        const auto& game = data["Game"];
-        std::optional<int> incomingPlaylistId;
-        if (game.contains("PlaylistId") &&
-            game["PlaylistId"].is_number_integer()) {
-            incomingPlaylistId = game["PlaylistId"].get<int>();
-        }
-        if (game.contains("bOvertime") && game["bOvertime"].is_boolean()) {
-            const bool ot = game["bOvertime"].get<bool>();
-            m_state->game.bOvertime = ot;
-            if (ot && !m_overtimeStartedAt.has_value()) {
-                m_overtimeStartedAt = Now();
+        bool hasPlaylistMmr = false;
+        for (const auto& [playlist, mmr] : playerIt->second.playlists) {
+            if (mmr > 0) {
+                hasPlaylistMmr = true;
+                break;
             }
         }
-        if (game.contains("TimeSeconds") && game["TimeSeconds"].is_number()) {
-            const float clock = game["TimeSeconds"].get<float>();
-            m_state->game.timeSeconds = clock;
-            m_hasObservedMatchClock = std::isfinite(clock) && clock >= 0.0f && clock <= 3600.0f;
-            if (m_hasObservedMatchClock) m_lastMatchClockSampleAt = Now();
-            if (!m_state->game.bOvertime) {
-                m_regulationClockStart = std::max(m_regulationClockStart.value_or(clock), clock);
-                m_regulationClockLatest = clock;
+        if (!hasPlaylistMmr) return;
+
+        state.preMatchMmrByGuid.emplace(
+            matchGuid,
+            LocalPreMatchMmrSnapshot{
+                .playlistMmrs = playerIt->second.playlists,
+                .playlistMatches = playerIt->second.playlistMatches});
+    }
+
+    bool AttachTerminalGuidToCurrent(MatchState& state, const std::string& eventMatchGuid) {
+        if (eventMatchGuid.empty() ||
+            !state.inMatch ||
+            state.matchFinalized ||
+            !state.matchGuid.empty() ||
+            state.missingGuidAssociationBlockedByReconnect ||
+            state.finalizedMatchGuids.count(eventMatchGuid) > 0 ||
+            state.pendingDestroyedMatches.count(eventMatchGuid) > 0) {
+            return false;
+        }
+
+        auto guidlessSnapshot = state.preMatchMmrByGuid.extract("");
+        if (!guidlessSnapshot.empty()) {
+            guidlessSnapshot.key() = eventMatchGuid;
+            state.preMatchMmrByGuid.insert(std::move(guidlessSnapshot));
+        }
+        state.matchGuid = eventMatchGuid;
+        CapturePreMatchMmr(state);
+        return true;
+    }
+
+    void UpdateLifecycleSignals(MatchState& state, const TelemetryEvents::UpdateStateEvent& ev) {
+        if (ev.explicitLocalForfeitFlag) {
+            state.explicitLocalForfeit = true;
+        } else if (ev.bForfeit) {
+            if (ev.forfeitTeam.has_value() && (*ev.forfeitTeam == 0 || *ev.forfeitTeam == 1)) {
+                if (*ev.forfeitTeam == state.myTeam) state.explicitLocalForfeit = true;
+            } else if (ev.winnerTeam.has_value() && (*ev.winnerTeam == 0 || *ev.winnerTeam == 1) &&
+                       (state.myTeam == 0 || state.myTeam == 1) && *ev.winnerTeam != state.myTeam) {
+                state.explicitLocalForfeit = true;
             }
         }
-        if (m_state->game.bOvertime) m_regulationClockLatest = 0.0f;
 
-        if (game.contains("bReplay") && game["bReplay"].is_boolean()) {
-            gameReplayActive = game["bReplay"].get<bool>();
-            m_state->game.inReplay = gameReplayActive;
+        if (PlaylistMetadata::HasAuthoritativeId(state.playlistId)) {
+            state.excludedEarlyExitContext = false;
+            state.earlyExitExclusionReason.clear();
+            if (!PlaylistMetadata::IsKnown(state.playlistId)) {
+                state.excludedEarlyExitContext = true;
+                state.earlyExitExclusionReason = "unknown_playlist_id";
+            } else if (const char* reason = PlaylistMetadata::NonRecordableReason(state.playlistId)) {
+                state.excludedEarlyExitContext = true;
+                state.earlyExitExclusionReason = reason;
+            } else if (PlaylistMetadata::IsCasual(state.playlistId)) {
+                state.excludedEarlyExitContext = true;
+                state.earlyExitExclusionReason = "casual_playlist";
+            }
+            state.fallbackCasualContext = false;
+            state.fallbackNonRecordableContext = false;
+            state.fallbackNonRecordableReason.clear();
+        } else {
+            if (ev.explicitNonRecordable) {
+                state.fallbackNonRecordableContext = true;
+                state.fallbackNonRecordableReason = ev.fallbackNonRecordableReason.empty()
+                                                        ? "explicit_non_competitive_context"
+                                                        : ev.fallbackNonRecordableReason;
+            } else if (ev.explicitCasual) {
+                state.fallbackCasualContext = true;
+            }
+
+            if (state.fallbackNonRecordableContext) {
+                state.excludedEarlyExitContext = true;
+                state.earlyExitExclusionReason = state.fallbackNonRecordableReason;
+            } else if (state.fallbackCasualContext) {
+                state.excludedEarlyExitContext = true;
+                state.earlyExitExclusionReason = "casual_context";
+            }
         }
-        if (game.contains("bSpectator") && game["bSpectator"].is_boolean()) {
-            isSpectator = game["bSpectator"].get<bool>();
+    }
+
+    void HandleUpdateState(MatchState& state,
+                           const TelemetryEvents::UpdateStateEvent& ev,
+                           const ReducerContext& ctx,
+                           SideEffects& effects) {
+        const int64_t nowMs = ctx.nowMs > 0 ? ctx.nowMs : SteadyNowMs();
+        if (!state.nonLiveReplayActive) {
+            (void)AcceptsUiMatchEvent(state, ev.matchGuid, nowMs, effects);
         }
-        if (game.contains("Arena") && game["Arena"].is_string()) {
-            std::string currentArenaAsset = game["Arena"].get<std::string>();
+
+        bool gameReplayActive = ev.bReplay;
+        bool isSpectator = ev.bSpectator;
+        state.inReplay = gameReplayActive;
+
+        if (ev.bOvertime) {
+            state.bOvertime = true;
+            if (!state.overtimeStartedAtMs.has_value()) {
+                state.overtimeStartedAtMs = nowMs;
+            }
+        }
+
+        if (ev.timeSeconds.has_value()) {
+            const float clock = *ev.timeSeconds;
+            state.timeSeconds = clock;
+            state.hasObservedMatchClock = std::isfinite(clock) && clock >= 0.0f && clock <= 3600.0f;
+            if (state.hasObservedMatchClock) state.lastMatchClockSampleAtMs = nowMs;
+            if (!state.bOvertime) {
+                state.regulationClockStart = (std::max)(state.regulationClockStart.value_or(clock), clock);
+                state.regulationClockLatest = clock;
+            }
+        }
+        if (state.bOvertime) state.regulationClockLatest = 0.0f;
+
+        if (!ev.arena.empty()) {
+            std::string currentArenaAsset = ev.arenaAsset.empty() ? ev.arena : ev.arenaAsset;
             std::string currentArena = ArenaNames::DisplayName(currentArenaAsset);
             if (!currentArena.empty() &&
-                (currentArena != m_state->game.arenaName ||
-                 currentArenaAsset != m_state->game.arenaAsset)) {
+                (currentArena != state.arenaName || currentArenaAsset != state.arenaAsset)) {
                 const bool previousIsNonRecordable =
-                    m_state->game.fallbackNonRecordableContext ||
-                    PlaylistMetadata::IsNonRecordable(m_state->game.playlistId);
+                    state.fallbackNonRecordableContext ||
+                    PlaylistMetadata::IsNonRecordable(state.playlistId);
                 const bool establishedActiveMatch =
-                    m_state->game.inMatch &&
-                    m_state->game.roundEverStarted &&
-                    !previousIsNonRecordable;
+                    state.inMatch && state.roundEverStarted && !previousIsNonRecordable;
 
                 if (establishedActiveMatch) {
-                    // Arena metadata can arrive independently. Never destroy a
-                    // live match's stats/playlist merely because the arena
-                    // string changed after the round had already started.
-                    m_state->game.arenaName = currentArena;
-                    m_state->game.arenaAsset = currentArenaAsset;
+                    state.arenaName = currentArena;
+                    state.arenaAsset = currentArenaAsset;
                     effects.pushDiscord = true;
-                    effects.discordSnapshot = BuildDiscordSnapshotLocked();
-                    std::cout
-                        << "[TelemetryReducer] Arena metadata changed during "
-                           "active match; preserving match state.\n";
+                    effects.discordSnapshot = TelemetryReducer::BuildDiscordSnapshot(state);
                 } else {
-                    const std::string matchGuid = m_state->game.matchGuid;
-                    const int previousPlaylistId =
-                        m_state->game.playlistId;
-                    const bool startsNewLifecycle =
-                        !m_state->game.inMatch || previousIsNonRecordable;
+                    const std::string matchGuid = state.matchGuid;
+                    const int previousPlaylistId = state.playlistId;
+                    const bool startsNewLifecycle = !state.inMatch || previousIsNonRecordable;
+
                     LocalPreMatchMmrSnapshot preservedMmrSnapshot;
                     bool hasPreservedMmrSnapshot = false;
-                    const auto snapshotIt =
-                        m_state->game.preMatchMmrByGuid.find(matchGuid);
-                    if (snapshotIt !=
-                        m_state->game.preMatchMmrByGuid.end()) {
-                        preservedMmrSnapshot =
-                            std::move(snapshotIt->second);
+                    const auto snapshotIt = state.preMatchMmrByGuid.find(matchGuid);
+                    if (snapshotIt != state.preMatchMmrByGuid.end()) {
+                        preservedMmrSnapshot = std::move(snapshotIt->second);
                         hasPreservedMmrSnapshot = true;
                     }
-                    const int64_t savedMatchStartMs = m_state->ui.lastMatchStartMs.load(std::memory_order_relaxed);
-                    const int64_t savedFirstCountdownMs = m_state->ui.firstCountdownOfMatchMs.load(std::memory_order_relaxed);
-                    const int64_t savedLastCountdownMs = m_state->ui.lastCountdownMs.load(std::memory_order_relaxed);
-                    const int64_t savedLastGoalMs = m_state->ui.lastGoalMs.load(std::memory_order_relaxed);
-                    const int64_t savedLastMatchEndMs = m_state->ui.lastMatchEndMs.load(std::memory_order_relaxed);
-                    const int64_t savedLastPodiumMs = m_state->ui.lastPodiumMs.load(std::memory_order_relaxed);
-                    const bool savedInGoalReplay = m_state->ui.inGoalReplay.load(std::memory_order_relaxed);
-                    m_state->resetMatch(currentArena, currentArenaAsset);
+
+                    const int64_t savedMatchStartMs = state.lastMatchStartMs;
+                    const int64_t savedFirstCountdownMs = state.firstCountdownOfMatchMs;
+                    const int64_t savedLastCountdownMs = state.lastCountdownMs;
+                    const int64_t savedLastGoalMs = state.lastGoalMs;
+                    const int64_t savedLastMatchEndMs = state.lastMatchEndMs;
+                    const int64_t savedLastPodiumMs = state.lastPodiumMs;
+                    const bool savedInGoalReplay = state.inGoalReplay;
+
+                    state.ResetMatch(currentArena, currentArenaAsset);
                     if (startsNewLifecycle) {
-                        m_matchEvents.clear();
-                        m_analytics.Reset();
-                        m_eventNativeKeys.clear();
-                        m_lastEventSignature.clear();
-                        m_state->game.activeMatchGeneration =
-                            ++m_nextMatchGeneration;
-                        m_missingGuidAssociationBlockedByReconnect =
-                            false;
-                        m_state->ui.ResetMatchTimestamps(SteadyNowMs());
-                        m_uiMatchGuid.clear();
-                        m_countdownSeenThisRound = false;
-                        ResetMatchTimingState();
+                        state.matchEvents.clear();
+                        state.analytics = MatchAnalyticsTracker{};
+                        state.eventNativeKeys.clear();
+                        state.lastEventSignature.clear();
+                        state.activeMatchGeneration = ++state.nextMatchGeneration;
+                        state.missingGuidAssociationBlockedByReconnect = false;
+                        state.lastMatchStartMs = nowMs;
+                        state.firstCountdownOfMatchMs = 0;
+                        state.lastCountdownMs = 0;
+                        state.lastGoalMs = 0;
+                        state.lastMatchEndMs = 0;
+                        state.lastPodiumMs = 0;
+                        state.inGoalReplay = false;
+                        state.uiMatchGuid.clear();
+                        state.countdownSeenThisRound = false;
+                        state.ResetTiming();
+                        effects.uiUpdate = UiStateUpdate{.resetTimestamps = true, .resetMatchStartMs = nowMs};
                     } else {
-                        m_state->ui.lastMatchStartMs.store(
-                            savedMatchStartMs > 0 ? savedMatchStartMs : SteadyNowMs(),
-                            std::memory_order_relaxed);
-                        m_state->ui.firstCountdownOfMatchMs.store(savedFirstCountdownMs, std::memory_order_relaxed);
-                        m_state->ui.lastCountdownMs.store(savedLastCountdownMs, std::memory_order_relaxed);
-                        m_state->ui.lastGoalMs.store(savedLastGoalMs, std::memory_order_relaxed);
-                        m_state->ui.lastMatchEndMs.store(savedLastMatchEndMs, std::memory_order_relaxed);
-                        m_state->ui.lastPodiumMs.store(savedLastPodiumMs, std::memory_order_relaxed);
-                        m_state->ui.inGoalReplay.store(savedInGoalReplay, std::memory_order_relaxed);
-                    }
-                    if (!startsNewLifecycle &&
-                        hasPreservedMmrSnapshot) {
-                        m_state->game.preMatchMmrByGuid.emplace(
-                            matchGuid,
-                            std::move(preservedMmrSnapshot));
-                    } else if (startsNewLifecycle) {
-                        m_state->game.matchGuid.clear();
-                    }
-                    // resetMatch intentionally clears playlist state for a new
-                    // lifecycle. During same-lifecycle arena initialization,
-                    // preserve an already-authoritative ID if this telemetry
-                    // frame omitted PlaylistId.
-                    if (!startsNewLifecycle &&
-                        !incomingPlaylistId.has_value() &&
-                        PlaylistMetadata::HasAuthoritativeId(
-                            previousPlaylistId)) {
-                        m_state->game.playlistId =
-                            previousPlaylistId;
+                        state.lastMatchStartMs = savedMatchStartMs > 0 ? savedMatchStartMs : nowMs;
+                        state.firstCountdownOfMatchMs = savedFirstCountdownMs;
+                        state.lastCountdownMs = savedLastCountdownMs;
+                        state.lastGoalMs = savedLastGoalMs;
+                        state.lastMatchEndMs = savedLastMatchEndMs;
+                        state.lastPodiumMs = savedLastPodiumMs;
+                        state.inGoalReplay = savedInGoalReplay;
                     }
 
-                    m_roundActive = false;
-                    m_autoSwitchedPlaylistCategory =
-                        MmrCategory::Best;
-                    m_followedGraphPlaylistCategory =
-                        MmrCategory::Best;
-                    m_lastPlayerBoost.clear();
-                    m_lastPlayerSeen.clear();
-                    std::cout << "\n========================================\n";
-                    std::cout << "[Event] Match Started in: "
-                              << m_state->game.arenaName << "\n";
+                    if (!startsNewLifecycle && hasPreservedMmrSnapshot) {
+                        state.preMatchMmrByGuid.emplace(matchGuid, std::move(preservedMmrSnapshot));
+                    } else if (startsNewLifecycle) {
+                        state.matchGuid.clear();
+                    }
+
+                    if (!startsNewLifecycle && !ev.playlistId.has_value() &&
+                        PlaylistMetadata::HasAuthoritativeId(previousPlaylistId)) {
+                        state.playlistId = previousPlaylistId;
+                    }
+
+                    state.roundActive = false;
+                    state.autoSwitchedPlaylistCategory = MmrCategory::Best;
+                    state.followedGraphPlaylistCategory = MmrCategory::Best;
+                    state.lastPlayerBoost.clear();
+                    state.lastPlayerSeenMs.clear();
                     effects.pushDiscord = true;
-                    effects.discordSnapshot =
-                        BuildDiscordSnapshotLocked();
+                    effects.discordSnapshot = TelemetryReducer::BuildDiscordSnapshot(state);
                 }
             }
         }
 
-        if (incomingPlaylistId.has_value()) {
-            const int newPlaylistId = *incomingPlaylistId;
-            const int currentPlaylistId =
-                m_state->game.playlistId;
+        if (ev.playlistId.has_value()) {
+            const int newPlaylistId = *ev.playlistId;
+            const int currentPlaylistId = state.playlistId;
             const bool latchCurrentMatchPlaylist =
-                m_state->game.inMatch &&
-                m_state->game.roundEverStarted &&
-                !m_state->game.matchFinalized &&
+                state.inMatch && state.roundEverStarted && !state.matchFinalized &&
                 PlaylistMetadata::IsKnown(currentPlaylistId) &&
-                !PlaylistMetadata::IsNonRecordable(
-                    currentPlaylistId) &&
+                !PlaylistMetadata::IsNonRecordable(currentPlaylistId) &&
                 newPlaylistId != currentPlaylistId;
-            if (latchCurrentMatchPlaylist) {
-                std::cout
-                    << "[Playlist] Ignoring mid-match PlaylistId transition "
-                    << currentPlaylistId << " -> " << newPlaylistId
-                    << "; keeping the playlist latched to this match.\n";
-            } else {
+
+            if (!latchCurrentMatchPlaylist) {
                 const bool previousIsNonRecordable =
-                    m_state->game.fallbackNonRecordableContext ||
+                    state.fallbackNonRecordableContext ||
                     PlaylistMetadata::IsNonRecordable(currentPlaylistId);
                 const bool nonRecordableToDifferentPlaylist =
-                    m_state->game.inMatch &&
-                    previousIsNonRecordable &&
-                    newPlaylistId != currentPlaylistId;
+                    state.inMatch && previousIsNonRecordable && newPlaylistId != currentPlaylistId;
 
                 if (nonRecordableToDifferentPlaylist) {
                     LocalPreMatchMmrSnapshot initialMmrSnapshot;
                     bool hasInitialMmrSnapshot = false;
-                    if (!m_state->game.myPrimaryId.empty()) {
-                        const auto playerIt =
-                            m_state->game.roster.find(
-                                m_state->game.myPrimaryId);
-                        if (playerIt !=
-                                m_state->game.roster.end() &&
-                            !playerIt->second.playlists.empty()) {
-                            initialMmrSnapshot.playlistMmrs =
-                                playerIt->second.playlists;
-                            initialMmrSnapshot.playlistMatches =
-                                playerIt->second.playlistMatches;
+                    if (!state.myPrimaryId.empty()) {
+                        const auto playerIt = state.roster.find(state.myPrimaryId);
+                        if (playerIt != state.roster.end() && !playerIt->second.playlists.empty()) {
+                            initialMmrSnapshot.playlistMmrs = playerIt->second.playlists;
+                            initialMmrSnapshot.playlistMatches = playerIt->second.playlistMatches;
                             hasInitialMmrSnapshot = true;
                         }
                     }
 
-                    const std::string matchGuid = m_state->game.matchGuid;
-                    const std::string currentArena = m_state->game.arenaName;
-                    const std::string currentArenaAsset = m_state->game.arenaAsset;
-                    m_state->resetMatch(currentArena, currentArenaAsset);
-                    m_matchEvents.clear();
-                    m_analytics.Reset();
-                    m_eventNativeKeys.clear();
-                    m_lastEventSignature.clear();
-                    m_state->ui.ResetMatchTimestamps(SteadyNowMs());
-                    m_state->game.activeMatchGeneration =
-                        ++m_nextMatchGeneration;
-                    m_state->game.matchGuid = matchGuid;
-                    m_uiMatchGuid = matchGuid;
-                    m_missingGuidAssociationBlockedByReconnect = false;
+                    const std::string matchGuid = state.matchGuid;
+                    const std::string currentArena = state.arenaName;
+                    const std::string currentArenaAsset = state.arenaAsset;
+                    state.ResetMatch(currentArena, currentArenaAsset);
+                    state.matchEvents.clear();
+                    state.analytics = MatchAnalyticsTracker{};
+                    state.eventNativeKeys.clear();
+                    state.lastEventSignature.clear();
+                    state.lastMatchStartMs = nowMs;
+                    state.activeMatchGeneration = ++state.nextMatchGeneration;
+                    state.matchGuid = matchGuid;
+                    state.uiMatchGuid = matchGuid;
+                    state.missingGuidAssociationBlockedByReconnect = false;
                     if (hasInitialMmrSnapshot) {
-                        m_state->game.preMatchMmrByGuid.emplace(
-                            matchGuid,
-                            std::move(initialMmrSnapshot));
+                        state.preMatchMmrByGuid.emplace(matchGuid, std::move(initialMmrSnapshot));
                     }
-                    ResetMatchTimingState();
-                    m_roundActive = false;
-                    m_countdownSeenThisRound = false;
-                    m_autoSwitchedPlaylistCategory = MmrCategory::Best;
-                    m_followedGraphPlaylistCategory = MmrCategory::Best;
-                    m_lastPlayerBoost.clear();
-                    m_lastPlayerSeen.clear();
+                    state.ResetTiming();
+                    state.roundActive = false;
+                    state.countdownSeenThisRound = false;
+                    state.autoSwitchedPlaylistCategory = MmrCategory::Best;
+                    state.followedGraphPlaylistCategory = MmrCategory::Best;
+                    state.lastPlayerBoost.clear();
+                    state.lastPlayerSeenMs.clear();
                 }
-                if (newPlaylistId != currentPlaylistId) {
-                    const std::string mode =
-                        PlaylistMetadata::CanonicalMode(
-                            newPlaylistId);
-                    std::cout
-                        << "[Playlist] PlaylistId=" << newPlaylistId
-                        << ", mode="
-                        << (mode.empty() ? "unknown" : mode);
-                    if (!PlaylistMetadata::IsKnown(newPlaylistId)) {
-                        std::cout
-                            << ", action=no-heuristic-fallback";
-                    }
-                    std::cout << "\n";
-                }
-                m_state->game.playlistId = newPlaylistId;
+                state.playlistId = newPlaylistId;
             }
         }
-        if (game.contains("Teams") && game["Teams"].is_array()) {
-            for (const auto& t : game["Teams"]) {
-                if (t.contains("TeamNum") && t.contains("Score")) {
-                    int teamNum = t["TeamNum"];
-                    if (teamNum == 0 || teamNum == 1)
-                        m_state->game.score[teamNum] = t["Score"];
-                }
-            }
+
+        if (ev.hasTeamScores) {
+            state.score = ev.teamScores;
         }
-    }
-    UpdateLifecycleSignalsLocked(data);
 
-    if (isSpectator && !gameReplayActive) {
-        m_state->game.localPlayerWasSpectator = true;
-    }
+        UpdateLifecycleSignals(state, ev);
 
-    if (gameReplayActive) return;
+        if (isSpectator && !gameReplayActive) {
+            state.localPlayerWasSpectator = true;
+        }
 
-    if (data.contains("Players") && data["Players"].is_array()) {
+        if (gameReplayActive) return;
+
+        // Process players
         std::array<int, 2> teamCounts{0, 0};
-        for (const auto& p : data["Players"]) {
-            if (p.contains("TeamNum") && p["TeamNum"].is_number_integer()) {
-                int team = p["TeamNum"].get<int>();
-                if (team == 0 || team == 1) {
-                    teamCounts[team]++;
-                }
+        for (const auto& p : ev.players) {
+            if (p.team == 0 || p.team == 1) {
+                teamCounts[p.team]++;
             }
         }
-        // Player-count observations are legacy fallback state only. Once Rocket
-        // League supplies Game.PlaylistId, they must not participate in match
-        // identity, MMR ownership, or validity decisions.
-        if (!PlaylistMetadata::HasAuthoritativeId(m_state->game.playlistId)) {
-            m_state->game.legacyCurrentTeamPlayersSeen = teamCounts;
-            m_state->game.legacyMaxTeamPlayersSeen[0] =
-                std::max(m_state->game.legacyMaxTeamPlayersSeen[0], teamCounts[0]);
-            m_state->game.legacyMaxTeamPlayersSeen[1] =
-                std::max(m_state->game.legacyMaxTeamPlayersSeen[1], teamCounts[1]);
-            const int observedPlayerCount = teamCounts[0] + teamCounts[1];
-            m_state->game.legacyMaxPlayersSeen =
-                std::max(m_state->game.legacyMaxPlayersSeen, observedPlayerCount);
-        }
-        for (const auto& p : data["Players"]) {
-            if (p.contains("PrimaryId") && p["PrimaryId"].is_string() &&
-                p.contains("TeamNum") && p["TeamNum"].is_number_integer() &&
-                p.contains("Name") && p["Name"].is_string()) {
-                std::string pid = p["PrimaryId"].get<std::string>();
-                if (pid == "Unknown" || pid.rfind("Unknown|", 0) == 0)
-                    pid = "Unknown|" + p["Name"].get<std::string>();
-                int team = p["TeamNum"].get<int>();
 
-                if (p.contains("Boost") && p["Boost"].is_number_integer()) {
-                    int currentBoost = p["Boost"].get<int>();
-                    if (!gameReplayActive && m_roundActive) {
-                        const auto previous = m_lastPlayerBoost.find(pid);
-                        if (previous != m_lastPlayerBoost.end()) {
-                            const int lastBoost = previous->second;
-                            const bool respawning = m_boostRespawnPending.count(pid) != 0;
-                            if (respawning && currentBoost > 0 && currentBoost != lastBoost) {
-                                m_boostRespawnPending.erase(pid);
-                            } else if (!respawning && currentBoost > lastBoost) {
-                                const int diff = currentBoost - lastBoost;
-                                m_state->game.currentMatch.boostPickedUp += diff;
-                                if (pid == m_state->game.myPrimaryId) {
-                                    m_state->game.currentMatch.boostPickedUpSelf += diff;
-                                }
+        if (!PlaylistMetadata::HasAuthoritativeId(state.playlistId)) {
+            state.legacyCurrentTeamPlayersSeen = teamCounts;
+            state.legacyMaxTeamPlayersSeen[0] = (std::max)(state.legacyMaxTeamPlayersSeen[0], teamCounts[0]);
+            state.legacyMaxTeamPlayersSeen[1] = (std::max)(state.legacyMaxTeamPlayersSeen[1], teamCounts[1]);
+            const int observedPlayerCount = teamCounts[0] + teamCounts[1];
+            state.legacyMaxPlayersSeen = (std::max)(state.legacyMaxPlayersSeen, observedPlayerCount);
+        }
+
+        for (const auto& p : ev.players) {
+            const std::string& pid = p.primaryId;
+            const int team = p.team;
+            if (pid.empty()) continue;
+
+            // Boost delta tracking for currentMatch
+            if (p.boost.has_value()) {
+                const int currentBoost = *p.boost;
+                if (state.roundActive) {
+                    const auto previous = state.lastPlayerBoost.find(pid);
+                    if (previous != state.lastPlayerBoost.end()) {
+                        const int lastBoost = previous->second;
+                        const bool respawning = state.boostRespawnPending.count(pid) != 0;
+                        if (respawning && currentBoost > 0 && currentBoost != lastBoost) {
+                            state.boostRespawnPending.erase(pid);
+                        } else if (!respawning && currentBoost > lastBoost) {
+                            const int diff = currentBoost - lastBoost;
+                            state.currentMatch.boostPickedUp += diff;
+                            if (pid == state.myPrimaryId) {
+                                state.currentMatch.boostPickedUpSelf += diff;
                             }
                         }
                     }
-                    m_lastPlayerBoost[pid] = currentBoost;
+                }
+                state.lastPlayerBoost[pid] = currentBoost;
+            }
+
+            if (team == 0 || team == 1) {
+                auto rosterIt = state.roster.find(pid);
+                if (rosterIt == state.roster.end()) {
+                    bool isBot = (pid.rfind("Unknown|", 0) == 0);
+                    state.roster[pid] = PlayerData{
+                        .primaryId = pid,
+                        .name = p.name,
+                        .team = team,
+                        .fetched = isBot,
+                        .enqueued = true};
+                    effects.fetchMmrQueue.emplace_back(pid, p.name);
+                    if (!isBot) effects.fetchEncounterQueue.push_back(pid);
+                } else {
+                    rosterIt->second.name = p.name;
+                    rosterIt->second.team = team;
                 }
 
-                if (team == 0 || team == 1) {
-                    if (m_state->game.roster.find(pid) == m_state->game.roster.end()) {
-                        bool isBot = (pid.rfind("Unknown|", 0) == 0);
-                        m_state->game.roster[pid] = PlayerData{
-                            .primaryId = pid,
-                            .name = p["Name"].get<std::string>(),
-                            .team = team,
-                            .fetched = isBot,
-                            .enqueued = true};
-                        effects.fetchMmrQueue.emplace_back(pid, p["Name"].get<std::string>());
-                        // Bot IDs are name-derived, so a shared bot name is not one person.
-                        if (!isBot) effects.fetchEncounterQueue.push_back(pid);
-                    } else {
-                        auto& existing = m_state->game.roster[pid];
-                        existing.name = p["Name"].get<std::string>();
-                        existing.team = team;
-                    }
-                    if (p.contains("Score") && p["Score"].is_number_integer()) {
-                        m_state->game.roster[pid].score = p["Score"].get<int>();
-                    }
-                    if (p.contains("Goals") && p["Goals"].is_number_integer()) {
-                        m_state->game.roster[pid].goals = p["Goals"].get<int>();
-                    }
-                    if (p.contains("Shots") && p["Shots"].is_number_integer()) {
-                        m_state->game.roster[pid].shots = p["Shots"].get<int>();
-                    }
-                    if (p.contains("Assists") && p["Assists"].is_number_integer()) {
-                        m_state->game.roster[pid].assists = p["Assists"].get<int>();
-                    }
-                    if (p.contains("Saves") && p["Saves"].is_number_integer()) {
-                        m_state->game.roster[pid].saves = p["Saves"].get<int>();
-                    }
-                    if (p.contains("Demos") && p["Demos"].is_number_integer()) {
-                        m_state->game.roster[pid].demos = p["Demos"].get<int>();
-                    }
-                    if (p.contains("Touches") && p["Touches"].is_number_integer()) {
-                        m_state->game.roster[pid].touches = p["Touches"].get<int>();
-                    }
-                    if (p.contains("CarTouches") && p["CarTouches"].is_number_integer()) {
-                        m_state->game.roster[pid].carTouches = p["CarTouches"].get<int>();
-                    }
-                    m_state->game.matchRoster[pid] = m_state->game.roster[pid];
-                }
+                auto& playerRef = state.roster[pid];
+                if (p.score.has_value()) playerRef.score = *p.score;
+                if (p.goals.has_value()) playerRef.goals = *p.goals;
+                if (p.shots.has_value()) playerRef.shots = *p.shots;
+                if (p.assists.has_value()) playerRef.assists = *p.assists;
+                if (p.saves.has_value()) playerRef.saves = *p.saves;
+                if (p.demos.has_value()) playerRef.demos = *p.demos;
+                if (p.touches.has_value()) playerRef.touches = *p.touches;
+                if (p.carTouches.has_value()) playerRef.carTouches = *p.carTouches;
+                state.matchRoster[pid] = playerRef;
             }
         }
 
-        if (!isSpectator && !gameReplayActive) {
+        // Identity detection
+        if (!isSpectator) {
             bool hasLocalPlayerFeeds = false;
-            bool seenMyIdInLobby = false;
             std::unordered_set<std::string> currentCandidates;
-            const std::string cameraTargetId = CameraTargetPlayerId(data);
-            std::string mySavedId = m_state->game.myPrimaryId;
-            if (mySavedId != m_lastKnownMyId) {
-                m_lastKnownMyId = mySavedId;
-                m_identityCandidates.clear();
-                m_missedMyIdCount = 0;
+            const std::string& cameraTargetId = ev.cameraTargetPlayerId;
+            std::string mySavedId = state.myPrimaryId;
+            if (mySavedId != state.lastKnownMyId) {
+                state.lastKnownMyId = mySavedId;
+                state.identityCandidates.clear();
+                state.missedMyIdCount = 0;
             }
 
-            for (const auto& p : data["Players"]) {
-                if (p.contains("PrimaryId") && p["PrimaryId"].is_string() &&
-                    p.contains("TeamNum") && p["TeamNum"].is_number_integer() &&
-                    p.contains("Name") && p["Name"].is_string()) {
-                    std::string pid = p["PrimaryId"].get<std::string>();
-                    if (pid == "Unknown" || pid.rfind("Unknown|", 0) == 0)
-                        pid = "Unknown|" + p["Name"].get<std::string>();
-                    int team = p["TeamNum"].get<int>();
+            for (const auto& p : ev.players) {
+                const std::string& pid = p.primaryId;
+                if (pid.empty()) continue;
+                const bool isPcPlatform = (pid.rfind("Steam|", 0) == 0 || pid.rfind("Epic|", 0) == 0);
+                const bool isLocalPlayerFeed = isPcPlatform && !cameraTargetId.empty() && pid == cameraTargetId;
+                if (isLocalPlayerFeed) {
+                    hasLocalPlayerFeeds = true;
+                    currentCandidates.insert(pid);
+                }
+            }
 
-                    bool isPcPlatform = false;
-                    size_t delimPlat = pid.find('|');
-                    if (delimPlat != std::string::npos) {
-                        std::string plat = pid.substr(0, delimPlat);
-                        std::transform(plat.begin(), plat.end(), plat.begin(), ::tolower);
-                        if (plat == "steam" || plat == "epic" || plat == "epicgames")
-                            isPcPlatform = true;
-                    }
-
-                    const bool isLocalPlayerFeed = isPcPlatform && !cameraTargetId.empty() && pid == cameraTargetId;
-                    if (isLocalPlayerFeed) {
+            if (!hasLocalPlayerFeeds && cameraTargetId.empty()) {
+                for (const auto& p : ev.players) {
+                    const std::string& pid = p.primaryId;
+                    if (pid.empty()) continue;
+                    const bool isPcPlatform = (pid.rfind("Steam|", 0) == 0 || pid.rfind("Epic|", 0) == 0);
+                    if (p.bHasCar && !p.bDemolished && isPcPlatform) {
                         hasLocalPlayerFeeds = true;
                         currentCandidates.insert(pid);
                     }
-
-                    if (!mySavedId.empty() && pid == mySavedId) {
-                        seenMyIdInLobby = true;
-                        if (m_state->game.myTeam == -1) {
-                            m_state->game.myTeam = team;
-                            std::cout << "[Identity] Assigned myTeam: " << team << " based on saved ID " << PrivacyLog::Sensitive(mySavedId, "player ID") << "\n";
-                            effects.fetchLifetimeHistory = true;
-                            effects.lifetimePrimaryId = mySavedId;
-                            effects.lifetimeCategory = MmrCategoryToString(m_state->ui.graphMmrCategory.load());
-                            effects.refreshDbStats = true;
-                            effects.refreshStatsPrimaryId = mySavedId;
-                        }
-                    }
                 }
             }
 
-            if (hasLocalPlayerFeeds) {
-                // If we already have a saved id but we do NOT see it in the lobby and
-                // we observe exactly one local feed candidate, assume the user switched
-                // accounts and update immediately to that candidate.
-                if (!mySavedId.empty() && !seenMyIdInLobby && !currentCandidates.empty()) {
-                    // Deterministically pick a candidate (lexicographically smallest) to avoid
-                    // non-determinism from unordered_set iteration order.
-                    std::string newId = *std::min_element(currentCandidates.begin(), currentCandidates.end());
-                    if (newId != mySavedId) {
-                        m_state->game.myPrimaryId = newId;
-                        {
-                            std::unique_lock<std::shared_mutex> historyLock(m_state->history.mutex);
-                            m_state->selectMmrOwnerLocked(newId);
-                        }
-                        // Try to pick up team info from the current players array
-                        for (const auto& p : data["Players"]) {
-                            if (p.contains("PrimaryId") && p["PrimaryId"].is_string() && p["PrimaryId"].get<std::string>() == newId) {
-                                if (p.contains("TeamNum") && p["TeamNum"].is_number_integer())
-                                    m_state->game.myTeam = p["TeamNum"].get<int>();
-                                break;
-                            }
-                        }
-                        Config::Update([&newId](ConfigData& c) { c.last_primary_id = newId; });
-                        std::cout << "[Identity] Detected account switch. New ID: " << PrivacyLog::Sensitive(newId, "player ID") << "\n";
-                        m_identityCandidates.clear();
-                        if (m_state->game.roster.count(newId)) {
-                            auto& self = m_state->game.roster[newId];
-                            if (!self.enqueued && self.mmr == 0) {
-                                self.enqueued = true;
-                                std::cout << "[Identity] Identified local player: " << PrivacyLog::Sensitive(self.name, "player name") << ". Fetching self MMR...\n";
-                                effects.fetchMmrQueue.emplace_back(newId, self.name);
-                            }
-                        }
-                        effects.fetchLifetimeHistory = true;
-                        effects.lifetimePrimaryId = newId;
-                        effects.lifetimeCategory = MmrCategoryToString(m_state->ui.graphMmrCategory.load());
-                        effects.refreshDbStats = true;
-                        effects.refreshStatsPrimaryId = newId;
-                        RequeueEncounterRecordsLocked(effects);
-                        // reset missed count since we resolved identity
-                        m_missedMyIdCount = 0;
+            std::string selectedId;
+            std::string selectedName;
+            if (!cameraTargetId.empty() && currentCandidates.count(cameraTargetId)) {
+                selectedId = cameraTargetId;
+                auto it = state.roster.find(selectedId);
+                if (it != state.roster.end()) selectedName = it->second.name;
+            } else if (hasLocalPlayerFeeds) {
+                if (state.identityCandidates.empty()) {
+                    state.identityCandidates = currentCandidates;
+                } else {
+                    std::unordered_set<std::string> intersection;
+                    for (const auto& id : currentCandidates) {
+                        if (state.identityCandidates.count(id)) intersection.insert(id);
                     }
+                    if (!intersection.empty())
+                        state.identityCandidates = std::move(intersection);
+                    else
+                        state.identityCandidates = currentCandidates;
                 }
-
-                if (!mySavedId.empty()) {
-                    if (seenMyIdInLobby) {
-                        m_missedMyIdCount = 0;
-                    } else {
-                        m_missedMyIdCount++;
-                        if (m_missedMyIdCount >= 2) {
-                            std::cout << "[Identity] Missed saved ID " << PrivacyLog::Sensitive(mySavedId, "player ID") << " for 2 matches. Resetting...\n";
-                            m_state->game.myPrimaryId = "";
-                            m_state->game.myTeam = -1;
-                            mySavedId = "";
-                            m_missedMyIdCount = 0;
-                            m_identityCandidates.clear();
-                            Config::Update([](ConfigData& c) { c.last_primary_id = ""; });
-                        }
-                    }
-                }
-
-                if (mySavedId.empty() && !currentCandidates.empty()) {
-                    // Standard process-of-elimination flow when we don't already have a saved identity.
-                    if (m_identityCandidates.empty()) {
-                        m_identityCandidates = currentCandidates;
-                        std::cout << "[Identity] Process of elimination started. Candidates: " << m_identityCandidates.size() << "\n";
-                    } else {
-                        std::unordered_set<std::string> intersection;
-                        for (const auto& cand : m_identityCandidates)
-                            if (currentCandidates.count(cand)) intersection.insert(cand);
-                        m_identityCandidates = intersection;
-                        std::cout << "[Identity] Intersected candidates. Remaining: " << m_identityCandidates.size() << "\n";
-                    }
-
-                    if (m_identityCandidates.size() == 1) {
-                        std::string identifiedId = *m_identityCandidates.begin();
-                        m_state->game.myPrimaryId = identifiedId;
-                        {
-                            std::unique_lock<std::shared_mutex> historyLock(m_state->history.mutex);
-                            m_state->selectMmrOwnerLocked(identifiedId);
-                        }
-                        for (const auto& p : data["Players"]) {
-                            if (p.contains("PrimaryId") && p["PrimaryId"].is_string() && p["PrimaryId"].get<std::string>() == identifiedId) {
-                                if (p.contains("TeamNum") && p["TeamNum"].is_number_integer())
-                                    m_state->game.myTeam = p["TeamNum"].get<int>();
-                                break;
-                            }
-                        }
-                        Config::Update([&identifiedId](ConfigData& c) { c.last_primary_id = identifiedId; });
-                        std::cout << "[Identity] Identified local player: " << PrivacyLog::Sensitive(identifiedId, "player ID") << "\n";
-                        m_identityCandidates.clear();
-                        if (m_state->game.roster.count(identifiedId)) {
-                            auto& self = m_state->game.roster[identifiedId];
-                            if (!self.enqueued && self.mmr == 0) {
-                                self.enqueued = true;
-                                std::cout << "[Identity] Identified local player: " << PrivacyLog::Sensitive(self.name, "player name") << ". Fetching self MMR...\n";
-                                effects.fetchMmrQueue.emplace_back(identifiedId, self.name);
-                            }
-                        }
-                        effects.fetchLifetimeHistory = true;
-                        effects.lifetimePrimaryId = identifiedId;
-                        effects.lifetimeCategory = MmrCategoryToString(m_state->ui.graphMmrCategory.load());
-                        effects.refreshDbStats = true;
-                        effects.refreshStatsPrimaryId = identifiedId;
-                        RequeueEncounterRecordsLocked(effects);
-                    } else if (m_identityCandidates.empty()) {
-                        m_identityCandidates = currentCandidates;
-                    }
-                }
-
-                const std::string& confirmedId = m_state->game.myPrimaryId;
-                if (!confirmedId.empty() && currentCandidates.count(confirmedId) > 0) {
-                    const auto selfIt = m_state->game.roster.find(confirmedId);
-                    const std::string confirmedName = selfIt != m_state->game.roster.end() ? selfIt->second.name : std::string();
-                    std::string key = confirmedId + '\x1f' + confirmedName;
-                    if (key != m_lastConfirmedLocalAccount) {
-                        m_lastConfirmedLocalAccount = std::move(key);
-                        effects.confirmedLocalAccount = ConfirmedLocalAccount{confirmedId, confirmedName};
-                    }
+                if (state.identityCandidates.size() == 1) {
+                    selectedId = *state.identityCandidates.begin();
+                    auto it = state.roster.find(selectedId);
+                    if (it != state.roster.end()) selectedName = it->second.name;
                 }
             }
 
-            const MmrCategory inferredPlaylistCat =
-                CategoryFromMatchContext(m_state->game);
+            if (!selectedId.empty() && selectedId != state.myPrimaryId) {
+                state.myPrimaryId = selectedId;
+                state.lastKnownMyId = selectedId;
+                RequeueEncounterRecords(state, effects);
+            }
+
+            if (!state.myPrimaryId.empty() && currentCandidates.count(state.myPrimaryId) != 0) {
+                const auto self = state.roster.find(state.myPrimaryId);
+                const std::string confirmedName = self == state.roster.end() ? std::string{} : self->second.name;
+                const std::string key = state.myPrimaryId + '\x1f' + confirmedName;
+                if (key != state.lastConfirmedLocalAccount) {
+                    state.lastConfirmedLocalAccount = key;
+                    effects.confirmedLocalAccount =
+                        ConfirmedLocalAccount{state.myPrimaryId, confirmedName};
+                }
+            }
+
+            // Playlist category follow updates
+            const MmrCategory inferredPlaylistCat = CategoryFromMatchContext(state);
             const bool inferredCategoryIsHiddenExtra =
                 IsExtraMmrCategory(inferredPlaylistCat) &&
-                !m_cachedConf.show_extra_playlists;
+                !ctx.config.show_extra_playlists;
 
-            const MmrCategory lastAutoCat =
-                m_autoSwitchedPlaylistCategory;
+            const MmrCategory lastAutoCat = state.autoSwitchedPlaylistCategory;
             const bool liveCategoryChangedAfterAutoSwitch =
-                lastAutoCat != MmrCategory::Best &&
-                m_state->ui.rosterMmrCategory.load() != lastAutoCat;
-            if (m_cachedConf.auto_switch_mmr_category &&
+                lastAutoCat != MmrCategory::Best && ctx.rosterMmrCategory != lastAutoCat;
+            if (ctx.config.auto_switch_mmr_category &&
                 !inferredCategoryIsHiddenExtra &&
                 !liveCategoryChangedAfterAutoSwitch &&
                 IsSupportedMmrCategory(inferredPlaylistCat) &&
                 inferredPlaylistCat != lastAutoCat) {
-                m_autoSwitchedPlaylistCategory = inferredPlaylistCat;
-                if (m_state->ui.rosterMmrCategory.load() !=
-                    inferredPlaylistCat) {
-                    m_state->ui.rosterMmrCategory.store(
-                        inferredPlaylistCat);
-                    std::cout
-                        << "[Identity] Live MMR following playlist category: "
-                        << MmrCategoryToString(inferredPlaylistCat) << "\n";
-                }
+                state.autoSwitchedPlaylistCategory = inferredPlaylistCat;
+                if (!effects.uiUpdate) effects.uiUpdate = UiStateUpdate{};
+                effects.uiUpdate->rosterMmrCategory = inferredPlaylistCat;
             }
 
-            if (m_cachedConf.graph_follow_current_playlist) {
-                if (!m_nonLiveReplayActive &&
+            if (ctx.config.graph_follow_current_playlist) {
+                if (!state.nonLiveReplayActive &&
                     !inferredCategoryIsHiddenExtra &&
                     IsSupportedMmrCategory(inferredPlaylistCat) &&
-                    inferredPlaylistCat !=
-                        m_followedGraphPlaylistCategory) {
-                    m_followedGraphPlaylistCategory =
-                        inferredPlaylistCat;
-                    if (m_state->ui.graphMmrCategory.load() !=
-                        inferredPlaylistCat) {
-                        m_state->ui.graphMmrCategory.store(
-                            inferredPlaylistCat);
-                        std::cout
-                            << "[Identity] Graph following playlist category: "
-                            << MmrCategoryToString(inferredPlaylistCat)
-                            << "\n";
-                    }
+                    inferredPlaylistCat != state.followedGraphPlaylistCategory) {
+                    state.followedGraphPlaylistCategory = inferredPlaylistCat;
+                    if (!effects.uiUpdate) effects.uiUpdate = UiStateUpdate{};
+                    effects.uiUpdate->graphMmrCategory = inferredPlaylistCat;
                 }
             } else {
-                m_followedGraphPlaylistCategory = MmrCategory::Best;
-                MmrCategory fallbackCategory = StringToMmrCategory(
-                    m_cachedConf.graph_mmr_category);
+                state.followedGraphPlaylistCategory = MmrCategory::Best;
+                MmrCategory fallbackCategory = StringToMmrCategory(ctx.config.graph_mmr_category);
                 if (fallbackCategory == MmrCategory::Best ||
-                    (!m_cachedConf.show_extra_playlists &&
-                     IsExtraMmrCategory(fallbackCategory))) {
+                    (!ctx.config.show_extra_playlists && IsExtraMmrCategory(fallbackCategory))) {
                     fallbackCategory = MmrCategory::TwoVTwo;
                 }
-                if (m_state->ui.graphMmrCategory.load() !=
-                    fallbackCategory) {
-                    m_state->ui.graphMmrCategory.store(
-                        fallbackCategory);
-                }
+                if (!effects.uiUpdate) effects.uiUpdate = UiStateUpdate{};
+                effects.uiUpdate->graphMmrCategory = fallbackCategory;
             }
 
-            if (m_cachedConf.rank_progress_follow_current_playlist) {
-                if (!m_cachedConf.show_extra_playlists &&
-                    IsExtraMmrCategory(m_state->ui.rankProgressMmrCategory.load())) {
-                    m_state->ui.rankProgressMmrCategory.store(MmrCategory::TwoVTwo);
+            if (ctx.config.rank_progress_follow_current_playlist) {
+                MmrCategory shown = ctx.rankProgressMmrCategory;
+                if (!ctx.config.show_extra_playlists && IsExtraMmrCategory(shown)) {
+                    shown = MmrCategory::TwoVTwo;
                 }
-                if (!m_nonLiveReplayActive &&
+                if (!state.nonLiveReplayActive &&
                     !inferredCategoryIsHiddenExtra &&
                     IsSupportedMmrCategory(inferredPlaylistCat)) {
-                    if (m_state->ui.rankProgressMmrCategory.load() !=
-                        inferredPlaylistCat) {
-                        m_state->ui.rankProgressMmrCategory.store(
-                            inferredPlaylistCat);
-                        std::cout
-                            << "[Identity] Rank progress following playlist category: "
-                            << MmrCategoryToString(inferredPlaylistCat)
-                            << "\n";
-                    }
+                    shown = inferredPlaylistCat;
+                }
+                if (shown != ctx.rankProgressMmrCategory) {
+                    if (!effects.uiUpdate) effects.uiUpdate = UiStateUpdate{};
+                    effects.uiUpdate->rankProgressMmrCategory = shown;
                 }
             } else {
-                MmrCategory fallbackCategory = StringToMmrCategory(
-                    m_cachedConf.rank_progress_mmr_category);
-                if (!m_cachedConf.show_extra_playlists &&
-                    IsExtraMmrCategory(fallbackCategory)) {
+                MmrCategory fallbackCategory = StringToMmrCategory(ctx.config.rank_progress_mmr_category);
+                if (!ctx.config.show_extra_playlists && IsExtraMmrCategory(fallbackCategory)) {
                     fallbackCategory = MmrCategory::TwoVTwo;
                 }
-                if (m_state->ui.rankProgressMmrCategory.load() !=
-                    fallbackCategory) {
-                    m_state->ui.rankProgressMmrCategory.store(
-                        fallbackCategory);
+                if (fallbackCategory != ctx.rankProgressMmrCategory) {
+                    if (!effects.uiUpdate) effects.uiUpdate = UiStateUpdate{};
+                    effects.uiUpdate->rankProgressMmrCategory = fallbackCategory;
                 }
             }
         }
 
-        auto now = std::chrono::steady_clock::now();
-        for (const auto& p : data["Players"]) {
-            if (p.contains("PrimaryId") && p["PrimaryId"].is_string()) {
-                std::string pid = p["PrimaryId"].get<std::string>();
-                if (pid == "Unknown" || pid.rfind("Unknown|", 0) == 0) {
-                    if (p.contains("Name") && p["Name"].is_string())
-                        pid = "Unknown|" + p["Name"].get<std::string>();
-                }
-                m_lastPlayerSeen[pid] = now;
+        // Player pruning (players not seen in 5 seconds)
+        for (const auto& p : ev.players) {
+            if (!p.primaryId.empty()) {
+                state.lastPlayerSeenMs[p.primaryId] = nowMs;
             }
         }
 
-        auto it = m_state->game.roster.begin();
-        while (it != m_state->game.roster.end()) {
-            std::string pid = it->first;
+        auto it = state.roster.begin();
+        while (it != state.roster.end()) {
+            const std::string pid = it->first;
             bool shouldPrune = false;
-            if (m_lastPlayerSeen.find(pid) == m_lastPlayerSeen.end()) {
-                m_lastPlayerSeen[pid] = now;
+            auto seenIt = state.lastPlayerSeenMs.find(pid);
+            if (seenIt == state.lastPlayerSeenMs.end()) {
+                state.lastPlayerSeenMs[pid] = nowMs;
             } else {
-                auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(now - m_lastPlayerSeen[pid]).count();
-                if (elapsed >= 5) shouldPrune = true;
+                if (nowMs - seenIt->second >= 5000) shouldPrune = true;
             }
-            if (shouldPrune && pid != m_state->game.myPrimaryId) {
-                std::cout << "[StatsClient] Removing player who left: " << PrivacyLog::Sensitive(it->second.name, "player name") << " (" << PrivacyLog::Sensitive(pid, "player ID") << ")\n";
-                m_state->game.matchRoster[pid] = it->second;
-                m_lastPlayerBoost.erase(pid);
-                m_boostRespawnPending.erase(pid);
-                m_lastPlayerSeen.erase(pid);
-                it = m_state->game.roster.erase(it);
+            if (shouldPrune && pid != state.myPrimaryId) {
+                state.matchRoster[pid] = it->second;
+                state.lastPlayerBoost.erase(pid);
+                state.boostRespawnPending.erase(pid);
+                state.lastPlayerSeenMs.erase(pid);
+                it = state.roster.erase(it);
             } else {
-                if (shouldPrune && pid == m_state->game.myPrimaryId) m_lastPlayerSeen[pid] = now;
+                if (shouldPrune && pid == state.myPrimaryId) state.lastPlayerSeenMs[pid] = nowMs;
                 ++it;
             }
         }
 
-        if (!PlaylistMetadata::HasAuthoritativeId(m_state->game.playlistId)) {
-            const MmrCategory rosterCategory =
-                m_state->ui.rosterMmrCategory.load();
-            const std::string mode = InferModeFromMatchState(
-                m_state->game, rosterCategory);
+        if (!PlaylistMetadata::HasAuthoritativeId(state.playlistId)) {
+            const std::string mode = InferModeFromMatchState(state, state.autoSwitchedPlaylistCategory);
             const int expectedTeamSize = LegacyExpectedTeamSizeForMode(mode);
             if (expectedTeamSize > 0 &&
-                m_state->game.legacyCurrentTeamPlayersSeen[0] >= expectedTeamSize &&
-                m_state->game.legacyCurrentTeamPlayersSeen[1] >= expectedTeamSize) {
-                m_state->game.legacyLobbyWasEverFull = true;
+                state.legacyCurrentTeamPlayersSeen[0] >= expectedTeamSize &&
+                state.legacyCurrentTeamPlayersSeen[1] >= expectedTeamSize) {
+                state.legacyLobbyWasEverFull = true;
             }
         }
 
-        if (!isSpectator && !gameReplayActive) {
-            if (!m_state->game.myPrimaryId.empty() &&
-                m_state->game.roster.count(m_state->game.myPrimaryId)) {
-
-                const auto& self = m_state->game.roster.at(m_state->game.myPrimaryId);
+        if (!isSpectator) {
+            if (!state.myPrimaryId.empty() && state.roster.count(state.myPrimaryId)) {
+                const auto& self = state.roster.at(state.myPrimaryId);
                 if (self.team == 0 || self.team == 1) {
-                    m_state->game.localPlayerWasActive = true;
-                    m_state->game.myTeam = self.team;
+                    state.localPlayerWasActive = true;
+                    state.myTeam = self.team;
                 }
             }
         }
-        if (!m_state->game.myPrimaryId.empty()) {
+
+        if (!state.myPrimaryId.empty()) {
             bool localPlayerPresent = false;
-            for (const auto& player : data["Players"]) {
-                if (!player.contains("PrimaryId") ||
-                    !player["PrimaryId"].is_string()) {
-                    continue;
-                }
-                std::string playerId = player["PrimaryId"].get<std::string>();
-                if (playerId == "Unknown" ||
-                    playerId.rfind("Unknown|", 0) == 0) {
-                    if (player.contains("Name") && player["Name"].is_string()) {
-                        playerId =
-                            "Unknown|" + player["Name"].get<std::string>();
-                    }
-                }
-                if (playerId == m_state->game.myPrimaryId) {
+            for (const auto& p : ev.players) {
+                if (p.primaryId == state.myPrimaryId) {
                     localPlayerPresent = true;
-                    auto& match = m_state->game.currentMatch;
-                    if (player.contains("Goals") && player["Goals"].is_number_integer()) {
-                        match.goalsSelf = player["Goals"].get<int>();
-                    }
-                    if (player.contains("Shots") && player["Shots"].is_number_integer()) {
-                        match.shotsSelf = player["Shots"].get<int>();
-                    }
-                    if (player.contains("Assists") && player["Assists"].is_number_integer()) {
-                        match.assistsSelf = player["Assists"].get<int>();
-                    }
-                    if (player.contains("Saves") && player["Saves"].is_number_integer()) {
-                        match.savesSelf = player["Saves"].get<int>();
-                    }
-                    if (player.contains("Demos") && player["Demos"].is_number_integer()) {
-                        match.demosSelf = player["Demos"].get<int>();
-                    }
+                    if (p.goals.has_value()) state.currentMatch.goalsSelf = *p.goals;
+                    if (p.shots.has_value()) state.currentMatch.shotsSelf = *p.shots;
+                    if (p.assists.has_value()) state.currentMatch.assistsSelf = *p.assists;
+                    if (p.saves.has_value()) state.currentMatch.savesSelf = *p.saves;
+                    if (p.demos.has_value()) state.currentMatch.demosSelf = *p.demos;
                     break;
                 }
             }
-            m_state->game.localPlayerPresenceObserved = true;
-            m_state->game.localPlayerPresentInLatestUpdate =
-                localPlayerPresent;
+            state.localPlayerPresenceObserved = true;
+            state.localPlayerPresentInLatestUpdate = localPlayerPresent;
         }
-        CapturePreMatchMmrLocked();
+
+        CapturePreMatchMmr(state);
     }
-}
+
+} // namespace TelemetryReducerDetail

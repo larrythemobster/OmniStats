@@ -1,17 +1,23 @@
 #pragma once
-#include <memory>
+
 #include <atomic>
-#include <string>
+#include <memory>
 #include <mutex>
 #include <optional>
-#include "network/telemetry/TelemetryRecorder.hpp"
+#include <string>
+#include <thread>
+
+#include "core/effects/EffectRouter.hpp"
+#include "core/effects/SideEffects.hpp"
 #include "core/state/SessionState.hpp"
+#include "network/telemetry/TelemetryRecorder.hpp"
 #include "core/reducer/TelemetryReducer.hpp"
-#include "core/effects/SideEffectExecutor.hpp"
-#include "network/telemetry/TelemetryParser.hpp"
-#include "network/mmr/MMRFetcher.hpp"
+#include "core/state/LiveMatchStore.hpp"
 #include "database/DatabaseManager.hpp"
 #include "network/DiscordManager.hpp"
+#include "network/mmr/MMRFetcher.hpp"
+#include "network/telemetry/TelemetryEvents.hpp"
+#include "network/telemetry/TelemetryParser.hpp"
 
 class TelemetryManager;
 
@@ -19,7 +25,9 @@ class AccountManagerService;
 
 class StatsClient {
   public:
-    StatsClient(std::shared_ptr<SessionState> state, std::shared_ptr<MMRFetcher> mmrFetcher, std::shared_ptr<DatabaseManager> dbManager);
+    StatsClient(std::shared_ptr<SessionState> state,
+                std::shared_ptr<MMRFetcher> mmrFetcher,
+                std::shared_ptr<DatabaseManager> dbManager);
     ~StatsClient();
 
     void Start();
@@ -35,10 +43,11 @@ class StatsClient {
         m_parser.SetTelemetryManager(std::move(tm));
     }
     void HandleLine(const std::string& line);
+    void HandleEvent(const TelemetryEvents::TelemetryEvent& event);
 
   private:
     void RunLoop();
-    void OnJsonLine(const std::string& jsonStr);
+    void OnEvent(const TelemetryEvents::TelemetryEvent& event);
     void HandleDestroyedMatchConfirmation(const std::string& matchGuid, bool won);
 
     struct ConfirmationCallbackGuard {
@@ -54,9 +63,6 @@ class StatsClient {
 
     std::shared_ptr<TelemetryManager> m_telemetry;
     TelemetryParser m_parser;
-    TelemetryReducer m_reducer;
-    SideEffectExecutor m_executor;
-    std::mutex m_reducerMutex;
     std::shared_ptr<ConfirmationCallbackGuard> m_confirmationCallbackGuard;
 
     std::jthread m_workerThread;
@@ -64,4 +70,5 @@ class StatsClient {
     int m_disconnectCount{0};
     bool m_resetAfterDisconnect{false};
     std::optional<TelemetryRecorder> m_recorder;
+    uint64_t m_configRevision{0};
 };

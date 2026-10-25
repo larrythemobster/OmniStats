@@ -1,556 +1,377 @@
 #include "core/reducer/TelemetryReducer.hpp"
+
+#include <iostream>
+#include <utility>
+
 #include "core/config/Config.hpp"
 #include "core/config/Constants.hpp"
-#include "core/game/GamemodeUtils.hpp"
 #include "core/game/PlaylistMetadata.hpp"
-#include "utils/PrivacyLog.hpp"
-#include <iostream>
-#include <algorithm>
-#include <utility>
-#include <cctype>
-#include <optional>
 #include "core/reducer/TelemetryReducerDetail.hpp"
+#include "core/state/SessionState.hpp"
+
+#include <ctime>
 
 using namespace TelemetryReducerDetail;
 
-TelemetryReducer::TelemetryReducer(std::shared_ptr<SessionState> state)
-    : m_state(state) {
-    m_cachedConfigRevision = Config::Revision();
-    m_cachedConf = Config::Read();
-    if (m_state) {
-        if (!m_cachedConf.show_extra_playlists &&
-            IsExtraMmrCategory(m_state->ui.rankProgressMmrCategory.load())) {
-            m_state->ui.rankProgressMmrCategory.store(MmrCategory::TwoVTwo);
-        }
-        if (!m_cachedConf.rank_progress_follow_current_playlist) {
-            MmrCategory fallback = StringToMmrCategory(m_cachedConf.rank_progress_mmr_category);
-            if (!m_cachedConf.show_extra_playlists && IsExtraMmrCategory(fallback)) {
-                fallback = MmrCategory::TwoVTwo;
+ReducerContext MakeReducerContext(const UIState& ui) {
+    const auto steadyNow = std::chrono::steady_clock::now();
+    const int64_t nowMs =
+        std::chrono::duration_cast<std::chrono::milliseconds>(steadyNow.time_since_epoch()).count();
+    return ReducerContext{
+        .nowMs = nowMs > 0 ? nowMs : 1,
+        .nowSeconds = std::chrono::duration<double>(steadyNow.time_since_epoch()).count(),
+        .nowUnix = static_cast<int64_t>(std::time(nullptr)),
+        .config = Config::Read(),
+        .rosterMmrCategory = ui.rosterMmrCategory.load(std::memory_order_relaxed),
+        .rankProgressMmrCategory = ui.rankProgressMmrCategory.load(std::memory_order_relaxed)};
+}
+
+namespace TelemetryReducerDetail {
+
+    bool AcceptsUiMatchEvent(MatchState& state, const std::string& incomingGuid, int64_t nowMs, SideEffects& effects) {
+        if (state.nonLiveReplayActive) return false;
+        if (!incomingGuid.empty()) {
+            if (state.finalizedMatchGuids.count(incomingGuid) > 0 ||
+                state.pendingDestroyedMatches.count(incomingGuid) > 0) {
+                return false;
             }
-            m_state->ui.rankProgressMmrCategory.store(fallback);
+            if (!state.matchGuid.empty() && state.inMatch &&
+                !state.matchFinalized && incomingGuid != state.matchGuid) {
+                return false;
+            }
+            if ((!state.uiMatchGuid.empty() && incomingGuid != state.uiMatchGuid) ||
+                state.matchFinalized) {
+                state.lastMatchStartMs = nowMs;
+                state.firstCountdownOfMatchMs = 0;
+                state.lastCountdownMs = 0;
+                state.lastGoalMs = 0;
+                state.lastMatchEndMs = 0;
+                state.lastPodiumMs = 0;
+                state.inGoalReplay = false;
+                state.countdownSeenThisRound = false;
+                effects.uiUpdate = UiStateUpdate{.resetTimestamps = true, .resetMatchStartMs = nowMs};
+            }
+            state.uiMatchGuid = incomingGuid;
+            return true;
+        }
+        if (state.matchFinalized) {
+            return false;
+        }
+        return true;
+    }
+
+    bool TargetsCurrentActiveMatchUi(MatchState& state, const std::string& incomingGuid) {
+        if (!state.inMatch || state.nonLiveReplayActive) {
+            return false;
+        }
+        if (!incomingGuid.empty()) {
+            if ((!state.matchGuid.empty() && incomingGuid != state.matchGuid) ||
+                (!state.uiMatchGuid.empty() && incomingGuid != state.uiMatchGuid) ||
+                state.pendingDestroyedMatches.count(incomingGuid) > 0) {
+                return false;
+            }
+            if (state.matchGuid.empty() && state.uiMatchGuid.empty() &&
+                state.finalizedMatchGuids.count(incomingGuid) > 0) {
+                return false;
+            }
+            if (state.uiMatchGuid.empty()) state.uiMatchGuid = incomingGuid;
+            return true;
+        }
+        if (!state.pendingDestroyedMatches.empty() || state.missingGuidAssociationBlockedByReconnect) {
+            return false;
+        }
+        return true;
+    }
+
+    void RequeueEncounterRecords(MatchState& state, SideEffects& effects) {
+        for (auto& [pid, player] : state.roster) {
+            player.lifetimeWinsWith = 0;
+            player.lifetimeLossesWith = 0;
+            player.lifetimeWinsAgainst = 0;
+            player.lifetimeLossesAgainst = 0;
+            player.hasLifetimeData = false;
+            if (pid.rfind("Unknown|", 0) != 0) effects.fetchEncounterQueue.push_back(pid);
         }
     }
-}
 
-void TelemetryReducer::SetClockForTests(std::function<std::chrono::steady_clock::time_point()> clockFn) {
-    m_clockFn = std::move(clockFn);
-}
+} // namespace TelemetryReducerDetail
 
-void TelemetryReducer::OnTelemetryDisconnected() {
-    std::unique_lock<std::shared_mutex> lock(m_state->game.mutex);
-    if (m_state->game.inMatch && !m_state->game.matchFinalized) {
-        m_missingGuidAssociationBlockedByReconnect = true;
+void TelemetryReducer::OnTelemetryDisconnected(MatchState& state) {
+    if (state.inMatch && !state.matchFinalized) {
+        state.missingGuidAssociationBlockedByReconnect = true;
         std::cout
             << "[TelemetryReducer] Telemetry disconnected: "
             << "currentGeneration="
-            << m_state->game.activeMatchGeneration
+            << state.activeMatchGeneration
             << ", action=block-missing-guid-match-end.\n";
     }
 }
 
-void TelemetryReducer::OnConfigChanged() {
-    std::unique_lock<std::shared_mutex> lock(m_state->game.mutex);
-    m_cachedConfigRevision = Config::Revision();
-    m_cachedConf = Config::Read();
-    if (m_state) {
-        if (!m_cachedConf.show_extra_playlists &&
-            IsExtraMmrCategory(m_state->ui.rankProgressMmrCategory.load())) {
-            m_state->ui.rankProgressMmrCategory.store(MmrCategory::TwoVTwo);
-        }
-        if (!m_cachedConf.rank_progress_follow_current_playlist) {
-            MmrCategory fallback = StringToMmrCategory(m_cachedConf.rank_progress_mmr_category);
-            if (!m_cachedConf.show_extra_playlists && IsExtraMmrCategory(fallback)) {
-                fallback = MmrCategory::TwoVTwo;
-            }
-            m_state->ui.rankProgressMmrCategory.store(fallback);
-        }
-    }
-}
-
-bool TelemetryReducer::AcceptsUiMatchEventLocked(const nlohmann::json& data, int64_t nowMs) {
-    if (m_nonLiveReplayActive) return false;
-    const std::string incomingGuid = ExtractEventMatchGuid(data);
-    if (!incomingGuid.empty()) {
-        if (m_finalizedMatchGuids.count(incomingGuid) > 0 ||
-            m_pendingDestroyedMatches.count(incomingGuid) > 0) {
-            return false;
-        }
-        if (!m_state->game.matchGuid.empty() && m_state->game.inMatch &&
-            !m_state->game.matchFinalized && incomingGuid != m_state->game.matchGuid) {
-            return false;
-        }
-        if ((!m_uiMatchGuid.empty() && incomingGuid != m_uiMatchGuid) ||
-            m_state->game.matchFinalized) {
-            m_state->ui.ResetMatchTimestamps(nowMs);
-            m_countdownSeenThisRound = false;
-        }
-        m_uiMatchGuid = incomingGuid;
-        return true;
-    }
-    if (m_state->game.matchFinalized) {
-        return false;
-    }
-    return true;
-}
-
-bool TelemetryReducer::TargetsCurrentActiveMatchUiLocked(const nlohmann::json& data) {
-    if (!m_state->game.inMatch || m_nonLiveReplayActive) {
-        return false;
-    }
-    const std::string incomingGuid = ExtractEventMatchGuid(data);
-    if (!incomingGuid.empty()) {
-        if ((!m_state->game.matchGuid.empty() && incomingGuid != m_state->game.matchGuid) ||
-            (!m_uiMatchGuid.empty() && incomingGuid != m_uiMatchGuid) ||
-            m_pendingDestroyedMatches.count(incomingGuid) > 0) {
-            return false;
-        }
-        if (m_state->game.matchGuid.empty() && m_uiMatchGuid.empty() &&
-            m_finalizedMatchGuids.count(incomingGuid) > 0) {
-            return false;
-        }
-        if (m_uiMatchGuid.empty()) m_uiMatchGuid = incomingGuid;
-        return true;
-    }
-    if (!m_pendingDestroyedMatches.empty() || m_missingGuidAssociationBlockedByReconnect) {
-        return false;
-    }
-    return true;
-}
-
-SideEffects TelemetryReducer::Reduce(const std::string& eventName, const nlohmann::json& data) {
-    SideEffects effects;
-    std::unique_lock<std::shared_mutex> lock(m_state->game.mutex);
-    m_state->game.version++;
-
-    const uint64_t revision = Config::Revision();
-    if (revision != m_cachedConfigRevision) {
-        m_cachedConfigRevision = revision;
-        m_cachedConf = Config::Read();
-        if (m_state && !m_cachedConf.show_extra_playlists &&
-            IsExtraMmrCategory(m_state->ui.rankProgressMmrCategory.load())) {
-            m_state->ui.rankProgressMmrCategory.store(MmrCategory::TwoVTwo);
-        }
-    }
-
-    if (eventName == Constants::EVT_REPLAY_CREATED) {
-        // ReplayCreated is documented for Match History replay playback,
-        // not an in-match goal replay.
-        m_nonLiveReplayActive = true;
-        m_state->game.inReplay = true;
-        m_state->ui.inGoalReplay.store(false, std::memory_order_relaxed);
-        return effects;
-    }
-
-    if (eventName == Constants::EVT_MATCH_CREATED) {
-        const int64_t nowMs = SteadyNowMs();
-        const std::string incomingGuid = ExtractEventMatchGuid(data);
-        const bool wasInMatch = m_state->game.inMatch;
-        const bool wasFinalized = m_state->game.matchFinalized;
-        const bool hadPriorUiCountdown =
-            m_state->ui.firstCountdownOfMatchMs.load(std::memory_order_relaxed) > 0 ||
-            m_state->ui.lastMatchEndMs.load(std::memory_order_relaxed) > 0;
-        const bool hasIncomingGuid = !incomingGuid.empty();
-        const bool hadCurrentGuid =
-            !m_state->game.matchGuid.empty();
-        const bool isSameActiveUiGuid =
-            hasIncomingGuid && incomingGuid == m_uiMatchGuid &&
-            wasInMatch && !wasFinalized;
-        const uint64_t currentGeneration =
-            m_state->game.activeMatchGeneration;
-        const bool currentIsNonRecordable =
-            wasInMatch &&
-            (m_state->game.fallbackNonRecordableContext ||
-             PlaylistMetadata::IsNonRecordable(m_state->game.playlistId));
-        const bool startsNewLifecycle =
-            !wasInMatch ||
-            (hasIncomingGuid && currentIsNonRecordable) ||
-            (hasIncomingGuid && hadCurrentGuid &&
-             incomingGuid != m_state->game.matchGuid);
-        const bool attachesGuid =
-            wasInMatch && hasIncomingGuid &&
-            !hadCurrentGuid &&
-            !currentIsNonRecordable;
-        const char* action = "preserve-current";
-        const char* reason =
-            hasIncomingGuid
-                ? "same-explicit-guid"
-                : "missing-guid-active-lifecycle";
-
-        if (startsNewLifecycle) {
-            action = "start-new";
-            reason = wasInMatch
-                         ? (currentIsNonRecordable ? "non-recordable-transition" : "different-explicit-guid")
-                         : "no-active-match";
-
-            if (!m_cachedConf.reset_session_on_close) {
-                const int64_t nowUnix =
-                    std::chrono::duration_cast<std::chrono::seconds>(
-                        std::chrono::system_clock::now().time_since_epoch())
-                        .count();
-                std::unique_lock<std::shared_mutex> historyLock(m_state->history.mutex);
-                if (m_state->closeSessionIfInactiveLocked(nowUnix)) {
-                    effects.persistSession = m_state->game.lastSessionRecap;
-                }
-            }
-            LocalPreMatchMmrSnapshot initialMmrSnapshot;
-            bool hasInitialMmrSnapshot = false;
-            if (!m_state->game.myPrimaryId.empty()) {
-                const auto playerIt =
-                    m_state->game.roster.find(
-                        m_state->game.myPrimaryId);
-                if (playerIt !=
-                        m_state->game.roster.end() &&
-                    !playerIt->second.playlists.empty()) {
-                    initialMmrSnapshot.playlistMmrs =
-                        playerIt->second.playlists;
-                    initialMmrSnapshot.playlistMatches =
-                        playerIt->second.playlistMatches;
-                    hasInitialMmrSnapshot = true;
-                }
-            }
-
-            const std::string currentArena =
-                m_state->game.arenaName;
-            m_state->resetMatch(currentArena);
-            m_state->game.activeMatchGeneration =
-                ++m_nextMatchGeneration;
-            m_state->game.matchGuid = incomingGuid;
-            m_missingGuidAssociationBlockedByReconnect =
-                false;
-            if (hasInitialMmrSnapshot) {
-                m_state->game.preMatchMmrByGuid.emplace(
-                    incomingGuid,
-                    std::move(initialMmrSnapshot));
-            }
-            m_roundActive = false;
-            m_autoSwitchedPlaylistCategory =
-                MmrCategory::Best;
-            m_followedGraphPlaylistCategory = MmrCategory::Best;
-            m_matchEvents.clear();
-            m_analytics.Reset();
-            m_eventNativeKeys.clear();
-            m_lastEventSignature.clear();
-            m_lastPlayerBoost.clear();
-            m_boostRespawnPending.clear();
-            m_lastPlayerSeen.clear();
-            ResetMatchTimingState();
-        } else if (attachesGuid) {
-            action = "attach-guid";
-            reason = "late-guid-enrichment";
-            auto guidlessSnapshot =
-                m_state->game.preMatchMmrByGuid.extract("");
-            if (!guidlessSnapshot.empty()) {
-                guidlessSnapshot.key() = incomingGuid;
-                m_state->game.preMatchMmrByGuid.insert(
-                    std::move(guidlessSnapshot));
-            }
-            m_state->game.matchGuid = incomingGuid;
-            CapturePreMatchMmrLocked();
-        }
-
-        if (!isSameActiveUiGuid) {
-            if (startsNewLifecycle || wasFinalized || hadPriorUiCountdown ||
-                (hasIncomingGuid && !m_uiMatchGuid.empty() && incomingGuid != m_uiMatchGuid)) {
-                m_state->ui.ResetMatchTimestamps(nowMs);
-                m_countdownSeenThisRound = false;
-            } else {
-                m_state->ui.lastMatchStartMs.store(nowMs, std::memory_order_relaxed);
-                m_state->ui.inGoalReplay.store(false, std::memory_order_relaxed);
-            }
-            m_uiMatchGuid = incomingGuid;
-        } else {
-            if (m_state->ui.lastMatchStartMs.load(std::memory_order_relaxed) <= 0) {
-                m_state->ui.lastMatchStartMs.store(nowMs, std::memory_order_relaxed);
-            }
-            m_state->ui.inGoalReplay.store(false, std::memory_order_relaxed);
-        }
-        std::cout
-            << "[TelemetryReducer] MatchCreated: "
-            << "incomingGuid="
-            << (hasIncomingGuid ? "present" : "missing")
-            << ", currentGuid="
-            << (hadCurrentGuid ? "present" : "missing")
-            << ", currentGeneration="
-            << currentGeneration
-            << ", inMatch="
-            << (wasInMatch ? "true" : "false")
-            << ", action=" << action
-            << ", reason=" << reason << ".\n";
-        if (startsNewLifecycle || attachesGuid) {
-            effects.pushDiscord = true;
-            effects.discordSnapshot = BuildDiscordSnapshotLocked();
-        }
-        return effects;
-    }
-
-    if (eventName == Constants::EVT_MATCH_INITIALIZED) {
-        const int64_t nowMs = SteadyNowMs();
-        if (AcceptsUiMatchEventLocked(data, nowMs)) {
-            if (m_state->ui.lastMatchStartMs.load(std::memory_order_relaxed) <= 0) {
-                m_state->ui.lastMatchStartMs.store(nowMs, std::memory_order_relaxed);
-            }
-            if (m_state->ui.firstCountdownOfMatchMs.load(std::memory_order_relaxed) <= 0) {
-                m_state->ui.firstCountdownOfMatchMs.store(nowMs, std::memory_order_relaxed);
-            }
-            if (m_state->ui.lastCountdownMs.load(std::memory_order_relaxed) <= 0) {
-                m_state->ui.lastCountdownMs.store(nowMs, std::memory_order_relaxed);
-            }
-            m_state->ui.inGoalReplay.store(false, std::memory_order_relaxed);
-            m_countdownSeenThisRound = true;
-        }
-        return effects;
-    }
-
-    if (eventName == Constants::EVT_COUNTDOWN_BEGIN) {
-        const int64_t nowMs = SteadyNowMs();
-        if (AcceptsUiMatchEventLocked(data, nowMs)) {
-            if (m_state->ui.lastMatchStartMs.load(std::memory_order_relaxed) <= 0) {
-                m_state->ui.lastMatchStartMs.store(nowMs, std::memory_order_relaxed);
-            }
-            if (m_state->ui.firstCountdownOfMatchMs.load(std::memory_order_relaxed) <= 0) {
-                m_state->ui.firstCountdownOfMatchMs.store(nowMs, std::memory_order_relaxed);
-            }
-            m_state->ui.lastCountdownMs.store(nowMs, std::memory_order_relaxed);
-            m_state->ui.inGoalReplay.store(false, std::memory_order_relaxed);
-            m_countdownSeenThisRound = true;
-            m_roundActive = false;
-            m_lastPlayerBoost.clear();
-        }
-        if (AcceptsAnalyticsEventLocked(data)) m_analytics.OnCountdownBegin();
-        return effects;
-    }
-
-    if (eventName == Constants::EVT_ROUND_STARTED) {
-        const int64_t nowMs = SteadyNowMs();
-        if (AcceptsUiMatchEventLocked(data, nowMs)) {
-            if (m_state->ui.lastMatchStartMs.load(std::memory_order_relaxed) <= 0) {
-                m_state->ui.lastMatchStartMs.store(nowMs, std::memory_order_relaxed);
-            }
-            if (m_state->ui.firstCountdownOfMatchMs.load(std::memory_order_relaxed) <= 0) {
-                m_state->ui.firstCountdownOfMatchMs.store(nowMs, std::memory_order_relaxed);
-            }
-            if (!m_countdownSeenThisRound) {
-                m_state->ui.lastCountdownMs.store(nowMs, std::memory_order_relaxed);
-            }
-            m_state->ui.inGoalReplay.store(false, std::memory_order_relaxed);
-            m_countdownSeenThisRound = false;
-        }
-        if (!m_roundActive) {
-            m_lastPlayerBoost.clear();
-            m_boostRespawnPending.clear();
-        }
-        m_roundActive = true;
-        m_state->game.roundEverStarted = true;
-        if (AcceptsAnalyticsEventLocked(data)) m_analytics.OnRoundStarted(AnalyticsNowSeconds());
-        return effects;
-    }
-
-    if (eventName == Constants::EVT_MATCH_PAUSED) {
-        if (!m_currentPauseStart.has_value()) {
-            m_currentPauseStart = Now();
-        }
-        if (AcceptsAnalyticsEventLocked(data)) m_analytics.OnPaused(AnalyticsNowSeconds());
-        return effects;
-    }
-
-    if (eventName == Constants::EVT_MATCH_UNPAUSED) {
-        if (m_currentPauseStart.has_value()) {
-            m_pauseIntervals.push_back({*m_currentPauseStart, Now()});
-            m_currentPauseStart.reset();
-        }
-        if (AcceptsAnalyticsEventLocked(data)) m_analytics.OnUnpaused(AnalyticsNowSeconds());
-        return effects;
-    }
-
-    if (eventName == Constants::EVT_GOAL_REPLAY_START) {
-        if (TargetsCurrentActiveMatchUiLocked(data)) {
-            m_state->ui.inGoalReplay.store(true, std::memory_order_relaxed);
-        }
-        return effects;
-    }
-
-    // GoalReplayWillEnd fires when the ball explodes while the replay is still on screen; do not clear inGoalReplay.
-    if (eventName == Constants::EVT_GOAL_REPLAY_WILL_END) {
-        return effects;
-    }
-
-    if (eventName == Constants::EVT_GOAL_REPLAY_END) {
-        const std::string incomingGuid = ExtractEventMatchGuid(data);
-        if (!incomingGuid.empty() &&
-            ((!m_state->game.matchGuid.empty() && incomingGuid != m_state->game.matchGuid) ||
-             (!m_uiMatchGuid.empty() && incomingGuid != m_uiMatchGuid) ||
-             m_pendingDestroyedMatches.count(incomingGuid) > 0)) {
-            return effects;
-        }
-        m_state->ui.inGoalReplay.store(false, std::memory_order_relaxed);
-        return effects;
-    }
-
-    if (eventName == Constants::EVT_PODIUM_START) {
-        if (!TargetsCurrentActiveMatchUiLocked(data)) {
-            return effects;
-        }
-        m_state->ui.inGoalReplay.store(false, std::memory_order_relaxed);
-        if (m_state->ui.lastPodiumMs.load(std::memory_order_relaxed) <= 0) {
-            const int64_t nowMs = SteadyNowMs();
-            m_state->ui.lastPodiumMs.store(nowMs, std::memory_order_relaxed);
-            if (m_state->ui.showMatchSummary.load(std::memory_order_relaxed) ||
-                m_state->game.matchFinalized) {
-                m_state->ui.matchSummaryStartMs.store(nowMs, std::memory_order_relaxed);
-            }
-        }
-        return effects;
-    }
-    if (eventName == Constants::EVT_UPDATE_STATE) {
-        const std::string preArena = m_state->game.arenaName;
-        const std::array<int, 2> preScore = m_state->game.score;
-        const bool preInMatch = m_state->game.inMatch;
-        HandleUpdateState(data, effects);
-        if (AcceptsAnalyticsEventLocked(data)) m_analytics.OnUpdateState(data, AnalyticsNowSeconds());
-        if (!effects.pushDiscord && (m_state->game.arenaName != preArena ||
-                                     m_state->game.score != preScore ||
-                                     m_state->game.inMatch != preInMatch)) {
-            effects.pushDiscord = true;
-            effects.discordSnapshot = BuildDiscordSnapshotLocked();
-        }
-    } else if (eventName == Constants::EVT_STATFEED) {
-        if (data.contains("EventName") && data["EventName"].is_string()) {
-            const std::string name = data["EventName"].get<std::string>();
-            const std::string type = name == "EpicSave" || name == "Epic Save" ? "epic_save" : name == "Save"   ? "save"
-                                                                                           : name == "Shot"     ? "shot"
-                                                                                           : name == "Assist"   ? "assist"
-                                                                                           : name == "OwnGoal"  ? "own_goal"
-                                                                                           : name == "Demolish" ? "demolition"
-                                                                                                                : "";
-            if (!type.empty()) RecordJournalEventLocked(type, data,
-                                                        data.contains("MainTarget") ? "MainTarget" : "Player", "SecondaryTarget", "statfeed");
-        }
-        if (AcceptsAnalyticsEventLocked(data)) m_analytics.OnStatfeed(data);
-        HandleStatFeed(data);
-    } else if (eventName == Constants::EVT_GOAL_SCORED) {
-        if (AcceptsAnalyticsEventLocked(data, true)) m_analytics.OnGoalScored(data);
-        // Skipped replays can deliver the replay-end echo outside replay state; it is not a new goal.
-        if (!IsGoalReplayEcho(data)) {
-            RecordJournalEventLocked("goal", data, "Scorer", "Assister", "goal");
-            HandleGoalScored(data, effects);
-        }
-    } else if (eventName == Constants::EVT_BALL_HIT) {
-        if (AcceptsAnalyticsEventLocked(data)) m_analytics.OnBallHit(data, AnalyticsNowSeconds());
-        HandleBallHit(data);
-    } else if (eventName == Constants::EVT_BOOST_PICKUP) {
-        if (AcceptsAnalyticsEventLocked(data)) m_analytics.OnBoostPickup(data);
-    } else if (eventName == Constants::EVT_PLAYER_LEFT) {
-        if (AcceptsAnalyticsEventLocked(data)) m_analytics.OnPlayerLeft(data);
-    } else if (eventName == Constants::EVT_CROSSBAR_HIT) {
-        RecordJournalEventLocked("crossbar", data, nullptr, nullptr, "crossbar");
-        HandleCrossbarHit(data);
-    } else if (eventName == Constants::EVT_MATCH_ENDED) {
-        if (AcceptsAnalyticsEventLocked(data)) m_analytics.OnMatchEnded();
-        HandleMatchEnded(data, effects);
-    } else if (eventName == Constants::EVT_MATCH_DESTROYED) {
-        if (AcceptsAnalyticsEventLocked(data)) m_analytics.OnMatchEnded();
-        HandleMatchDestroyed(data, effects);
-    }
-
-    return effects;
-}
-
-void TelemetryReducer::RequeueEncounterRecordsLocked(SideEffects& effects) {
-    for (auto& [pid, player] : m_state->game.roster) {
-        player.lifetimeWinsWith = 0;
-        player.lifetimeLossesWith = 0;
-        player.lifetimeWinsAgainst = 0;
-        player.lifetimeLossesAgainst = 0;
-        player.hasLifetimeData = false;
-        if (pid.rfind("Unknown|", 0) != 0) effects.fetchEncounterQueue.push_back(pid);
-    }
-}
-
-bool TelemetryReducer::IsSelf(const std::string& name) const {
-    if (name.empty() || m_state->game.myPrimaryId.empty()) return false;
-    for (const auto& [pid, player] : m_state->game.roster)
-        if (player.name == name) return pid == m_state->game.myPrimaryId;
-    return false;
-}
-
-bool TelemetryReducer::IsSelfById(const std::string& pid) const {
-    return !pid.empty() && pid == m_state->game.myPrimaryId;
-}
-
-std::string TelemetryReducer::ResolveRosterPlayerIdLocked(const nlohmann::json& target) const {
-    if (!target.is_object()) return {};
-    const std::string name = target.contains("Name") && target["Name"].is_string() ? target["Name"].get<std::string>() : std::string{};
-    if (target.contains("PrimaryId") && target["PrimaryId"].is_string()) {
-        const std::string id = target["PrimaryId"].get<std::string>();
-        if (id == "Unknown" || id.rfind("Unknown|", 0) == 0) return "Unknown|" + name;
-        return id;
-    }
-    // Event payloads identify players by Name/TeamNum only; map them back to the roster.
-    if (name.empty()) return {};
-    const bool hasTeam = target.contains("TeamNum") && target["TeamNum"].is_number_integer();
-    const int team = hasTeam ? target["TeamNum"].get<int>() : -1;
-    std::string match;
-    for (const auto& [pid, player] : m_state->game.roster) {
-        if (player.name != name || (hasTeam && player.team != team)) continue;
-        if (!match.empty()) return {};
-        match = pid;
-    }
-    return match;
-}
-
-DiscordPresenceSnapshot TelemetryReducer::BuildDiscordSnapshotLocked() const {
+DiscordPresenceSnapshot TelemetryReducer::BuildDiscordSnapshot(const MatchState& state) {
     DiscordPresenceSnapshot snapshot;
     snapshot.showPresence = true;
-    snapshot.inMatch = m_state->game.inMatch;
-    snapshot.matchGuid = m_state->game.matchGuid;
-    snapshot.arenaName = m_state->game.arenaName;
-    snapshot.score[0] = m_state->game.score[0];
-    snapshot.score[1] = m_state->game.score[1];
-    snapshot.myTeam = m_state->game.myTeam;
-    snapshot.sessionWins = m_state->game.sessionTotals.wins;
-    snapshot.sessionLosses = m_state->game.sessionTotals.losses;
+    snapshot.inMatch = state.inMatch;
+    snapshot.matchGuid = state.matchGuid;
+    snapshot.arenaName = state.arenaName;
+    snapshot.score[0] = state.score[0];
+    snapshot.score[1] = state.score[1];
+    snapshot.myTeam = state.myTeam;
+    snapshot.sessionWins = state.sessionTotals.wins;
+    snapshot.sessionLosses = state.sessionTotals.losses;
     return snapshot;
 }
 
-float TelemetryReducer::PausedSecondsWithin(std::chrono::steady_clock::time_point windowStart,
-                                            std::chrono::steady_clock::time_point windowEnd) const {
-    if (windowEnd <= windowStart) return 0.0f;
-    auto total = std::chrono::steady_clock::duration::zero();
-    auto addInterval = [&](std::chrono::steady_clock::time_point pStart, std::chrono::steady_clock::time_point pEnd) {
-        auto s = std::max(windowStart, pStart);
-        auto e = std::min(windowEnd, pEnd);
-        if (e > s) {
-            total += (e - s);
+ReducerResult TelemetryReducer::Reduce(MatchState state,
+                                       const TelemetryEvents::TelemetryEvent& event,
+                                       const ReducerContext& context) {
+    SideEffects effects = ReduceInPlace(state, event, context);
+    return {std::move(state), std::move(effects)};
+}
+
+SideEffects TelemetryReducer::ReduceInPlace(MatchState& state,
+                                            const TelemetryEvents::TelemetryEvent& event,
+                                            const ReducerContext& context) {
+    SideEffects effects;
+    state.currentReducerNowMs = context.nowMs > 0 ? context.nowMs : SteadyNowMs();
+
+    std::visit([&](const auto& ev) {
+        using T = std::decay_t<decltype(ev)>;
+
+        if constexpr (std::is_same_v<T, TelemetryEvents::ReplayCreatedEvent>) {
+            state.nonLiveReplayActive = true;
+            state.inReplay = true;
+            state.inGoalReplay = false;
+            effects.uiUpdate = UiStateUpdate{.inGoalReplay = false};
+        } else if constexpr (std::is_same_v<T, TelemetryEvents::MatchCreatedEvent>) {
+            const int64_t nowMs = context.nowMs > 0 ? context.nowMs : SteadyNowMs();
+            const std::string incomingGuid = ev.matchGuid;
+            const bool wasInMatch = state.inMatch;
+            const bool wasFinalized = state.matchFinalized;
+            const bool hadPriorUiCountdown =
+                state.firstCountdownOfMatchMs > 0 || state.lastMatchEndMs > 0;
+            const bool hasIncomingGuid = !incomingGuid.empty();
+            const bool hadCurrentGuid = !state.matchGuid.empty();
+            const bool isSameActiveUiGuid =
+                hasIncomingGuid && incomingGuid == state.uiMatchGuid &&
+                wasInMatch && !wasFinalized;
+            const uint64_t currentGeneration = state.activeMatchGeneration;
+            const bool currentIsNonRecordable =
+                wasInMatch &&
+                (state.fallbackNonRecordableContext ||
+                 PlaylistMetadata::IsNonRecordable(state.playlistId));
+            const bool startsNewLifecycle =
+                !wasInMatch ||
+                (hasIncomingGuid && currentIsNonRecordable) ||
+                (hasIncomingGuid && hadCurrentGuid && incomingGuid != state.matchGuid);
+            const bool attachesGuid =
+                wasInMatch && hasIncomingGuid &&
+                !hadCurrentGuid && !currentIsNonRecordable;
+
+            const char* action = "preserve-current";
+            const char* reason = hasIncomingGuid ? "same-explicit-guid" : "missing-guid-active-lifecycle";
+
+            if (startsNewLifecycle) {
+                action = "start-new";
+                reason = wasInMatch
+                             ? (currentIsNonRecordable ? "non-recordable-transition" : "different-explicit-guid")
+                             : "no-active-match";
+
+                LocalPreMatchMmrSnapshot initialMmrSnapshot;
+                bool hasInitialMmrSnapshot = false;
+                if (!state.myPrimaryId.empty()) {
+                    const auto playerIt = state.roster.find(state.myPrimaryId);
+                    if (playerIt != state.roster.end() && !playerIt->second.playlists.empty()) {
+                        initialMmrSnapshot.playlistMmrs = playerIt->second.playlists;
+                        initialMmrSnapshot.playlistMatches = playerIt->second.playlistMatches;
+                        hasInitialMmrSnapshot = true;
+                    }
+                }
+
+                const std::string currentArena = state.arenaName;
+                state.ResetMatch(currentArena);
+                state.activeMatchGeneration = ++state.nextMatchGeneration;
+                state.matchGuid = incomingGuid;
+                state.missingGuidAssociationBlockedByReconnect = false;
+                if (hasInitialMmrSnapshot) {
+                    state.preMatchMmrByGuid.emplace(incomingGuid, std::move(initialMmrSnapshot));
+                }
+                state.roundActive = false;
+                state.autoSwitchedPlaylistCategory = MmrCategory::Best;
+                state.followedGraphPlaylistCategory = MmrCategory::Best;
+                state.matchEvents.clear();
+                state.analytics = MatchAnalyticsTracker{};
+                state.eventNativeKeys.clear();
+                state.lastEventSignature.clear();
+                state.lastPlayerBoost.clear();
+                state.boostRespawnPending.clear();
+                state.lastPlayerSeenMs.clear();
+                state.ResetTiming();
+            } else if (attachesGuid) {
+                action = "attach-guid";
+                reason = "late-guid-enrichment";
+                auto guidlessSnapshot = state.preMatchMmrByGuid.extract("");
+                if (!guidlessSnapshot.empty()) {
+                    guidlessSnapshot.key() = incomingGuid;
+                    state.preMatchMmrByGuid.insert(std::move(guidlessSnapshot));
+                }
+                state.matchGuid = incomingGuid;
+                CapturePreMatchMmr(state);
+            }
+
+            if (!isSameActiveUiGuid) {
+                if (startsNewLifecycle || wasFinalized || hadPriorUiCountdown ||
+                    (hasIncomingGuid && !state.uiMatchGuid.empty() && incomingGuid != state.uiMatchGuid)) {
+                    state.lastMatchStartMs = nowMs;
+                    state.firstCountdownOfMatchMs = 0;
+                    state.lastCountdownMs = 0;
+                    state.lastGoalMs = 0;
+                    state.lastMatchEndMs = 0;
+                    state.lastPodiumMs = 0;
+                    state.inGoalReplay = false;
+                    state.countdownSeenThisRound = false;
+                    effects.uiUpdate = UiStateUpdate{.resetTimestamps = true, .resetMatchStartMs = nowMs};
+                } else {
+                    state.lastMatchStartMs = nowMs;
+                    state.inGoalReplay = false;
+                    effects.uiUpdate = UiStateUpdate{.lastMatchStartMs = nowMs, .inGoalReplay = false};
+                }
+                state.uiMatchGuid = incomingGuid;
+            } else {
+                if (state.lastMatchStartMs <= 0) {
+                    state.lastMatchStartMs = nowMs;
+                    effects.uiUpdate = UiStateUpdate{.lastMatchStartMs = nowMs, .inGoalReplay = false};
+                } else {
+                    effects.uiUpdate = UiStateUpdate{.inGoalReplay = false};
+                }
+                state.inGoalReplay = false;
+            }
+
+            std::cout
+                << "[TelemetryReducer] MatchCreated: "
+                << "incomingGuid=" << (hasIncomingGuid ? "present" : "missing")
+                << ", currentGuid=" << (hadCurrentGuid ? "present" : "missing")
+                << ", currentGeneration=" << currentGeneration
+                << ", inMatch=" << (wasInMatch ? "true" : "false")
+                << ", action=" << action
+                << ", reason=" << reason << ".\n";
+
+            if (startsNewLifecycle || attachesGuid) {
+                effects.pushDiscord = true;
+                effects.discordSnapshot = BuildDiscordSnapshot(state);
+            }
+        } else if constexpr (std::is_same_v<T, TelemetryEvents::MatchInitializedEvent>) {
+            const int64_t nowMs = context.nowMs > 0 ? context.nowMs : SteadyNowMs();
+            if (AcceptsUiMatchEvent(state, ev.matchGuid, nowMs, effects)) {
+                UiStateUpdate upd;
+                if (state.lastMatchStartMs <= 0) {
+                    state.lastMatchStartMs = nowMs;
+                    upd.lastMatchStartMs = nowMs;
+                }
+                if (state.firstCountdownOfMatchMs <= 0) {
+                    state.firstCountdownOfMatchMs = nowMs;
+                    upd.firstCountdownOfMatchMs = nowMs;
+                }
+                if (state.lastCountdownMs <= 0) {
+                    state.lastCountdownMs = nowMs;
+                    upd.lastCountdownMs = nowMs;
+                }
+                state.inGoalReplay = false;
+                upd.inGoalReplay = false;
+                state.countdownSeenThisRound = true;
+                effects.uiUpdate = upd;
+            }
+        } else if constexpr (std::is_same_v<T, TelemetryEvents::CountdownBeginEvent>) {
+            const int64_t nowMs = context.nowMs > 0 ? context.nowMs : SteadyNowMs();
+            if (AcceptsUiMatchEvent(state, ev.matchGuid, nowMs, effects)) {
+                if (state.lastMatchStartMs <= 0) state.lastMatchStartMs = nowMs;
+                if (state.firstCountdownOfMatchMs <= 0) state.firstCountdownOfMatchMs = nowMs;
+                state.lastCountdownMs = nowMs;
+                state.inGoalReplay = false;
+                state.countdownSeenThisRound = true;
+                state.roundActive = false;
+                state.lastPlayerBoost.clear();
+            }
+            if (AcceptsAnalyticsEvent(state, ev.matchGuid)) state.analytics.OnCountdownBegin();
+        } else if constexpr (std::is_same_v<T, TelemetryEvents::RoundStartedEvent>) {
+            const int64_t nowMs = context.nowMs > 0 ? context.nowMs : SteadyNowMs();
+            if (AcceptsUiMatchEvent(state, ev.matchGuid, nowMs, effects)) {
+                if (state.lastMatchStartMs <= 0) state.lastMatchStartMs = nowMs;
+                if (state.firstCountdownOfMatchMs <= 0) state.firstCountdownOfMatchMs = nowMs;
+                if (!state.countdownSeenThisRound) state.lastCountdownMs = nowMs;
+                state.inGoalReplay = false;
+                state.countdownSeenThisRound = false;
+            }
+            if (!state.roundActive) {
+                state.lastPlayerBoost.clear();
+                state.boostRespawnPending.clear();
+            }
+            state.roundActive = true;
+            state.roundEverStarted = true;
+            if (AcceptsAnalyticsEvent(state, ev.matchGuid)) state.analytics.OnRoundStarted(context.nowSeconds);
+        } else if constexpr (std::is_same_v<T, TelemetryEvents::MatchPausedEvent>) {
+            if (!state.currentPauseStartMs.has_value()) {
+                state.currentPauseStartMs = context.nowMs > 0 ? context.nowMs : SteadyNowMs();
+            }
+            if (AcceptsAnalyticsEvent(state, ev.matchGuid)) state.analytics.OnPaused(context.nowSeconds);
+        } else if constexpr (std::is_same_v<T, TelemetryEvents::MatchUnpausedEvent>) {
+            const int64_t nowMs = context.nowMs > 0 ? context.nowMs : SteadyNowMs();
+            if (state.currentPauseStartMs.has_value()) {
+                state.pauseIntervals.push_back({*state.currentPauseStartMs, nowMs});
+                state.currentPauseStartMs.reset();
+            }
+            if (AcceptsAnalyticsEvent(state, ev.matchGuid)) state.analytics.OnUnpaused(context.nowSeconds);
+        } else if constexpr (std::is_same_v<T, TelemetryEvents::GoalReplayStartEvent>) {
+            if (TargetsCurrentActiveMatchUi(state, ev.matchGuid)) state.inGoalReplay = true;
+        } else if constexpr (std::is_same_v<T, TelemetryEvents::GoalReplayWillEndEvent>) {
+            // Fires when the ball explodes while the replay is still on screen; inGoalReplay stays set.
+        } else if constexpr (std::is_same_v<T, TelemetryEvents::GoalReplayEndEvent>) {
+            const std::string& incomingGuid = ev.matchGuid;
+            if (!incomingGuid.empty() &&
+                ((!state.matchGuid.empty() && incomingGuid != state.matchGuid) ||
+                 (!state.uiMatchGuid.empty() && incomingGuid != state.uiMatchGuid) ||
+                 state.pendingDestroyedMatches.count(incomingGuid) > 0)) {
+                return;
+            }
+            state.inGoalReplay = false;
+        } else if constexpr (std::is_same_v<T, TelemetryEvents::PodiumStartEvent>) {
+            if (TargetsCurrentActiveMatchUi(state, ev.matchGuid)) {
+                state.inGoalReplay = false;
+                if (state.lastPodiumMs <= 0) {
+                    const int64_t nowMs = context.nowMs > 0 ? context.nowMs : SteadyNowMs();
+                    state.lastPodiumMs = nowMs;
+                    if (state.showMatchSummary || state.matchFinalized) {
+                        state.matchSummaryStartMs = nowMs;
+                    }
+                }
+            }
+        } else if constexpr (std::is_same_v<T, TelemetryEvents::UpdateStateEvent>) {
+            HandleUpdateState(state, ev, context, effects);
+            if (AcceptsAnalyticsEvent(state, ev.matchGuid)) state.analytics.OnUpdateState(ev, context.nowSeconds);
+        } else if constexpr (std::is_same_v<T, TelemetryEvents::StatfeedEvent>) {
+            if (AcceptsAnalyticsEvent(state, ev.matchGuid)) state.analytics.OnStatfeed(ev);
+            HandleStatfeed(state, ev, context);
+        } else if constexpr (std::is_same_v<T, TelemetryEvents::GoalScoredEvent>) {
+            if (AcceptsAnalyticsEvent(state, ev.matchGuid, true)) state.analytics.OnGoalScored(ev);
+            HandleGoalScored(state, ev, context, effects);
+        } else if constexpr (std::is_same_v<T, TelemetryEvents::BallHitEvent>) {
+            if (AcceptsAnalyticsEvent(state, ev.matchGuid)) state.analytics.OnBallHit(ev, context.nowSeconds);
+            HandleBallHit(state, ev, context);
+        } else if constexpr (std::is_same_v<T, TelemetryEvents::BoostPickupEvent>) {
+            if (AcceptsAnalyticsEvent(state, ev.matchGuid)) state.analytics.OnBoostPickup(ev);
+        } else if constexpr (std::is_same_v<T, TelemetryEvents::PlayerLeftEvent>) {
+            if (AcceptsAnalyticsEvent(state, ev.matchGuid)) state.analytics.OnPlayerLeft(ev);
+        } else if constexpr (std::is_same_v<T, TelemetryEvents::CrossbarHitEvent>) {
+            HandleCrossbarHit(state, ev, context);
+        } else if constexpr (std::is_same_v<T, TelemetryEvents::MatchEndedEvent>) {
+            if (AcceptsAnalyticsEvent(state, ev.matchGuid)) state.analytics.OnMatchEnded();
+            HandleMatchEnded(state, ev, context, effects);
+        } else if constexpr (std::is_same_v<T, TelemetryEvents::MatchDestroyedEvent>) {
+            if (AcceptsAnalyticsEvent(state, ev.matchGuid)) state.analytics.OnMatchEnded();
+            HandleMatchDestroyed(state, ev, context, effects);
         }
-    };
-    for (const auto& pi : m_pauseIntervals) {
-        addInterval(pi.start, pi.end);
-    }
-    if (m_currentPauseStart.has_value()) {
-        addInterval(*m_currentPauseStart, windowEnd);
-    }
-    return std::chrono::duration<float>(total).count();
-}
+    },
+               event);
 
-bool TelemetryReducer::AcceptsAnalyticsEventLocked(const nlohmann::json& data, bool duringReplay) const {
-    const auto& game = m_state->game;
-    if (!game.inMatch || game.matchFinalized || (game.inReplay && !duringReplay) || m_nonLiveReplayActive ||
-        game.fallbackNonRecordableContext || PlaylistMetadata::IsNonRecordable(game.playlistId)) return false;
-    const std::string guid = ExtractEventMatchGuid(data);
-    if (guid.empty()) return !(m_missingGuidAssociationBlockedByReconnect && game.matchGuid.empty());
-    if (!game.matchGuid.empty() && guid != game.matchGuid) return false;
-    return m_finalizedMatchGuids.count(guid) == 0 && m_pendingDestroyedMatches.count(guid) == 0;
-}
-
-double TelemetryReducer::AnalyticsNowSeconds() const {
-    return std::chrono::duration<double>(Now().time_since_epoch()).count();
-}
-
-void TelemetryReducer::ResetMatchTimingState() {
-    m_hasObservedMatchClock = false;
-    m_regulationClockStart.reset();
-    m_regulationClockLatest = 0.0f;
-    m_overtimeStartedAt.reset();
-    m_currentPauseStart.reset();
-    m_pauseIntervals.clear();
+    TelemetryReducerDetail::PublishUiTimestamps(state, effects);
+    return effects;
 }

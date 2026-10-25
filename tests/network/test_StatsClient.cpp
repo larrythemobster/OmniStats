@@ -3,6 +3,7 @@
 #include "network/mmr/MMRFetcher.hpp"
 #include "database/DatabaseManager.hpp"
 #include "core/state/SessionState.hpp"
+#include "core/state/LiveMatchStore.hpp"
 #include "core/config/Config.hpp"
 #include <chrono>
 #include <functional>
@@ -43,12 +44,14 @@ TEST(StatsClientTest, MatchEndNonBlockingAndDiscordPush) {
     client.SetDiscordManager(discord);
 
     // Setup state
-    state->game.myPrimaryId = "Steam|123";
-    state->game.myTeam = 0;
-    state->game.arenaName = "Stadium";
-    state->game.matchGuid = "test_guid";
-    state->game.inMatch = true;
-    state->game.roster["Steam|123"] = PlayerData{.primaryId = "Steam|123", .name = "Me", .team = 0, .mmr = 1000};
+    state->liveMatch->UpdateMatchStateForTests([](MatchState& ms) {
+        ms.myPrimaryId = "Steam|123";
+        ms.myTeam = 0;
+        ms.arenaName = "Stadium";
+        ms.matchGuid = "test_guid";
+        ms.inMatch = true;
+        ms.roster["Steam|123"] = PlayerData{.primaryId = "Steam|123", .name = "Me", .team = 0, .mmr = 1000};
+    });
 
     // Send match ended event
     std::string matchEndedJson = R"({"Event": "MatchEnded", "Data": {"MatchGuid": "test_guid", "WinnerTeamNum": 0}})";
@@ -82,15 +85,17 @@ TEST(StatsClientTest, DisconnectClearsDiscordPresence) {
     client.SetDiscordManager(discord);
 
     // Seed active-match state that must not leak across a socket reconnect.
-    state->game.inMatch = true;
-    state->game.matchGuid = "stale-disconnect-guid";
-    state->game.playlistId = 11;
-    state->game.legacyMaxPlayersSeen = 4;
-    state->game.legacyMaxTeamPlayersSeen = {2, 2};
-    state->game.roundEverStarted = true;
-    state->game.currentMatch.goals = 3;
-    state->game.roster["Steam|1"] = PlayerData{
-        .primaryId = "Steam|1", .name = "Me", .team = 0};
+    state->liveMatch->UpdateMatchStateForTests([](MatchState& ms) {
+        ms.inMatch = true;
+        ms.matchGuid = "stale-disconnect-guid";
+        ms.playlistId = 11;
+        ms.legacyMaxPlayersSeen = 4;
+        ms.legacyMaxTeamPlayersSeen = {2, 2};
+        ms.roundEverStarted = true;
+        ms.currentMatch.goals = 3;
+        ms.roster["Steam|1"] = PlayerData{
+            .primaryId = "Steam|1", .name = "Me", .team = 0};
+    });
 
     client.Start();
 
@@ -98,15 +103,16 @@ TEST(StatsClientTest, DisconnectClearsDiscordPresence) {
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
 
     EXPECT_EQ(discord->pushCount.load(), 1);
-    EXPECT_FALSE(state->game.inMatch);
-    EXPECT_TRUE(state->game.matchGuid.empty());
-    EXPECT_EQ(state->game.playlistId, -1);
-    EXPECT_EQ(state->game.legacyMaxPlayersSeen, 0);
-    EXPECT_EQ(state->game.legacyMaxTeamPlayersSeen[0], 0);
-    EXPECT_EQ(state->game.legacyMaxTeamPlayersSeen[1], 0);
-    EXPECT_FALSE(state->game.roundEverStarted);
-    EXPECT_EQ(state->game.currentMatch.goals, 0);
-    EXPECT_TRUE(state->game.roster.empty());
+    auto snap = state->liveMatch->GetSnapshot();
+    EXPECT_FALSE(snap->inMatch);
+    EXPECT_TRUE(snap->matchGuid.empty());
+    EXPECT_EQ(snap->playlistId, -1);
+    EXPECT_EQ(snap->legacyMaxPlayersSeen, 0);
+    EXPECT_EQ(snap->legacyMaxTeamPlayersSeen[0], 0);
+    EXPECT_EQ(snap->legacyMaxTeamPlayersSeen[1], 0);
+    EXPECT_FALSE(snap->roundEverStarted);
+    EXPECT_EQ(snap->currentMatch.goals, 0);
+    EXPECT_TRUE(snap->roster.empty());
 
     client.Stop();
     Config::Update([backup](ConfigData& c) { c = backup; }, false);
@@ -114,15 +120,16 @@ TEST(StatsClientTest, DisconnectClearsDiscordPresence) {
 
 namespace {
     void SeedFinishedSession(SessionState& state) {
-        std::unique_lock gameLock(state.game.mutex);
         std::unique_lock historyLock(state.history.mutex);
-        state.game.myPrimaryId = "Steam|1";
         state.history.SelectMmrOwner("Steam|1");
-        state.game.sessionTotals.wins = 2;
-        state.game.sessionGamemodes["2v2"] = {2, 0, 2};
         state.history.playlistInitialMmr["2v2"] = 1200;
         state.history.playlistHistoryY["2v2"] = {1200.0f, 1210.0f, 1220.0f};
         state.history.lifetimeMmrY = {1100.0f, 1200.0f, 1220.0f};
+        state.liveMatch->UpdateMatchStateForTests([](MatchState& ms) {
+            ms.myPrimaryId = "Steam|1";
+            ms.sessionTotals.wins = 2;
+            ms.sessionGamemodes["2v2"] = {2, 0, 2};
+        });
         state.syncSessionMmrChangeLocked();
     }
 
@@ -155,21 +162,22 @@ TEST(StatsClientTest, ClosingTheGameStartsANewSessionWhenResetIsEnabled) {
 
     client.Start();
     // With Rocket League running, the reset waits for the fifth disconnect.
-    const bool reset = WaitFor([&] { return state->game.sessionGeneration.load() != 0; },
+    const bool reset = WaitFor([&] { return state->liveMatch->GetSnapshot()->sessionGeneration != 0; },
                                std::chrono::seconds(25));
     client.Stop();
     Config::Update([backup](ConfigData& c) { c = backup; }, false);
 
     ASSERT_TRUE(reset);
-    EXPECT_EQ(state->game.sessionGeneration.load(), 1u);
-    EXPECT_EQ(state->game.sessionTotals.wins, 0);
-    EXPECT_TRUE(state->game.sessionTotals.mmrChangeByPlaylist.empty());
+    auto snap = state->liveMatch->GetSnapshot();
+    EXPECT_EQ(snap->sessionGeneration, 1u);
+    EXPECT_EQ(snap->sessionTotals.wins, 0);
+    EXPECT_TRUE(snap->sessionTotals.mmrChangeByPlaylist.empty());
     EXPECT_TRUE(state->history.playlistHistoryY.empty());
     EXPECT_TRUE(state->history.playlistInitialMmr.empty());
     EXPECT_EQ(state->history.lifetimeMmrY, (std::vector<float>{1100.0f, 1200.0f, 1220.0f}));
-    ASSERT_TRUE(state->game.lastSessionRecap.valid);
-    EXPECT_EQ(state->game.lastSessionRecap.totals.wins, 2);
-    EXPECT_EQ(state->game.lastSessionRecap.totals.mmrChangeByPlaylist.at("2v2"), 20);
+    ASSERT_TRUE(snap->lastSessionRecap.valid);
+    EXPECT_EQ(snap->lastSessionRecap.totals.wins, 2);
+    EXPECT_EQ(snap->lastSessionRecap.totals.mmrChangeByPlaylist.at("2v2"), 20);
 }
 
 TEST(StatsClientTest, ClosingTheGameKeepsTheSessionWhenResetIsDisabled) {
@@ -197,10 +205,11 @@ TEST(StatsClientTest, ClosingTheGameKeepsTheSessionWhenResetIsDisabled) {
     Config::Update([backup](ConfigData& c) { c = backup; }, false);
 
     ASSERT_TRUE(disconnected);
-    EXPECT_EQ(state->game.sessionGeneration.load(), 0u);
-    EXPECT_EQ(state->game.sessionTotals.wins, 2);
-    EXPECT_EQ(state->game.sessionTotals.mmrChangeByPlaylist.at("2v2"), 20);
+    auto snap = state->liveMatch->GetSnapshot();
+    EXPECT_EQ(snap->sessionGeneration, 0u);
+    EXPECT_EQ(snap->sessionTotals.wins, 2);
+    EXPECT_EQ(snap->sessionTotals.mmrChangeByPlaylist.at("2v2"), 20);
     EXPECT_EQ(state->history.playlistHistoryY.at("2v2"), (std::vector<float>{1200.0f, 1210.0f, 1220.0f}));
     EXPECT_EQ(state->history.playlistInitialMmr.at("2v2"), 1200);
-    EXPECT_FALSE(state->game.lastSessionRecap.valid);
+    EXPECT_FALSE(snap->lastSessionRecap.valid);
 }
