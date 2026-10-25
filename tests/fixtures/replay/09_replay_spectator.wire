@@ -1,0 +1,10 @@
+1000	{"Event":"MatchCreated","Data":{"MatchGuid":"replay-spectator-009"}}
+1100	{"Event":"UpdateState","Data":{"Game":{"Arena":"stadium_p","PlaylistId":11,"Teams":[{"Score":0,"TeamNum":0},{"Score":0,"TeamNum":1}],"bReplay":false,"bSpectator":false},"Players":[{"Boost":100,"Name":"Hero","PrimaryId":"steam|76561198000000001","TeamNum":0},{"Boost":100,"Name":"Teammate","PrimaryId":"steam|76561198000000002","TeamNum":0},{"Boost":100,"Name":"Opponent1","PrimaryId":"epic|opp1111","TeamNum":1},{"Boost":100,"Name":"Opponent2","PrimaryId":"epic|opp2222","TeamNum":1}]}}
+1200	{"Event":"RoundStarted","Data":{}}
+1300	{"Event":"GoalScored","Data":{"GoalTime":30.0,"Goals":1,"Scorer":{"Name":"Hero","PrimaryId":"steam|76561198000000001","TeamNum":0},"Speed":98.0}}
+1400	{"Event":"GoalReplayStart","Data":{}}
+1500	{"Event":"UpdateState","Data":{"Game":{"Arena":"stadium_p","PlaylistId":11,"Teams":[{"Score":1,"TeamNum":0},{"Score":0,"TeamNum":1}],"bReplay":true,"bSpectator":false},"Players":[{"Boost":100,"Name":"Hero","PrimaryId":"steam|76561198000000001","TeamNum":0},{"Boost":100,"Name":"Teammate","PrimaryId":"steam|76561198000000002","TeamNum":0},{"Boost":100,"Name":"Opponent1","PrimaryId":"epic|opp1111","TeamNum":1},{"Boost":100,"Name":"Opponent2","PrimaryId":"epic|opp2222","TeamNum":1}]}}
+1600	{"Event":"GoalReplayEnd","Data":{}}
+1700	{"Event":"UpdateState","Data":{"Game":{"Arena":"stadium_p","PlaylistId":11,"Teams":[{"Score":1,"TeamNum":0},{"Score":0,"TeamNum":1}],"bReplay":false,"bSpectator":true},"Players":[{"Boost":100,"Name":"Hero","PrimaryId":"steam|76561198000000001","TeamNum":0},{"Boost":100,"Name":"Teammate","PrimaryId":"steam|76561198000000002","TeamNum":0},{"Boost":100,"Name":"Opponent1","PrimaryId":"epic|opp1111","TeamNum":1},{"Boost":100,"Name":"Opponent2","PrimaryId":"epic|opp2222","TeamNum":1}]}}
+1800	{"Event":"MatchEnded","Data":{"MatchGuid":"replay-spectator-009","Teams":[{"Score":1,"TeamNum":0},{"Score":0,"TeamNum":1}],"WinnerTeamNum":0}}
+1900	{"Event":"MatchDestroyed","Data":{"MatchGuid":"replay-spectator-009"}}

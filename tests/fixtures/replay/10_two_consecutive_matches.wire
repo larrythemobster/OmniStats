@@ -1,0 +1,12 @@
+1000	{"Event":"MatchCreated","Data":{"MatchGuid":"consecutive-match-a-010"}}
+1100	{"Event":"UpdateState","Data":{"Game":{"Arena":"stadium_p","PlaylistId":11,"Teams":[{"Score":0,"TeamNum":0},{"Score":0,"TeamNum":1}],"bReplay":false,"bSpectator":false},"Players":[{"Boost":100,"Name":"Hero","PrimaryId":"steam|76561198000000001","TeamNum":0},{"Boost":100,"Name":"Teammate","PrimaryId":"steam|76561198000000002","TeamNum":0},{"Boost":100,"Name":"Opponent1","PrimaryId":"epic|opp1111","TeamNum":1},{"Boost":100,"Name":"Opponent2","PrimaryId":"epic|opp2222","TeamNum":1}]}}
+1200	{"Event":"RoundStarted","Data":{}}
+1300	{"Event":"GoalScored","Data":{"Assister":{"Name":"Teammate","PrimaryId":"steam|76561198000000002","TeamNum":0},"GoalTime":40.0,"Goals":1,"Scorer":{"Name":"Hero","PrimaryId":"steam|76561198000000001","TeamNum":0},"Speed":90.0}}
+1400	{"Event":"MatchEnded","Data":{"MatchGuid":"consecutive-match-a-010","Teams":[{"Score":1,"TeamNum":0},{"Score":0,"TeamNum":1}],"WinnerTeamNum":0}}
+1500	{"Event":"MatchDestroyed","Data":{"MatchGuid":"consecutive-match-a-010"}}
+2000	{"Event":"MatchCreated","Data":{"MatchGuid":"consecutive-match-b-010"}}
+2100	{"Event":"UpdateState","Data":{"Game":{"Arena":"stadium_p","PlaylistId":11,"Teams":[{"Score":0,"TeamNum":0},{"Score":0,"TeamNum":1}],"bReplay":false,"bSpectator":false},"Players":[{"Boost":100,"Name":"Hero","PrimaryId":"steam|76561198000000001","TeamNum":0},{"Boost":100,"Name":"Teammate","PrimaryId":"steam|76561198000000002","TeamNum":0},{"Boost":100,"Name":"Opponent3","PrimaryId":"epic|opp3333","TeamNum":1},{"Boost":100,"Name":"Opponent4","PrimaryId":"epic|opp4444","TeamNum":1}]}}
+2200	{"Event":"RoundStarted","Data":{}}
+2300	{"Event":"GoalScored","Data":{"Assister":{"Name":"Opponent4","PrimaryId":"epic|opp4444","TeamNum":1},"GoalTime":50.0,"Goals":1,"Scorer":{"Name":"Opponent3","PrimaryId":"epic|opp3333","TeamNum":1},"Speed":85.0}}
+2400	{"Event":"MatchEnded","Data":{"MatchGuid":"consecutive-match-b-010","Teams":[{"Score":0,"TeamNum":0},{"Score":1,"TeamNum":1}],"WinnerTeamNum":1}}
+2500	{"Event":"MatchDestroyed","Data":{"MatchGuid":"consecutive-match-b-010"}}

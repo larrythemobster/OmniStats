@@ -1,0 +1,479 @@
+{
+  "database": {
+    "MatchAnalytics": [
+      {
+        "data": {
+          "ballSpeedIntegral": 0.0,
+          "departures": [],
+          "endedInOvertime": false,
+          "goals": [
+            {
+              "assisterId": "steam|76561198000000002",
+              "assisterName": "Teammate",
+              "ot": false,
+              "round": 90.0,
+              "score": [
+                1,
+                0
+              ],
+              "scorerId": "steam|76561198000000001",
+              "scorerName": "Hero",
+              "t": 0.20000000298023224,
+              "team": 0
+            }
+          ],
+          "hitPlayers": [],
+          "hits": [],
+          "kickoffs": [
+            {
+              "firstTouchId": "",
+              "firstTouchTeam": -1,
+              "goalTeam": 0,
+              "possessionTeam": -1,
+              "t": 0.0
+            }
+          ],
+          "maxBallSpeed": 0.0,
+          "pausedSeconds": 0.0,
+          "pauses": 0,
+          "playSeconds": 0.20000000298023224,
+          "players": [
+            {
+              "aerialHits": 0,
+              "demosInflicted": 0,
+              "demosTaken": 0,
+              "firstTouches": 0,
+              "hardHits": 0,
+              "highAerialHits": 0,
+              "hitSpeedSum": 0.0,
+              "hits": 0,
+              "hitsByThird": [
+                0,
+                0,
+                0
+              ],
+              "id": "steam|76561198000000001",
+              "maxHitSpeed": 0.0,
+              "name": "Hero",
+              "statEvents": {},
+              "team": 0
+            },
+            {
+              "aerialHits": 0,
+              "demosInflicted": 0,
+              "demosTaken": 0,
+              "firstTouches": 0,
+              "hardHits": 0,
+              "highAerialHits": 0,
+              "hitSpeedSum": 0.0,
+              "hits": 0,
+              "hitsByThird": [
+                0,
+                0,
+                0
+              ],
+              "id": "steam|76561198000000002",
+              "maxHitSpeed": 0.0,
+              "name": "Teammate",
+              "statEvents": {},
+              "team": 0
+            },
+            {
+              "aerialHits": 0,
+              "demosInflicted": 0,
+              "demosTaken": 0,
+              "firstTouches": 0,
+              "hardHits": 0,
+              "highAerialHits": 0,
+              "hitSpeedSum": 0.0,
+              "hits": 0,
+              "hitsByThird": [
+                0,
+                0,
+                0
+              ],
+              "id": "epic|opp1111",
+              "maxHitSpeed": 0.0,
+              "name": "Opponent1",
+              "statEvents": {},
+              "team": 1
+            },
+            {
+              "aerialHits": 0,
+              "demosInflicted": 0,
+              "demosTaken": 0,
+              "firstTouches": 0,
+              "hardHits": 0,
+              "highAerialHits": 0,
+              "hitSpeedSum": 0.0,
+              "hits": 0,
+              "hitsByThird": [
+                0,
+                0,
+                0
+              ],
+              "id": "epic|opp2222",
+              "maxHitSpeed": 0.0,
+              "name": "Opponent2",
+              "statEvents": {},
+              "team": 1
+            }
+          ],
+          "possession": [
+            0.0,
+            0.0
+          ],
+          "possessionTimeline": [],
+          "v": 1
+        },
+        "format_version": 1,
+        "match_id": 1
+      }
+    ],
+    "MatchLocalStats": [
+      {
+        "boost_collected": 0,
+        "crossbars": 0,
+        "demoed": 0,
+        "duration_seconds": 0.0,
+        "hardest_crossbar": null,
+        "match_id": 1,
+        "max_ball_speed": null,
+        "overtime_seconds": 0.0,
+        "own_goals": 0,
+        "stats_version": 1
+      }
+    ],
+    "MatchPlayerStats": [
+      {
+        "assists": 0,
+        "car_touches": null,
+        "demos": 0,
+        "fastest_goal_time": null,
+        "goals": 0,
+        "match_id": 1,
+        "max_goal_speed": null,
+        "primary_id": "epic|opp1111",
+        "saves": 0,
+        "score": null,
+        "shots": 0,
+        "touches": null
+      },
+      {
+        "assists": 0,
+        "car_touches": null,
+        "demos": 0,
+        "fastest_goal_time": null,
+        "goals": 0,
+        "match_id": 1,
+        "max_goal_speed": null,
+        "primary_id": "epic|opp2222",
+        "saves": 0,
+        "score": null,
+        "shots": 0,
+        "touches": null
+      },
+      {
+        "assists": 0,
+        "car_touches": null,
+        "demos": 0,
+        "fastest_goal_time": 90.0,
+        "goals": 1,
+        "match_id": 1,
+        "max_goal_speed": null,
+        "primary_id": "steam|76561198000000001",
+        "saves": 0,
+        "score": null,
+        "shots": 0,
+        "touches": null
+      },
+      {
+        "assists": 0,
+        "car_touches": null,
+        "demos": 0,
+        "fastest_goal_time": null,
+        "goals": 0,
+        "match_id": 1,
+        "max_goal_speed": null,
+        "primary_id": "steam|76561198000000002",
+        "saves": 0,
+        "score": null,
+        "shots": 0,
+        "touches": null
+      }
+    ],
+    "MatchPlayers": [
+      {
+        "id": 1,
+        "is_opponent": 0,
+        "match_id": 1,
+        "mmr": 0,
+        "mmr_estimated": 0,
+        "name": "Hero",
+        "primary_id": "steam|76561198000000001",
+        "team": 0
+      },
+      {
+        "id": 2,
+        "is_opponent": 0,
+        "match_id": 1,
+        "mmr": 0,
+        "mmr_estimated": 0,
+        "name": "Teammate",
+        "primary_id": "steam|76561198000000002",
+        "team": 0
+      },
+      {
+        "id": 3,
+        "is_opponent": 1,
+        "match_id": 1,
+        "mmr": 0,
+        "mmr_estimated": 0,
+        "name": "Opponent1",
+        "primary_id": "epic|opp1111",
+        "team": 1
+      },
+      {
+        "id": 4,
+        "is_opponent": 1,
+        "match_id": 1,
+        "mmr": 0,
+        "mmr_estimated": 0,
+        "name": "Opponent2",
+        "primary_id": "epic|opp2222",
+        "team": 1
+      }
+    ],
+    "Matches": [
+      {
+        "arena": "DFH Stadium",
+        "gamemode": "2v2",
+        "id": 1,
+        "match_guid": "ranked-2v2-playerleave-005",
+        "our_score": 1,
+        "player_count": 0,
+        "playlist_id": 11,
+        "result_pending": 0,
+        "session_id": 1,
+        "their_score": 0,
+        "timestamp": "<normalized_timestamp>",
+        "win": 1
+      }
+    ],
+    "Sessions": [
+      {
+        "account": "steam|76561198000000001",
+        "ended_at": "<normalized_timestamp>",
+        "id": 1,
+        "losses": 0,
+        "mmr_change_json": {},
+        "source": "backfill",
+        "started_at": "<normalized_timestamp>",
+        "totals_json": {
+          "assists": 0,
+          "assistsTotal": 0,
+          "boostPickedUp": 0,
+          "crossbars": 0,
+          "crossbarsTotal": 0,
+          "demoed": 0,
+          "demos": 0,
+          "demosTotal": 0,
+          "fastestGoalTime": 90.0,
+          "fastestGoalTimeSelf": 90.0,
+          "gamemodes": {
+            "2v2": {
+              "losses": 0,
+              "total": 1,
+              "wins": 1
+            }
+          },
+          "goalParticipations": 1,
+          "goals": 1,
+          "losses": 0,
+          "maxBallSpeed": 0.0,
+          "maxBallSpeedSelf": 0.0,
+          "maxGoalSpeed": 0.0,
+          "maxGoalSpeedSelf": 0.0,
+          "maxImpactForce": 0.0,
+          "maxImpactForceSelf": 0.0,
+          "ownGoals": 0,
+          "ownGoalsSelf": 0,
+          "saves": 0,
+          "savesTotal": 0,
+          "sessionGeneration": 0,
+          "shots": 0,
+          "shotsTotal": 0,
+          "teamGoals": 1,
+          "totalMmrChange": 0.0,
+          "wins": 1
+        },
+        "wins": 1
+      }
+    ]
+  },
+  "emitted_side_effects": [
+    {
+      "actions": [
+        {
+          "action": "DiscordPresence",
+          "arenaName": "",
+          "inMatch": true,
+          "score": [
+            0,
+            0
+          ]
+        }
+      ],
+      "event": "MatchCreated"
+    },
+    {
+      "actions": [
+        {
+          "action": "DiscordPresence",
+          "arenaName": "DFH Stadium",
+          "inMatch": true,
+          "score": [
+            0,
+            0
+          ]
+        },
+        {
+          "action": "FetchLifetimeHistory",
+          "category": "2v2",
+          "primaryId": "steam|76561198000000001"
+        },
+        {
+          "action": "RefreshDbStats",
+          "primaryId": "steam|76561198000000001"
+        },
+        {
+          "action": "FetchMmrQueue",
+          "players": [
+            "steam|76561198000000001",
+            "steam|76561198000000002",
+            "epic|opp1111",
+            "epic|opp2222"
+          ]
+        },
+        {
+          "action": "FetchEncounterQueue",
+          "players": [
+            "steam|76561198000000001",
+            "steam|76561198000000002",
+            "epic|opp1111",
+            "epic|opp2222"
+          ]
+        }
+      ],
+      "event": "UpdateState"
+    },
+    {
+      "actions": [
+        {
+          "action": "DiscordPresence",
+          "arenaName": "DFH Stadium",
+          "inMatch": true,
+          "score": [
+            0,
+            0
+          ]
+        }
+      ],
+      "event": "GoalScored"
+    },
+    {
+      "actions": [
+        {
+          "action": "SaveMatch",
+          "arena": "DFH Stadium",
+          "gamemode": "2v2",
+          "matchGuid": "ranked-2v2-playerleave-005",
+          "playerCount": 4,
+          "playlistId": 11,
+          "resultPending": false,
+          "score": [
+            1,
+            0
+          ],
+          "validResult": true,
+          "winnerTeam": 0
+        },
+        {
+          "action": "PostMatchMmrRefresh",
+          "matchGuid": "ranked-2v2-playerleave-005",
+          "playlist": "2v2",
+          "previousMmr": 1200,
+          "primaryId": "steam|76561198000000001",
+          "won": true
+        },
+        {
+          "action": "DiscordPresence",
+          "arenaName": "DFH Stadium",
+          "inMatch": true,
+          "score": [
+            1,
+            0
+          ]
+        },
+        {
+          "action": "FetchMmrQueue",
+          "players": [
+            "steam|76561198000000002"
+          ]
+        },
+        {
+          "action": "FetchEncounterQueue",
+          "players": [
+            "steam|76561198000000002",
+            "epic|opp1111",
+            "epic|opp2222"
+          ]
+        }
+      ],
+      "event": "MatchEnded"
+    },
+    {
+      "actions": [
+        {
+          "action": "DiscordPresence",
+          "arenaName": "",
+          "inMatch": false,
+          "score": [
+            1,
+            0
+          ]
+        }
+      ],
+      "event": "MatchDestroyed"
+    }
+  ],
+  "final_session_totals": {
+    "assists": 0,
+    "assistsTotal": 0,
+    "boostPickedUp": 0,
+    "crossbars": 0,
+    "crossbarsTotal": 0,
+    "demoed": 0,
+    "demos": 0,
+    "demosTotal": 0,
+    "fastestGoalTime": 90.0,
+    "fastestGoalTimeSelf": 90.0,
+    "goalParticipations": 1,
+    "goals": 1,
+    "losses": 0,
+    "maxBallSpeed": 0.0,
+    "maxBallSpeedSelf": 0.0,
+    "maxGoalSpeed": 0.0,
+    "maxGoalSpeedSelf": 0.0,
+    "mmrChangeByPlaylist": {},
+    "ownGoals": 0,
+    "ownGoalsSelf": 0,
+    "saves": 0,
+    "savesTotal": 0,
+    "shots": 0,
+    "shotsTotal": 0,
+    "teamGoals": 1,
+    "totalMmrChange": 0.0,
+    "wins": 1
+  }
+}

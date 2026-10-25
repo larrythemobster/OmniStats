@@ -1,0 +1,7 @@
+1000	{"Event":"MatchCreated","Data":{"MatchGuid":"ranked-2v2-loss-002"}}
+1100	{"Event":"UpdateState","Data":{"Game":{"Arena":"stadium_p","PlaylistId":11,"Teams":[{"Score":0,"TeamNum":0},{"Score":0,"TeamNum":1}],"bReplay":false,"bSpectator":false},"Players":[{"Boost":100,"Name":"Hero","PrimaryId":"steam|76561198000000001","TeamNum":0},{"Boost":100,"Name":"Teammate","PrimaryId":"steam|76561198000000002","TeamNum":0},{"Boost":100,"Name":"Opponent1","PrimaryId":"epic|opp1111","TeamNum":1},{"Boost":100,"Name":"Opponent2","PrimaryId":"epic|opp2222","TeamNum":1}]}}
+1200	{"Event":"RoundStarted","Data":{}}
+1300	{"Event":"GoalScored","Data":{"Assister":{"Name":"Opponent2","PrimaryId":"epic|opp2222","TeamNum":1},"GoalTime":45.0,"Goals":1,"Scorer":{"Name":"Opponent1","PrimaryId":"epic|opp1111","TeamNum":1},"Speed":88.0}}
+1400	{"Event":"UpdateState","Data":{"Game":{"Arena":"stadium_p","PlaylistId":11,"Teams":[{"Score":0,"TeamNum":0},{"Score":1,"TeamNum":1}],"bReplay":false,"bSpectator":false},"Players":[{"Boost":70,"Name":"Hero","PrimaryId":"steam|76561198000000001","TeamNum":0},{"Boost":60,"Name":"Teammate","PrimaryId":"steam|76561198000000002","TeamNum":0},{"Boost":100,"Name":"Opponent1","PrimaryId":"epic|opp1111","TeamNum":1},{"Boost":90,"Name":"Opponent2","PrimaryId":"epic|opp2222","TeamNum":1}]}}
+1500	{"Event":"MatchEnded","Data":{"MatchGuid":"ranked-2v2-loss-002","Teams":[{"Score":0,"TeamNum":0},{"Score":1,"TeamNum":1}],"WinnerTeamNum":1}}
+1600	{"Event":"MatchDestroyed","Data":{"MatchGuid":"ranked-2v2-loss-002"}}

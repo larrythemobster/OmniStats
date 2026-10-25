@@ -1,0 +1,207 @@
+{
+  "database": {
+    "MatchAnalytics": [],
+    "MatchLocalStats": [],
+    "MatchPlayerStats": [],
+    "MatchPlayers": [],
+    "Matches": [],
+    "Sessions": []
+  },
+  "emitted_side_effects": [
+    {
+      "actions": [
+        {
+          "action": "DiscordPresence",
+          "arenaName": "",
+          "inMatch": true,
+          "score": [
+            0,
+            0
+          ]
+        }
+      ],
+      "event": "MatchCreated"
+    },
+    {
+      "actions": [
+        {
+          "action": "DiscordPresence",
+          "arenaName": "DFH Stadium",
+          "inMatch": true,
+          "score": [
+            0,
+            0
+          ]
+        },
+        {
+          "action": "FetchLifetimeHistory",
+          "category": "2v2",
+          "primaryId": "steam|76561198000000001"
+        },
+        {
+          "action": "RefreshDbStats",
+          "primaryId": "steam|76561198000000001"
+        },
+        {
+          "action": "FetchMmrQueue",
+          "players": [
+            "steam|76561198000000001",
+            "steam|76561198000000002",
+            "epic|opp1111",
+            "epic|opp2222"
+          ]
+        },
+        {
+          "action": "FetchEncounterQueue",
+          "players": [
+            "steam|76561198000000001",
+            "steam|76561198000000002",
+            "epic|opp1111",
+            "epic|opp2222"
+          ]
+        }
+      ],
+      "event": "UpdateState"
+    },
+    {
+      "actions": [
+        {
+          "action": "DiscordPresence",
+          "arenaName": "DFH Stadium",
+          "inMatch": true,
+          "score": [
+            1,
+            0
+          ]
+        }
+      ],
+      "event": "MatchEnded"
+    },
+    {
+      "actions": [
+        {
+          "action": "DiscordPresence",
+          "arenaName": "",
+          "inMatch": false,
+          "score": [
+            1,
+            0
+          ]
+        }
+      ],
+      "event": "MatchDestroyed"
+    },
+    {
+      "actions": [
+        {
+          "action": "DiscordPresence",
+          "arenaName": "",
+          "inMatch": true,
+          "score": [
+            0,
+            0
+          ]
+        }
+      ],
+      "event": "MatchCreated"
+    },
+    {
+      "actions": [
+        {
+          "action": "DiscordPresence",
+          "arenaName": "DFH Stadium",
+          "inMatch": true,
+          "score": [
+            0,
+            0
+          ]
+        },
+        {
+          "action": "FetchLifetimeHistory",
+          "category": "2v2",
+          "primaryId": "steam|76561198000000001"
+        },
+        {
+          "action": "RefreshDbStats",
+          "primaryId": "steam|76561198000000001"
+        },
+        {
+          "action": "FetchMmrQueue",
+          "players": [
+            "steam|76561198000000001",
+            "steam|76561198000000002",
+            "epic|opp1111",
+            "epic|opp2222"
+          ]
+        },
+        {
+          "action": "FetchEncounterQueue",
+          "players": [
+            "steam|76561198000000001",
+            "steam|76561198000000002",
+            "epic|opp1111",
+            "epic|opp2222"
+          ]
+        }
+      ],
+      "event": "UpdateState"
+    },
+    {
+      "actions": [
+        {
+          "action": "DiscordPresence",
+          "arenaName": "DFH Stadium",
+          "inMatch": true,
+          "score": [
+            2,
+            0
+          ]
+        }
+      ],
+      "event": "MatchEnded"
+    },
+    {
+      "actions": [
+        {
+          "action": "DiscordPresence",
+          "arenaName": "",
+          "inMatch": false,
+          "score": [
+            2,
+            0
+          ]
+        }
+      ],
+      "event": "MatchDestroyed"
+    }
+  ],
+  "final_session_totals": {
+    "assists": 0,
+    "assistsTotal": 0,
+    "boostPickedUp": 0,
+    "crossbars": 0,
+    "crossbarsTotal": 0,
+    "demoed": 0,
+    "demos": 0,
+    "demosTotal": 0,
+    "fastestGoalTime": 0.0,
+    "fastestGoalTimeSelf": 0.0,
+    "goalParticipations": 0,
+    "goals": 0,
+    "losses": 0,
+    "maxBallSpeed": 0.0,
+    "maxBallSpeedSelf": 0.0,
+    "maxGoalSpeed": 0.0,
+    "maxGoalSpeedSelf": 0.0,
+    "mmrChangeByPlaylist": {},
+    "ownGoals": 0,
+    "ownGoalsSelf": 0,
+    "saves": 0,
+    "savesTotal": 0,
+    "shots": 0,
+    "shotsTotal": 0,
+    "teamGoals": 0,
+    "totalMmrChange": 0.0,
+    "wins": 0
+  }
+}

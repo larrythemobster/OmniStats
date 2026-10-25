@@ -3,6 +3,8 @@
 #include <atomic>
 #include <string>
 #include <mutex>
+#include <optional>
+#include "network/telemetry/TelemetryRecorder.hpp"
 #include "core/state/SessionState.hpp"
 #include "core/reducer/TelemetryReducer.hpp"
 #include "core/effects/SideEffectExecutor.hpp"
@@ -54,4 +56,5 @@ class StatsClient {
     std::atomic<bool> m_isRunning{false};
     int m_disconnectCount{0};
     bool m_resetAfterDisconnect{false};
+    std::optional<TelemetryRecorder> m_recorder;
 };

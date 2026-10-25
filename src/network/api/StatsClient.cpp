@@ -4,6 +4,7 @@
 #include "database/DatabaseManager.hpp"
 #include "network/DiscordManager.hpp"
 #include "network/mmr/MMRFetcher.hpp"
+#include "network/telemetry/TelemetryRecorder.hpp"
 #include <ctime>
 #include <iostream>
 
@@ -49,6 +50,9 @@ StatsClient::StatsClient(std::shared_ptr<SessionState> state,
                         matchGuid, won);
                 }
             });
+    }
+    if (auto recPath = TelemetryRecorder::PathFromEnvironment()) {
+        m_recorder.emplace(std::move(*recPath));
     }
 }
 
@@ -155,6 +159,9 @@ void StatsClient::RunLoop() {
 }
 
 void StatsClient::OnJsonLine(const std::string& jsonStr) {
+    if (m_recorder) {
+        m_recorder->Record(jsonStr);
+    }
     m_disconnectCount = 0;
     m_resetAfterDisconnect = false;
     try {

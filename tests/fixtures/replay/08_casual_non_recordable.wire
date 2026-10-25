@@ -1,0 +1,5 @@
+1000	{"Event":"MatchCreated","Data":{"MatchGuid":"training-match-008"}}
+1100	{"Event":"UpdateState","Data":{"Game":{"Arena":"stadium_p","PlaylistId":9,"Teams":[{"Score":0,"TeamNum":0}],"bReplay":false,"bSpectator":false},"Players":[{"Boost":100,"Name":"Hero","PrimaryId":"steam|76561198000000001","TeamNum":0}]}}
+1200	{"Event":"RoundStarted","Data":{}}
+1300	{"Event":"MatchEnded","Data":{"MatchGuid":"training-match-008","WinnerTeamNum":0}}
+1400	{"Event":"MatchDestroyed","Data":{"MatchGuid":"training-match-008"}}
