@@ -6,3 +6,4 @@
 *.png binary
 *.ico binary
 *.cache binary
+tests/fixtures/replay/** text eol=lf
