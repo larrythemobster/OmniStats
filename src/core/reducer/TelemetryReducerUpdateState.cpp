@@ -377,6 +377,7 @@ namespace TelemetryReducerDetail {
         // Identity detection
         if (!isSpectator) {
             bool hasLocalPlayerFeeds = false;
+            bool seenMyIdInLobby = false;
             std::unordered_set<std::string> currentCandidates;
             const std::string& cameraTargetId = ev.cameraTargetPlayerId;
             std::string mySavedId = state.myPrimaryId;
@@ -385,70 +386,118 @@ namespace TelemetryReducerDetail {
                 state.identityCandidates.clear();
                 state.missedMyIdCount = 0;
             }
+            const std::string lifetimeCategory = MmrCategoryToString(ctx.graphMmrCategory);
+            const auto requestAccountRefresh = [&](const std::string& primaryId) {
+                effects.fetchLifetimeHistory = true;
+                effects.lifetimePrimaryId = primaryId;
+                effects.lifetimeCategory = lifetimeCategory;
+                effects.refreshDbStats = true;
+                effects.refreshStatsPrimaryId = primaryId;
+            };
+            const auto adoptIdentity = [&](const std::string& primaryId) {
+                state.myPrimaryId = primaryId;
+                effects.selectMmrOwner = primaryId;
+                for (const auto& p : ev.players) {
+                    if (p.primaryId == primaryId) {
+                        if (p.team != -1) state.myTeam = p.team;
+                        break;
+                    }
+                }
+                effects.persistLocalPrimaryId = primaryId;
+                state.identityCandidates.clear();
+                if (const auto selfIt = state.roster.find(primaryId); selfIt != state.roster.end()) {
+                    auto& self = selfIt->second;
+                    if (!self.enqueued && self.mmr == 0) {
+                        self.enqueued = true;
+                        effects.fetchMmrQueue.emplace_back(primaryId, self.name);
+                    }
+                }
+                requestAccountRefresh(primaryId);
+                RequeueEncounterRecords(state, effects);
+            };
 
             for (const auto& p : ev.players) {
                 const std::string& pid = p.primaryId;
-                if (pid.empty()) continue;
-                const bool isPcPlatform = (pid.rfind("Steam|", 0) == 0 || pid.rfind("Epic|", 0) == 0);
-                const bool isLocalPlayerFeed = isPcPlatform && !cameraTargetId.empty() && pid == cameraTargetId;
-                if (isLocalPlayerFeed) {
+                if (pid.empty() || p.team == -1) continue;
+                std::string platform = pid.substr(0, pid.find('|'));
+                std::transform(platform.begin(), platform.end(), platform.begin(),
+                               [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+                const bool isPcPlatform = pid.find('|') != std::string::npos &&
+                                          (platform == "steam" || platform == "epic" || platform == "epicgames");
+                if (isPcPlatform && !cameraTargetId.empty() && pid == cameraTargetId) {
                     hasLocalPlayerFeeds = true;
                     currentCandidates.insert(pid);
                 }
-            }
-
-            if (!hasLocalPlayerFeeds && cameraTargetId.empty()) {
-                for (const auto& p : ev.players) {
-                    const std::string& pid = p.primaryId;
-                    if (pid.empty()) continue;
-                    const bool isPcPlatform = (pid.rfind("Steam|", 0) == 0 || pid.rfind("Epic|", 0) == 0);
-                    if (p.bHasCar && !p.bDemolished && isPcPlatform) {
-                        hasLocalPlayerFeeds = true;
-                        currentCandidates.insert(pid);
+                if (!mySavedId.empty() && pid == mySavedId) {
+                    seenMyIdInLobby = true;
+                    if (state.myTeam == -1) {
+                        state.myTeam = p.team;
+                        requestAccountRefresh(mySavedId);
                     }
                 }
             }
 
-            std::string selectedId;
-            std::string selectedName;
-            if (!cameraTargetId.empty() && currentCandidates.count(cameraTargetId)) {
-                selectedId = cameraTargetId;
-                auto it = state.roster.find(selectedId);
-                if (it != state.roster.end()) selectedName = it->second.name;
-            } else if (hasLocalPlayerFeeds) {
-                if (state.identityCandidates.empty()) {
-                    state.identityCandidates = currentCandidates;
-                } else {
-                    std::unordered_set<std::string> intersection;
-                    for (const auto& id : currentCandidates) {
-                        if (state.identityCandidates.count(id)) intersection.insert(id);
+            if (hasLocalPlayerFeeds) {
+                // A saved id missing from the lobby while one local feed is present means the user switched accounts.
+                if (!mySavedId.empty() && !seenMyIdInLobby && !currentCandidates.empty()) {
+                    const std::string newId = *std::min_element(currentCandidates.begin(), currentCandidates.end());
+                    if (newId != mySavedId) {
+                        std::cout << "[Identity] Detected account switch. New ID: "
+                                  << PrivacyLog::Sensitive(newId, "player ID") << "\n";
+                        adoptIdentity(newId);
+                        state.missedMyIdCount = 0;
                     }
-                    if (!intersection.empty())
-                        state.identityCandidates = std::move(intersection);
-                    else
+                }
+
+                if (!mySavedId.empty()) {
+                    if (seenMyIdInLobby) {
+                        state.missedMyIdCount = 0;
+                    } else if (++state.missedMyIdCount >= 2) {
+                        std::cout << "[Identity] Missed saved ID " << PrivacyLog::Sensitive(mySavedId, "player ID")
+                                  << " for 2 matches. Resetting...\n";
+                        state.myPrimaryId.clear();
+                        state.myTeam = -1;
+                        mySavedId.clear();
+                        state.missedMyIdCount = 0;
+                        state.identityCandidates.clear();
+                        effects.persistLocalPrimaryId = std::string{};
+                    }
+                }
+
+                if (mySavedId.empty() && !currentCandidates.empty()) {
+                    if (state.identityCandidates.empty()) {
                         state.identityCandidates = currentCandidates;
-                }
-                if (state.identityCandidates.size() == 1) {
-                    selectedId = *state.identityCandidates.begin();
-                    auto it = state.roster.find(selectedId);
-                    if (it != state.roster.end()) selectedName = it->second.name;
-                }
-            }
+                        std::cout << "[Identity] Process of elimination started. Candidates: "
+                                  << state.identityCandidates.size() << "\n";
+                    } else {
+                        std::unordered_set<std::string> intersection;
+                        for (const auto& candidate : state.identityCandidates) {
+                            if (currentCandidates.count(candidate)) intersection.insert(candidate);
+                        }
+                        state.identityCandidates = std::move(intersection);
+                        std::cout << "[Identity] Intersected candidates. Remaining: "
+                                  << state.identityCandidates.size() << "\n";
+                    }
 
-            if (!selectedId.empty() && selectedId != state.myPrimaryId) {
-                state.myPrimaryId = selectedId;
-                state.lastKnownMyId = selectedId;
-                RequeueEncounterRecords(state, effects);
-            }
+                    if (state.identityCandidates.size() == 1) {
+                        const std::string identifiedId = *state.identityCandidates.begin();
+                        std::cout << "[Identity] Identified local player: "
+                                  << PrivacyLog::Sensitive(identifiedId, "player ID") << "\n";
+                        adoptIdentity(identifiedId);
+                    } else if (state.identityCandidates.empty()) {
+                        state.identityCandidates = currentCandidates;
+                    }
+                }
 
-            if (!state.myPrimaryId.empty() && currentCandidates.count(state.myPrimaryId) != 0) {
-                const auto self = state.roster.find(state.myPrimaryId);
-                const std::string confirmedName = self == state.roster.end() ? std::string{} : self->second.name;
-                const std::string key = state.myPrimaryId + '\x1f' + confirmedName;
-                if (key != state.lastConfirmedLocalAccount) {
-                    state.lastConfirmedLocalAccount = key;
-                    effects.confirmedLocalAccount =
-                        ConfirmedLocalAccount{state.myPrimaryId, confirmedName};
+                const std::string& confirmedId = state.myPrimaryId;
+                if (!confirmedId.empty() && currentCandidates.count(confirmedId) > 0) {
+                    const auto selfIt = state.roster.find(confirmedId);
+                    const std::string confirmedName = selfIt != state.roster.end() ? selfIt->second.name : std::string();
+                    std::string key = confirmedId + '\x1f' + confirmedName;
+                    if (key != state.lastConfirmedLocalAccount) {
+                        state.lastConfirmedLocalAccount = std::move(key);
+                        effects.confirmedLocalAccount = ConfirmedLocalAccount{confirmedId, confirmedName};
+                    }
                 }
             }
 
@@ -547,7 +596,7 @@ namespace TelemetryReducerDetail {
         }
 
         if (!PlaylistMetadata::HasAuthoritativeId(state.playlistId)) {
-            const std::string mode = InferModeFromMatchState(state, state.autoSwitchedPlaylistCategory);
+            const std::string mode = InferModeFromMatchState(state, ctx.rosterMmrCategory);
             const int expectedTeamSize = LegacyExpectedTeamSizeForMode(mode);
             if (expectedTeamSize > 0 &&
                 state.legacyCurrentTeamPlayersSeen[0] >= expectedTeamSize &&

@@ -2,6 +2,7 @@
 #include "network/http/CurlImpersonate.hpp"
 #include "network/omninet/OmniNet.hpp"
 #include "core/config/Config.hpp"
+#include "core/state/LiveMatchStore.hpp"
 #include "utils/Storage.hpp"
 
 #include <atomic>

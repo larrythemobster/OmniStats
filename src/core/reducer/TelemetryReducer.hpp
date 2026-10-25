@@ -23,6 +23,7 @@ struct ReducerContext {
     // Categories currently shown, so following respects user overrides made between events.
     MmrCategory rosterMmrCategory = MmrCategory::Best;
     MmrCategory rankProgressMmrCategory = MmrCategory::TwoVTwo;
+    MmrCategory graphMmrCategory = MmrCategory::TwoVTwo;
 };
 
 struct UIState;

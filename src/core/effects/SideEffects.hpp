@@ -85,5 +85,8 @@ struct SideEffects {
     std::optional<SessionRecap> persistSession;
     std::optional<SessionRecap> updateSession;
     std::optional<ConfirmedLocalAccount> confirmedLocalAccount;
+    // Identity changes: the saved local id (empty clears it) and the account whose MMR history is shown.
+    std::optional<std::string> persistLocalPrimaryId;
+    std::optional<std::string> selectMmrOwner;
     std::optional<UiStateUpdate> uiUpdate;
 };

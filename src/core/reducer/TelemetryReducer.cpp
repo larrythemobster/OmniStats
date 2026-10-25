@@ -23,7 +23,8 @@ ReducerContext MakeReducerContext(const UIState& ui) {
         .nowUnix = static_cast<int64_t>(std::time(nullptr)),
         .config = Config::Read(),
         .rosterMmrCategory = ui.rosterMmrCategory.load(std::memory_order_relaxed),
-        .rankProgressMmrCategory = ui.rankProgressMmrCategory.load(std::memory_order_relaxed)};
+        .rankProgressMmrCategory = ui.rankProgressMmrCategory.load(std::memory_order_relaxed),
+        .graphMmrCategory = ui.graphMmrCategory.load(std::memory_order_relaxed)};
 }
 
 namespace TelemetryReducerDetail {
@@ -345,8 +346,16 @@ SideEffects TelemetryReducer::ReduceInPlace(MatchState& state,
                 }
             }
         } else if constexpr (std::is_same_v<T, TelemetryEvents::UpdateStateEvent>) {
+            const std::string preArena = state.arenaName;
+            const std::array<int, 2> preScore = state.score;
+            const bool preInMatch = state.inMatch;
             HandleUpdateState(state, ev, context, effects);
             if (AcceptsAnalyticsEvent(state, ev.matchGuid)) state.analytics.OnUpdateState(ev, context.nowSeconds);
+            if (!effects.pushDiscord &&
+                (state.arenaName != preArena || state.score != preScore || state.inMatch != preInMatch)) {
+                effects.pushDiscord = true;
+                effects.discordSnapshot = BuildDiscordSnapshot(state);
+            }
         } else if constexpr (std::is_same_v<T, TelemetryEvents::StatfeedEvent>) {
             if (AcceptsAnalyticsEvent(state, ev.matchGuid)) state.analytics.OnStatfeed(ev);
             HandleStatfeed(state, ev, context);

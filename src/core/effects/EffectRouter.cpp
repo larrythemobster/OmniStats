@@ -1,5 +1,6 @@
 #include "core/effects/EffectRouter.hpp"
 
+#include "core/config/Config.hpp"
 #include "database/DatabaseManager.hpp"
 #include "network/DiscordManager.hpp"
 #include "network/mmr/MMRFetcher.hpp"
@@ -16,6 +17,13 @@ void EffectRouter::Route(SideEffects&& effects,
                          std::shared_ptr<MMRFetcher> mmrFetcher,
                          std::shared_ptr<AccountManagerService> accountManager,
                          std::shared_ptr<SessionState> sessionState) {
+    if (effects.selectMmrOwner && sessionState) {
+        std::unique_lock lock(sessionState->history.mutex);
+        sessionState->selectMmrOwnerLocked(*effects.selectMmrOwner);
+    }
+    if (effects.persistLocalPrimaryId) {
+        Config::Update([&id = *effects.persistLocalPrimaryId](ConfigData& c) { c.last_primary_id = id; });
+    }
     if (effects.uiUpdate && sessionState) {
         const auto& ui = *effects.uiUpdate;
         if (ui.matchReset) {
