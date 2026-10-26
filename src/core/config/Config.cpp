@@ -592,6 +592,14 @@ namespace Config {
 
     static void SaveInternal();
 
+    static void MarkPendingSave() {
+        {
+            std::lock_guard<std::mutex> lock(s_saverMutex);
+            s_pendingSave.store(true);
+        }
+        s_saverCv.notify_one();
+    }
+
     void InitSaver() {
         if (s_saverRunning.exchange(true)) return;
         s_saveThread = std::jthread([](std::stop_token stopToken) {
@@ -627,7 +635,10 @@ namespace Config {
     }
 
     void ShutdownSaver() {
-        if (!s_saverRunning.exchange(false)) return;
+        {
+            std::lock_guard<std::mutex> lock(s_saverMutex);
+            if (!s_saverRunning.exchange(false)) return;
+        }
         s_saverCv.notify_all();
         if (s_saveThread.joinable()) {
             s_saveThread.request_stop();
@@ -661,8 +672,7 @@ namespace Config {
         }
         s_revision.fetch_add(1, std::memory_order_release);
         if (saveToDisk) {
-            s_pendingSave.store(true);
-            s_saverCv.notify_one();
+            MarkPendingSave();
         }
     }
 
@@ -717,16 +727,18 @@ namespace Config {
             }
 
             // Pro account legacy key migrations
-            if (!j.contains("custom_api_key") && j.contains("pro_api_key") && j["pro_api_key"].is_string()) {
+            if ((!j.contains("custom_api_key") || !j["custom_api_key"].is_string()) &&
+                j.contains("pro_api_key") && j["pro_api_key"].is_string()) {
                 s_secretStore.LoadSecretField("custom_api_key", j["pro_api_key"].get<std::string>(), Current.custom_api_key, needsLegacyMigration, Current.credentials_decryption_failed);
                 if (!Current.custom_api_key.empty()) needsLegacyMigration = true;
             }
-            if (!j.contains("custom_api_enabled") && j.contains("pro_account_enabled") && j["pro_account_enabled"].is_boolean()) {
+            if ((!j.contains("custom_api_enabled") || !j["custom_api_enabled"].is_boolean()) &&
+                j.contains("pro_account_enabled") && j["pro_account_enabled"].is_boolean()) {
                 Current.custom_api_enabled = j["pro_account_enabled"].get<bool>();
             }
 
             // Onboarding migration
-            if (!j.contains("onboarding_completed")) {
+            if (!j.contains("onboarding_completed") || !j["onboarding_completed"].is_boolean()) {
                 Current.onboarding_completed = !Current.privacy_policy_accepted_version.empty();
             }
 
@@ -741,10 +753,10 @@ namespace Config {
                 j.contains("overlay_layout") ||
                 j.contains("dashboard_layout");
 
-            if (!j.contains("match_summary_seconds")) {
+            if (!j.contains("match_summary_seconds") || !j["match_summary_seconds"].is_number_integer() ||
+                j["match_summary_seconds"].get<long double>() < (std::numeric_limits<int>::lowest)() ||
+                j["match_summary_seconds"].get<long double>() > (std::numeric_limits<int>::max)()) {
                 Current.match_summary_seconds = existingInstall ? 30 : 20;
-            } else {
-                Current.match_summary_seconds = std::clamp(Current.match_summary_seconds, 5, 60);
             }
 
             // MMR category fallbacks
@@ -825,7 +837,7 @@ namespace Config {
             }
 
             if (needsSave) {
-                s_pendingSave.store(true);
+                MarkPendingSave();
             }
             s_revision.fetch_add(1, std::memory_order_release);
             std::cout << "[Config] Loaded config.json successfully.\n";
@@ -872,8 +884,7 @@ namespace Config {
     }
 
     void RequestSave() {
-        s_pendingSave.store(true);
-        s_saverCv.notify_one();
+        MarkPendingSave();
     }
 
     void SetWindowsAutoStart(bool enable) {

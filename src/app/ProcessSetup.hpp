@@ -12,6 +12,7 @@ namespace AppShell {
 
     class ProcessSetup {
       public:
+        static void InitializeEarly();
         static bool HandleCommandLine(int argc, char* argv[]);
 
         ProcessSetup();

@@ -98,7 +98,7 @@ class TelemetryManager {
 
     static std::string GenerateUUIDv4();
 
-    TelemetryManager() = default;
+    TelemetryManager();
     explicit TelemetryManager(std::shared_ptr<DatabaseManager> db);
     ~TelemetryManager();
 

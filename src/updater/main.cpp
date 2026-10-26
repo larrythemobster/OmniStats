@@ -215,7 +215,7 @@ bool PerformUpdateCheck(const std::string& serverUrl, std::string& latestVersion
             category = "signature_invalid";
         } else if (result == ManifestVerifyResult::DowngradeRefused) {
             category = "downgrade_refused";
-            latestVersion = manifest.version;
+            latestVersion.clear();
         } else if (result == ManifestVerifyResult::ParseError) {
             category = "parse_error";
         }
@@ -228,7 +228,7 @@ bool PerformUpdateCheck(const std::string& serverUrl, std::string& latestVersion
     std::cout << "[Updater] Verified server release: " << latestVersion
               << ", local app version: " << localVersion
               << (forced ? " (mandatory update required)" : "") << "\n";
-    return true;
+    return UpdaterCommon::IsNewerVersion(localVersion, latestVersion);
 }
 
 namespace {

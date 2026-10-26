@@ -88,6 +88,11 @@ namespace AppShell {
         }
     } // namespace
 
+    void ProcessSetup::InitializeEarly() {
+        EnablePerMonitorDpiAwareness();
+        SetUnhandledExceptionFilter(GlobalUnhandledExceptionFilter);
+    }
+
     bool ProcessSetup::HandleCommandLine(int argc, char* argv[]) {
         for (int i = 1; i < argc; ++i) {
             std::string arg = argv[i];
@@ -104,8 +109,6 @@ namespace AppShell {
     }
 
     ProcessSetup::ProcessSetup() {
-        EnablePerMonitorDpiAwareness();
-        SetUnhandledExceptionFilter(GlobalUnhandledExceptionFilter);
 
         // Initialize Curl globally for static linking
         curl_global_init(CURL_GLOBAL_ALL);

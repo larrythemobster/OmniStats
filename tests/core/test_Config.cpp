@@ -8,6 +8,8 @@
 #include <mutex>
 #include <shared_mutex>
 #include <limits>
+#include <chrono>
+#include <thread>
 
 class ConfigTest : public ::testing::Test {
   protected:
@@ -545,6 +547,52 @@ TEST_F(ConfigTest, OldLayoutMigratesToKeyHeldEverywhereAndInvalidValuesSanitize)
     EXPECT_EQ(loaded.overlay_layout.containers[2].visibility.mode, OverlayLayout::Visibility::KeyHeld);
     EXPECT_EQ(loaded.overlay_layout.containers[2].visibility.event, OverlayLayout::Visibility::FirstCountdown);
     EXPECT_EQ(loaded.overlay_layout.containers[2].visibility.seconds, 1);
+}
+
+TEST_F(ConfigTest, ExistingInstallInvalidFieldsUseLegacyDefaults) {
+    const std::string configPath = Config::GetConfigPath();
+    {
+        std::ofstream file(configPath);
+        file << nlohmann::json{{"privacy_policy_accepted_version", "accepted"},
+                               {"onboarding_completed", "invalid"},
+                               {"match_summary_seconds", "invalid"}}
+                    .dump();
+    }
+
+    Config::Load();
+    EXPECT_TRUE(Config::Read().onboarding_completed);
+    EXPECT_EQ(Config::Read().match_summary_seconds, 30);
+}
+
+TEST_F(ConfigTest, LoadMigrationWakesRunningSaver) {
+    Config::ShutdownSaver();
+    Config::InitSaver();
+    Config::ShutdownSaver();
+    Config::Save();
+    Config::InitSaver();
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    const std::string configPath = Config::GetConfigPath();
+    {
+        std::ofstream file(configPath);
+        file << nlohmann::json{{"gamepad_overlay", 6},
+                               {"controller_default_back_migrated", false}}
+                    .dump();
+    }
+
+    Config::Load();
+    bool saved = false;
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+    while (std::chrono::steady_clock::now() < deadline) {
+        std::ifstream file(configPath);
+        nlohmann::json value = nlohmann::json::parse(file, nullptr, false);
+        if (value.is_object() && value.value("controller_default_back_migrated", false)) {
+            saved = value.value("gamepad_overlay", -1) == 4;
+            break;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    }
+    Config::ShutdownSaver();
+    EXPECT_TRUE(saved);
 }
 
 TEST_F(ConfigTest, NewInstallDefaultsLobbyRanksToFirstCountdown8sAndMatchSummaryTo20s) {

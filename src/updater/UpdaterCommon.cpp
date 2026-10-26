@@ -1,4 +1,5 @@
 #include "updater/UpdaterCommon.hpp"
+#include "updater/AuthenticodeStatus.hpp"
 #include "utils/FileHash.hpp"
 #include "updater/UpdaterEventLog.hpp"
 #include <vector>
@@ -146,6 +147,27 @@ namespace UpdaterCommon {
         return result;
     }
 
+    static DWORD NonRootRevocationErrors(HANDLE state) {
+        CRYPT_PROVIDER_DATA* provider = WTHelperProvDataFromStateData(state);
+        if (!provider) return 0;
+        const CRYPT_PROVIDER_SGNR* signer = WTHelperGetProvSignerFromChain(provider, 0, FALSE, 0);
+        if (!signer || !signer->pChainContext) return 0;
+        DWORD errors = 0;
+        const CERT_CHAIN_CONTEXT* context = signer->pChainContext;
+        for (DWORD i = 0; i < context->cChain; ++i) {
+            const CERT_SIMPLE_CHAIN* chain = context->rgpChain[i];
+            DWORD checkedElements = chain->cElement;
+            if (checkedElements > 0) {
+                const CERT_INFO* last = chain->rgpElement[checkedElements - 1]->pCertContext->pCertInfo;
+                if (CertCompareCertificateName(X509_ASN_ENCODING, &last->Subject, &last->Issuer)) --checkedElements;
+            }
+            for (DWORD j = 0; j < checkedElements; ++j) {
+                errors |= chain->rgpElement[j]->TrustStatus.dwErrorStatus;
+            }
+        }
+        return errors;
+    }
+
     SignatureVerificationResult VerifyAuthenticodeSignature(const std::string& filePath) {
         SignatureVerificationResult result;
 
@@ -176,10 +198,9 @@ namespace UpdaterCommon {
         GUID action = WINTRUST_ACTION_GENERIC_VERIFY_V2;
         LONG status = WinVerifyTrust(nullptr, &action, &trustData);
 
-        // Fall back to cached revocation if online revocation check fails due to offline/unreachable server.
-        if (status == static_cast<LONG>(CERT_E_REVOCATION_FAILURE) ||
-            status == static_cast<LONG>(CRYPT_E_REVOCATION_OFFLINE) ||
-            status == static_cast<LONG>(CRYPT_E_NO_REVOCATION_CHECK)) {
+        AuthenticodeStatus classification = ClassifyAuthenticodeStatus(status, NonRootRevocationErrors(trustData.hWVTStateData));
+        // Retry only an unknown revocation result. Never discard an observed revocation.
+        if (classification == AuthenticodeStatus::RevocationUnknown) {
             trustData.dwStateAction = WTD_STATEACTION_CLOSE;
             WinVerifyTrust(nullptr, &action, &trustData);
 
@@ -187,13 +208,23 @@ namespace UpdaterCommon {
             trustData.dwStateAction = WTD_STATEACTION_VERIFY;
             trustData.dwProvFlags = WTD_REVOCATION_CHECK_CHAIN_EXCLUDE_ROOT | WTD_CACHE_ONLY_URL_RETRIEVAL;
             status = WinVerifyTrust(nullptr, &action, &trustData);
+            classification = ClassifyAuthenticodeStatus(status, NonRootRevocationErrors(trustData.hWVTStateData));
         }
-        // Separate cryptographic Authenticode signature validity from Windows trust-chain status:
-        // - ERROR_SUCCESS: signature intact, root trusted by Windows CA store
-        // - CERT_E_UNTRUSTEDROOT: signature intact, root untrusted (expected for pinned self-signed cert)
-        // All other codes (TRUST_E_NOSIGNATURE, TRUST_E_BAD_DIGEST, 0x800b0003, etc.) indicate unsigned,
-        // modified, corrupted, or structurally invalid signatures.
-        if (status == ERROR_SUCCESS || status == static_cast<LONG>(CERT_E_UNTRUSTEDROOT)) {
+        if (classification == AuthenticodeStatus::RevocationUnknown) {
+            trustData.dwStateAction = WTD_STATEACTION_CLOSE;
+            WinVerifyTrust(nullptr, &action, &trustData);
+
+            trustData.hWVTStateData = nullptr;
+            trustData.dwStateAction = WTD_STATEACTION_VERIFY;
+            trustData.fdwRevocationChecks = WTD_REVOKE_NONE;
+            trustData.dwProvFlags = WTD_CACHE_ONLY_URL_RETRIEVAL;
+            status = WinVerifyTrust(nullptr, &action, &trustData);
+            classification = ClassifyAuthenticodeStatus(status, NonRootRevocationErrors(trustData.hWVTStateData), false);
+            result.revocationUnknown = true;
+        }
+        // Unknown revocation is permitted only after a separate signature check.
+        // VerifyMsiPackage still requires the signer certificate to match a pin.
+        if (classification == AuthenticodeStatus::Valid || classification == AuthenticodeStatus::UntrustedRoot) {
             CRYPT_PROVIDER_DATA* providerData = WTHelperProvDataFromStateData(trustData.hWVTStateData);
             if (providerData) {
                 CRYPT_PROVIDER_SGNR* signer = WTHelperGetProvSignerFromChain(providerData, 0, FALSE, 0);
@@ -228,11 +259,12 @@ namespace UpdaterCommon {
                 ss << " (TRUST_E_NOSIGNATURE: file is unsigned)";
             } else if (status == static_cast<LONG>(TRUST_E_BAD_DIGEST)) {
                 ss << " (TRUST_E_BAD_DIGEST: signature digest mismatch - file modified/tampered)";
-            } else if (status == static_cast<LONG>(CERT_E_REVOKED) || status == static_cast<LONG>(CRYPT_E_REVOKED)) {
-                ss << " (CERT_E_REVOKED: signing certificate is revoked)";
-            } else if (status == static_cast<LONG>(CERT_E_REVOCATION_FAILURE) || status == static_cast<LONG>(CRYPT_E_REVOCATION_OFFLINE)) {
-                ss << " (CERT_E_REVOCATION_FAILURE: revocation check failed)";
+            } else if (classification == AuthenticodeStatus::Revoked) {
+                ss << " (certificate chain is revoked)";
+            } else if (classification == AuthenticodeStatus::RevocationUnknown) {
+                ss << " (certificate revocation status is unknown)";
             }
+            result.statusMessage = ss.str();
         }
 
         trustData.dwStateAction = WTD_STATEACTION_CLOSE;
@@ -274,6 +306,9 @@ namespace UpdaterCommon {
         if (!signature.signer.empty()) {
             std::cout << "[Updater] MSI Authenticode signer: '" << signature.signer << "' ("
                       << (signature.trustedRoot ? "trusted root" : "untrusted root / self-signed") << ").\n";
+        }
+        if (signature.revocationUnknown) {
+            std::cout << "[Updater] Certificate revocation status is unknown; signature and certificate pin are still required.\n";
         }
 
         std::string actualCertSha = signature.certSha256;

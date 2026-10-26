@@ -375,12 +375,15 @@ TEST(ReleaseManifestTest, DowngradeRefused) {
     EXPECT_EQ(ReleaseManifestVerifier::VerifyManifest(manifestJson, sig, "2.4.0", kp.publicKeyHex),
               ManifestVerifyResult::DowngradeRefused);
 
-    // Equal version 2.4.0 -> Refuse downgrade
+    // Equal version is valid and retains the verified manifest.
     manifest.version = "2.4.0";
     const std::string manifestJsonEqual = ReleaseManifestVerifier::SerializeManifest(manifest);
     const std::string sigEqual = kp.Sign(manifestJsonEqual);
-    EXPECT_EQ(ReleaseManifestVerifier::VerifyManifest(manifestJsonEqual, sigEqual, "2.4.0", kp.publicKeyHex),
-              ManifestVerifyResult::DowngradeRefused);
+    ReleaseManifest parsedEqual;
+    EXPECT_EQ(ReleaseManifestVerifier::VerifyManifest(manifestJsonEqual, sigEqual, "2.4.0", kp.publicKeyHex, "", &parsedEqual),
+              ManifestVerifyResult::Ok);
+    EXPECT_EQ(parsedEqual.version, "2.4.0");
+    EXPECT_FALSE(UpdaterCommon::IsNewerVersion("2.4.0", parsedEqual.version));
 
     // Newer version 2.4.1 -> Accept
     manifest.version = "2.4.1";

@@ -8,6 +8,7 @@
 #endif
 
 int main(int argc, char* argv[]) {
+    AppShell::ProcessSetup::InitializeEarly();
     if (!AppShell::ProcessSetup::HandleCommandLine(argc, argv)) {
         return 0;
     }

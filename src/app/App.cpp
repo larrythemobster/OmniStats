@@ -30,6 +30,8 @@ App::~App() {
 int App::Run() {
     std::cout << "OmniStats Starting...\n";
     Config::Load();
+    m_telemetryManager = std::make_shared<TelemetryManager>();
+    ExternalUpdaterLauncher::SetTelemetryManager(m_telemetryManager);
 
     // Network services wait for the Privacy Policy and Terms, which the first-run window collects.
     const bool consentedAtStartup = Config::HasCurrentConsent(Config::Read());
@@ -98,11 +100,9 @@ int App::Run() {
 
     m_remoteConfig = std::make_shared<RemoteConfig>();
     m_tournamentService = std::make_shared<Tournaments::TournamentScheduleService>();
-    m_telemetryManager = std::make_shared<TelemetryManager>(m_dbManager);
 
     m_dbManager->SetTelemetryManager(m_telemetryManager);
     AccountClient::Instance().SetTelemetryManager(m_telemetryManager);
-    ExternalUpdaterLauncher::SetTelemetryManager(m_telemetryManager);
 
     const auto startConsentedServices = [this](bool syncAccount) {
         if (syncAccount) AccountClient::Instance().SyncFromConfig();

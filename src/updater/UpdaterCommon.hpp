@@ -10,11 +10,12 @@ namespace UpdaterCommon {
     bool VerifyFileSHA256(const std::string& filePath, const std::string& expectedHash);
 
     struct SignatureVerificationResult {
-        bool digestValid = false;  // Cryptographic signature is intact and untampered
-        bool trustedRoot = false;  // Whether root cert is in Windows Trusted Root store
-        std::string signer;        // Subject display name (for logging/display only)
-        std::string certSha256;    // SHA-256 fingerprint of DER-encoded certificate
-        std::string statusMessage; // Diagnostic message
+        bool digestValid = false;       // Cryptographic signature is intact and untampered
+        bool trustedRoot = false;       // Whether root cert is in Windows Trusted Root store
+        bool revocationUnknown = false; // Signature verified without a conclusive revocation result
+        std::string signer;             // Subject display name (for logging/display only)
+        std::string certSha256;         // SHA-256 fingerprint of DER-encoded certificate
+        std::string statusMessage;      // Diagnostic message
     };
 
     SignatureVerificationResult VerifyAuthenticodeSignature(const std::string& filePath);

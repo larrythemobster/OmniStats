@@ -4,6 +4,7 @@
 #include "core/config/Config.hpp"
 #include "core/state/SessionState.hpp"
 #include "database/DatabaseManager.hpp"
+#include "network/omninet/OmniNet.hpp"
 #include <memory>
 #include <nlohmann/json.hpp>
 #include <regex>
@@ -24,6 +25,23 @@ TEST(TelemetryManagerTest, GenerateUUIDv4) {
     // Format: 8-4-4-4-12
     std::regex uuid_regex("^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$");
     EXPECT_TRUE(std::regex_match(uuid, uuid_regex));
+}
+
+TEST(TelemetryManagerTest, UninitializedShutdownDoesNotSendHeartbeat) {
+    const auto original = Config::Read().client_uuid;
+    Config::Update([](ConfigData& c) { c.client_uuid = "existing-client"; }, false);
+    int requests = 0;
+    OmniNet::SetTransportForTesting([&](const OmniNet::Request&) {
+        ++requests;
+        return OmniNet::Response{};
+    });
+    {
+        TelemetryManager tm;
+        tm.Shutdown();
+    }
+    OmniNet::SetTransportForTesting({});
+    Config::Update([&](ConfigData& c) { c.client_uuid = original; }, false);
+    EXPECT_EQ(requests, 0);
 }
 
 TEST(TelemetryManagerTest, MilestoneDeduplicationAndValidation) {

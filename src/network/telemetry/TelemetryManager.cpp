@@ -101,7 +101,9 @@ std::string TelemetryManager::GenerateUUIDv4() {
     return ss.str();
 }
 
-TelemetryManager::TelemetryManager(std::shared_ptr<DatabaseManager> db) {
+TelemetryManager::TelemetryManager() : m_lastAccountingUnbiasedTime(GetCurrentUnbiasedTime()) {}
+
+TelemetryManager::TelemetryManager(std::shared_ptr<DatabaseManager> db) : TelemetryManager() {
     Initialize(std::move(db));
 }
 
@@ -220,6 +222,7 @@ void TelemetryManager::FlushPendingUpdaterEvents() {
         return;
     }
 
+    size_t sentCount = 0;
     for (size_t i = 0; i < lines.size(); ++i) {
         if (!m_isRunning.load()) break;
 
@@ -243,12 +246,19 @@ void TelemetryManager::FlushPendingUpdaterEvents() {
             if (resp.transportError != 0) {
                 break;
             }
+            ++sentCount;
         } catch (...) {
+            ++sentCount;
         }
     }
 
-    std::error_code ec;
-    fs::remove(eventsPath, ec);
+    if (sentCount == lines.size()) {
+        std::error_code ec;
+        fs::remove(eventsPath, ec);
+        std::cout << "[Telemetry] All updater events sent and queue cleared.\n";
+    } else if (sentCount > 0) {
+        UpdaterEventLog::WriteLines(eventsPath, lines, sentCount);
+    }
 }
 
 void TelemetryManager::SendHeartbeatInternal(bool isShutdown) {
@@ -407,7 +417,9 @@ void TelemetryManager::Shutdown() {
         m_workerThread.reset();
         std::cout << "[Telemetry] Worker thread joined.\n";
     }
-    SendShutdownHeartbeat();
+    if (m_db) {
+        SendShutdownHeartbeat();
+    }
 }
 
 void TelemetryManager::CheckAndReportCrashes() {

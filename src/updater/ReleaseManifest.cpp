@@ -149,7 +149,7 @@ ManifestVerifyResult ReleaseManifestVerifier::VerifyManifest(const std::string& 
         return ManifestVerifyResult::ParseError;
     }
 
-    if (!installedVersion.empty() && !UpdaterCommon::IsNewerVersion(installedVersion, manifest.version)) {
+    if (!installedVersion.empty() && UpdaterCommon::IsNewerVersion(manifest.version, installedVersion)) {
         return ManifestVerifyResult::DowngradeRefused;
     }
 
