@@ -3,7 +3,7 @@
 #include "core/tournaments/TournamentSchedule.hpp"
 #include "network/api/AccountClient.hpp"
 #include "ui/rml/controller/RmlUiController.hpp"
-#include <shobjidl.h>
+#include "ui/rml/presenters/SettingsPresenter.hpp"
 #include <commdlg.h>
 
 #include "core/config/AppVersion.hpp"
@@ -21,9 +21,9 @@
 
 using namespace RmlUiDetail;
 
-std::string RmlUiController::RenderSettingsCards() {
+std::string SettingsPresenter::RenderCards(const ConfigData& config, bool showDetails) {
     std::ostringstream out;
-    const bool dashboard = m_config.second_monitor_mode;
+    const bool dashboard = config.second_monitor_mode;
     out << SectionStart(dashboard ? "Dashboard cards" : "Overlay cards")
         << ActionRow("Card positions", dashboard ? "Move and resize cards on the dashboard." : "Move, resize, and dock cards on screen.",
                      Button(dashboard ? "dashboard-edit" : "overlay-edit-toggle", "Position cards", "ghost"));
@@ -40,7 +40,7 @@ std::string RmlUiController::RenderSettingsCards() {
     out << "<span class='card-head-toggle'>On</span></div>";
     for (auto widget : cards) {
         const bool tournament = widget == DashboardLayout::WidgetId::Tournaments;
-        const bool enabled = WidgetSettings::Enabled(m_config, widget, dashboard);
+        const bool enabled = WidgetSettings::Enabled(config, widget, dashboard);
         const bool disabled = tournament && !AccountClient::Instance().IsSignedIn();
         const std::string dom = WidgetDomId(widget);
         out << "<div class='display-card-setting'><div class='setting-row card-row'><div class='setting-info'><div class='setting-name'>"
@@ -48,7 +48,7 @@ std::string RmlUiController::RenderSettingsCards() {
         if (disabled) out << "<div class='setting-help'>Sign in under Accounts &amp; services to see tournaments.</div>";
         out << "</div>";
         const bool showRules = enabled && !disabled && !dashboard;
-        const auto vis = OverlayLayout::GetWidgetVisibility(m_config.overlay_layout, widget);
+        const auto vis = OverlayLayout::GetWidgetVisibility(config.overlay_layout, widget);
         if (showRules) {
             out << "<div class='row card-rule'>"
                 << SelectControl("widget_vis_mode:" + dom, OverlayVisibilityModeOptions(), OverlayLayout::ToConfigString(vis.mode)) << "</div>";
@@ -61,7 +61,7 @@ std::string RmlUiController::RenderSettingsCards() {
                 << SelectControl("widget_vis_seconds:" + dom, OverlayVisibilitySecondsOptions(), std::to_string(vis.seconds), "seconds-select")
                 << "</div>";
         }
-        if (showRules && m_showCardDetails) {
+        if (showRules && showDetails) {
             const bool keyHeldOption = vis.mode == OverlayLayout::Visibility::AlwaysInMatch ||
                                        vis.mode == OverlayLayout::Visibility::MenusOnly ||
                                        vis.mode == OverlayLayout::Visibility::AfterEvent;
@@ -74,38 +74,38 @@ std::string RmlUiController::RenderSettingsCards() {
     }
     out << SectionEnd()
         << "<div class='settings-disclosure'>"
-        << Button("toggle-card-details", m_showCardDetails ? "Hide card options" : "Show card options", "ghost")
+        << Button("toggle-card-details", showDetails ? "Hide card options" : "Show card options", "ghost")
         << "</div>";
-    if (!m_showCardDetails) return out.str();
+    if (!showDetails) return out.str();
 
     out << SectionStart("Session card")
-        << ToggleControl("show_session_record", "Record", "", m_config.show_session_record)
-        << ToggleControl("show_session_goals", "Goals", "", m_config.show_session_goals)
-        << ToggleControl("show_session_saves", "Saves", "", m_config.show_session_saves)
-        << ToggleControl("show_session_demos", "Demos", "", m_config.show_session_demos)
-        << ToggleControl("show_session_boost", "Boost", "", m_config.show_session_boost)
-        << ToggleControl("show_session_assists", "Assists", "", m_config.show_session_assists)
-        << ToggleControl("show_session_goal_participation", "Goal participation", "", m_config.show_session_goal_participation)
-        << ToggleControl("show_session_mmr_change", "MMR change", "", m_config.show_session_mmr_change)
+        << ToggleControl("show_session_record", "Record", "", config.show_session_record)
+        << ToggleControl("show_session_goals", "Goals", "", config.show_session_goals)
+        << ToggleControl("show_session_saves", "Saves", "", config.show_session_saves)
+        << ToggleControl("show_session_demos", "Demos", "", config.show_session_demos)
+        << ToggleControl("show_session_boost", "Boost", "", config.show_session_boost)
+        << ToggleControl("show_session_assists", "Assists", "", config.show_session_assists)
+        << ToggleControl("show_session_goal_participation", "Goal participation", "", config.show_session_goal_participation)
+        << ToggleControl("show_session_mmr_change", "MMR change", "", config.show_session_mmr_change)
         << SectionEnd();
 
     out << SectionStart("Rank labels")
-        << ToggleControl("use_rank_icons", "Use rank & playlist icons", "", m_config.use_rank_icons)
-        << ToggleControl("show_account_wins_overlay", "Account wins", "", m_config.show_account_wins_overlay)
+        << ToggleControl("use_rank_icons", "Use rank & playlist icons", "", config.use_rank_icons)
+        << ToggleControl("show_account_wins_overlay", "Account wins", "", config.show_account_wins_overlay)
         << SectionEnd();
 
     out << SectionStart("Lobby rank playlists")
-        << ToggleControl("show_lobby_rank_1v1", "1v1", "", m_config.show_lobby_rank_1v1, !m_config.show_lobby_ranks_overlay)
-        << ToggleControl("show_lobby_rank_2v2", "2v2", "", m_config.show_lobby_rank_2v2, !m_config.show_lobby_ranks_overlay)
-        << ToggleControl("show_lobby_rank_3v3", "3v3", "", m_config.show_lobby_rank_3v3, !m_config.show_lobby_ranks_overlay)
-        << ToggleControl("show_lobby_rank_casual", "Casual", "", m_config.show_lobby_rank_casual, !m_config.show_lobby_ranks_overlay)
-        << ToggleControl("show_lobby_rank_tourny", "Tournament", "", m_config.show_lobby_rank_tourny, !m_config.show_lobby_ranks_overlay);
-    if (m_config.show_extra_playlists) {
-        out << ToggleControl("show_lobby_rank_hoops", "Hoops", "", m_config.show_lobby_rank_hoops, !m_config.show_lobby_ranks_overlay)
-            << ToggleControl("show_lobby_rank_rumble", "Rumble", "", m_config.show_lobby_rank_rumble, !m_config.show_lobby_ranks_overlay)
-            << ToggleControl("show_lobby_rank_dropshot", "Dropshot", "", m_config.show_lobby_rank_dropshot, !m_config.show_lobby_ranks_overlay)
-            << ToggleControl("show_lobby_rank_snowday", "Snow Day", "", m_config.show_lobby_rank_snowday, !m_config.show_lobby_ranks_overlay)
-            << ToggleControl("show_lobby_rank_heatseeker", "Heatseeker", "", m_config.show_lobby_rank_heatseeker, !m_config.show_lobby_ranks_overlay);
+        << ToggleControl("show_lobby_rank_1v1", "1v1", "", config.show_lobby_rank_1v1, !config.show_lobby_ranks_overlay)
+        << ToggleControl("show_lobby_rank_2v2", "2v2", "", config.show_lobby_rank_2v2, !config.show_lobby_ranks_overlay)
+        << ToggleControl("show_lobby_rank_3v3", "3v3", "", config.show_lobby_rank_3v3, !config.show_lobby_ranks_overlay)
+        << ToggleControl("show_lobby_rank_casual", "Casual", "", config.show_lobby_rank_casual, !config.show_lobby_ranks_overlay)
+        << ToggleControl("show_lobby_rank_tourny", "Tournament", "", config.show_lobby_rank_tourny, !config.show_lobby_ranks_overlay);
+    if (config.show_extra_playlists) {
+        out << ToggleControl("show_lobby_rank_hoops", "Hoops", "", config.show_lobby_rank_hoops, !config.show_lobby_ranks_overlay)
+            << ToggleControl("show_lobby_rank_rumble", "Rumble", "", config.show_lobby_rank_rumble, !config.show_lobby_ranks_overlay)
+            << ToggleControl("show_lobby_rank_dropshot", "Dropshot", "", config.show_lobby_rank_dropshot, !config.show_lobby_ranks_overlay)
+            << ToggleControl("show_lobby_rank_snowday", "Snow Day", "", config.show_lobby_rank_snowday, !config.show_lobby_ranks_overlay)
+            << ToggleControl("show_lobby_rank_heatseeker", "Heatseeker", "", config.show_lobby_rank_heatseeker, !config.show_lobby_ranks_overlay);
     }
     out << SectionEnd();
 
@@ -113,14 +113,18 @@ std::string RmlUiController::RenderSettingsCards() {
     for (int count : {10, 20, 30, 40, 50})
         gameCounts.push_back({std::to_string(count), std::to_string(count)});
     out << SectionStart("Card details")
-        << SelectRow("previous_games_limit", "Previous games to show", "", gameCounts, std::to_string(m_config.previous_games_limit), !m_config.show_previous_games_summary)
-        << ToggleControl("show_longest_loss_streak", "Show longest loss streak", "", m_config.show_longest_loss_streak, !m_config.show_streaks_stats)
-        << ToggleControl("show_gamemode_record_1v1", "1v1 breakdown", "", m_config.show_gamemode_record_1v1, !m_config.show_gamemode_breakdown)
-        << ToggleControl("show_gamemode_record_2v2", "2v2 breakdown", "", m_config.show_gamemode_record_2v2, !m_config.show_gamemode_breakdown)
-        << ToggleControl("show_gamemode_record_3v3", "3v3 breakdown", "", m_config.show_gamemode_record_3v3, !m_config.show_gamemode_breakdown)
-        << SelectRow("gamemode_breakdown_scope", "Gamemode breakdown scope", "", GamemodeScopeOptions(), GamemodeScopeValue(m_config), !m_config.show_gamemode_breakdown)
+        << SelectRow("previous_games_limit", "Previous games to show", "", gameCounts, std::to_string(config.previous_games_limit), !config.show_previous_games_summary)
+        << ToggleControl("show_longest_loss_streak", "Show longest loss streak", "", config.show_longest_loss_streak, !config.show_streaks_stats)
+        << ToggleControl("show_gamemode_record_1v1", "1v1 breakdown", "", config.show_gamemode_record_1v1, !config.show_gamemode_breakdown)
+        << ToggleControl("show_gamemode_record_2v2", "2v2 breakdown", "", config.show_gamemode_record_2v2, !config.show_gamemode_breakdown)
+        << ToggleControl("show_gamemode_record_3v3", "3v3 breakdown", "", config.show_gamemode_record_3v3, !config.show_gamemode_breakdown)
+        << SelectRow("gamemode_breakdown_scope", "Gamemode breakdown scope", "", GamemodeScopeOptions(), GamemodeScopeValue(config), !config.show_gamemode_breakdown)
         << SectionEnd();
     return out.str();
+}
+
+std::string RmlUiController::RenderSettingsCards() {
+    return m_settingsPresenter ? m_settingsPresenter->RenderCards(m_config, m_showCardDetails) : std::string{};
 }
 
 std::string RmlUiController::RenderSettingsReminders() {

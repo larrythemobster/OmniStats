@@ -23,35 +23,44 @@ using namespace RmlUiDetail;
 // carry their own persisted position. An unset position keeps the legacy
 // centered placement, and they are only draggable while the overlay accepts
 // mouse input (Settings open); in game the overlay stays click-through.
+namespace {
+    std::string FloatingCardClassHelper(bool interactive) {
+        return interactive ? " floating-card floating-card-movable" : " floating-card";
+    }
+    std::string FloatingCardStyleHelper(float x, float y, float widthDp, float dpiScale, float uiScale) {
+        std::ostringstream style;
+        style << " style='width:" << widthDp << "dp;";
+        if (x >= 0.0f && y >= 0.0f) {
+            const float rmlScale = SanitizedScale(dpiScale) * SanitizedUiScale(uiScale);
+            style << "left:" << x / std::max(rmlScale, 0.01f) << "dp;top:" << y / std::max(rmlScale, 0.01f) << "dp;margin-left:0;";
+        } else {
+            style << "margin-left:" << -widthDp * 0.5f << "dp;";
+        }
+        style << "'";
+        return style.str();
+    }
+}
+
 std::string RmlUiController::FloatingCardClass() const {
-    return WantsInteraction() ? " floating-card floating-card-movable" : " floating-card";
+    return FloatingCardClassHelper(WantsInteraction());
 }
 
 std::string RmlUiController::FloatingCardStyle(float x, float y, float widthDp) const {
-    std::ostringstream style;
-    style << " style='width:" << widthDp << "dp;";
-    if (x >= 0.0f && y >= 0.0f) {
-        const float rmlScale = SanitizedScale(m_dpiScale) * SanitizedUiScale(m_config.ui_scale);
-        style << "left:" << x / std::max(rmlScale, 0.01f) << "dp;top:" << y / std::max(rmlScale, 0.01f) << "dp;margin-left:0;";
-    } else {
-        style << "margin-left:" << -widthDp * 0.5f << "dp;";
-    }
-    style << "'";
-    return style.str();
+    return FloatingCardStyleHelper(x, y, widthDp, m_dpiScale, m_config.ui_scale);
 }
 
-std::string RmlUiController::RenderMatchSummary() {
-    const int myTeam = m_snap.matchSummaryMyTeam;
-    const int score0 = m_snap.matchSummaryScore[0];
-    const int score1 = m_snap.matchSummaryScore[1];
-    int winner = m_snap.matchSummaryWinnerTeam;
+std::string OverlayPresenter::RenderMatchSummary(const RmlRenderSnapshot& snap, const ConfigData& config) {
+    const int myTeam = snap.matchSummaryMyTeam;
+    const int score0 = snap.matchSummaryScore[0];
+    const int score1 = snap.matchSummaryScore[1];
+    int winner = snap.matchSummaryWinnerTeam;
     if (winner != 0 && winner != 1) {
         winner = score0 > score1 ? 0 : score1 > score0 ? 1
                                                        : -1;
     }
     std::string result = "DRAW";
     std::string resultClass = "muted";
-    if (m_snap.lastMatchWasVoid) {
+    if (snap.lastMatchWasVoid) {
         result = "VOID";
     } else if ((myTeam == 0 || myTeam == 1) && winner != -1) {
         if (winner == myTeam) {
@@ -65,7 +74,7 @@ std::string RmlUiController::RenderMatchSummary() {
     const int myScore = myTeam == 1 ? score1 : score0;
     const int theirScore = myTeam == 1 ? score0 : score1;
 
-    const auto& s = m_snap.currentMatch;
+    const auto& s = snap.currentMatch;
     std::vector<std::pair<std::string, std::string>> play;
     if (s.saves > 0) play.push_back({"Saves", Format::PairCount(s.saves, s.savesSelf)});
     if (s.shots > 0) play.push_back({"Shots", Format::PairCount(s.shots, s.shotsSelf)});
@@ -76,19 +85,19 @@ std::string RmlUiController::RenderMatchSummary() {
     if (s.boostPickedUp > 0) play.push_back({"Boost", Format::PairCount(s.boostPickedUp, s.boostPickedUpSelf)});
 
     std::vector<std::pair<std::string, std::string>> fun;
-    if (s.maxGoalSpeed > 0) fun.push_back({"Max goal speed", Format::PairSpeed(s.maxGoalSpeed, s.maxGoalSpeedSelf, true, " kph", m_config.imperial_units)});
-    if (s.maxBallSpeed > 0) fun.push_back({"Max ball speed", Format::PairSpeed(s.maxBallSpeed, s.maxBallSpeedSelf, true, " kph", m_config.imperial_units)});
+    if (s.maxGoalSpeed > 0) fun.push_back({"Max goal speed", Format::PairSpeed(s.maxGoalSpeed, s.maxGoalSpeedSelf, true, " kph", config.imperial_units)});
+    if (s.maxBallSpeed > 0) fun.push_back({"Max ball speed", Format::PairSpeed(s.maxBallSpeed, s.maxBallSpeedSelf, true, " kph", config.imperial_units)});
     if (s.maxImpactForce > 0) {
-        fun.push_back({"Hardest crossbar hit", m_config.crossbar_display_mode == "speed"
-                                                   ? Format::PairSpeed(s.maxImpactForce * 0.036f, s.maxImpactForceSelf * 0.036f, true, " kph", m_config.imperial_units)
+        fun.push_back({"Hardest crossbar hit", config.crossbar_display_mode == "speed"
+                                                   ? Format::PairSpeed(s.maxImpactForce * 0.036f, s.maxImpactForceSelf * 0.036f, true, " kph", config.imperial_units)
                                                    : Format::PairSpeed(s.maxImpactForce, s.maxImpactForceSelf, true, "", false)});
     }
     if (s.fastestGoalTime > 0) fun.push_back({"Fastest goal", Format::PairFastest(s.fastestGoalTime, s.fastestGoalTimeSelf)});
     if (s.ownGoals > 0) fun.push_back({"Own goals", Format::PairCount(s.ownGoals, s.ownGoalsSelf)});
 
     std::string otTag;
-    if (m_snap.matchSummaryOvertimeSeconds > 0.0f) {
-        int total = static_cast<int>(std::round(m_snap.matchSummaryOvertimeSeconds));
+    if (snap.matchSummaryOvertimeSeconds > 0.0f) {
+        int total = static_cast<int>(std::round(snap.matchSummaryOvertimeSeconds));
         if (total < 0) total = 0;
         int m = total / 60;
         int sec = total % 60;
@@ -98,48 +107,44 @@ std::string RmlUiController::RenderMatchSummary() {
     }
 
     std::ostringstream out;
-    out << "<div class='card match-summary" << FloatingCardClass() << "' data-action='floating-card-drag' data-card='match-summary'"
-        << FloatingCardStyle(m_config.match_summary_x, m_config.match_summary_y, 420.0f)
+    out << "<div class='card match-summary" << FloatingCardClassHelper(false) << "' data-action='floating-card-drag' data-card='match-summary'"
+        << FloatingCardStyleHelper(config.match_summary_x, config.match_summary_y, 420.0f, 1.0f, config.ui_scale)
         << "><div class='row'><div class='grow value " << resultClass << "' style='font-size:20dp'>" << result << otTag << "</div>"
         << "<div class='value mono' style='font-size:20dp'>" << myScore << '-' << theirScore << "</div></div>";
     out << StatGrid("PLAY", play) << StatGrid("FUN", fun);
-    if (!m_snap.lastMatchWasVoid) {
+    if (!snap.lastMatchWasVoid) {
         out << "<div class='row match-summary-actions'><button class='ghost compact' data-action='history-open' data-source='match-summary'";
-        if (!m_snap.matchGuid.empty()) out << " data-match-guid='" << Escape(m_snap.matchGuid) << "'";
-        out << ">Details</button>";
-        if (m_state && !m_snap.matchGuid.empty()) {
-            std::string bcUrl;
-            {
-                std::lock_guard lock(m_state->ui.replayUploadMutex);
-                if (m_state->ui.lastBallchasingMatchGuid == m_snap.matchGuid) bcUrl = m_state->ui.lastBallchasingUrl;
-            }
-            if (bcUrl.rfind("https://ballchasing.com/", 0) == 0) {
-                out << "<button class='ghost compact' data-action='open-ballchasing-url' data-url='"
-                    << Escape(bcUrl) << "'>Ballchasing</button>";
-            }
-        }
-        out << "</div>";
+        if (!snap.matchGuid.empty()) out << " data-match-guid='" << Escape(snap.matchGuid) << "'";
+        out << ">Details</button></div>";
     }
     out << "</div>";
     return out.str();
 }
 
-std::string RmlUiController::RenderSessionView() {
-    const auto category = m_state ? m_state->ui.graphMmrCategory.load() : MmrCategory::TwoVTwo;
-    const bool graph = m_state && m_state->ui.showGraphView.load();
+std::string RmlUiController::RenderMatchSummary() {
+    return m_overlayPresenter ? m_overlayPresenter->RenderMatchSummary(m_snap, m_config) : std::string{};
+}
+
+std::string OverlayPresenter::RenderSessionView(const RmlRenderSnapshot& snap, const ConfigData& config, const std::shared_ptr<SessionState>& state) {
+    const auto category = state ? state->ui.graphMmrCategory.load() : MmrCategory::TwoVTwo;
+    const bool graph = state && state->ui.showGraphView.load();
     if (graph) {
         if (m_telemetry) m_telemetry->RecordMilestone(TelemetryManager::Milestone::MmrGraphView);
     }
-    const bool lifetime = graph && m_snap.showLifetimeGraph;
+    const bool lifetime = graph && snap.showLifetimeGraph;
     std::ostringstream out;
-    out << "<div class='card match-summary" << FloatingCardClass() << "' data-action='floating-card-drag' data-card='session-view'"
-        << FloatingCardStyle(m_config.session_view_x, m_config.session_view_y, 450.0f)
+    out << "<div class='card match-summary" << FloatingCardClassHelper(false) << "' data-action='floating-card-drag' data-card='session-view'"
+        << FloatingCardStyleHelper(config.session_view_x, config.session_view_y, 450.0f, 1.0f, config.ui_scale)
         << "><div class='row session-view-head'><div class='card-title grow'>"
         << (lifetime ? "LIFETIME MMR · " : graph ? "SESSION MMR · "
                                                  : "SESSION · ")
-        << Escape(MmrLabel(category)) << "</div>" << (graph ? RenderGraphPanControls() : std::string{})
+        << Escape(MmrLabel(category)) << "</div>"
         << "<span class='badge'>F7 view · F6 playlist</span></div>";
-    out << (graph ? RenderMmrGraph(false, false) : RenderSessionStats(true, true));
+    out << (graph ? RenderMmrGraph(false, false, snap, config, state) : RenderSessionStats(true, true, snap, config));
     out << "</div>";
     return out.str();
+}
+
+std::string RmlUiController::RenderSessionView() {
+    return m_overlayPresenter ? m_overlayPresenter->RenderSessionView(m_snap, m_config, m_state) : std::string{};
 }

@@ -35,8 +35,7 @@ inline RECT ComputeCenteredRect(const RECT& monitorRect, int w, int h) {
 }
 
 // Compute window styles for overlay vs second-monitor mode and whether the settings menu is shown.
-// This mutates the provided style/exStyle values (matching existing code patterns that first read
-// the current window styles and then toggle bits).
+// Mutates the current style/exStyle values in place.
 inline void ComputeWindowStyles(bool secondMonitorMode, bool showMenu, LONG& style, LONG& exStyle) {
     if (secondMonitorMode) {
         style &= ~WS_POPUP;
@@ -46,12 +45,13 @@ inline void ComputeWindowStyles(bool secondMonitorMode, bool showMenu, LONG& sty
         exStyle &= ~WS_EX_TRANSPARENT;
         exStyle &= ~WS_EX_TOOLWINDOW;
         exStyle &= ~WS_EX_LAYERED;
-        exStyle |= WS_EX_APPWINDOW;
+        exStyle |= WS_EX_NOREDIRECTIONBITMAP | WS_EX_APPWINDOW;
     } else {
         style &= ~WS_OVERLAPPEDWINDOW;
         style |= WS_POPUP;
 
-        exStyle |= WS_EX_TOPMOST | WS_EX_LAYERED | WS_EX_TOOLWINDOW;
+        // WS_EX_TRANSPARENT only passes clicks to other processes' windows when combined with WS_EX_LAYERED.
+        exStyle |= WS_EX_TOPMOST | WS_EX_LAYERED | WS_EX_NOREDIRECTIONBITMAP | WS_EX_TOOLWINDOW;
         exStyle &= ~WS_EX_APPWINDOW;
         if (!showMenu)
             exStyle |= WS_EX_TRANSPARENT;

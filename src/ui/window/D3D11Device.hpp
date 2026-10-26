@@ -1,5 +1,7 @@
 #pragma once
 #include <d3d11.h>
+#include <dcomp.h>
+#include <dxgi1_2.h>
 #include <windows.h>
 #include <wrl/client.h>
 
@@ -35,6 +37,9 @@ class D3D11Device {
     ID3D11RenderTargetView* const* RenderTargetViewAddress() const {
         return m_renderTargetView.GetAddressOf();
     }
+    IDCompositionDevice* DCompDevice() const {
+        return m_dcompDevice.Get();
+    }
     int Width() const {
         return m_width;
     }
@@ -45,8 +50,11 @@ class D3D11Device {
   private:
     Microsoft::WRL::ComPtr<ID3D11Device> m_device;
     Microsoft::WRL::ComPtr<ID3D11DeviceContext> m_context;
-    Microsoft::WRL::ComPtr<IDXGISwapChain> m_swapChain;
+    Microsoft::WRL::ComPtr<IDXGISwapChain1> m_swapChain;
     Microsoft::WRL::ComPtr<ID3D11RenderTargetView> m_renderTargetView;
+    Microsoft::WRL::ComPtr<IDCompositionDevice> m_dcompDevice;
+    Microsoft::WRL::ComPtr<IDCompositionTarget> m_dcompTarget;
+    Microsoft::WRL::ComPtr<IDCompositionVisual> m_dcompVisual;
     int m_width = 0;
     int m_height = 0;
 };

@@ -1,6 +1,6 @@
 #include "ui/rml/RmlUiPch.hpp"
 #include "ui/rml/controller/RmlUiController.hpp"
-#include <shobjidl.h>
+#include "ui/rml/presenters/SettingsPresenter.hpp"
 #include <commdlg.h>
 
 #include "core/config/AppVersion.hpp"
@@ -18,11 +18,11 @@
 
 using namespace RmlUiDetail;
 
-std::string RmlUiController::RenderSettingsShortcuts() {
+std::string SettingsPresenter::RenderShortcuts(const ConfigData& config, const std::shared_ptr<SessionState>& state, BindCaptureTarget bindCaptureTarget) {
     auto bindTarget = [](BindCaptureTarget target) { return std::to_string(static_cast<int>(target)); };
     auto keyRow = [&](const char* label, BindCaptureTarget target, int key, bool canClear = true) {
         std::ostringstream html;
-        const bool active = m_bindCaptureTarget == target;
+        const bool active = bindCaptureTarget == target;
         html << "<div class='setting-row'><div class='setting-info'><div class='setting-name'>" << Escape(label) << "</div></div><div class='row gap-xs'>"
              << "<button data-action='capture-bind' data-bind='" << bindTarget(target) << "'>" << (active ? "Press a key..." : Escape(GetKeyDisplayName(key))) << "</button>";
         if (active || canClear)
@@ -37,7 +37,7 @@ std::string RmlUiController::RenderSettingsShortcuts() {
     };
     auto padRow = [&](const char* label, BindCaptureTarget target, int value, bool raw, int rawValue) {
         std::ostringstream html;
-        const bool active = m_bindCaptureTarget == target;
+        const bool active = bindCaptureTarget == target;
         html << "<div class='setting-row'><div class='setting-info'><div class='setting-name'>" << Escape(label) << "</div></div><div class='row gap-xs'>"
              << "<button data-action='capture-bind' data-bind='" << bindTarget(target) << "'>" << (active ? "Press a button..." : Escape(padName(value, raw, rawValue))) << "</button>"
              << "<button class='ghost' data-action='" << (active ? "cancel-bind" : "clear-bind") << "' data-bind='" << bindTarget(target) << "'>" << (active ? "Cancel" : "Clear") << "</button></div></div>";
@@ -46,37 +46,37 @@ std::string RmlUiController::RenderSettingsShortcuts() {
 
     std::ostringstream out;
     out << SectionStart("Keyboard")
-        << keyRow("Show overlay", BindCaptureTarget::KeyOverlay, m_config.key_overlay)
-        << keyRow("Cycle playlist", BindCaptureTarget::KeyCycle, m_config.key_cycle)
-        << keyRow("Expand live stats", BindCaptureTarget::KeyExpand, m_config.key_expand)
-        << keyRow("Session view", BindCaptureTarget::KeySession, m_config.key_session)
-        << keyRow("Graph pan older", BindCaptureTarget::KeyGraphPanLeft, m_config.key_graph_pan_left)
-        << keyRow("Graph pan newer", BindCaptureTarget::KeyGraphPanRight, m_config.key_graph_pan_right)
-        << keyRow("Session / lifetime graph", BindCaptureTarget::KeyLifetimeGraph, m_config.key_lifetime_graph)
-        << keyRow("Settings", BindCaptureTarget::KeyMenu, m_config.key_menu, false)
-        << keyRow("Save replay", BindCaptureTarget::KeySaveReplay, m_config.key_save_replay)
+        << keyRow("Show overlay", BindCaptureTarget::KeyOverlay, config.key_overlay)
+        << keyRow("Cycle playlist", BindCaptureTarget::KeyCycle, config.key_cycle)
+        << keyRow("Expand live stats", BindCaptureTarget::KeyExpand, config.key_expand)
+        << keyRow("Session view", BindCaptureTarget::KeySession, config.key_session)
+        << keyRow("Graph pan older", BindCaptureTarget::KeyGraphPanLeft, config.key_graph_pan_left)
+        << keyRow("Graph pan newer", BindCaptureTarget::KeyGraphPanRight, config.key_graph_pan_right)
+        << keyRow("Session / lifetime graph", BindCaptureTarget::KeyLifetimeGraph, config.key_lifetime_graph)
+        << keyRow("Settings", BindCaptureTarget::KeyMenu, config.key_menu, false)
+        << keyRow("Save replay", BindCaptureTarget::KeySaveReplay, config.key_save_replay)
         << SectionEnd();
     out << SectionStart("Controller")
-        << padRow("Show overlay", BindCaptureTarget::GamepadOverlay, m_config.gamepad_overlay, m_config.gamepad_overlay_raw, m_config.gamepad_overlay_raw_button)
-        << padRow("Cycle playlist", BindCaptureTarget::GamepadCycle, m_config.gamepad_cycle, m_config.gamepad_cycle_raw, m_config.gamepad_cycle_raw_button)
-        << padRow("Expand live stats", BindCaptureTarget::GamepadExpand, m_config.gamepad_expand, m_config.gamepad_expand_raw, m_config.gamepad_expand_raw_button)
-        << padRow("Session view", BindCaptureTarget::GamepadSession, m_config.gamepad_session, m_config.gamepad_session_raw, m_config.gamepad_session_raw_button)
-        << padRow("Graph pan older", BindCaptureTarget::GamepadGraphPanLeft, m_config.gamepad_graph_pan_left, m_config.gamepad_graph_pan_left_raw, m_config.gamepad_graph_pan_left_raw_button)
-        << padRow("Graph pan newer", BindCaptureTarget::GamepadGraphPanRight, m_config.gamepad_graph_pan_right, m_config.gamepad_graph_pan_right_raw, m_config.gamepad_graph_pan_right_raw_button)
-        << padRow("Settings", BindCaptureTarget::GamepadMenu, m_config.gamepad_menu, m_config.gamepad_menu_raw, m_config.gamepad_menu_raw_button);
+        << padRow("Show overlay", BindCaptureTarget::GamepadOverlay, config.gamepad_overlay, config.gamepad_overlay_raw, config.gamepad_overlay_raw_button)
+        << padRow("Cycle playlist", BindCaptureTarget::GamepadCycle, config.gamepad_cycle, config.gamepad_cycle_raw, config.gamepad_cycle_raw_button)
+        << padRow("Expand live stats", BindCaptureTarget::GamepadExpand, config.gamepad_expand, config.gamepad_expand_raw, config.gamepad_expand_raw_button)
+        << padRow("Session view", BindCaptureTarget::GamepadSession, config.gamepad_session, config.gamepad_session_raw, config.gamepad_session_raw_button)
+        << padRow("Graph pan older", BindCaptureTarget::GamepadGraphPanLeft, config.gamepad_graph_pan_left, config.gamepad_graph_pan_left_raw, config.gamepad_graph_pan_left_raw_button)
+        << padRow("Graph pan newer", BindCaptureTarget::GamepadGraphPanRight, config.gamepad_graph_pan_right, config.gamepad_graph_pan_right_raw, config.gamepad_graph_pan_right_raw_button)
+        << padRow("Settings", BindCaptureTarget::GamepadMenu, config.gamepad_menu, config.gamepad_menu_raw, config.gamepad_menu_raw_button);
     out << "<div class='controller-debug'><div class='setting-help'>Controller diagnostics</div>";
-    if (m_state && m_state->ui.controllerConnected.load()) {
+    if (state && state->ui.controllerConnected.load()) {
         std::string controllerName;
         {
-            std::lock_guard lock(m_state->ui.controllerDebugMutex);
-            controllerName = m_state->ui.controllerDebugName;
+            std::lock_guard lock(state->ui.controllerDebugMutex);
+            controllerName = state->ui.controllerDebugName;
         }
-        const bool mapped = m_state->ui.controllerIsGameController.load();
-        const int lastMapped = mapped ? m_state->ui.lastControllerButtonPressed.load() : -1;
-        const int lastRaw = m_state->ui.lastRawControllerButtonPressed.load();
+        const bool mapped = state->ui.controllerIsGameController.load();
+        const int lastMapped = mapped ? state->ui.lastControllerButtonPressed.load() : -1;
+        const int lastRaw = state->ui.lastRawControllerButtonPressed.load();
         out << "<div class='debug-grid'><div class='debug-row'><span class='debug-label'>Device</span><span class='debug-value'>" << Escape(controllerName.empty() ? "connected" : controllerName) << "</span></div>"
             << "<div class='debug-row'><span class='debug-label'>SDL GameController</span><span class='debug-value'>" << (mapped ? "yes" : "no · fallback joystick") << "</span></div>"
-            << "<div class='debug-row'><span class='debug-label'>Overlay bind</span><span class='debug-value'>" << Escape(GamepadBindName(m_config.gamepad_overlay, m_config.gamepad_overlay_raw, m_config.gamepad_overlay_raw_button)) << "</span></div>"
+            << "<div class='debug-row'><span class='debug-label'>Overlay bind</span><span class='debug-value'>" << Escape(GamepadBindName(config.gamepad_overlay, config.gamepad_overlay_raw, config.gamepad_overlay_raw_button)) << "</span></div>"
             << "<div class='debug-row'><span class='debug-label'>Last mapped</span><span class='debug-value'>";
         if (lastMapped >= 0)
             out << Escape(GamepadBindName(lastMapped, false, -1)) << " (" << lastMapped << ")";
@@ -88,4 +88,8 @@ std::string RmlUiController::RenderSettingsShortcuts() {
     }
     out << "</div>" << SectionEnd();
     return out.str();
+}
+
+std::string RmlUiController::RenderSettingsShortcuts() {
+    return m_settingsPresenter ? m_settingsPresenter->RenderShortcuts(m_config, m_state, m_bindCaptureTarget) : std::string{};
 }

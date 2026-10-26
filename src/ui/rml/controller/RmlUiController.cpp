@@ -32,7 +32,20 @@ RmlUiController::RmlUiController(std::shared_ptr<SessionState> state,
                                  std::shared_ptr<TelemetryManager> telemetry)
     : m_state(std::move(state)), m_dbManager(std::move(dbManager)), m_accountsService(std::move(accounts)),
       m_remoteConfig(std::move(remoteConfig)), m_tournamentService(std::move(tournamentService)), m_telemetry(std::move(telemetry)),
-      m_systemInterface(nullptr) {
+      m_systemInterface(nullptr),
+      m_overlayPresenter(std::make_unique<OverlayPresenter>()),
+      m_dashboardPresenter(std::make_unique<DashboardPresenter>()),
+      m_settingsPresenter(std::make_unique<SettingsPresenter>()),
+      m_historyPresenter(std::make_unique<HistoryPresenter>()),
+      m_insightsPresenter(std::make_unique<InsightsPresenter>()),
+      m_accountsPresenter(std::make_unique<AccountsPresenter>()),
+      m_onboardingPresenter(std::make_unique<OnboardingPresenter>()),
+      m_playerNotePresenter(std::make_unique<PlayerNotePresenter>()),
+      m_backgroundTaskService(std::make_unique<BackgroundTaskService>()),
+      m_inputCaptureService(std::make_unique<InputCaptureService>()),
+      m_colorPickerService(std::make_unique<ColorPickerService>()),
+      m_fontService(std::make_unique<FontService>()),
+      m_interactionService(std::make_unique<InteractionService>()) {
     if (m_state) m_lastShowMenu = m_state->ui.showMenu.load();
 }
 
@@ -68,9 +81,10 @@ bool RmlUiController::Initialize(HWND hwnd, ID3D11Device* device, ID3D11DeviceCo
         Shutdown();
         return false;
     }
-    if (!m_liveModel.Create(m_context) || !m_insights.Create(m_context) ||
-        !m_history.Create(m_context) || !m_accounts.Create(m_context) ||
-        !m_playerNote.Create(m_context) || !m_onboarding.Create(m_context)) {
+    if (!m_liveModel.Create(m_context, [this](Rml::DataModelConstructor& c) {
+            if (m_overlayPresenter) m_overlayPresenter->Bind(c);
+        }) ||
+        !m_insights.Create(m_context) || !m_history.Create(m_context) || !m_accounts.Create(m_context) || !m_playerNote.Create(m_context) || !m_onboarding.Create(m_context)) {
         Shutdown();
         return false;
     }
@@ -143,8 +157,22 @@ void RmlUiController::Shutdown() {
         m_accounts.Reset();
         m_playerNote.Reset();
         m_onboarding.Reset();
+        if (m_overlayPresenter) m_overlayPresenter->Reset();
+        if (m_historyPresenter) m_historyPresenter->Shutdown();
+        if (m_insightsPresenter) m_insightsPresenter->Shutdown();
+        if (m_accountsPresenter) m_accountsPresenter->Shutdown();
+        if (m_onboardingPresenter) m_onboardingPresenter->Shutdown();
+        if (m_playerNotePresenter) m_playerNotePresenter->Shutdown();
     }
-    m_baseStyleSheet.reset();
+    if (m_backgroundTaskService) {
+        m_backgroundTaskService->Shutdown();
+    }
+    if (m_inputCaptureService && m_state) {
+        m_inputCaptureService->FinishCapture(m_state);
+    }
+    if (m_colorPickerService) {
+        m_colorPickerService->Close();
+    }
     if (m_rmlInitialized) {
         Rml::Shutdown();
         m_rmlInitialized = false;
@@ -665,7 +693,7 @@ void RmlUiController::RebuildVisibleUi(bool force, bool configChanged) {
     HashAppend(runtimeStructuralHash, static_cast<uint64_t>(h2hExpanded));
     HashAppend(runtimeStructuralHash, static_cast<uint64_t>(m_snap.inMatch));
     HashAppend(runtimeStructuralHash, static_cast<uint64_t>(m_config.second_monitor_mode));
-    HashAppend(runtimeStructuralHash, static_cast<uint64_t>(RankSourceAvailable()));
+    HashAppend(runtimeStructuralHash, static_cast<uint64_t>(RankSourceAvailable(m_config)));
     HashAppend(runtimeStructuralHash, static_cast<uint64_t>(m_config.show_tournaments && AccountClient::Instance().IsSignedIn()));
     if (!m_config.second_monitor_mode) {
         for (const auto& container : m_config.overlay_layout.containers) {
@@ -1161,6 +1189,10 @@ void RmlUiController::RefreshLiveUi(bool force, bool allowStructural) {
         bool changed = m_liveModel.SetValues(ComputeLiveValues(m_snap, m_config));
         if (changed) m_renderDirty = true;
     }
+    if (m_overlayPresenter) {
+        bool changed = m_overlayPresenter->Update(m_snap, m_config, m_state, m_tournamentService.get());
+        if (changed) m_renderDirty = true;
+    }
 
     if (leafGameChanged || primeStructure) m_lastLeafGameVersion = m_lastGameVersion;
     if (allowStructural) {
@@ -1398,39 +1430,49 @@ void RmlUiController::FinishDatabaseMerge(const DbMergeResult& result) {
 }
 
 void RmlUiController::DeleteLocalHistory() {
-    std::string error;
-    if (!m_dbManager || !m_dbManager->DeleteLocalMatchHistory(error)) {
-        ShowToast("Delete failed: " + (error.empty() ? std::string("database is unavailable.") : error), true);
-        return;
-    }
-    DeleteFileA((Storage::GetDataDirectory() + "matches.jsonl").c_str());
-    DeleteFileA((Storage::GetDataDirectory() + "mmr_history.jsonl").c_str());
-    if (m_state) {
-        if (m_state->liveMatch) {
-            m_state->liveMatch->SetLocalPrimaryId("");
+    StartBackgroundTask("Deleting match history...", [this](std::stop_token /*stop*/) -> std::function<void()> {
+        std::string error;
+        bool ok = m_dbManager && m_dbManager->DeleteLocalMatchHistory(error);
+        if (ok) {
+            DeleteFileA((Storage::GetDataDirectory() + "matches.jsonl").c_str());
+            DeleteFileA((Storage::GetDataDirectory() + "mmr_history.jsonl").c_str());
         }
-        {
-            std::unique_lock lock(m_state->history.mutex);
-            m_state->history.lifetimeMmrX.clear();
-            m_state->history.lifetimeMmrY.clear();
-            m_state->history.recentSavedMatches.clear();
-            m_state->history.pendingRecentMatches.clear();
-            m_state->history.recentSavedMatchesLoaded = true;
-            m_state->history.version++;
-        }
-        {
-            std::lock_guard lock(m_state->ui.dbStatsMutex);
-            m_state->ui.cachedDbStats = {};
-            m_state->ui.dbStatsDirty.store(true);
-            m_state->ui.dbStatsVersion.fetch_add(1, std::memory_order_relaxed);
-        }
-    }
-    Config::Update([](ConfigData& c) { c.last_primary_id.clear(); c.known_primary_ids.clear(); });
-    m_lastDbFetchPrimaryId.clear();
-    m_lastLifetimeHistoryPrimaryId.clear();
-    m_lastRecentMatchHistoryPrimaryId.clear();
-    m_detailedStatsSummaryRequested = false;
-    ShowToast("Deleted local history and identity.");
+        return [this, ok, error = std::move(error)]() {
+            if (!ok) {
+                ShowToast("Delete failed: " + (error.empty() ? std::string("database is unavailable.") : error), true);
+                RebuildSettings();
+                return;
+            }
+            if (m_state) {
+                if (m_state->liveMatch) m_state->liveMatch->SetLocalPrimaryId("");
+                {
+                    std::unique_lock lock(m_state->history.mutex);
+                    m_state->history.lifetimeMmrX.clear();
+                    m_state->history.lifetimeMmrY.clear();
+                    m_state->history.recentSavedMatches.clear();
+                    m_state->history.pendingRecentMatches.clear();
+                    m_state->history.recentSavedMatchesLoaded = true;
+                    m_state->history.version++;
+                }
+                {
+                    std::lock_guard lock(m_state->ui.dbStatsMutex);
+                    m_state->ui.cachedDbStats = {};
+                    m_state->ui.dbStatsDirty.store(true);
+                    m_state->ui.dbStatsVersion.fetch_add(1, std::memory_order_relaxed);
+                }
+            }
+            Config::Update([](ConfigData& c) { c.last_primary_id.clear(); c.known_primary_ids.clear(); });
+            m_lastDbFetchPrimaryId.clear();
+            m_lastLifetimeHistoryPrimaryId.clear();
+            m_lastRecentMatchHistoryPrimaryId.clear();
+            m_detailedStatsSummaryRequested = false;
+            RefreshAsyncData();
+            RebuildSettings();
+            RebuildVisibleUi(true);
+            ShowToast("Local match history deleted.", false);
+        };
+    });
+    RebuildSettings();
 }
 
 bool RmlUiController::CheckStatsApi(bool repair, bool showToast) {
@@ -1502,32 +1544,23 @@ void RmlUiController::BrowseStatsApiPath() {
 }
 
 bool RmlUiController::StartBackgroundTask(std::string startedToast, std::function<std::function<void()>(std::stop_token)> work) {
-    if (m_backgroundTaskRunning.load()) {
-        ShowToast("Another data task is still running. Try again when it finishes.");
-        return false;
-    }
-    if (m_backgroundTask.joinable()) m_backgroundTask.join();
-    m_backgroundTaskRunning.store(true);
-    m_backgroundTask = std::jthread([this, work = std::move(work)](std::stop_token stop) {
-        std::function<void()> completion = work(stop);
-        {
-            std::lock_guard lock(m_backgroundTaskMutex);
-            m_backgroundTaskCompletion = std::move(completion);
-        }
-        m_backgroundTaskRunning.store(false);
-    });
-    if (!startedToast.empty()) ShowToast(std::move(startedToast));
+    if (!m_backgroundTaskService) return false;
+    const bool started = m_backgroundTaskService->StartTask(
+        std::move(startedToast),
+        [this, work = std::move(work)](std::stop_token stop) mutable {
+            auto completion = work(stop);
+            m_backgroundTaskRunning.store(false, std::memory_order_relaxed);
+            return completion;
+        },
+        [this](std::string msg, bool err) { ShowToast(std::move(msg), err); });
+    m_backgroundTaskRunning.store(started && m_backgroundTaskService->IsRunning(), std::memory_order_relaxed);
     m_renderDirty = true;
-    return true;
+    return started;
 }
 
 void RmlUiController::PublishBackgroundTaskCompletion() {
-    std::function<void()> completion;
-    {
-        std::lock_guard lock(m_backgroundTaskMutex);
-        completion.swap(m_backgroundTaskCompletion);
+    if (m_backgroundTaskService) {
+        m_backgroundTaskService->PublishCompletion();
+        m_backgroundTaskRunning.store(m_backgroundTaskService->IsRunning());
     }
-    if (!completion) return;
-    completion();
-    m_renderDirty = true;
 }

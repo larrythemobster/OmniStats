@@ -8,6 +8,7 @@
 #include <RmlUi/Core/DataModelHandle.h>
 #include <RmlUi/Core/Types.h>
 
+#include <functional>
 #include <string>
 
 #include "core/config/Config.hpp"
@@ -61,7 +62,7 @@ LiveValues ComputeLiveValues(const RmlRenderSnapshot& snapshot, const ConfigData
 class RmlLiveModel {
   public:
     // Must run before any document that references the model is loaded.
-    bool Create(Rml::Context* context);
+    bool Create(Rml::Context* context, std::function<void(Rml::DataModelConstructor&)> extraBindings = nullptr);
     void Reset();
 
     const LiveValues& Values() const {

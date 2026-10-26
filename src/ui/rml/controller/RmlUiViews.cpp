@@ -56,11 +56,36 @@ void RmlUiController::OpenAccounts() {
 
 void RmlUiController::LoadViewDocuments() {
     if (!m_context) return;
-    m_insightsDoc = m_context->LoadDocument("res://insights.rml");
-    m_onboardingDoc = m_context->LoadDocument("res://onboarding.rml");
-    m_historyDoc = m_context->LoadDocument("res://history.rml");
-    m_accountsDoc = m_context->LoadDocument("res://accounts.rml");
-    m_playerNoteDoc = m_context->LoadDocument("res://player_note.rml");
+    if (m_insightsPresenter) {
+        m_insightsPresenter->LoadDocument(m_context);
+        m_insightsDoc = m_insightsPresenter->Document();
+    } else {
+        m_insightsDoc = m_context->LoadDocument("res://insights.rml");
+    }
+    if (m_onboardingPresenter) {
+        m_onboardingPresenter->LoadDocument(m_context);
+        m_onboardingDoc = m_onboardingPresenter->Document();
+    } else {
+        m_onboardingDoc = m_context->LoadDocument("res://onboarding.rml");
+    }
+    if (m_historyPresenter) {
+        m_historyPresenter->LoadDocument(m_context);
+        m_historyDoc = m_historyPresenter->Document();
+    } else {
+        m_historyDoc = m_context->LoadDocument("res://history.rml");
+    }
+    if (m_accountsPresenter) {
+        m_accountsPresenter->LoadDocument(m_context);
+        m_accountsDoc = m_accountsPresenter->Document();
+    } else {
+        m_accountsDoc = m_context->LoadDocument("res://accounts.rml");
+    }
+    if (m_playerNotePresenter) {
+        m_playerNotePresenter->LoadDocument(m_context);
+        m_playerNoteDoc = m_playerNotePresenter->Document();
+    } else {
+        m_playerNoteDoc = m_context->LoadDocument("res://player_note.rml");
+    }
     if (m_insightsVisible && m_insightsDoc) m_insightsDoc->Show();
     if (m_onboardingVisible && m_onboardingDoc) m_onboardingDoc->Show();
     if (m_historyVisible && m_historyDoc) m_historyDoc->Show();
@@ -69,11 +94,26 @@ void RmlUiController::LoadViewDocuments() {
 }
 
 void RmlUiController::CloseViewDocuments() {
-    if (m_insightsDoc) m_insightsDoc->Close();
-    if (m_onboardingDoc) m_onboardingDoc->Close();
-    if (m_historyDoc) m_historyDoc->Close();
-    if (m_accountsDoc) m_accountsDoc->Close();
-    if (m_playerNoteDoc) m_playerNoteDoc->Close();
+    if (m_insightsPresenter)
+        m_insightsPresenter->CloseDocument();
+    else if (m_insightsDoc)
+        m_insightsDoc->Close();
+    if (m_onboardingPresenter)
+        m_onboardingPresenter->CloseDocument();
+    else if (m_onboardingDoc)
+        m_onboardingDoc->Close();
+    if (m_historyPresenter)
+        m_historyPresenter->CloseDocument();
+    else if (m_historyDoc)
+        m_historyDoc->Close();
+    if (m_accountsPresenter)
+        m_accountsPresenter->CloseDocument();
+    else if (m_accountsDoc)
+        m_accountsDoc->Close();
+    if (m_playerNotePresenter)
+        m_playerNotePresenter->CloseDocument();
+    else if (m_playerNoteDoc)
+        m_playerNoteDoc->Close();
     m_insightsDoc = nullptr;
     m_onboardingDoc = nullptr;
     m_historyDoc = nullptr;

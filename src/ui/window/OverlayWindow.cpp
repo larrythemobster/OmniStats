@@ -26,7 +26,7 @@ bool OverlayWindow::Create(HICON appIconBig, HICON appIconSmall, WNDPROC wndProc
     int screenH = GetSystemMetrics(SM_CYSCREEN);
 
     m_hwnd = CreateWindowExW(
-        WS_EX_TOPMOST | WS_EX_TRANSPARENT | WS_EX_LAYERED | WS_EX_TOOLWINDOW,
+        WS_EX_TOPMOST | WS_EX_TRANSPARENT | WS_EX_LAYERED | WS_EX_NOREDIRECTIONBITMAP | WS_EX_TOOLWINDOW,
         m_wc.lpszClassName, L"OmniStats",
         WS_POPUP, 0, 0, screenW, screenH, nullptr, nullptr, m_wc.hInstance, nullptr);
 
@@ -39,11 +39,7 @@ bool OverlayWindow::Create(HICON appIconBig, HICON appIconSmall, WNDPROC wndProc
     SendMessageW(m_hwnd, WM_SETICON, ICON_BIG, reinterpret_cast<LPARAM>(appIconBig));
     SendMessageW(m_hwnd, WM_SETICON, ICON_SMALL, reinterpret_cast<LPARAM>(appIconSmall));
 
-    SetLayeredWindowAttributes(m_hwnd, RGB(0, 0, 0), 255, LWA_ALPHA);
-    MARGINS margins = {-1, -1, -1, -1};
-    DwmExtendFrameIntoClientArea(m_hwnd, &margins);
-    m_frameExtended = true;
-
+    m_frameExtended = false;
     // DPI detection
     UINT dpi = 96;
     typedef UINT(WINAPI * GetDpiForWindow_t)(HWND);
@@ -83,15 +79,8 @@ void OverlayWindow::UpdateStyle(bool secondMonitorMode, bool showMenu) {
     LONG style = GetWindowLongW(m_hwnd, GWL_STYLE);
     LONG exStyle = GetWindowLongW(m_hwnd, GWL_EXSTYLE);
 
+    ComputeWindowStyles(secondMonitorMode, showMenu, style, exStyle);
     if (secondMonitorMode) {
-        style &= ~WS_POPUP;
-        style |= WS_OVERLAPPEDWINDOW;
-
-        exStyle &= ~WS_EX_TOPMOST;
-        exStyle &= ~WS_EX_TRANSPARENT;
-        exStyle &= ~WS_EX_TOOLWINDOW;
-        exStyle &= ~WS_EX_LAYERED;
-        exStyle |= WS_EX_APPWINDOW;
         BOOL useDarkMode = TRUE;
         DwmSetWindowAttribute(m_hwnd, 20, &useDarkMode, sizeof(useDarkMode));
         int cornerPreference = 2; // DWMWCP_ROUND
@@ -101,17 +90,6 @@ void OverlayWindow::UpdateStyle(bool secondMonitorMode, bool showMenu) {
         SetWindowTextW(m_hwnd, L"OmniStats");
         SetWindowTextA(m_hwnd, "OmniStats");
     } else {
-        style &= ~WS_OVERLAPPEDWINDOW;
-        style |= WS_POPUP;
-
-        exStyle |= WS_EX_TOPMOST | WS_EX_LAYERED | WS_EX_TOOLWINDOW;
-        exStyle &= ~WS_EX_APPWINDOW;
-        if (!showMenu) {
-            exStyle |= WS_EX_TRANSPARENT;
-        } else {
-            exStyle &= ~WS_EX_TRANSPARENT;
-        }
-
         BOOL useDarkMode = FALSE;
         DwmSetWindowAttribute(m_hwnd, 20, &useDarkMode, sizeof(useDarkMode));
         int cornerPreference = 1; // DWMWCP_DONOTROUND
@@ -121,15 +99,8 @@ void OverlayWindow::UpdateStyle(bool secondMonitorMode, bool showMenu) {
     DwmSetWindowAttribute(m_hwnd, 34, &defaultBorder, sizeof(defaultBorder));
     SetWindowLongW(m_hwnd, GWL_STYLE, style);
     SetWindowLongW(m_hwnd, GWL_EXSTYLE, exStyle);
-
-    if (!secondMonitorMode) {
-        SetLayeredWindowAttributes(m_hwnd, RGB(0, 0, 0), 255, LWA_ALPHA);
-        if (!m_frameExtended) {
-            MARGINS margins = {-1, -1, -1, -1};
-            DwmExtendFrameIntoClientArea(m_hwnd, &margins);
-            m_frameExtended = true;
-        }
-    }
+    // A layered window is not composed until its attributes are set; DirectComposition supplies per-pixel alpha.
+    if (exStyle & WS_EX_LAYERED) SetLayeredWindowAttributes(m_hwnd, RGB(0, 0, 0), 255, LWA_ALPHA);
 
     SetWindowPos(m_hwnd,
                  secondMonitorMode ? HWND_NOTOPMOST : HWND_TOPMOST,
@@ -149,7 +120,7 @@ void OverlayWindow::ApplySetupFrame(int width, int height) {
     style &= ~WS_OVERLAPPEDWINDOW;
     style |= WS_POPUP;
     exStyle &= ~(WS_EX_TOPMOST | WS_EX_TRANSPARENT | WS_EX_TOOLWINDOW | WS_EX_LAYERED);
-    exStyle |= WS_EX_APPWINDOW;
+    exStyle |= WS_EX_NOREDIRECTIONBITMAP | WS_EX_APPWINDOW;
     SetWindowLongW(m_hwnd, GWL_STYLE, style);
     SetWindowLongW(m_hwnd, GWL_EXSTYLE, exStyle);
 
@@ -159,8 +130,6 @@ void OverlayWindow::ApplySetupFrame(int width, int height) {
     DwmSetWindowAttribute(m_hwnd, 33, &cornerPreference, sizeof(cornerPreference));
     COLORREF border = RGB(0x2a, 0x2d, 0x36);
     DwmSetWindowAttribute(m_hwnd, 34, &border, sizeof(border));
-    MARGINS margins = {0, 0, 0, 0};
-    DwmExtendFrameIntoClientArea(m_hwnd, &margins);
     m_frameExtended = false;
 
     MONITORINFO mi{};

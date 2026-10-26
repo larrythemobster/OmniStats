@@ -1,6 +1,6 @@
 #include "ui/rml/RmlUiPch.hpp"
 #include "ui/rml/controller/RmlUiController.hpp"
-#include <shobjidl.h>
+#include "ui/rml/presenters/SettingsPresenter.hpp"
 #include <commdlg.h>
 
 #include "core/config/AppVersion.hpp"
@@ -18,22 +18,26 @@
 
 using namespace RmlUiDetail;
 
-std::string RmlUiController::RenderSettingsGeneral() {
+std::string SettingsPresenter::RenderGeneral(const ConfigData& config) {
     std::ostringstream out;
     out << SectionStart("Display mode")
-        << SelectRow("display_mode", "Use OmniStats as", "", {{"overlay", "In-game overlay"}, {"dashboard", "Second-monitor dashboard"}}, m_config.second_monitor_mode ? "dashboard" : "overlay")
+        << SelectRow("display_mode", "Use OmniStats as", "", {{"overlay", "In-game overlay"}, {"dashboard", "Second-monitor dashboard"}}, config.second_monitor_mode ? "dashboard" : "overlay")
         << ToggleControl("require_rl_focus", "Only show while Rocket League is active",
-                         m_config.second_monitor_mode ? "Hides the dashboard when Rocket League isn't running." : "Hides the overlay when you tab out of Rocket League.",
-                         m_config.require_rl_focus)
+                         config.second_monitor_mode ? "Hides the dashboard when Rocket League isn't running." : "Hides the overlay when you tab out of Rocket League.",
+                         config.require_rl_focus)
         << SectionEnd();
 
     const std::string summaryHelp = "Displays the result and match statistics for " +
-                                    std::to_string(std::clamp(m_config.match_summary_seconds, 5, 60)) + " seconds.";
+                                    std::to_string(std::clamp(config.match_summary_seconds, 5, 60)) + " seconds.";
     out << SectionStart("Match behavior")
-        << ToggleControl("show_match_summary", "Show post-match summary", summaryHelp, m_config.show_match_summary)
-        << ToggleControl("show_running_indicator", "Show running indicator", "A small badge that shows the overlay is running.", m_config.show_running_indicator)
+        << ToggleControl("show_match_summary", "Show post-match summary", summaryHelp, config.show_match_summary)
+        << ToggleControl("show_running_indicator", "Show running indicator", "A small badge that shows the overlay is running.", config.show_running_indicator)
         << SectionEnd();
     return out.str();
+}
+
+std::string RmlUiController::RenderSettingsGeneral() {
+    return m_settingsPresenter ? m_settingsPresenter->RenderGeneral(m_config) : std::string{};
 }
 
 std::vector<SelectOption> RmlUiController::IdentityOptions() const {

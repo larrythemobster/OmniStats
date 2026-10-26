@@ -18,13 +18,13 @@
 
 using namespace RmlUiDetail;
 
-std::string RmlUiController::RenderSettingsData() {
+std::string SettingsPresenter::RenderData(const ConfigData& config, const std::shared_ptr<SessionState>& state, bool busy) {
     int detailedMatches = 0;
     std::string detailedSince;
-    if (m_state) {
-        std::lock_guard lock(m_state->ui.dbStatsMutex);
-        detailedMatches = m_state->ui.cachedDbStats.detailedStatsMatchCount;
-        detailedSince = m_state->ui.cachedDbStats.detailedStatsSinceDate;
+    if (state) {
+        std::lock_guard lock(state->ui.dbStatsMutex);
+        detailedMatches = state->ui.cachedDbStats.detailedStatsMatchCount;
+        detailedSince = state->ui.cachedDbStats.detailedStatsSinceDate;
     }
     const std::string detailedSummary =
         (detailedMatches > 0 && !detailedSince.empty())
@@ -34,15 +34,22 @@ std::string RmlUiController::RenderSettingsData() {
     std::ostringstream out;
     out << SectionStart("Privacy and diagnostics")
         << "<div class='setting-help section-help'>Startup diagnostics are required after accepting the privacy notice. Match data and player names are not included.</div>"
-        << ToggleControl("crash_reports_enabled", "Upload crash reports", "Pending minidumps are sent on the next startup.", m_config.crash_reports_enabled)
+        << ToggleControl("crash_reports_enabled", "Upload crash reports", "Pending minidumps are sent on the next startup.", config.crash_reports_enabled)
         << SectionEnd();
     out << SectionStart("Local data")
-        << ActionRow("Match history", detailedSummary, Button("open-data-folder", "Open folder", "ghost") + Button("export-data", "Export", "ghost"))
+        << ActionRow("Match history", detailedSummary, Button("open-data-folder", "Open folder", "ghost") + Button("export-data", "Export", "ghost", busy))
         << "<div class='setting-path mono'>" << Escape(Storage::GetDataDirectory()) << "</div>"
         << ActionRow("Merge another database", "Import matches from an older omnistats.db, such as a backup or another PC. Duplicates are skipped.",
-                     Button("merge-database", "Merge", "ghost"))
+                     Button("merge-database", "Merge", "ghost", busy))
         << ActionRow("Delete history and identity", "Removes local match history and the saved account identity. Settings, service tokens, and tracked accounts are kept.",
-                     Button("delete-history", "Delete", "danger"))
+                     Button("delete-history", "Delete", "danger", busy))
         << SectionEnd();
     return out.str();
+}
+
+std::string RmlUiController::RenderSettingsData() {
+    if (m_settingsPresenter) {
+        return m_settingsPresenter->RenderData(m_config, m_state, m_backgroundTaskRunning.load(std::memory_order_relaxed));
+    }
+    return {};
 }

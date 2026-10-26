@@ -1,6 +1,6 @@
 #include "ui/rml/RmlUiPch.hpp"
 #include "ui/rml/controller/RmlUiController.hpp"
-#include <shobjidl.h>
+#include "ui/rml/presenters/SettingsPresenter.hpp"
 #include <commdlg.h>
 
 #include "core/config/AppVersion.hpp"
@@ -18,16 +18,16 @@
 
 using namespace RmlUiDetail;
 
-std::string RmlUiController::RenderSettingsTroubleshooting() {
+std::string SettingsPresenter::RenderTroubleshooting(const ConfigData& config, const std::shared_ptr<SessionState>& state, const std::string& statsApiPathError) {
     StatsApiConfig::CheckResult result;
-    if (m_state) {
-        std::lock_guard lock(m_state->ui.statsApiMutex);
-        result = m_state->ui.statsApiResult;
+    if (state) {
+        std::lock_guard lock(state->ui.statsApiMutex);
+        result = state->ui.statsApiResult;
     }
     std::ostringstream out;
     out << SectionStart("Rocket League connection")
         << "<div class='setting-help section-help'>OmniStats reads live stats through Rocket League's local Stats API.</div>"
-        << ToggleControl("check_stats_api_config_on_startup", "Check Stats API config on startup", "Offers to turn the Stats API on at launch when it's off.", m_config.check_stats_api_config_on_startup)
+        << ToggleControl("check_stats_api_config_on_startup", "Check Stats API config on startup", "Offers to turn the Stats API on at launch when it's off.", config.check_stats_api_config_on_startup)
         << "<div class='setting-row'><div class='setting-info'><div class='setting-name'>Detected path</div><div class='setting-help mono'>" << Escape(result.path.empty() ? "(none)" : result.path) << "</div></div></div>"
         << ActionRow("Status", StatsApiConfig::GetStatusMessage(result.status),
                      Button("statsapi-check", "Check again", "ghost") +
@@ -36,14 +36,18 @@ std::string RmlUiController::RenderSettingsTroubleshooting() {
     if (result.status != StatsApiConfig::Status::Valid && result.rlRunning) {
         out << "<div class='setting-notice'>Restart Rocket League after fixing for changes to take effect.</div>";
     }
-    out << "<div class='setting-row'><div class='setting-info'><div class='setting-name'>Manual config path</div><div class='setting-help'>TAStatsAPI.ini, or DefaultStatsAPI.ini when TAStatsAPI.ini does not exist.</div></div><div class='row gap-xs'><input class='text' style='width:300dp' data-setting='statsapi_path' value='" << Escape(m_config.rocket_league_stats_api_config_path) << "'/>" << Button("statsapi-browse", "Browse...", "ghost") << "</div></div>";
-    if (!m_statsApiPathError.empty()) out << "<div class='setting-help loss'>" << Escape(m_statsApiPathError) << "</div>";
+    out << "<div class='setting-row'><div class='setting-info'><div class='setting-name'>Manual config path</div><div class='setting-help'>TAStatsAPI.ini, or DefaultStatsAPI.ini when TAStatsAPI.ini does not exist.</div></div><div class='row gap-xs'><input class='text' style='width:300dp' data-setting='statsapi_path' value='" << Escape(config.rocket_league_stats_api_config_path) << "'/>" << Button("statsapi-browse", "Browse...", "ghost") << "</div></div>";
+    if (!statsApiPathError.empty()) out << "<div class='setting-help loss'>" << Escape(statsApiPathError) << "</div>";
     out << SectionEnd();
     out << SectionStart("Diagnostics and logs")
-        << ToggleControl("debug_logging", "Verbose debug logging", "Off by default. Sensitive identifiers are redacted when disabled.", m_config.debug_logging)
+        << ToggleControl("debug_logging", "Verbose debug logging", "Off by default. Sensitive identifiers are redacted when disabled.", config.debug_logging)
         << ActionRow("Support bundle", "A redacted ZIP with recent logs and system diagnostics.", Button("create-support-bundle", "Create", "primary"))
         << ActionRow("Diagnostics summary", "A short text summary you can paste into a support message.", Button("copy-diagnostics-summary", "Copy", "ghost"))
         << ActionRow("Log file", "", Button("show-log", "Show", "ghost"))
         << SectionEnd();
     return out.str();
+}
+
+std::string RmlUiController::RenderSettingsTroubleshooting() {
+    return m_settingsPresenter ? m_settingsPresenter->RenderTroubleshooting(m_config, m_state, m_statsApiPathError) : std::string{};
 }

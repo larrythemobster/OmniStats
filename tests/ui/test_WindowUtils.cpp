@@ -10,16 +10,20 @@ TEST(WindowUtils, ComputeCenteredRect_CentersCorrectly) {
     EXPECT_EQ(r.top, (1080 - 768) / 2);
 }
 
-TEST(WindowUtils, ComputeWindowStyles_Overlay) {
-    LONG style = 0, ex = 0;
-    // Start with neutral values
-    style = WS_OVERLAPPEDWINDOW;
-    ex = 0;
+TEST(WindowUtils, ComputeWindowStyles_OverlayIsClickThroughUntilMenuOpens) {
+    LONG style = WS_OVERLAPPEDWINDOW, ex = WS_EX_APPWINDOW;
     ComputeWindowStyles(false, false, style, ex);
-    // Overlay should set WS_POPUP and layered/topmost flags
     EXPECT_TRUE((style & WS_POPUP) != 0);
     EXPECT_TRUE((ex & WS_EX_TOPMOST) != 0);
+    EXPECT_EQ(ex & (WS_EX_LAYERED | WS_EX_TRANSPARENT), WS_EX_LAYERED | WS_EX_TRANSPARENT);
+    EXPECT_EQ(ex & WS_EX_APPWINDOW, 0);
+
+    ComputeWindowStyles(false, true, style, ex);
     EXPECT_TRUE((ex & WS_EX_LAYERED) != 0);
+    EXPECT_EQ(ex & WS_EX_TRANSPARENT, 0);
+
+    ComputeWindowStyles(false, false, style, ex);
+    EXPECT_EQ(ex & (WS_EX_LAYERED | WS_EX_TRANSPARENT), WS_EX_LAYERED | WS_EX_TRANSPARENT);
 }
 
 TEST(WindowUtils, ComputeWindowStyles_SecondMonitor) {

@@ -2,6 +2,7 @@
 #include "ui/rml/controller/RmlUiController.hpp"
 #include <shobjidl.h>
 #include <commdlg.h>
+#include <span>
 
 #include "core/config/AppVersion.hpp"
 #include "utils/Storage.hpp"
@@ -20,58 +21,59 @@ using namespace RmlUiDetail;
 
 namespace {
     constexpr int kVisibleGraphMatches = 25;
-}
 
-RmlUiController::GraphSeriesData RmlUiController::ResolveGraphSeries() const {
-    GraphSeriesData data;
-    if (m_snap.showLifetimeGraph) {
-        data.playlist = MmrCategoryToString(m_state ? m_state->ui.graphMmrCategory.load() : MmrCategory::TwoVTwo);
-        data.ratings = m_snap.lifetimeMmrY;
-        data.times = m_snap.lifetimeMmrX;
-        if (!data.ratings.empty()) data.baseline = data.ratings.front();
-    } else {
-        const auto category = m_state ? m_state->ui.graphMmrCategory.load() : MmrCategory::TwoVTwo;
-        data.playlist = MmrCategoryToString(category);
-        if (auto it = m_snap.playlistHistoryY.find(data.playlist); it != m_snap.playlistHistoryY.end()) {
-            data.ratings = it->second;
+    struct GraphSeriesData {
+        std::string playlist;
+        std::span<const float> ratings;
+        std::span<const int64_t> times;
+        const std::vector<bool>* estimated = nullptr;
+        float baseline = -1.0f;
+    };
+
+    GraphSeriesData ResolveGraphSeries(const RmlRenderSnapshot& snap, const std::shared_ptr<SessionState>& state) {
+        GraphSeriesData data;
+        if (snap.showLifetimeGraph) {
+            data.playlist = MmrCategoryToString(state ? state->ui.graphMmrCategory.load() : MmrCategory::TwoVTwo);
+            data.ratings = snap.lifetimeMmrY;
+            data.times = snap.lifetimeMmrX;
+            if (!data.ratings.empty()) data.baseline = data.ratings.front();
+        } else {
+            const auto category = state ? state->ui.graphMmrCategory.load() : MmrCategory::TwoVTwo;
+            data.playlist = MmrCategoryToString(category);
+            if (auto it = snap.playlistHistoryY.find(data.playlist); it != snap.playlistHistoryY.end()) {
+                data.ratings = it->second;
+            }
+            if (auto it = snap.playlistHistoryEstimated.find(data.playlist); it != snap.playlistHistoryEstimated.end()) {
+                data.estimated = &it->second;
+            }
+            if (auto it = snap.playlistInitialMmr.find(data.playlist); it != snap.playlistInitialMmr.end()) {
+                data.baseline = static_cast<float>(it->second);
+            }
         }
-        if (auto it = m_snap.playlistHistoryEstimated.find(data.playlist); it != m_snap.playlistHistoryEstimated.end()) {
-            data.estimated = &it->second;
-        }
-        if (auto it = m_snap.playlistInitialMmr.find(data.playlist); it != m_snap.playlistInitialMmr.end()) {
-            data.baseline = static_cast<float>(it->second);
-        }
+        return data;
     }
-    return data;
+
+    std::string RenderGraphPanControlsImpl(const GraphWindow& window) {
+        if (window.total <= kVisibleGraphMatches) return {};
+        std::ostringstream out;
+        out << "<span class='label mono graph-range'>" << (window.firstIndex + 1) << '-' << (window.firstIndex + window.count) << " of " << window.total
+            << "</span><div class='graph-zoom'>"
+            << Button("graph-pan-older", "\xE2\x86\x90", "ghost zoom-step", !window.canPanOlder)
+            << Button("graph-pan-newer", "\xE2\x86\x92", "ghost zoom-step", !window.canPanNewer)
+            << "</div>";
+        return out.str();
+    }
 }
 
-std::string RmlUiController::RenderGraphPanControls() const {
-    const auto series = ResolveGraphSeries();
-    const int offset = m_state ? m_state->ui.graphOffset.load() : 0;
-    const auto window = ComputeGraphWindow(static_cast<int>(series.ratings.size()), offset, kVisibleGraphMatches);
-    return RenderGraphPanControls(window);
-}
-
-std::string RmlUiController::RenderGraphPanControls(const GraphWindow& window) const {
-    if (window.total <= kVisibleGraphMatches) return {};
-    std::ostringstream out;
-    out << "<span class='label mono graph-range'>" << (window.firstIndex + 1) << '-' << (window.firstIndex + window.count) << " of " << window.total
-        << "</span><div class='graph-zoom'>"
-        << Button("graph-pan-older", "\xE2\x86\x90", "ghost zoom-step", !window.canPanOlder)
-        << Button("graph-pan-newer", "\xE2\x86\x92", "ghost zoom-step", !window.canPanNewer)
-        << "</div>";
-    return out.str();
-}
-
-std::string RmlUiController::RenderMmrGraph(bool showCategoryBadge, bool showPanControls) {
-    const auto category = m_state ? m_state->ui.graphMmrCategory.load() : MmrCategory::TwoVTwo;
-    const auto series = ResolveGraphSeries();
-    const int offset = m_state ? m_state->ui.graphOffset.load() : 0;
+std::string RenderMmrGraphImpl(bool showCategoryBadge, bool showPanControls, const RmlRenderSnapshot& snap, const ConfigData& config, const std::shared_ptr<SessionState>& state) {
+    const auto category = state ? state->ui.graphMmrCategory.load() : MmrCategory::TwoVTwo;
+    const auto series = ResolveGraphSeries(snap, state);
+    const int offset = state ? state->ui.graphOffset.load() : 0;
     const auto window = ComputeGraphWindow(static_cast<int>(series.ratings.size()), offset, kVisibleGraphMatches);
     const auto rankTable = MMRFetcher::RankThresholdsForPlaylist(series.playlist);
 
     std::ostringstream header;
-    const std::string pan = showPanControls ? RenderGraphPanControls(window) : std::string{};
+    const std::string pan = showPanControls ? RenderGraphPanControlsImpl(window) : std::string{};
     if (showCategoryBadge || !pan.empty()) {
         header << "<div class='row graph-header'>";
         if (showCategoryBadge) header << "<span class='badge'>" << Escape(MmrLabel(category)) << "</span>";
@@ -81,7 +83,7 @@ std::string RmlUiController::RenderMmrGraph(bool showCategoryBadge, bool showPan
     if (window.count == 0) {
         std::ostringstream empty;
         empty << header.str();
-        if (m_snap.showLifetimeGraph) {
+        if (snap.showLifetimeGraph) {
             empty << "<div class='graph-empty'><div class='muted'>No lifetime MMR history in database yet.</div>"
                   << "<div class='label'>Play matches to populate database records!</div></div>";
         } else {
@@ -93,13 +95,13 @@ std::string RmlUiController::RenderMmrGraph(bool showCategoryBadge, bool showPan
 
     const auto windowRatings = series.ratings.subspan(window.firstIndex, window.count);
     float baseline = series.baseline;
-    if (m_snap.showLifetimeGraph && !windowRatings.empty()) {
+    if (snap.showLifetimeGraph && !windowRatings.empty()) {
         baseline = windowRatings.front();
     }
     const bool hasBaseline = baseline > 0.0f;
     // A session graph starts at the rating from before the first match, so a
     // single game still draws a line from where the session began.
-    const bool sessionStart = !m_snap.showLifetimeGraph && hasBaseline && window.firstIndex == 0;
+    const bool sessionStart = !snap.showLifetimeGraph && hasBaseline && window.firstIndex == 0;
     std::array<float, kVisibleGraphMatches + 1> plotStorage;
     const size_t firstMatch = sessionStart ? 1 : 0;
     if (sessionStart) plotStorage[0] = baseline;
@@ -141,7 +143,7 @@ std::string RmlUiController::RenderMmrGraph(bool showCategoryBadge, bool showPan
         if (band.bottomPct - band.topPct >= kBandLabelMinPct)
             out << "<div class='graph-band-label' style='left:" << (xMin + 1.0f) << "%;top:" << (band.topPct + 1.0f)
                 << "%;color:" << CssColor(Format::RankColor(band.label)) << "'>"
-                << Escape(Format::RankTier(band.label, m_config.use_roman_numerals)) << "</div>";
+                << Escape(Format::RankTier(band.label, config.use_roman_numerals)) << "</div>";
     }
     if (bands.empty()) {
         const float midV = (minV + maxV) * 0.5f;
@@ -170,7 +172,7 @@ std::string RmlUiController::RenderMmrGraph(bool showCategoryBadge, bool showPan
         out << "<div class='graph-rank-line tooltip-host" << (b.boundary.tierStart ? " tier-start" : "") << "' style='left:" << xMin
             << "%;top:" << b.topPct << "%;width:" << (xMax - xMin) << "%'><div class='graph-rank-rule' style='background-color:" << color
             << "'></div><span class='tooltip-bubble" << (b.topPct < 25.0f ? " below" : "") << "'>"
-            << Escape(Format::RankTier(b.boundary.label, m_config.use_roman_numerals) + " starts at " + std::to_string(b.boundary.mmr) + " MMR")
+            << Escape(Format::RankTier(b.boundary.label, config.use_roman_numerals) + " starts at " + std::to_string(b.boundary.mmr) + " MMR")
             << "</span></div>";
     }
 
@@ -193,10 +195,10 @@ std::string RmlUiController::RenderMmrGraph(bool showCategoryBadge, bool showPan
     out << "'></mmrgraphlines>";
 
     for (size_t i = 0; i < plotted.size(); ++i) {
-        const float compareTo = i > 0                      ? plotted[i - 1]
-                                : window.firstIndex > 0    ? series.ratings[static_cast<size_t>(window.firstIndex) - 1]
-                                : m_snap.showLifetimeGraph ? 0.0f
-                                                           : baseline;
+        const float compareTo = i > 0                    ? plotted[i - 1]
+                                : window.firstIndex > 0  ? series.ratings[static_cast<size_t>(window.firstIndex) - 1]
+                                : snap.showLifetimeGraph ? 0.0f
+                                                         : baseline;
         const int mmr = static_cast<int>(std::lround(plotted[i]));
         const bool isStart = sessionStart && i == 0;
         std::string cls;
@@ -209,7 +211,7 @@ std::string RmlUiController::RenderMmrGraph(bool showCategoryBadge, bool showPan
             const int game = window.firstIndex + static_cast<int>(valueIndex) + 1;
             tip = "Game " + std::to_string(game);
             const size_t timeIdx = static_cast<size_t>(window.firstIndex) + valueIndex;
-            if (m_snap.showLifetimeGraph && timeIdx < series.times.size())
+            if (snap.showLifetimeGraph && timeIdx < series.times.size())
                 tip += " \xC2\xB7 " + FormatClock(static_cast<int64_t>(series.times[timeIdx]));
             tip += " \xC2\xB7 " + std::to_string(mmr) + " MMR";
             if (compareTo > 0.0f) {
@@ -257,7 +259,7 @@ std::string RmlUiController::RenderMmrGraph(bool showCategoryBadge, bool showPan
     }
 
     const float axisTop = yMax + 2.0f;
-    if (m_snap.showLifetimeGraph && !series.times.empty() && window.firstIndex < static_cast<int>(series.times.size())) {
+    if (snap.showLifetimeGraph && !series.times.empty() && window.firstIndex < static_cast<int>(series.times.size())) {
         const int lastIndex = std::min(window.firstIndex + window.count - 1, static_cast<int>(series.times.size()) - 1);
         out << "<div class='graph-label' style='left:" << xMin << "%;top:" << axisTop << "%'>"
             << Escape(FormatClock(static_cast<int64_t>(series.times[static_cast<size_t>(window.firstIndex)]))) << "</div>"
@@ -275,104 +277,38 @@ std::string RmlUiController::RenderMmrGraph(bool showCategoryBadge, bool showPan
     return out.str();
 }
 
-RankProgress::Progress RmlUiController::RankProgressFor(const PlayerData* player, const std::string& playlist, int mmr) const {
-    // A reported division only describes the rating it was fetched with. The
-    // tournament tier is itself derived from the table, so it is not evidence.
-    std::string reportedTier;
-    if (player && playlist != "t") {
-        const auto mmrIt = player->playlists.find(playlist);
-        const auto tierIt = player->playlistTiers.find(playlist);
-        if (mmrIt != player->playlists.end() && tierIt != player->playlistTiers.end() && mmrIt->second == mmr) reportedTier = tierIt->second;
-    }
-    return RankProgress::Compute(MMRFetcher::RankThresholdsForPlaylist(playlist), mmr, reportedTier);
+std::string OverlayPresenter::RenderMmrGraph(bool showCategoryBadge, bool showPanControls, const RmlRenderSnapshot& snap, const ConfigData& config, const std::shared_ptr<SessionState>& state) {
+    return RenderMmrGraphImpl(showCategoryBadge, showPanControls, snap, config, state);
 }
 
-std::string RmlUiController::RenderRankProgress(const RankProgress::Progress& progress) const {
-    using RankProgress::Status;
-    if (progress.status == Status::Unavailable) return {};
+std::string OverlayPresenter::RenderGraphPanControls(const RmlRenderSnapshot& snap, const std::shared_ptr<SessionState>& state) {
+    const auto series = ResolveGraphSeries(snap, state);
+    const int offset = state ? state->ui.graphOffset.load() : 0;
+    return RenderGraphPanControlsImpl(ComputeGraphWindow(static_cast<int>(series.ratings.size()), offset, kVisibleGraphMatches));
+}
 
-    const auto rankName = [&](const std::string& label) { return Format::RankTier(label, m_config.use_roman_numerals); };
-    const auto coloredName = [&](const std::string& label) {
-        return "<span class='rank-progress-tier' style='color:" + CssColor(Format::RankColor(label)) + "'>" + Escape(rankName(label)) + "</span>";
-    };
-    const auto delta = [&](const char* tone, const std::string& value, const std::string& tip, bool alignRight) {
-        return std::string("<span class='rank-progress-delta mono tooltip-host ") + tone + "'>" + Escape(value) + "<span class='tooltip-bubble" +
-               (alignRight ? " align-right" : "") + "'>" + Escape(tip) + "</span></span>";
-    };
+std::string RmlUiController::RenderGraphPanControls() const {
+    if (m_overlayPresenter) return m_overlayPresenter->RenderGraphPanControls(m_snap, m_state);
+    const auto series = ResolveGraphSeries(m_snap, m_state);
+    const int offset = m_state ? m_state->ui.graphOffset.load() : 0;
+    return RenderGraphPanControlsImpl(ComputeGraphWindow(static_cast<int>(series.ratings.size()), offset, kVisibleGraphMatches));
+}
 
-    std::ostringstream out;
-    out << "<div class='rank-progress'><div class='row rank-progress-names'>" << coloredName(progress.rank);
-    if (progress.status == Status::Placement) {
-        out << "<span class='label'>placement</span></div>"
-            << "<div class='label rank-progress-note'>Division progress appears once Rocket League assigns a rank.</div></div>";
-        return out.str();
+std::string RmlUiController::RenderMmrGraph(bool showCategoryBadge, bool showPanControls) {
+    if (m_overlayPresenter) {
+        return m_overlayPresenter->RenderMmrGraph(showCategoryBadge, showPanControls, m_snap, m_config, m_state);
     }
-    out << "<div class='grow'></div>";
-    if (progress.next)
-        out << coloredName(progress.next->label);
-    else
-        out << "<span class='label'>Top rank</span>";
-    out << "</div><div class='row rank-progress-bar'>";
-
-    std::string note;
-    if (progress.floor && progress.previous) {
-        const std::string floorText = rankName(progress.floor->label) + " (starts at " + std::to_string(progress.floor->mmr) + " MMR)";
-        if (progress.aboveFloor > 0) {
-            out << delta("loss", "-" + std::to_string(progress.aboveFloor),
-                         "Lose " + std::to_string(progress.aboveFloor) + " MMR to reach lower boundary of " + floorText + ". Rocket League's demotion buffer can delay the drop to " +
-                             rankName(progress.previous->label) + ".",
-                         false);
-        } else if (progress.aboveFloor == 0) {
-            out << delta("loss", "0",
-                         "At lower boundary of " + floorText + ". Rocket League's demotion buffer can delay the drop to " +
-                             rankName(progress.previous->label) + ".",
-                         false);
-        } else {
-            out << delta("neutral", "Grace",
-                         "Rocket League gives you a grace period before demoting you, so falling below the MMR threshold does not immediately remove your rank.",
-                         false);
-            note = std::to_string(-progress.aboveFloor) + " MMR below the " + rankName(progress.floor->label) + " threshold";
-        }
-    }
-
-    if (progress.floor && progress.next) {
-        const float span = static_cast<float>(progress.next->mmr - progress.floor->mmr);
-        const float position = span > 0.0f ? std::clamp(static_cast<float>(progress.mmr - progress.floor->mmr) / span, 0.0f, 1.0f) * 100.0f : 0.0f;
-        ColorRGBA tint = Format::RankColor(progress.rank);
-        const std::string solid = CssColor(tint);
-        tint.a = 0.18f;
-        out << "<div class='rank-progress-track' style='background-color:" << CssColor(tint) << "'><div class='rank-progress-fill' style='width:"
-            << position << "%;background-color:" << solid << "'></div><div class='rank-progress-marker' style='left:" << position << "%'></div></div>";
-    } else {
-        out << "<div class='grow'></div>";
-    }
-
-    if (progress.next) {
-        const std::string nextText = rankName(progress.next->label) + " (starts at " + std::to_string(progress.next->mmr) + " MMR)";
-        if (progress.toNext <= 0) {
-            out << delta("neutral", "Rank unchanged",
-                         "You have reached the " + rankName(progress.next->label) + " MMR threshold, but your reported division has not changed.",
-                         true);
-            note = progress.toNext == 0
-                       ? "At the " + rankName(progress.next->label) + " MMR threshold"
-                       : std::to_string(progress.mmr - progress.next->mmr) + " MMR above the " + rankName(progress.next->label) + " threshold";
-        } else {
-            out << delta("win", "+" + std::to_string(progress.toNext),
-                         "Gain " + std::to_string(progress.toNext) + " MMR to reach " + nextText + ".", true);
-        }
-    }
-    out << "</div>";
-    if (!note.empty()) {
-        out << "<div class='label rank-progress-note'>" << Escape(note) << "</div>";
-    }
-    out << "</div>";
-    return out.str();
+    return RenderMmrGraphImpl(showCategoryBadge, showPanControls, m_snap, m_config, m_state);
 }
 
 void RmlUiController::PanGraph(int direction) {
     if (!m_state || direction == 0) return;
-    const auto series = ResolveGraphSeries();
-    const int total = static_cast<int>(series.ratings.size());
+    size_t sampleCount = m_snap.showLifetimeGraph ? m_snap.lifetimeMmrY.size() : 0;
+    if (!m_snap.showLifetimeGraph) {
+        const auto playlist = MmrCategoryToString(m_state->ui.graphMmrCategory.load());
+        if (const auto it = m_snap.playlistHistoryY.find(playlist); it != m_snap.playlistHistoryY.end()) sampleCount = it->second.size();
+    }
+    const int total = static_cast<int>(sampleCount);
     if (total <= kVisibleGraphMatches) return;
     constexpr int step = 5;
     const int maxOffset = total - kVisibleGraphMatches;

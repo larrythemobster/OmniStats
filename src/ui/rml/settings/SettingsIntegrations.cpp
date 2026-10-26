@@ -1,6 +1,6 @@
 #include "ui/rml/RmlUiPch.hpp"
 #include "ui/rml/controller/RmlUiController.hpp"
-#include <shobjidl.h>
+#include "ui/rml/presenters/SettingsPresenter.hpp"
 #include <commdlg.h>
 
 #include "core/config/AppVersion.hpp"
@@ -20,8 +20,14 @@
 
 using namespace RmlUiDetail;
 
-std::string RmlUiController::RenderSettingsIntegrations() {
-    if (m_pendingBallchasingToken.empty() && !m_config.ballchasing_token.empty()) m_pendingBallchasingToken = m_config.ballchasing_token;
+std::string SettingsPresenter::RenderIntegrations(
+    const ConfigData& config,
+    const std::string& pendingToken,
+    bool showToken,
+    bool showFallback,
+    const std::shared_ptr<SessionState>& state,
+    BindCaptureTarget bindCaptureTarget) {
+    std::string tokenToUse = pendingToken.empty() && !config.ballchasing_token.empty() ? config.ballchasing_token : pendingToken;
     std::ostringstream out;
     const AccountStatusSnapshot accountStatus = AccountClient::Instance().GetStatus();
     const bool signedIn = accountStatus.state == AccountAuthState::SignedIn;
@@ -31,14 +37,14 @@ std::string RmlUiController::RenderSettingsIntegrations() {
             out << "<div class='setting-row'><div class='setting-info'>"
                 << "<div class='setting-name win'>Connected as " << Escape(accountStatus.displayName) << "</div>"
                 << "<div class='setting-help'>"
-                << (m_config.custom_api_enabled ? "Lobby ranks come from your OmniStats account."
-                                                : "OmniStats ranks are turned off for this PC.")
+                << (config.custom_api_enabled ? "Lobby ranks come from your OmniStats account."
+                                              : "OmniStats ranks are turned off for this PC.")
                 << "</div></div><div class='row gap-xs'>"
                 << "<button class='ghost' data-action='account-manage-devices'>Manage devices</button>"
                 << "<button class='ghost' data-action='account-sign-out'>Sign out</button>"
                 << "</div></div>";
             out << ToggleControl("custom_api_enabled", "Use OmniStats ranks", "Look up lobby ranks with your OmniStats account.",
-                                 m_config.custom_api_enabled);
+                                 config.custom_api_enabled);
         } else if (accountStatus.state == AccountAuthState::Migrating) {
             out << "<div class='setting-row'><div class='setting-info'>"
                 << "<div class='setting-name'>Upgrading account connection...</div>"
@@ -55,7 +61,7 @@ std::string RmlUiController::RenderSettingsIntegrations() {
                 << "<button class='ghost' data-action='account-cancel'>Cancel</button>"
                 << "</div></div>"
                 << "<button class='ghost compact' data-action='account-toggle-fallback'>Browser didn't open?</button>";
-            if (m_onboarding.ShowFallback()) {
+            if (showFallback) {
                 out << "<div class='account-code-card'>"
                     << "<div class='setting-help'>Paste the sign-in link into your browser. It already includes this code.</div>"
                     << "<div class='label'>Verification code</div>"
@@ -75,41 +81,41 @@ std::string RmlUiController::RenderSettingsIntegrations() {
             }
             out << "</div><div class='row gap-xs'>"
                 << "<button class='primary' data-action='account-sign-in'>Sign in with OmniStats</button>";
-            if (!m_config.custom_api_key.empty()) {
+            if (!config.custom_api_key.empty()) {
                 out << "<button class='ghost' data-action='account-retry-migration'>Retry migration</button>";
             }
             out << "</div></div>";
         }
     }
-    const bool omniRanks = OmniNet::Available() && signedIn && m_config.custom_api_enabled;
+    const bool omniRanks = OmniNet::Available() && signedIn && config.custom_api_enabled;
     out << ToggleControl("enable_mmr_tracking", "Tracker Network rank lookup",
                          omniRanks ? "Fills in players OmniStats can't find. Sends lobby player names and platform IDs to Tracker Network."
                                    : "Sends lobby player names and platform IDs to Tracker Network to look up public ranks.",
-                         m_config.enable_mmr_tracking);
+                         config.enable_mmr_tracking);
     out << SectionEnd();
     out << SectionStart("Ballchasing uploads")
         << "<div class='setting-help section-help'>Upload saved replay files to your Ballchasing account. Get an API token from ballchasing.com.</div>"
-        << "<div class='setting-row'><div class='setting-info'><div class='setting-name'>API token</div></div><input type='" << (m_showBallchasingToken ? "text" : "password") << "' class='text' data-setting='ballchasing_token' value='" << Escape(m_pendingBallchasingToken) << "'/><button class='ghost' data-action='toggle-token'>" << (m_showBallchasingToken ? "Hide" : "Show") << "</button></div>";
-    if (m_config.auto_upload_replays && m_config.ballchasing_token.empty()) {
+        << "<div class='setting-row'><div class='setting-info'><div class='setting-name'>API token</div></div><input type='" << (showToken ? "text" : "password") << "' class='text' data-setting='ballchasing_token' value='" << Escape(tokenToUse) << "'/><button class='ghost' data-action='toggle-token'>" << (showToken ? "Hide" : "Show") << "</button></div>";
+    if (config.auto_upload_replays && config.ballchasing_token.empty()) {
         out << "<div class='setting-help loss'>Add an API token to start uploading replays.</div>";
-    } else if (m_config.auto_upload_replays && m_state && m_state->ui.ballchasingTokenRejected.load()) {
+    } else if (config.auto_upload_replays && state && state->ui.ballchasingTokenRejected.load()) {
         out << "<div class='setting-help loss'>Ballchasing rejected this token. Uploads are paused until you enter a valid one.</div>";
     }
 
-    out << ToggleControl("auto_upload_replays", "Auto-upload new replays", "Sends each saved replay to Ballchasing.", m_config.auto_upload_replays);
-    if (m_config.auto_upload_replays) {
-        out << SelectRow("ballchasing_visibility", "Upload visibility", "", {{"private", "Private"}, {"unlisted", "Unlisted"}, {"public", "Public"}}, m_config.ballchasing_visibility)
-            << ToggleControl("ballchasing_filter_ranked_only", "Ranked matches only", "", m_config.ballchasing_filter_ranked_only)
-            << ToggleControl("ballchasing_filter_wins_only", "Wins only", "", m_config.ballchasing_filter_wins_only);
+    out << ToggleControl("auto_upload_replays", "Auto-upload new replays", "Sends each saved replay to Ballchasing.", config.auto_upload_replays);
+    if (config.auto_upload_replays) {
+        out << SelectRow("ballchasing_visibility", "Upload visibility", "", {{"private", "Private"}, {"unlisted", "Unlisted"}, {"public", "Public"}}, config.ballchasing_visibility)
+            << ToggleControl("ballchasing_filter_ranked_only", "Ranked matches only", "", config.ballchasing_filter_ranked_only)
+            << ToggleControl("ballchasing_filter_wins_only", "Wins only", "", config.ballchasing_filter_wins_only);
     }
 
-    if (m_state) {
+    if (state) {
         ReplayUploadStatus status;
         {
-            std::lock_guard lock(m_state->ui.replayUploadMutex);
-            status = m_state->ui.replayUploadStatus;
+            std::lock_guard lock(state->ui.replayUploadMutex);
+            status = state->ui.replayUploadStatus;
         }
-        if (m_config.auto_upload_replays || status.uploadedToday > 0 || status.retrying > 0 || status.failed > 0) {
+        if (config.auto_upload_replays || status.uploadedToday > 0 || status.retrying > 0 || status.failed > 0) {
             out << "<div class='setting-row'><div class='setting-info'>"
                 << "<div class='setting-name'>Upload queue</div>"
                 << "<div class='setting-help'>" << status.uploadedToday << " uploaded today · "
@@ -123,20 +129,24 @@ std::string RmlUiController::RenderSettingsIntegrations() {
     }
     out << SectionEnd();
     out << SectionStart("Replay saving")
-        << ToggleControl("auto_save_replays", "Auto-save replays", "Presses your Rocket League save-replay key for you. Nothing is injected into the game.", m_config.auto_save_replays);
-    if (m_config.auto_save_replays) {
-        const bool active = m_bindCaptureTarget == BindCaptureTarget::KeySaveReplay;
+        << ToggleControl("auto_save_replays", "Auto-save replays", "Presses your Rocket League save-replay key for you. Nothing is injected into the game.", config.auto_save_replays);
+    if (config.auto_save_replays) {
+        const bool active = bindCaptureTarget == BindCaptureTarget::KeySaveReplay;
         const std::string bindTarget = std::to_string(static_cast<int>(BindCaptureTarget::KeySaveReplay));
         out << "<div class='setting-row'><div class='setting-info'><div class='setting-name'>Save replay key</div>"
             << "<div class='setting-help'>Matches the Save Replay bind configured in Rocket League.</div></div><div class='row gap-xs'>"
             << "<button data-action='capture-bind' data-bind='" << bindTarget << "'>"
-            << (active ? "Press a key..." : Escape(GetKeyDisplayName(m_config.key_save_replay))) << "</button>"
+            << (active ? "Press a key..." : Escape(GetKeyDisplayName(config.key_save_replay))) << "</button>"
             << "<button class='ghost' data-action='" << (active ? "cancel-bind" : "clear-bind")
             << "' data-bind='" << bindTarget << "'>" << (active ? "Cancel" : "Clear") << "</button></div></div>";
     }
     out << SectionEnd();
     out << SectionStart("Discord")
-        << ToggleControl("discord_rpc_enabled", "Discord Rich Presence", "Shows your current match on your Discord profile. Takes effect after you restart OmniStats.", m_config.discord_rpc_enabled)
+        << ToggleControl("discord_rpc_enabled", "Discord Rich Presence", "Shows your current match on your Discord profile. Takes effect after you restart OmniStats.", config.discord_rpc_enabled)
         << SectionEnd();
     return out.str();
+}
+
+std::string RmlUiController::RenderSettingsIntegrations() {
+    return m_settingsPresenter ? m_settingsPresenter->RenderIntegrations(m_config, m_pendingBallchasingToken, m_showBallchasingToken, m_onboarding.ShowFallback(), m_state, m_bindCaptureTarget) : std::string{};
 }

@@ -1,40 +1,130 @@
 #include "ui/window/D3D11Device.hpp"
+#include <algorithm>
 #include <iostream>
 
-bool D3D11Device::Create(HWND hwnd) {
-    DXGI_SWAP_CHAIN_DESC sd = {};
-    sd.BufferCount = 2;
-    sd.BufferDesc.Width = 0;
-    sd.BufferDesc.Height = 0;
-    sd.BufferDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
-    sd.BufferDesc.RefreshRate.Numerator = 60;
-    sd.BufferDesc.RefreshRate.Denominator = 1;
-    // This swap chain is permanently windowed. Opting into display-mode changes
-    // needlessly sends this transparent overlay through driver fullscreen paths.
-    sd.Flags = 0;
-    sd.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
-    sd.OutputWindow = hwnd;
-    sd.SampleDesc.Count = 1;
-    sd.SampleDesc.Quality = 0;
-    sd.Windowed = TRUE;
-    // The overlay depends on WS_EX_LAYERED alpha composition. Flip-model swapchains
-    // can present transparent backbuffers as black without a DirectComposition path.
-    sd.SwapEffect = DXGI_SWAP_EFFECT_DISCARD;
+#pragma comment(lib, "dcomp.lib")
 
-    UINT createDeviceFlags = 0;
+bool D3D11Device::Create(HWND hwnd) {
+    UINT createDeviceFlags = D3D11_CREATE_DEVICE_BGRA_SUPPORT;
     D3D_FEATURE_LEVEL featureLevel;
     const D3D_FEATURE_LEVEL featureLevelArray[2] = {
         D3D_FEATURE_LEVEL_11_0,
         D3D_FEATURE_LEVEL_10_0,
     };
 
-    HRESULT hr = D3D11CreateDeviceAndSwapChain(
+    HRESULT hr = D3D11CreateDevice(
         nullptr, D3D_DRIVER_TYPE_HARDWARE, nullptr, createDeviceFlags,
-        featureLevelArray, 2, D3D11_SDK_VERSION, &sd,
-        m_swapChain.ReleaseAndGetAddressOf(), m_device.ReleaseAndGetAddressOf(), &featureLevel, m_context.ReleaseAndGetAddressOf());
+        featureLevelArray, 2, D3D11_SDK_VERSION,
+        m_device.ReleaseAndGetAddressOf(), &featureLevel, m_context.ReleaseAndGetAddressOf());
     if (FAILED(hr)) {
-        std::cout << "[D3D11] Failed to create device and swap chain: 0x" << std::hex << hr << std::dec << "\n";
+        hr = D3D11CreateDevice(
+            nullptr, D3D_DRIVER_TYPE_HARDWARE, nullptr, 0,
+            featureLevelArray, 2, D3D11_SDK_VERSION,
+            m_device.ReleaseAndGetAddressOf(), &featureLevel, m_context.ReleaseAndGetAddressOf());
+    }
+    if (FAILED(hr)) {
+        std::cout << "[D3D11] Failed to create D3D11 device: 0x" << std::hex << hr << std::dec << "\n";
         return false;
+    }
+
+    Microsoft::WRL::ComPtr<IDXGIDevice> dxgiDevice;
+    hr = m_device.As(&dxgiDevice);
+    if (FAILED(hr)) {
+        std::cout << "[D3D11] Failed to query IDXGIDevice: 0x" << std::hex << hr << std::dec << "\n";
+        Shutdown();
+        return false;
+    }
+
+    Microsoft::WRL::ComPtr<IDXGIAdapter> dxgiAdapter;
+    hr = dxgiDevice->GetAdapter(dxgiAdapter.ReleaseAndGetAddressOf());
+    if (FAILED(hr)) {
+        std::cout << "[D3D11] Failed to get IDXGIAdapter: 0x" << std::hex << hr << std::dec << "\n";
+        Shutdown();
+        return false;
+    }
+
+    Microsoft::WRL::ComPtr<IDXGIFactory2> dxgiFactory;
+    hr = dxgiAdapter->GetParent(IID_PPV_ARGS(dxgiFactory.ReleaseAndGetAddressOf()));
+    if (FAILED(hr)) {
+        std::cout << "[D3D11] Failed to get IDXGIFactory2: 0x" << std::hex << hr << std::dec << "\n";
+        Shutdown();
+        return false;
+    }
+
+    RECT client{};
+    if (hwnd) GetClientRect(hwnd, &client);
+    const int width = std::max(1L, client.right - client.left);
+    const int height = std::max(1L, client.bottom - client.top);
+
+    DXGI_SWAP_CHAIN_DESC1 sd1{};
+    sd1.Width = static_cast<UINT>(width);
+    sd1.Height = static_cast<UINT>(height);
+    sd1.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
+    sd1.Stereo = FALSE;
+    sd1.SampleDesc.Count = 1;
+    sd1.SampleDesc.Quality = 0;
+    sd1.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
+    sd1.BufferCount = 2;
+    sd1.Scaling = DXGI_SCALING_STRETCH;
+    sd1.SwapEffect = DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL;
+    sd1.AlphaMode = DXGI_ALPHA_MODE_PREMULTIPLIED;
+    sd1.Flags = 0;
+
+    hr = dxgiFactory->CreateSwapChainForComposition(
+        m_device.Get(),
+        &sd1,
+        nullptr,
+        m_swapChain.ReleaseAndGetAddressOf());
+    if (FAILED(hr)) {
+        std::cout << "[D3D11] Failed to create composition swap chain: 0x" << std::hex << hr << std::dec << "\n";
+        Shutdown();
+        return false;
+    }
+
+    if (hwnd) {
+        hr = DCompositionCreateDevice(
+            dxgiDevice.Get(),
+            IID_PPV_ARGS(m_dcompDevice.ReleaseAndGetAddressOf()));
+        if (FAILED(hr)) {
+            std::cout << "[DComp] Failed to create DirectComposition device: 0x" << std::hex << hr << std::dec << "\n";
+            Shutdown();
+            return false;
+        }
+
+        hr = m_dcompDevice->CreateTargetForHwnd(hwnd, TRUE, m_dcompTarget.ReleaseAndGetAddressOf());
+        if (FAILED(hr)) {
+            std::cout << "[DComp] Failed to create DirectComposition target: 0x" << std::hex << hr << std::dec << "\n";
+            Shutdown();
+            return false;
+        }
+
+        hr = m_dcompDevice->CreateVisual(m_dcompVisual.ReleaseAndGetAddressOf());
+        if (FAILED(hr)) {
+            std::cout << "[DComp] Failed to create DirectComposition visual: 0x" << std::hex << hr << std::dec << "\n";
+            Shutdown();
+            return false;
+        }
+
+        hr = m_dcompVisual->SetContent(m_swapChain.Get());
+        if (FAILED(hr)) {
+            std::cout << "[DComp] Failed to set visual content: 0x" << std::hex << hr << std::dec << "\n";
+            Shutdown();
+            return false;
+        }
+
+        hr = m_dcompTarget->SetRoot(m_dcompVisual.Get());
+        if (FAILED(hr)) {
+            std::cout << "[DComp] Failed to set root visual: 0x" << std::hex << hr << std::dec << "\n";
+            Shutdown();
+            return false;
+        }
+
+        hr = m_dcompDevice->Commit();
+        if (FAILED(hr)) {
+            std::cout << "[DComp] Failed to commit DirectComposition device: 0x" << std::hex << hr << std::dec << "\n";
+            Shutdown();
+            return false;
+        }
     }
 
     if (!CreateRenderTarget()) {
@@ -47,6 +137,12 @@ bool D3D11Device::Create(HWND hwnd) {
 
 void D3D11Device::Shutdown() {
     CleanupRenderTarget();
+    if (m_dcompTarget) {
+        m_dcompTarget->SetRoot(nullptr);
+    }
+    m_dcompVisual.Reset();
+    m_dcompTarget.Reset();
+    m_dcompDevice.Reset();
     m_swapChain.Reset();
     m_context.Reset();
     m_device.Reset();
@@ -140,6 +236,9 @@ HRESULT D3D11Device::ResizeBuffers(int width, int height) {
     if (!CreateRenderTarget()) {
         std::cout << "[D3D11] Failed to create render target after resize.\n";
         return E_FAIL;
+    }
+    if (m_dcompDevice) {
+        m_dcompDevice->Commit();
     }
     return S_OK;
 }

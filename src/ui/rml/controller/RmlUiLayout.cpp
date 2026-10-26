@@ -24,12 +24,8 @@
 
 using namespace RmlUiDetail;
 
-bool RmlUiController::RankSourceAvailable() const {
-    return m_config.enable_mmr_tracking || (OmniNet::Available() && m_config.custom_api_enabled && AccountClient::Instance().IsSignedIn());
-}
-
 std::string RmlUiController::RenderRankSourceHint(bool interactive) const {
-    if (RankSourceAvailable()) return {};
+    if (RankSourceAvailable(m_config)) return {};
     std::string html = "<div class='rank-source-hint row'>";
     if (!OmniNet::Available()) {
         html += "<div class='grow'>Ranks are off. Enable Tracker Network rank lookup in Settings &#x203A; Accounts &amp; services.</div>";
@@ -309,65 +305,10 @@ void RmlUiController::RebuildOverlay() {
 }
 
 std::string RmlUiController::RenderReleaseBanners() const {
-    const RemoteConfigData remoteSnap = m_remoteConfig ? m_remoteConfig->GetSnapshot() : RemoteConfigData{};
-    const bool belowMin = RemoteConfig::IsVersionBelowMinimum(AppVersion::Current, remoteSnap.min_supported_version);
-    const bool wireUpdateRequired = OmniNet::UpdateRequired();
-    const auto announcements = m_remoteConfig ? m_remoteConfig->ActiveAnnouncements() : std::vector<RemoteAnnouncement>{};
-    if (!belowMin && !wireUpdateRequired && announcements.empty()) {
-        return {};
+    if (m_dashboardPresenter) {
+        return m_dashboardPresenter->RenderReleaseBanners(m_state);
     }
-
-    bool updateDownloading = false;
-    bool updateFailed = false;
-    if (m_state) {
-        updateDownloading = m_state->ui.updateDownloading.load();
-        updateFailed = m_state->ui.updateDownloadFailed.load();
-    }
-
-    std::ostringstream out;
-    out << "<div class='release-banners'>";
-    if (wireUpdateRequired || belowMin) {
-        const std::string title = wireUpdateRequired
-                                      ? "Update required"
-                                      : ("Update recommended · v" + Escape(remoteSnap.min_supported_version) + "+");
-        const std::string msg = wireUpdateRequired
-                                    ? "Update OmniStats to keep using online features."
-                                    : (remoteSnap.min_version_message.empty()
-                                           ? ("OmniStats v" + remoteSnap.min_supported_version + " or newer is recommended.")
-                                           : remoteSnap.min_version_message);
-        const std::string updateLabel = updateDownloading ? "Starting updater..."
-                                        : updateFailed    ? "Retry update"
-                                                          : "Update now";
-        out << "<div class='release-banner severity-warning min-version-banner'>"
-            << "<div class='release-banner-body'>"
-            << "<div class='release-banner-title'>" << Escape(title) << "</div>"
-            << "<div class='release-banner-text'>" << Escape(msg) << "</div>"
-            << "</div><div class='release-banner-actions'>"
-            << Button("update-app", updateLabel, "primary compact")
-            << "</div></div>";
-    }
-
-    for (const auto& ann : announcements) {
-        out << "<div class='release-banner severity-" << Escape(ann.severity)
-            << "' data-announcement-id='" << Escape(ann.id) << "'>"
-            << "<div class='release-banner-body'>"
-            << "<div class='release-banner-title'>" << Escape(ann.title) << "</div>";
-        if (!ann.body.empty()) {
-            out << "<div class='release-banner-text'>" << Escape(ann.body) << "</div>";
-        }
-        out << "</div><div class='release-banner-actions'>";
-        if (!ann.link_url.empty() && RemoteConfig::IsAllowedAnnouncementLinkUrl(ann.link_url)) {
-            out << "<button class='ghost compact' data-action='open-announcement-link' data-url='"
-                << Escape(ann.link_url) << "'>Learn more</button>";
-        }
-        if (ann.dismissible) {
-            out << "<button class='ghost compact' data-action='dismiss-announcement' data-announcement-id='"
-                << Escape(ann.id) << "'>Dismiss</button>";
-        }
-        out << "</div></div>";
-    }
-    out << "</div>";
-    return out.str();
+    return {};
 }
 
 void RmlUiController::RebuildDashboard() {

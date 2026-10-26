@@ -317,6 +317,7 @@ omnistats_add_layer_library(omnistats_ui
         d3d11.lib
         d3dcompiler.lib
         dxgi.lib
+        dcomp.lib
         gdiplus.lib
         windowscodecs.lib
         comdlg32.lib

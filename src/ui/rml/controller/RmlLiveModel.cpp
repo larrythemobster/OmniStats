@@ -119,7 +119,7 @@ LiveValues ComputeLiveValues(const RmlRenderSnapshot& snapshot, const ConfigData
     return v;
 }
 
-bool RmlLiveModel::Create(Rml::Context* context) {
+bool RmlLiveModel::Create(Rml::Context* context, std::function<void(Rml::DataModelConstructor&)> extraBindings) {
     Reset();
     if (!context) return false;
     Rml::DataModelConstructor constructor = context->CreateDataModel("live");
@@ -129,6 +129,10 @@ bool RmlLiveModel::Create(Rml::Context* context) {
         constructor.Bind(field.name, &(m_values.*field.member));
     for (const auto& field : kToneFields)
         constructor.Bind(field.name, &(m_values.*field.member));
+
+    if (extraBindings) {
+        extraBindings(constructor);
+    }
 
     m_handle = constructor.GetModelHandle();
     m_bound = true;

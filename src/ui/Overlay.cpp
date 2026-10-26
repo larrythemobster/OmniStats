@@ -246,6 +246,8 @@ bool Overlay::Initialize() {
         return false;
     }
     SyncSetupWindow();
+    m_foreground = std::make_unique<ForegroundDetector>();
+    m_foreground->Initialize(m_hwnd);
 
     timeBeginPeriod(1);
     ShowWindow(m_hwnd, SW_SHOWDEFAULT);
@@ -279,10 +281,7 @@ void Overlay::SyncSetupWindow() {
 void Overlay::RunLoop() {
     bool done = false;
     bool isClickThrough = (GetWindowLong(m_hwnd, GWL_EXSTYLE) & WS_EX_TRANSPARENT) != 0;
-    HWND cachedRlHwnd = nullptr;
     bool wasRLActive = false;
-    bool lastExternalForegroundWasRL = false;
-    auto lastRescan = std::chrono::steady_clock::now() - std::chrono::seconds(2);
     auto lastFrameTime = std::chrono::steady_clock::now();
     auto lastUiDataUpdate = lastFrameTime - std::chrono::milliseconds(100);
     uint64_t lastConfigRevision = Config::Revision();
@@ -352,56 +351,11 @@ void Overlay::RunLoop() {
         }
 
         bool isRLActive = false;
+        HWND cachedRlHwnd = nullptr;
         const bool checkFocus = m_frameConfig.require_rl_focus || m_frameConfig.second_monitor_mode;
-        if (checkFocus) {
-            const auto now = std::chrono::steady_clock::now();
-            if ((!cachedRlHwnd || !IsWindow(cachedRlHwnd)) &&
-                std::chrono::duration_cast<std::chrono::seconds>(now - lastRescan).count() >= 2) {
-                lastRescan = now;
-                cachedRlHwnd = FindWindowA("LaunchUnrealUWindowsClient", nullptr);
-                if (!cachedRlHwnd) cachedRlHwnd = FindWindowA(nullptr, "Rocket League (64-bit, DX11)");
-                if (!cachedRlHwnd) cachedRlHwnd = FindWindowA(nullptr, "Rocket League (32-bit, DX11)");
-                if (!cachedRlHwnd) cachedRlHwnd = FindWindowA(nullptr, "Rocket League");
-            }
-
-            HWND fg = GetForegroundWindow();
-            ForegroundKind kind = ForegroundKind::None;
-            bool rlUnavailable = !cachedRlHwnd || !IsWindow(cachedRlHwnd) || IsIconic(cachedRlHwnd);
-            if (!fg) {
-                kind = ForegroundKind::None;
-            } else if (fg == m_hwnd) {
-                kind = ForegroundKind::Overlay;
-            } else if (cachedRlHwnd && fg == cachedRlHwnd) {
-                kind = ForegroundKind::RocketLeague;
-            } else {
-                char className[256]{};
-                char title[256]{};
-                GetClassNameA(fg, className, sizeof(className));
-                DWORD_PTR textLength = 0;
-                SendMessageTimeoutA(fg, WM_GETTEXT, sizeof(title),
-                                    reinterpret_cast<LPARAM>(title),
-                                    SMTO_ABORTIFHUNG | SMTO_BLOCK, 50, &textLength);
-                const std::string cls(className);
-                const std::string windowTitle(title);
-                bool isRL = cls == "LaunchUnrealUWindowsClient";
-                if (!isRL) {
-                    const bool browserOrExplorer = cls.find("Chrome") != std::string::npos ||
-                                                   cls.find("Mozilla") != std::string::npos ||
-                                                   cls.find("IEFrame") != std::string::npos ||
-                                                   cls.find("CabinetWClass") != std::string::npos;
-                    isRL = !browserOrExplorer && (windowTitle == "Rocket League (64-bit, DX11)" ||
-                                                  windowTitle == "Rocket League (32-bit, DX11)" ||
-                                                  windowTitle == "Rocket League");
-                }
-                if (isRL) {
-                    cachedRlHwnd = fg;
-                    rlUnavailable = IsIconic(fg) != FALSE;
-                    kind = ForegroundKind::RocketLeague;
-                } else {
-                    kind = ForegroundKind::Other;
-                }
-            }
-            isRLActive = ResolveRocketLeagueFocus(kind, rlUnavailable, lastExternalForegroundWasRL);
+        if (checkFocus && m_foreground) {
+            isRLActive = m_foreground->IsRocketLeagueActive();
+            cachedRlHwnd = m_foreground->CachedRocketLeagueWindow();
         }
 
         bool shouldDraw = true;
@@ -509,24 +463,22 @@ void Overlay::RunLoop() {
             }
         }
 
-        // Present(0) must never turn into a busy loop. Interaction (Settings,
-        // overlay dragging and second-monitor mode) only changes input routing;
-        // it is not a reason to bypass the configured render cadence. A static
-        // on-demand frame also needs an explicit limiter when vsync is enabled,
-        // because skipping Present(1) removes DXGI's normal blocking wait.
-        if (!m_frameConfig.vsync || !renderFrame) {
-            const int frameCap = m_frameConfig.overlay_fps_cap > 0 ? m_frameConfig.overlay_fps_cap : 60;
-            const auto now = std::chrono::steady_clock::now();
-            const auto targetDuration = std::chrono::duration<double, std::milli>(1000.0 / static_cast<double>(frameCap));
-            const auto elapsed = std::chrono::duration<double, std::milli>(now - lastFrameTime);
-            if (elapsed < targetDuration) std::this_thread::sleep_for(targetDuration - elapsed);
-        }
+        // Present with vsync honoring overlay_fps_cap; skip Present when nothing changed as today.
+        const int frameCap = m_frameConfig.overlay_fps_cap > 0 ? m_frameConfig.overlay_fps_cap : 60;
+        const auto now = std::chrono::steady_clock::now();
+        const auto targetDuration = std::chrono::duration<double, std::milli>(1000.0 / static_cast<double>(frameCap));
+        const auto elapsed = std::chrono::duration<double, std::milli>(now - lastFrameTime);
+        if (elapsed < targetDuration) std::this_thread::sleep_for(targetDuration - elapsed);
         lastFrameTime = std::chrono::steady_clock::now();
     }
 }
 
 void Overlay::Shutdown() {
     timeEndPeriod(1);
+    if (m_foreground) {
+        m_foreground->Shutdown();
+        m_foreground.reset();
+    }
     if (m_rmlUi) {
         m_rmlUi->Shutdown();
         m_rmlUi.reset();

@@ -84,104 +84,21 @@ namespace {
 // name themselves "Inter SemiBold" and friends, which would otherwise register as
 // separate families.
 bool RmlUiController::LoadBundledFonts() {
-    m_fontBlobs.clear();
-    m_systemFontAliases.clear();
-    for (const auto& font : kBundledFonts) {
-        // Packaged builds carry the faces as RCDATA; test and unpacked builds have
-        // no application resources, so fall back to the source tree like
-        // RmlFileInterface does for RML/RCSS.
-        Rml::Span<const Rml::byte> data = EmbeddedResource(font.resource);
-        if (data.empty()) {
-            auto blob = ReadFontFile(font.file);
-            if (!blob.empty()) {
-                m_fontBlobs.push_back(std::move(blob));
-                const auto& stored = m_fontBlobs.back();
-                data = {stored.data(), stored.size()};
-            }
-        }
-        const bool loaded = !data.empty() &&
-                            Rml::LoadFontFace(data, font.family, Rml::Style::FontStyle::Normal,
-                                              static_cast<Rml::Style::FontWeight>(font.weight));
-        if (loaded) continue;
-        if (font.required) {
-            std::cerr << "[RmlUi] Failed to load font " << font.file
-                      << "; refusing to start with an unreadable UI.\n";
-            return false;
-        }
-        std::cerr << "[RmlUi] Warning: failed to load font " << font.file << ".\n";
-    }
-
-    // Player names are arbitrary user data. Inter covers Latin/Greek/Cyrillic, so
-    // register system faces as fallbacks for everything else instead of drawing
-    // missing-glyph boxes.
-    for (const char* fallback : {"C:/Windows/Fonts/segoeui.ttf", "C:/Windows/Fonts/msgothic.ttc"})
-        Rml::LoadFontFace(fallback, true);
-
-    return true;
+    return m_fontService ? m_fontService->LoadBundledFonts() : false;
 }
 
-// RmlUi cannot unload or replace a registered face, and adding faces to an
-// existing family makes the match ambiguous. Installed fonts therefore get their
-// own alias family, loaded the first time they are chosen and kept until
-// Rml::Shutdown.
 std::string RmlUiController::ResolveFontFamily(const std::string& choice, std::string_view defaultFamily) {
-    if (choice.empty() || IsBundledFamily(choice)) return choice.empty() ? std::string(defaultFamily) : choice;
-
-    auto cached = m_systemFontAliases.find(choice);
-    if (cached == m_systemFontAliases.end()) {
-        const std::string alias = "omnistats-system " + CssFamilyName(choice);
-        bool loadedAny = false;
-        std::map<std::filesystem::path, Rml::Span<const Rml::byte>> files;
-        for (const auto& face : SystemFonts::FindFaces(choice, {400, 600, 700})) {
-            auto file = files.find(face.file);
-            if (file == files.end()) {
-                auto blob = ReadWholeFile(face.file);
-                Rml::Span<const Rml::byte> data;
-                if (!blob.empty()) {
-                    m_fontBlobs.push_back(std::move(blob));
-                    data = {m_fontBlobs.back().data(), m_fontBlobs.back().size()};
-                }
-                file = files.emplace(face.file, data).first;
-            }
-            if (file->second.empty()) continue;
-            loadedAny |= Rml::LoadFontFace(file->second, alias, Rml::Style::FontStyle::Normal,
-                                           static_cast<Rml::Style::FontWeight>(face.weight), false,
-                                           static_cast<int>(face.faceIndex));
-        }
-        if (!loadedAny) std::cerr << "[RmlUi] Warning: could not load installed font \"" << choice << "\"; using default.\n";
-        cached = m_systemFontAliases.emplace(choice, loadedAny ? alias : std::string{}).first;
-    }
-    return cached->second.empty() ? std::string(defaultFamily) : cached->second;
+    return m_fontService ? m_fontService->ResolveFontFamily(choice, defaultFamily) : std::string(defaultFamily);
 }
 
 std::string RmlUiController::FontOverrideCss() {
-    m_appliedFontUi = m_config.font_ui;
-    m_appliedFontMono = m_config.font_mono;
-    m_appliedFontDisplay = m_config.font_display;
-
-    const std::string ui = ResolveFontFamily(m_config.font_ui, kDefaultUiFont);
-    const std::string mono = ResolveFontFamily(m_config.font_mono, kDefaultMonoFont);
-    const std::string display = ResolveFontFamily(m_config.font_display, kDefaultDisplayFont);
-    if (ui == kDefaultUiFont && mono == kDefaultMonoFont && display == kDefaultDisplayFont) return {};
-
-    // Emit every role once any is customized: the packaged UI-role resets inside
-    // mono/display parents lose to #app-prefixed rules otherwise.
-    std::ostringstream css;
-    css << kUiFontSelectors << " { font-family: \"" << CssFamilyName(ui) << "\"; }\n"
-        << kMonoFontSelectors << " { font-family: \"" << CssFamilyName(mono) << "\"; }\n"
-        << kDisplayFontSelectors << " { font-family: \"" << CssFamilyName(display) << "\"; }\n";
-    return css.str();
+    return m_fontService ? m_fontService->FontOverrideCss(m_config) : std::string{};
 }
 
 bool RmlUiController::FontsDifferFromApplied(const ConfigData& config) const {
-    return config.font_ui != m_appliedFontUi || config.font_mono != m_appliedFontMono ||
-           config.font_display != m_appliedFontDisplay;
+    return m_fontService ? m_fontService->FontsDifferFromApplied(config) : false;
 }
 
 const std::vector<std::string>& RmlUiController::SystemFontFamilies() {
-    if (!m_systemFontFamiliesLoaded) {
-        m_systemFontFamilies = SystemFonts::ListFamilies();
-        m_systemFontFamiliesLoaded = true;
-    }
-    return m_systemFontFamilies;
+    return FontService::SystemFontFamilies();
 }

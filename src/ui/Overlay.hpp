@@ -11,6 +11,7 @@
 #include "ui/window/D3D11Device.hpp"
 #include "ui/window/OverlayWindow.hpp"
 #include "ui/window/TrayIcon.hpp"
+#include "ui/window/ForegroundDetector.hpp"
 
 class DatabaseManager;
 class RmlUiController;
@@ -67,6 +68,7 @@ class Overlay {
     std::unique_ptr<TrayIcon> m_trayIcon;
     std::unique_ptr<D3D11Device> m_d3d11;
     std::unique_ptr<RmlUiController> m_rmlUi;
+    std::unique_ptr<ForegroundDetector> m_foreground;
 
     HWND m_hwnd = nullptr;
     float m_dpiScale = 1.0f;

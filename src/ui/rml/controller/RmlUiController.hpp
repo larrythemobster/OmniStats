@@ -11,19 +11,16 @@
 #include <map>
 #include <limits>
 #include <memory>
-#include <mutex>
 #include <optional>
+#include <stop_token>
 #include <string>
 #include <string_view>
 #include <unordered_map>
 #include <vector>
-#include <span>
-#include <thread>
 
 #include "core/config/Config.hpp"
 #include "core/tournaments/TournamentSchedule.hpp"
 #include "core/state/SessionState.hpp"
-#include "core/game/RankProgress.hpp"
 #include "core/game/StatsScope.hpp"
 #include "ui/rml/backend/RmlFileInterface.hpp"
 #include "ui/rml/backend/RmlRenderInterfaceD3D11.hpp"
@@ -35,6 +32,20 @@
 #include "ui/rml/views/AccountsView.hpp"
 #include "ui/rml/views/PlayerNoteView.hpp"
 #include "ui/rml/backend/RmlSystemInterfaceWin32.hpp"
+#include "ui/rml/controller/RmlRenderSnapshot.hpp"
+#include "ui/rml/presenters/OverlayPresenter.hpp"
+#include "ui/rml/presenters/DashboardPresenter.hpp"
+#include "ui/rml/presenters/SettingsPresenter.hpp"
+#include "ui/rml/presenters/HistoryPresenter.hpp"
+#include "ui/rml/presenters/InsightsPresenter.hpp"
+#include "ui/rml/presenters/AccountsPresenter.hpp"
+#include "ui/rml/presenters/OnboardingPresenter.hpp"
+#include "ui/rml/presenters/PlayerNotePresenter.hpp"
+#include "ui/rml/services/BackgroundTaskService.hpp"
+#include "ui/rml/services/InputCaptureService.hpp"
+#include "ui/rml/services/ColorPickerService.hpp"
+#include "ui/rml/services/FontService.hpp"
+#include "ui/rml/services/InteractionService.hpp"
 
 class DatabaseManager;
 class RemoteConfig;
@@ -49,45 +60,6 @@ namespace Rml {
     class Event;
     class StyleSheetContainer;
 }
-
-struct RmlRenderSnapshot {
-    std::string matchGuid;
-    std::string arenaName;
-    int score[2] = {0, 0};
-    bool inMatch = false;
-    bool inReplay = false;
-    bool matchFinalized = false;
-    std::string myPrimaryId;
-    int myTeam = -1;
-    MatchStats currentMatch;
-    float lastGoalSpeed = 0.0f;
-    float lastGoalSpeedSelf = 0.0f;
-    SessionTotals sessionTotals;
-    std::unordered_map<std::string, PlayerData> roster;
-    std::map<std::string, GamemodeStat> sessionGamemodes;
-    bool lastMatchWasVoid = false;
-    std::string lastMatchVoidReason;
-    int matchSummaryScore[2] = {0, 0};
-    int matchSummaryMyTeam = -1;
-    int matchSummaryWinnerTeam = -1;
-    float matchSummaryOvertimeSeconds = 0.0f;
-
-    float initialMmr = -1.0f;
-    std::map<std::string, int> playlistInitialMmr;
-    std::map<std::string, std::vector<float>> playlistHistoryY;
-    std::map<std::string, std::vector<bool>> playlistHistoryEstimated;
-    std::vector<int64_t> lifetimeMmrX;
-    std::vector<float> lifetimeMmrY;
-    std::vector<SessionMatchSummary> recentSavedMatches;
-    bool recentSavedMatchesLoaded = false;
-    bool showLifetimeGraph = false;
-
-    // Identity key -> single-line preview, refreshed when SessionState::notes changes.
-    std::unordered_map<std::string, std::string> notePreviews;
-    std::unordered_map<std::string, std::vector<std::string>> noteTags;
-    bool notesLoaded = false;
-    uint64_t notesVersion = 0;
-};
 
 class RmlUiController final : public Rml::EventListener {
     friend class RmlUiControllerStateTest;
@@ -145,25 +117,7 @@ class RmlUiController final : public Rml::EventListener {
         Count
     };
 
-    enum class BindCaptureTarget {
-        None,
-        KeyOverlay,
-        KeyCycle,
-        KeyExpand,
-        KeySession,
-        KeyMenu,
-        KeySaveReplay,
-        KeyGraphPanLeft,
-        KeyGraphPanRight,
-        KeyLifetimeGraph,
-        GamepadOverlay,
-        GamepadCycle,
-        GamepadExpand,
-        GamepadSession,
-        GamepadMenu,
-        GamepadGraphPanLeft,
-        GamepadGraphPanRight
-    };
+    using BindCaptureTarget = ::BindCaptureTarget;
 
     enum class DragKind { None,
                           DashboardWidget,
@@ -235,30 +189,15 @@ class RmlUiController final : public Rml::EventListener {
     std::string RenderSessionStats(bool compact = false, bool includeStreak = true);
     std::string RenderStreaksStats();
     std::string RenderGamemodeBreakdown(GamemodeBreakdownScope scope);
-    struct GraphSeriesData {
-        std::string playlist;
-        std::span<const float> ratings;
-        std::span<const int64_t> times;
-        const std::vector<bool>* estimated = nullptr;
-        float baseline = -1.0f;
-    };
-
-    GraphSeriesData ResolveGraphSeries() const;
     std::string RenderMmrGraph(bool showCategoryBadge, bool showPanControls);
-    // Visible-range label and pan buttons; empty while every match fits.
     std::string RenderGraphPanControls() const;
-    std::string RenderGraphPanControls(const RmlUiDetail::GraphWindow& window) const;
-    // Progress for `mmr` in `playlist`; the player's fetched division is used
-    // only when it was reported for that same rating.
-    RankProgress::Progress RankProgressFor(const PlayerData* player, const std::string& playlist, int mmr) const;
-    std::string RenderRankProgress(const RankProgress::Progress& progress) const;
+
     // Rank Progress widget for the roster playlist: the bare bar on the overlay,
     // or with a playlist badge and an empty-state line when `card`.
     std::string RenderSelfRankProgress(bool card) const;
     std::string RenderDemoTracker();
     std::string RenderPreviousGames(bool includeHeading = true);
     std::string RenderLobbyRanks();
-    bool RankSourceAvailable() const;
     std::string RenderRankSourceHint(bool interactive) const;
     void OpenStatsApiFixIfNeeded();
     void RebuildStatsApiPrompt();
@@ -320,13 +259,6 @@ class RmlUiController final : public Rml::EventListener {
     static const char* ZoneName(DashboardLayout::Zone zone);
     static std::string WidgetDomId(DashboardLayout::WidgetId id);
     static std::string PlaylistImageForName(const std::string& playlist);
-    std::string RenderRankBadge(const std::string& tier, bool fetched, const std::string& tooltip = {}) const;
-    const std::string* NotePreviewFor(const std::string& primaryId) const;
-    // SCOUT badge (with preview tooltip) when a note or tag exists, otherwise a hover-only
-    // "Scout"; nothing for players without a stable account identity.
-    std::string RenderNoteControl(const std::string& primaryId, const std::string& name) const;
-    // Up to two private tag chips plus a "+N" overflow chip for a roster row.
-    std::string RenderTagChips(const std::string& primaryId) const;
     // The roster's "best" rank: the reported tier, else the tier implied by the player's best MMR.
     std::string BestRankTier(const PlayerData& player) const;
 
@@ -531,12 +463,23 @@ class RmlUiController final : public Rml::EventListener {
     float m_settingsY = 0.0f;
     int64_t m_nextUpdateCheckPollMs = 0;
 
-    std::mutex m_backgroundTaskMutex;
-    std::function<void()> m_backgroundTaskCompletion;
     std::atomic<bool> m_backgroundTaskRunning{false};
-    // Declared last so it stops and joins before the members it writes are destroyed.
-    std::jthread m_backgroundTask;
     std::shared_ptr<RemoteConfig> m_remoteConfig;
     std::shared_ptr<Tournaments::TournamentScheduleService> m_tournamentService;
     std::shared_ptr<TelemetryManager> m_telemetry;
+
+    std::unique_ptr<OverlayPresenter> m_overlayPresenter;
+    std::unique_ptr<DashboardPresenter> m_dashboardPresenter;
+    std::unique_ptr<SettingsPresenter> m_settingsPresenter;
+    std::unique_ptr<HistoryPresenter> m_historyPresenter;
+    std::unique_ptr<InsightsPresenter> m_insightsPresenter;
+    std::unique_ptr<AccountsPresenter> m_accountsPresenter;
+    std::unique_ptr<OnboardingPresenter> m_onboardingPresenter;
+    std::unique_ptr<PlayerNotePresenter> m_playerNotePresenter;
+
+    std::unique_ptr<BackgroundTaskService> m_backgroundTaskService;
+    std::unique_ptr<InputCaptureService> m_inputCaptureService;
+    std::unique_ptr<ColorPickerService> m_colorPickerService;
+    std::unique_ptr<FontService> m_fontService;
+    std::unique_ptr<InteractionService> m_interactionService;
 };

@@ -40,8 +40,8 @@ namespace {
     }
 }
 
-std::string RmlUiController::RenderLiveMatchStats() {
-    const auto& s = m_snap.currentMatch;
+std::string OverlayPresenter::RenderLiveMatchStats(const RmlRenderSnapshot& snap, const ConfigData& /*config*/) {
+    const auto& s = snap.currentMatch;
     std::string play = "<div class='metric-list'>" + BoundMetricRow("Saves", "match_saves") + BoundMetricRow("Shots", "match_shots") +
                        BoundMetricRow("Assists", "match_assists") + BoundMetricRow("Demos", "match_demos");
     if (s.demoedSelf > 0) play += BoundMetricRow("Demoed", "match_demoed");
@@ -58,14 +58,18 @@ std::string RmlUiController::RenderLiveMatchStats() {
            "<div class='stat-section-title' style='margin-top:7dp'>FUN</div>" + fun;
 }
 
-std::string RmlUiController::RenderStreaksStats() {
+std::string RmlUiController::RenderLiveMatchStats() {
+    return m_overlayPresenter ? m_overlayPresenter->RenderLiveMatchStats(m_snap, m_config) : std::string{};
+}
+
+std::string OverlayPresenter::RenderStreaksStats(const std::shared_ptr<SessionState>& state, const ConfigData& config) {
     int cw = 0, cl = 0, lw = 0, ll = 0;
-    if (m_state) {
-        std::lock_guard lock(m_state->ui.dbStatsMutex);
-        cw = m_state->ui.cachedDbStats.currentWins;
-        cl = m_state->ui.cachedDbStats.currentLosses;
-        lw = m_state->ui.cachedDbStats.longestWins;
-        ll = m_state->ui.cachedDbStats.longestLosses;
+    if (state) {
+        std::lock_guard lock(state->ui.dbStatsMutex);
+        cw = state->ui.cachedDbStats.currentWins;
+        cl = state->ui.cachedDbStats.currentLosses;
+        lw = state->ui.cachedDbStats.longestWins;
+        ll = state->ui.cachedDbStats.longestLosses;
     }
     std::ostringstream out;
     out << "<div class='metric-list'><div class='metric-row'><div class='metric-label'>Current streak</div><div class='metric-value "
@@ -79,16 +83,20 @@ std::string RmlUiController::RenderStreaksStats() {
     else
         out << "0";
     out << "</div></div><div class='metric-row'><div class='metric-label'>Longest win</div><div class='metric-value'>" << lw << "</div></div>";
-    if (m_config.show_longest_loss_streak) {
+    if (config.show_longest_loss_streak) {
         out << "<div class='metric-row'><div class='metric-label'>Longest loss</div><div class='metric-value loss'>" << ll << "</div></div>";
     }
     out << "</div>";
     return out.str();
 }
 
-std::string RmlUiController::RenderGamemodeBreakdown(GamemodeBreakdownScope scope) {
+std::string RmlUiController::RenderStreaksStats() {
+    return m_overlayPresenter ? m_overlayPresenter->RenderStreaksStats(m_state, m_config) : std::string{};
+}
+
+std::string OverlayPresenter::RenderGamemodeBreakdown(GamemodeBreakdownScope scope, const RmlRenderSnapshot& snap, const std::shared_ptr<SessionState>& state, const ConfigData& config) {
     std::ostringstream out;
-    const std::array<std::pair<const char*, bool>, 3> modes{{{"1v1", m_config.show_gamemode_record_1v1}, {"2v2", m_config.show_gamemode_record_2v2}, {"3v3", m_config.show_gamemode_record_3v3}}};
+    const std::array<std::pair<const char*, bool>, 3> modes{{{"1v1", config.show_gamemode_record_1v1}, {"2v2", config.show_gamemode_record_2v2}, {"3v3", config.show_gamemode_record_3v3}}};
     bool any = false;
     out << "<div class='col gap-xs gamemode-breakdown'>";
     for (const auto& [mode, enabled] : modes) {
@@ -96,14 +104,14 @@ std::string RmlUiController::RenderGamemodeBreakdown(GamemodeBreakdownScope scop
         any = true;
         int wins = 0, losses = 0, total = 0;
         if (scope == GamemodeBreakdownScope::CurrentSession) {
-            if (auto it = m_snap.sessionGamemodes.find(mode); it != m_snap.sessionGamemodes.end()) {
+            if (auto it = snap.sessionGamemodes.find(mode); it != snap.sessionGamemodes.end()) {
                 wins = it->second.wins;
                 losses = it->second.losses;
                 total = it->second.total;
             }
-        } else if (m_state) {
-            std::lock_guard lock(m_state->ui.dbStatsMutex);
-            if (auto it = m_state->ui.cachedDbStats.gamemodes.find(mode); it != m_state->ui.cachedDbStats.gamemodes.end()) {
+        } else if (state) {
+            std::lock_guard lock(state->ui.dbStatsMutex);
+            if (auto it = state->ui.cachedDbStats.gamemodes.find(mode); it != state->ui.cachedDbStats.gamemodes.end()) {
                 wins = it->second.wins;
                 losses = it->second.losses;
                 total = it->second.total;
@@ -122,22 +130,26 @@ std::string RmlUiController::RenderGamemodeBreakdown(GamemodeBreakdownScope scop
     return out.str();
 }
 
-std::string RmlUiController::RenderSessionStats(bool compact, bool includeStreak) {
-    const auto& stats = m_snap.sessionTotals;
+std::string RmlUiController::RenderGamemodeBreakdown(GamemodeBreakdownScope scope) {
+    return m_overlayPresenter ? m_overlayPresenter->RenderGamemodeBreakdown(scope, m_snap, m_state, m_config) : std::string{};
+}
+
+std::string OverlayPresenter::RenderSessionStats(bool compact, bool includeStreak, const RmlRenderSnapshot& snap, const ConfigData& config) {
+    const auto& stats = snap.sessionTotals;
     const int mmr = static_cast<int>(std::lround(stats.totalMmrChange));
     const float gp = stats.teamGoals > 0 ? 100.0f * static_cast<float>(stats.goalParticipations) / static_cast<float>(stats.teamGoals) : 0.0f;
 
     if (compact) {
         std::string out = "<div class='metric-list'>";
-        if (m_config.show_session_record) out += BoundMetricRow("Record", "session_record");
-        if (m_config.show_session_goals) out += BoundMetricRow("Goals", "session_goals");
-        if (m_config.show_session_saves) out += BoundMetricRow("Saves", "session_saves");
-        if (m_config.show_session_assists) out += BoundMetricRow("Assists", "session_assists");
-        if (m_config.show_session_demos) out += BoundMetricRow("Demos", "session_demos");
-        if (m_config.show_session_boost) out += BoundMetricRow("Boost", "session_boost");
-        if (m_config.show_session_goal_participation) out += BoundMetricRow("Goal participation", "session_goal_participation");
-        if (m_config.show_session_mmr_change) out += BoundMetricRow("MMR", "session_mmr", "session_mmr_tone");
-        if (includeStreak && m_config.show_streaks_stats) out += BoundMetricRow("Session", "session_net");
+        if (config.show_session_record) out += BoundMetricRow("Record", "session_record");
+        if (config.show_session_goals) out += BoundMetricRow("Goals", "session_goals");
+        if (config.show_session_saves) out += BoundMetricRow("Saves", "session_saves");
+        if (config.show_session_assists) out += BoundMetricRow("Assists", "session_assists");
+        if (config.show_session_demos) out += BoundMetricRow("Demos", "session_demos");
+        if (config.show_session_boost) out += BoundMetricRow("Boost", "session_boost");
+        if (config.show_session_goal_participation) out += BoundMetricRow("Goal participation", "session_goal_participation");
+        if (config.show_session_mmr_change) out += BoundMetricRow("MMR", "session_mmr", "session_mmr_tone");
+        if (includeStreak && config.show_streaks_stats) out += BoundMetricRow("Session", "session_net");
         out += "</div>";
         return out;
     }
@@ -158,11 +170,11 @@ std::string RmlUiController::RenderSessionStats(bool compact, bool includeStreak
         {"Crossbars", Format::PairCount(stats.crossbarsTotal, stats.crossbars)}};
 
     std::vector<std::pair<std::string, std::string>> fun = {
-        {"Max goal speed", Format::PairSpeed(stats.maxGoalSpeed, stats.maxGoalSpeedSelf, true, " kph", m_config.imperial_units)},
-        {"Last goal speed", Format::PairSpeed(m_snap.lastGoalSpeed, m_snap.lastGoalSpeedSelf, true, " kph", m_config.imperial_units)},
-        {"Max ball speed", Format::PairSpeed(stats.maxBallSpeed, stats.maxBallSpeedSelf, true, " kph", m_config.imperial_units)},
-        {"Hardest crossbar hit", m_config.crossbar_display_mode == "speed"
-                                     ? Format::PairSpeed(stats.maxImpactForce * 0.036f, stats.maxImpactForceSelf * 0.036f, true, " kph", m_config.imperial_units)
+        {"Max goal speed", Format::PairSpeed(stats.maxGoalSpeed, stats.maxGoalSpeedSelf, true, " kph", config.imperial_units)},
+        {"Last goal speed", Format::PairSpeed(snap.lastGoalSpeed, snap.lastGoalSpeedSelf, true, " kph", config.imperial_units)},
+        {"Max ball speed", Format::PairSpeed(stats.maxBallSpeed, stats.maxBallSpeedSelf, true, " kph", config.imperial_units)},
+        {"Hardest crossbar hit", config.crossbar_display_mode == "speed"
+                                     ? Format::PairSpeed(stats.maxImpactForce * 0.036f, stats.maxImpactForceSelf * 0.036f, true, " kph", config.imperial_units)
                                      : Format::PairSpeed(stats.maxImpactForce, stats.maxImpactForceSelf, true, "", false)},
         {"Fastest goal", Format::PairFastest(stats.fastestGoalTime, stats.fastestGoalTimeSelf)}};
     if (stats.ownGoals > 0) fun.push_back({"Own goals", Format::PairCount(stats.ownGoals, stats.ownGoalsSelf)});
@@ -180,7 +192,15 @@ std::string RmlUiController::RenderSessionStats(bool compact, bool includeStreak
     return out.str();
 }
 
-std::string RmlUiController::RenderDemoTracker() {
+std::string RmlUiController::RenderSessionStats(bool compact, bool includeStreak) {
+    return m_overlayPresenter ? m_overlayPresenter->RenderSessionStats(compact, includeStreak, m_snap, m_config) : std::string{};
+}
+
+std::string OverlayPresenter::RenderDemoTracker() {
     return "<div class='metric-pair'>" + BoundKdMetric("GAME K/D", "demo_game_count", "demo_game_kd", "demo_game_tone") +
            BoundKdMetric("SESSION K/D", "demo_session_count", "demo_session_kd", "demo_session_tone") + "</div>";
+}
+
+std::string RmlUiController::RenderDemoTracker() {
+    return m_overlayPresenter ? m_overlayPresenter->RenderDemoTracker() : std::string{};
 }

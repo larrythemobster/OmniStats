@@ -13,7 +13,9 @@
 
 #include "core/config/Config.hpp"
 #include "core/state/SessionState.hpp"
-
+#include "network/api/AccountClient.hpp"
+#include "network/omninet/OmniNet.hpp"
+#include "ui/config/DashboardLayoutConfig.hpp"
 namespace Rml {
     class Element;
 }
@@ -70,6 +72,9 @@ namespace RmlUiDetail {
     const char* PlatformClass(PlatformKind kind);
 
     Rml::Span<const Rml::byte> EmbeddedResource(const char* name);
+    inline Rml::Span<const Rml::byte> EmbeddedResource(int resourceId) {
+        return EmbeddedResource(MAKEINTRESOURCEA(resourceId));
+    }
     std::vector<Rml::byte> ReadFontFile(const char* fileName);
     std::string TrackerUrlForPlayer(const PlayerData& player);
     std::string Attribute(Rml::Element* element, const char* name);
@@ -142,6 +147,46 @@ namespace RmlUiDetail {
     Hsv RgbToHsv(const ColorRGBA& color);
     ColorRGBA HsvToRgb(const Hsv& hsv, float alpha);
     int QuantizedPickerHue(float hue);
+    inline std::string CssColor(const ColorRGBA& color) {
+        auto byte = [](float v) {
+            if (!std::isfinite(v)) return 0;
+            return std::clamp(static_cast<int>(std::lround(v * 255.0f)), 0, 255);
+        };
+        char buffer[10]{};
+        std::snprintf(buffer, sizeof(buffer), "#%02X%02X%02X%02X", byte(color.r), byte(color.g), byte(color.b), byte(color.a));
+        return buffer;
+    }
+    inline bool RankSourceAvailable(const ConfigData& config) {
+        return config.enable_mmr_tracking || (OmniNet::Available() && config.custom_api_enabled && AccountClient::Instance().IsSignedIn());
+    }
+
+    inline std::string WidgetDomId(DashboardLayout::WidgetId id) {
+        switch (id) {
+        case DashboardLayout::WidgetId::LiveRoster:
+            return "live-roster";
+        case DashboardLayout::WidgetId::LiveMatchStats:
+            return "live-match";
+        case DashboardLayout::WidgetId::SessionStats:
+            return "session";
+        case DashboardLayout::WidgetId::MmrGraph:
+            return "mmr-graph";
+        case DashboardLayout::WidgetId::StreaksStats:
+            return "streaks";
+        case DashboardLayout::WidgetId::GamemodeBreakdown:
+            return "gamemodes";
+        case DashboardLayout::WidgetId::LobbyRanks:
+            return "lobby-ranks";
+        case DashboardLayout::WidgetId::DemoTracker:
+            return "demos";
+        case DashboardLayout::WidgetId::PreviousGames:
+            return "previous-games";
+        case DashboardLayout::WidgetId::RankProgress:
+            return "rank-progress";
+        case DashboardLayout::WidgetId::Tournaments:
+            return "tournaments";
+        }
+        return "live-roster";
+    }
 
     int EnabledLobbyRankColumns(const ConfigData& config);
     float LobbyRanksContentMinDp(const ConfigData& config);

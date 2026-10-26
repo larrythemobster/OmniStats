@@ -18,16 +18,16 @@
 
 using namespace RmlUiDetail;
 
-std::string RmlUiController::RenderLobbyRanks() {
+std::string RenderLobbyRanksImpl(const RmlRenderSnapshot& snap, const ConfigData& config) {
     struct Playlist {
         const char* key;
         const char* label;
         bool show;
     };
     const std::vector<Playlist> playlists = {
-        {"1v1", "1v1", m_config.show_lobby_rank_1v1}, {"2v2", "2v2", m_config.show_lobby_rank_2v2}, {"3v3", "3v3", m_config.show_lobby_rank_3v3}, {"casual", "Casual", m_config.show_lobby_rank_casual}, {"t", "Tourney", m_config.show_lobby_rank_tourny}, {"hoops", "Hoops", m_config.show_extra_playlists && m_config.show_lobby_rank_hoops}, {"rumble", "Rumble", m_config.show_extra_playlists && m_config.show_lobby_rank_rumble}, {"dropshot", "Dropshot", m_config.show_extra_playlists && m_config.show_lobby_rank_dropshot}, {"snowday", "Snow", m_config.show_extra_playlists && m_config.show_lobby_rank_snowday}, {"heatseeker", "Heat", m_config.show_extra_playlists && m_config.show_lobby_rank_heatseeker}};
+        {"1v1", "1v1", config.show_lobby_rank_1v1}, {"2v2", "2v2", config.show_lobby_rank_2v2}, {"3v3", "3v3", config.show_lobby_rank_3v3}, {"casual", "Casual", config.show_lobby_rank_casual}, {"t", "Tourney", config.show_lobby_rank_tourny}, {"hoops", "Hoops", config.show_extra_playlists && config.show_lobby_rank_hoops}, {"rumble", "Rumble", config.show_extra_playlists && config.show_lobby_rank_rumble}, {"dropshot", "Dropshot", config.show_extra_playlists && config.show_lobby_rank_dropshot}, {"snowday", "Snow", config.show_extra_playlists && config.show_lobby_rank_snowday}, {"heatseeker", "Heat", config.show_extra_playlists && config.show_lobby_rank_heatseeker}};
     std::vector<const PlayerData*> players;
-    for (const auto& [_, p] : m_snap.roster)
+    for (const auto& [_, p] : snap.roster)
         players.push_back(&p);
     std::sort(players.begin(), players.end(), [](const PlayerData* a, const PlayerData* b) {
         if (a->team != b->team) return a->team < b->team;
@@ -39,18 +39,16 @@ std::string RmlUiController::RenderLobbyRanks() {
     out << "<div class='lobby-rank-table'><div class='player-row lobby-rank-row lobby-rank-header'><div class='player-name'><div class='lobby-rank-heading'>Name</div></div>";
     for (const auto& pl : playlists) {
         if (!pl.show) continue;
-        // Wrap header text in a block: RmlUi drops bare text nodes in a flex
-        // container, which is what left the lobby header row blank.
         out << "<div class='lobby-rank-cell'><div class='lobby-rank-heading'>" << Escape(pl.label) << "</div></div>";
     }
     out << "</div>";
-    const bool rankSource = RankSourceAvailable();
+    const bool rankSource = RankSourceAvailable(config);
     for (const auto* p : players) {
         std::string platform;
         if (const auto pos = p->primaryId.find('|'); pos != std::string::npos) platform = p->primaryId.substr(0, pos);
         const PlatformKind platformKind = PlatformKindFor(platform);
 
-        const bool self = p->primaryId == m_snap.myPrimaryId;
+        const bool self = p->primaryId == snap.myPrimaryId;
         out << "<div class='player-row lobby-rank-row" << (self ? " self" : "") << "'><div class='player-name'><span class='value'>" << Escape(p->name) << "</span>";
         if (!platform.empty())
             out << "<div class='label " << PlatformClass(platformKind) << "'>"
@@ -68,9 +66,6 @@ std::string RmlUiController::RenderLobbyRanks() {
             }
             out << "<div class='lobby-rank-cell tooltip-host' style='color:" << CssColor(Format::RankColor(tier)) << "'>";
             if (mmr > 0) {
-                // Rank above the rating, with the season games played trailing the
-                // rating on the same line: a third line made the table taller than
-                // the roster it sits under.
                 out << "<div class='lobby-rank-value'>";
                 if (tier != "Unranked" && !tier.empty() && std::string_view(pl.key) != "casual") {
                     out << "<div class='mono'>" << Escape(Format::AbbreviateRank(tier)) << "</div>";
@@ -82,7 +77,7 @@ std::string RmlUiController::RenderLobbyRanks() {
                 if (std::string_view(pl.key) == "casual") {
                     out << "Casual · MMR " << mmr;
                 } else if (tier != "Unranked" && !tier.empty()) {
-                    out << Escape(Format::RankTier(tier, m_config.use_roman_numerals)) << " · MMR " << mmr;
+                    out << Escape(Format::RankTier(tier, config.use_roman_numerals)) << " · MMR " << mmr;
                 } else {
                     out << "Unranked · MMR " << mmr;
                 }
@@ -100,4 +95,12 @@ std::string RmlUiController::RenderLobbyRanks() {
     if (players.empty()) out << "<div class='muted'>Waiting for lobby ranks...</div>";
     out << "</div>";
     return out.str();
+}
+
+std::string OverlayPresenter::RenderLobbyRanks(const RmlRenderSnapshot& snap, const ConfigData& config) {
+    return RenderLobbyRanksImpl(snap, config);
+}
+
+std::string RmlUiController::RenderLobbyRanks() {
+    return RenderLobbyRanksImpl(m_snap, m_config);
 }
