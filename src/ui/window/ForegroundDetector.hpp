@@ -7,12 +7,10 @@
 // Pure function determining whether a window's class and title match Rocket League.
 bool IsRocketLeagueWindow(std::string_view className, std::string_view windowTitle);
 
-// Pure function classifying a window given its class, title, pid, and context.
+// Pure function classifying a non-null foreground window.
 ForegroundKind ClassifyForegroundWindow(
     std::string_view className,
     std::string_view windowTitle,
-    DWORD windowPid,
-    DWORD omniStatsPid,
     bool isOverlayHwnd,
     bool isCachedRlHwnd);
 
@@ -31,18 +29,17 @@ class ForegroundDetector {
 
     void OnForegroundChanged(HWND newForeground);
 
-    bool IsRocketLeagueActive() const noexcept {
-        return m_isRLActive;
-    }
-    HWND CachedRocketLeagueWindow() const noexcept;
+    bool IsRocketLeagueActive() noexcept;
+    HWND CachedRocketLeagueWindow() noexcept;
 
   private:
     void UpdateFromHwnd(HWND hwnd);
 
     HWND m_overlayHwnd = nullptr;
     HWINEVENTHOOK m_hook = nullptr;
-    mutable HWND m_cachedRlHwnd = nullptr;
-    mutable std::chrono::steady_clock::time_point m_lastFindWindow{};
+    HWND m_cachedRlHwnd = nullptr;
+    std::chrono::steady_clock::time_point m_lastFindWindow{};
+    ForegroundKind m_foregroundKind = ForegroundKind::None;
     bool m_isRLActive = false;
     bool m_lastExternalForegroundWasRL = false;
 };

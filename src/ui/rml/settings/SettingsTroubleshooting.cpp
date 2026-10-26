@@ -49,5 +49,5 @@ std::string SettingsPresenter::RenderTroubleshooting(const ConfigData& config, c
 }
 
 std::string RmlUiController::RenderSettingsTroubleshooting() {
-    return m_settingsPresenter ? m_settingsPresenter->RenderTroubleshooting(m_config, m_state, m_statsApiPathError) : std::string{};
+    return m_settingsPresenter->RenderTroubleshooting(m_config, m_state, m_statsApiPathError);
 }

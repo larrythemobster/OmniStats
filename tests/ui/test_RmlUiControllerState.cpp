@@ -135,6 +135,14 @@ class RmlUiControllerStateTest : public ::testing::Test {
     void BeginSaveReplayKeyCapture(RmlUiController& controller) {
         controller.BeginBindCapture(RmlUiController::BindCaptureTarget::KeySaveReplay);
     }
+    void CaptureMenuKey(RmlUiController& controller, const std::shared_ptr<SessionState>& state, int key) {
+        controller.BeginBindCapture(RmlUiController::BindCaptureTarget::KeyMenu);
+        state->ui.lastKeyboardKeyPressed.store(key);
+        controller.UpdateInputCapture();
+    }
+    int ConfiguredMenuKey(const RmlUiController& controller) const {
+        return controller.m_config.key_menu;
+    }
     std::string SaveReplayBindTarget() const {
         return std::to_string(static_cast<int>(RmlUiController::BindCaptureTarget::KeySaveReplay));
     }
@@ -683,6 +691,19 @@ TEST_F(RmlUiControllerStateTest, ReplaySavingKeepsInlineLegacySaveReplayBindCont
     controller.Update(config);
     html = RenderIntegrationSettings(controller);
     EXPECT_EQ(html.find("Save Replay Bind"), std::string::npos);
+}
+
+TEST_F(RmlUiControllerStateTest, MenuKeyCaptureUpdatesConfigAndControllerSnapshot) {
+    auto state = std::make_shared<SessionState>();
+    Config::Update([](ConfigData& c) { c.key_menu = 0x41; });
+    RmlUiController controller(state, nullptr);
+    controller.Update(Config::Read());
+
+    CaptureMenuKey(controller, state, 0x42);
+
+    EXPECT_EQ(Config::Read().key_menu, 0x42);
+    EXPECT_EQ(ConfiguredMenuKey(controller), 0x42);
+    EXPECT_FALSE(state->ui.inputCaptureActive.load());
 }
 
 TEST_F(RmlUiControllerStateTest, DynamicRmlTextEscapesMarkupAndSanitizesInvalidUtf8) {

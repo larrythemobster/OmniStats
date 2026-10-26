@@ -48,8 +48,5 @@ std::string SettingsPresenter::RenderData(const ConfigData& config, const std::s
 }
 
 std::string RmlUiController::RenderSettingsData() {
-    if (m_settingsPresenter) {
-        return m_settingsPresenter->RenderData(m_config, m_state, m_backgroundTaskRunning.load(std::memory_order_relaxed));
-    }
-    return {};
+    return m_settingsPresenter->RenderData(m_config, m_state, m_backgroundTaskRunning.load(std::memory_order_relaxed));
 }

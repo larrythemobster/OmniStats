@@ -91,5 +91,5 @@ std::string SettingsPresenter::RenderShortcuts(const ConfigData& config, const s
 }
 
 std::string RmlUiController::RenderSettingsShortcuts() {
-    return m_settingsPresenter ? m_settingsPresenter->RenderShortcuts(m_config, m_state, m_bindCaptureTarget) : std::string{};
+    return m_settingsPresenter->RenderShortcuts(m_config, m_state, m_bindCaptureTarget);
 }

@@ -21,28 +21,23 @@ TEST(ForegroundDetectorTest, IsRocketLeagueWindow_MatchesKnownTitlesOnOtherClass
     EXPECT_FALSE(IsRocketLeagueWindow("Window", "Discord"));
 }
 
-TEST(ForegroundDetectorTest, ClassifyForegroundWindow_DetectsOverlayAndOmniStatsWindows) {
-    const DWORD myPid = 1234;
-    EXPECT_EQ(ClassifyForegroundWindow("OmniStats_Class", "OmniStats", myPid, myPid, true, false),
+TEST(ForegroundDetectorTest, ClassifyForegroundWindow_DetectsOnlyOverlayHwnd) {
+    EXPECT_EQ(ClassifyForegroundWindow("OmniStats_Class", "OmniStats", true, false),
               ForegroundKind::Overlay);
-    EXPECT_EQ(ClassifyForegroundWindow("SomeDialog", "Settings", myPid, myPid, false, false),
-              ForegroundKind::Overlay);
+    EXPECT_EQ(ClassifyForegroundWindow("SomeDialog", "Settings", false, false),
+              ForegroundKind::Other);
 }
 
 TEST(ForegroundDetectorTest, ClassifyForegroundWindow_DetectsRocketLeague) {
-    const DWORD myPid = 1234;
-    const DWORD rlPid = 5678;
-    EXPECT_EQ(ClassifyForegroundWindow("LaunchUnrealUWindowsClient", "Rocket League", rlPid, myPid, false, false),
+    EXPECT_EQ(ClassifyForegroundWindow("LaunchUnrealUWindowsClient", "Rocket League", false, false),
               ForegroundKind::RocketLeague);
-    EXPECT_EQ(ClassifyForegroundWindow("AnyClass", "AnyTitle", rlPid, myPid, false, true),
+    EXPECT_EQ(ClassifyForegroundWindow("AnyClass", "AnyTitle", false, true),
               ForegroundKind::RocketLeague);
 }
 
-TEST(ForegroundDetectorTest, ClassifyForegroundWindow_DetectsNoneAndOther) {
-    const DWORD myPid = 1234;
-    EXPECT_EQ(ClassifyForegroundWindow("", "", 0, myPid, false, false),
-              ForegroundKind::None);
-    EXPECT_EQ(ClassifyForegroundWindow("Notepad", "Untitled - Notepad", 9999, myPid, false, false),
+TEST(ForegroundDetectorTest, ClassifyForegroundWindow_DetectsOther) {
+    EXPECT_EQ(ClassifyForegroundWindow("", "", false, false), ForegroundKind::Other);
+    EXPECT_EQ(ClassifyForegroundWindow("Notepad", "Untitled - Notepad", false, false),
               ForegroundKind::Other);
 }
 

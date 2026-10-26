@@ -285,10 +285,7 @@ std::string OverlayPresenter::RenderPlayerRoster(int team, const char* label, co
 }
 
 std::string RmlUiController::RenderPlayerRoster(int team, const char* label) {
-    if (m_overlayPresenter) {
-        return m_overlayPresenter->RenderPlayerRoster(team, label, m_snap, m_config, m_state);
-    }
-    return {};
+    return m_overlayPresenter->RenderPlayerRoster(team, label, m_snap, m_config, m_state);
 }
 
 std::string OverlayPresenter::RenderSelfRankProgress(bool card, const RmlRenderSnapshot& snap, const ConfigData& config, const std::shared_ptr<SessionState>& state) {
@@ -314,8 +311,5 @@ std::string OverlayPresenter::RenderSelfRankProgress(bool card, const RmlRenderS
 }
 
 std::string RmlUiController::RenderSelfRankProgress(bool card) const {
-    if (m_overlayPresenter) {
-        return m_overlayPresenter->RenderSelfRankProgress(card, m_snap, m_config, m_state);
-    }
-    return {};
+    return m_overlayPresenter->RenderSelfRankProgress(card, m_snap, m_config, m_state);
 }

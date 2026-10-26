@@ -59,7 +59,7 @@ std::string OverlayPresenter::RenderLiveMatchStats(const RmlRenderSnapshot& snap
 }
 
 std::string RmlUiController::RenderLiveMatchStats() {
-    return m_overlayPresenter ? m_overlayPresenter->RenderLiveMatchStats(m_snap, m_config) : std::string{};
+    return m_overlayPresenter->RenderLiveMatchStats(m_snap, m_config);
 }
 
 std::string OverlayPresenter::RenderStreaksStats(const std::shared_ptr<SessionState>& state, const ConfigData& config) {
@@ -91,7 +91,7 @@ std::string OverlayPresenter::RenderStreaksStats(const std::shared_ptr<SessionSt
 }
 
 std::string RmlUiController::RenderStreaksStats() {
-    return m_overlayPresenter ? m_overlayPresenter->RenderStreaksStats(m_state, m_config) : std::string{};
+    return m_overlayPresenter->RenderStreaksStats(m_state, m_config);
 }
 
 std::string OverlayPresenter::RenderGamemodeBreakdown(GamemodeBreakdownScope scope, const RmlRenderSnapshot& snap, const std::shared_ptr<SessionState>& state, const ConfigData& config) {
@@ -131,7 +131,7 @@ std::string OverlayPresenter::RenderGamemodeBreakdown(GamemodeBreakdownScope sco
 }
 
 std::string RmlUiController::RenderGamemodeBreakdown(GamemodeBreakdownScope scope) {
-    return m_overlayPresenter ? m_overlayPresenter->RenderGamemodeBreakdown(scope, m_snap, m_state, m_config) : std::string{};
+    return m_overlayPresenter->RenderGamemodeBreakdown(scope, m_snap, m_state, m_config);
 }
 
 std::string OverlayPresenter::RenderSessionStats(bool compact, bool includeStreak, const RmlRenderSnapshot& snap, const ConfigData& config) {
@@ -193,7 +193,7 @@ std::string OverlayPresenter::RenderSessionStats(bool compact, bool includeStrea
 }
 
 std::string RmlUiController::RenderSessionStats(bool compact, bool includeStreak) {
-    return m_overlayPresenter ? m_overlayPresenter->RenderSessionStats(compact, includeStreak, m_snap, m_config) : std::string{};
+    return m_overlayPresenter->RenderSessionStats(compact, includeStreak, m_snap, m_config);
 }
 
 std::string OverlayPresenter::RenderDemoTracker() {
@@ -202,5 +202,5 @@ std::string OverlayPresenter::RenderDemoTracker() {
 }
 
 std::string RmlUiController::RenderDemoTracker() {
-    return m_overlayPresenter ? m_overlayPresenter->RenderDemoTracker() : std::string{};
+    return m_overlayPresenter->RenderDemoTracker();
 }

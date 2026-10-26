@@ -37,7 +37,7 @@ std::string SettingsPresenter::RenderGeneral(const ConfigData& config) {
 }
 
 std::string RmlUiController::RenderSettingsGeneral() {
-    return m_settingsPresenter ? m_settingsPresenter->RenderGeneral(m_config) : std::string{};
+    return m_settingsPresenter->RenderGeneral(m_config);
 }
 
 std::vector<SelectOption> RmlUiController::IdentityOptions() const {

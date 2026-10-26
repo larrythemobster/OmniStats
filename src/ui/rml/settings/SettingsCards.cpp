@@ -124,7 +124,7 @@ std::string SettingsPresenter::RenderCards(const ConfigData& config, bool showDe
 }
 
 std::string RmlUiController::RenderSettingsCards() {
-    return m_settingsPresenter ? m_settingsPresenter->RenderCards(m_config, m_showCardDetails) : std::string{};
+    return m_settingsPresenter->RenderCards(m_config, m_showCardDetails);
 }
 
 std::string RmlUiController::RenderSettingsReminders() {

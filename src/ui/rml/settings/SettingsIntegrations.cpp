@@ -148,5 +148,5 @@ std::string SettingsPresenter::RenderIntegrations(
 }
 
 std::string RmlUiController::RenderSettingsIntegrations() {
-    return m_settingsPresenter ? m_settingsPresenter->RenderIntegrations(m_config, m_pendingBallchasingToken, m_showBallchasingToken, m_onboarding.ShowFallback(), m_state, m_bindCaptureTarget) : std::string{};
+    return m_settingsPresenter->RenderIntegrations(m_config, m_pendingBallchasingToken, m_showBallchasingToken, m_onboarding.ShowFallback(), m_state, m_bindCaptureTarget);
 }

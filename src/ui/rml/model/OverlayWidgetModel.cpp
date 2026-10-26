@@ -349,7 +349,6 @@ bool OverlayWidgetModel::Update(const RmlRenderSnapshot& snap,
             }
 
             item.primary_id = p->primaryId;
-            item.can_note = !item.self;
             // Notes preview
             const auto identity = PlayerNotes::IdentityFromPrimaryId(p->primaryId);
             if (identity) {
@@ -359,6 +358,7 @@ bool OverlayWidgetModel::Update(const RmlRenderSnapshot& snap,
                     item.note_preview = it->second;
                 }
             }
+            item.can_note = !item.self && identity && (item.has_note || snap.notesLoaded);
 
             item.tier_color = CssColor(color);
             item.tier_label = Format::RankTier(tier, config.use_roman_numerals);
@@ -412,18 +412,7 @@ bool OverlayWidgetModel::Update(const RmlRenderSnapshot& snap,
             changed = true;
         }
 
-        // Compare items
-        bool teamChanged = (target.size() != nextItems.size());
-        if (!teamChanged) {
-            for (size_t i = 0; i < target.size(); ++i) {
-                if (target[i].name != nextItems[i].name || target[i].mmr_text != nextItems[i].mmr_text ||
-                    target[i].tier_color != nextItems[i].tier_color || target[i].has_note != nextItems[i].has_note ||
-                    target[i].flag_kind != nextItems[i].flag_kind || target[i].match_count_text != nextItems[i].match_count_text) {
-                    teamChanged = true;
-                    break;
-                }
-            }
-        }
+        const bool teamChanged = target != nextItems;
         if (teamChanged) {
             target = std::move(nextItems);
             Dirty(teamVar);
@@ -464,17 +453,7 @@ bool OverlayWidgetModel::Update(const RmlRenderSnapshot& snap,
         item.even_odd_class = (i % 2 == 0 ? "match-even" : "match-odd");
         nextGames.push_back(std::move(item));
     }
-    bool gamesChanged = (m_previousGames.size() != nextGames.size());
-    if (!gamesChanged) {
-        for (size_t i = 0; i < m_previousGames.size(); ++i) {
-            if (m_previousGames[i].match_id != nextGames[i].match_id ||
-                m_previousGames[i].score != nextGames[i].score ||
-                m_previousGames[i].mmr != nextGames[i].mmr) {
-                gamesChanged = true;
-                break;
-            }
-        }
-    }
+    const bool gamesChanged = m_previousGames != nextGames;
     if (gamesChanged) {
         m_previousGames = std::move(nextGames);
         Dirty("previous_games");
@@ -590,7 +569,9 @@ bool OverlayWidgetModel::Update(const RmlRenderSnapshot& snap,
         changed = true;
     }
     if (graphIsEmpty) {
-        const std::string emptyMsg = snap.showLifetimeGraph ? "No matches recorded yet." : "No matches recorded this session.";
+        const std::string emptyMsg = snap.showLifetimeGraph
+                                         ? "No lifetime MMR history in database yet."
+                                         : "No MMR data for " + MmrLabel(StringToMmrCategory(graphPl)) + " this session.";
         if (m_graphEmptyMessage != emptyMsg) {
             m_graphEmptyMessage = emptyMsg;
             Dirty("graph_empty_message");
@@ -636,7 +617,7 @@ bool OverlayWidgetModel::Update(const RmlRenderSnapshot& snap,
             Dirty("graph_points");
             changed = true;
         }
-        const float nextFillTo = yMax / 100.0f;
+        const float nextFillTo = 0.86f;
         if (std::abs(m_graphFillTo - nextFillTo) > 0.001f) {
             m_graphFillTo = nextFillTo;
             Dirty("graph_fill_to");

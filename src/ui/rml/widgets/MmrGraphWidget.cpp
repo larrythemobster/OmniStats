@@ -288,17 +288,11 @@ std::string OverlayPresenter::RenderGraphPanControls(const RmlRenderSnapshot& sn
 }
 
 std::string RmlUiController::RenderGraphPanControls() const {
-    if (m_overlayPresenter) return m_overlayPresenter->RenderGraphPanControls(m_snap, m_state);
-    const auto series = ResolveGraphSeries(m_snap, m_state);
-    const int offset = m_state ? m_state->ui.graphOffset.load() : 0;
-    return RenderGraphPanControlsImpl(ComputeGraphWindow(static_cast<int>(series.ratings.size()), offset, kVisibleGraphMatches));
+    return m_overlayPresenter->RenderGraphPanControls(m_snap, m_state);
 }
 
 std::string RmlUiController::RenderMmrGraph(bool showCategoryBadge, bool showPanControls) {
-    if (m_overlayPresenter) {
-        return m_overlayPresenter->RenderMmrGraph(showCategoryBadge, showPanControls, m_snap, m_config, m_state);
-    }
-    return RenderMmrGraphImpl(showCategoryBadge, showPanControls, m_snap, m_config, m_state);
+    return m_overlayPresenter->RenderMmrGraph(showCategoryBadge, showPanControls, m_snap, m_config, m_state);
 }
 
 void RmlUiController::PanGraph(int direction) {

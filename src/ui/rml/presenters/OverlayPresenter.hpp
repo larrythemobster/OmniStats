@@ -47,8 +47,8 @@ class OverlayPresenter {
     std::string RenderStreaksStats(const std::shared_ptr<SessionState>& state, const ConfigData& config);
     std::string RenderGamemodeBreakdown(GamemodeBreakdownScope scope, const RmlRenderSnapshot& snap, const std::shared_ptr<SessionState>& state, const ConfigData& config);
     std::string RenderDemoTracker();
-    std::string RenderMatchSummary(const RmlRenderSnapshot& snap, const ConfigData& config);
-    std::string RenderSessionView(const RmlRenderSnapshot& snap, const ConfigData& config, const std::shared_ptr<SessionState>& state);
+    std::string RenderMatchSummary(const RmlRenderSnapshot& snap, const ConfigData& config, const std::shared_ptr<SessionState>& state, bool interactive, float dpiScale);
+    std::string RenderSessionView(const RmlRenderSnapshot& snap, const ConfigData& config, const std::shared_ptr<SessionState>& state, bool interactive, float dpiScale);
     std::string RenderSelfRankProgress(bool card, const RmlRenderSnapshot& snap, const ConfigData& config, const std::shared_ptr<SessionState>& state);
 
     OverlayWidgetModel& Model() noexcept {

@@ -60,16 +60,16 @@ struct RosterPlayerItem {
 };
 inline bool operator==(const RosterPlayerItem& a, const RosterPlayerItem& b) noexcept {
     return a.self == b.self && a.name == b.name && a.tracker_url == b.tracker_url &&
-           a.platform == b.platform && a.platform_class == b.platform_class &&
-           a.primary_id == b.primary_id && a.can_note == b.can_note && a.has_note == b.has_note &&
-           a.note_preview == b.note_preview && a.use_rank_icons == b.use_rank_icons &&
+           a.has_tracker == b.has_tracker && a.platform == b.platform && a.platform_class == b.platform_class &&
+           a.has_platform == b.has_platform && a.primary_id == b.primary_id && a.can_note == b.can_note &&
+           a.has_note == b.has_note && a.note_preview == b.note_preview && a.use_rank_icons == b.use_rank_icons &&
            a.tier_icon == b.tier_icon && a.has_division == b.has_division &&
-           a.division_dots == b.division_dots && a.rank_tooltip == b.rank_tooltip &&
+           a.division_dots == b.division_dots && a.rank_tooltip == b.rank_tooltip && a.has_tooltip == b.has_tooltip &&
            a.tier_color == b.tier_color && a.tier_label == b.tier_label &&
-           a.mmr_text == b.mmr_text && a.match_count_text == b.match_count_text &&
-           a.total_wins_text == b.total_wins_text && a.tags == b.tags &&
-           a.flag_kind == b.flag_kind && a.with_record == b.with_record &&
-           a.against_record == b.against_record;
+           a.mmr_text == b.mmr_text && a.match_count_text == b.match_count_text && a.has_match_count == b.has_match_count &&
+           a.total_wins_text == b.total_wins_text && a.has_total_wins == b.has_total_wins && a.tags == b.tags &&
+           a.has_tags == b.has_tags && a.flag_kind == b.flag_kind && a.with_record == b.with_record &&
+           a.with_detail == b.with_detail && a.against_record == b.against_record && a.against_detail == b.against_detail;
 }
 inline bool operator!=(const RosterPlayerItem& a, const RosterPlayerItem& b) noexcept {
     return !(a == b);

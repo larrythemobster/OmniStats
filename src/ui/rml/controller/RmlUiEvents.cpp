@@ -878,6 +878,7 @@ void RmlUiController::ClearBind(BindCaptureTarget target) {
 void RmlUiController::UpdateInputCapture() {
     if (m_inputCaptureService && m_inputCaptureService->Update(m_state)) {
         m_bindCaptureTarget = m_inputCaptureService->ActiveTarget();
+        m_config = Config::Read();
         RebuildSettings();
     }
 }

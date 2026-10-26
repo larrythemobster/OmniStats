@@ -463,12 +463,15 @@ void Overlay::RunLoop() {
             }
         }
 
-        // Present with vsync honoring overlay_fps_cap; skip Present when nothing changed as today.
-        const int frameCap = m_frameConfig.overlay_fps_cap > 0 ? m_frameConfig.overlay_fps_cap : 60;
-        const auto now = std::chrono::steady_clock::now();
-        const auto targetDuration = std::chrono::duration<double, std::milli>(1000.0 / static_cast<double>(frameCap));
-        const auto elapsed = std::chrono::duration<double, std::milli>(now - lastFrameTime);
-        if (elapsed < targetDuration) std::this_thread::sleep_for(targetDuration - elapsed);
+        // Present(1) supplies the wait for rendered vsync frames. Skipped
+        // frames and Present(0) still need the configured frame limiter.
+        if (!m_frameConfig.vsync || !renderFrame) {
+            const int frameCap = m_frameConfig.overlay_fps_cap > 0 ? m_frameConfig.overlay_fps_cap : 60;
+            const auto now = std::chrono::steady_clock::now();
+            const auto targetDuration = std::chrono::duration<double, std::milli>(1000.0 / static_cast<double>(frameCap));
+            const auto elapsed = std::chrono::duration<double, std::milli>(now - lastFrameTime);
+            if (elapsed < targetDuration) std::this_thread::sleep_for(targetDuration - elapsed);
+        }
         lastFrameTime = std::chrono::steady_clock::now();
     }
 }

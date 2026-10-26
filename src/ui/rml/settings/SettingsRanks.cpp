@@ -68,5 +68,5 @@ std::string SettingsPresenter::RenderRanks(const ConfigData& config, const RmlRe
 }
 
 std::string RmlUiController::RenderSettingsRanks() {
-    return m_settingsPresenter ? m_settingsPresenter->RenderRanks(m_config, m_snap) : std::string{};
+    return m_settingsPresenter->RenderRanks(m_config, m_snap);
 }

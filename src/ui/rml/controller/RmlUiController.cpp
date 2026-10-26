@@ -36,16 +36,9 @@ RmlUiController::RmlUiController(std::shared_ptr<SessionState> state,
       m_overlayPresenter(std::make_unique<OverlayPresenter>()),
       m_dashboardPresenter(std::make_unique<DashboardPresenter>()),
       m_settingsPresenter(std::make_unique<SettingsPresenter>()),
-      m_historyPresenter(std::make_unique<HistoryPresenter>()),
-      m_insightsPresenter(std::make_unique<InsightsPresenter>()),
-      m_accountsPresenter(std::make_unique<AccountsPresenter>()),
-      m_onboardingPresenter(std::make_unique<OnboardingPresenter>()),
-      m_playerNotePresenter(std::make_unique<PlayerNotePresenter>()),
       m_backgroundTaskService(std::make_unique<BackgroundTaskService>()),
       m_inputCaptureService(std::make_unique<InputCaptureService>()),
-      m_colorPickerService(std::make_unique<ColorPickerService>()),
-      m_fontService(std::make_unique<FontService>()),
-      m_interactionService(std::make_unique<InteractionService>()) {
+      m_fontService(std::make_unique<FontService>()) {
     if (m_state) m_lastShowMenu = m_state->ui.showMenu.load();
 }
 
@@ -82,7 +75,7 @@ bool RmlUiController::Initialize(HWND hwnd, ID3D11Device* device, ID3D11DeviceCo
         return false;
     }
     if (!m_liveModel.Create(m_context, [this](Rml::DataModelConstructor& c) {
-            if (m_overlayPresenter) m_overlayPresenter->Bind(c);
+            m_overlayPresenter->Bind(c);
         }) ||
         !m_insights.Create(m_context) || !m_history.Create(m_context) || !m_accounts.Create(m_context) || !m_playerNote.Create(m_context) || !m_onboarding.Create(m_context)) {
         Shutdown();
@@ -141,11 +134,6 @@ void RmlUiController::Shutdown() {
         m_context->RemoveEventListener("blur", this, true);
         m_context = nullptr;
         m_document = nullptr;
-        m_insightsDoc = nullptr;
-        m_onboardingDoc = nullptr;
-        m_historyDoc = nullptr;
-        m_accountsDoc = nullptr;
-        m_playerNoteDoc = nullptr;
         m_insightsVisible = false;
         m_onboardingVisible = false;
         m_historyVisible = false;
@@ -157,12 +145,8 @@ void RmlUiController::Shutdown() {
         m_accounts.Reset();
         m_playerNote.Reset();
         m_onboarding.Reset();
-        if (m_overlayPresenter) m_overlayPresenter->Reset();
-        if (m_historyPresenter) m_historyPresenter->Shutdown();
-        if (m_insightsPresenter) m_insightsPresenter->Shutdown();
-        if (m_accountsPresenter) m_accountsPresenter->Shutdown();
-        if (m_onboardingPresenter) m_onboardingPresenter->Shutdown();
-        if (m_playerNotePresenter) m_playerNotePresenter->Shutdown();
+        m_overlayPresenter->Reset();
+        CloseViewDocuments();
     }
     if (m_backgroundTaskService) {
         m_backgroundTaskService->Shutdown();
@@ -1191,10 +1175,7 @@ void RmlUiController::RefreshLiveUi(bool force, bool allowStructural) {
         bool changed = m_liveModel.SetValues(ComputeLiveValues(m_snap, m_config));
         if (changed) m_renderDirty = true;
     }
-    if (m_overlayPresenter) {
-        bool changed = m_overlayPresenter->Update(m_snap, m_config, m_state, m_tournamentService.get());
-        if (changed) m_renderDirty = true;
-    }
+    if (m_overlayPresenter->Update(m_snap, m_config, m_state, m_tournamentService.get())) m_renderDirty = true;
 
     if (leafGameChanged || primeStructure) m_lastLeafGameVersion = m_lastGameVersion;
     if (allowStructural) {
@@ -1468,10 +1449,11 @@ void RmlUiController::DeleteLocalHistory() {
             m_lastLifetimeHistoryPrimaryId.clear();
             m_lastRecentMatchHistoryPrimaryId.clear();
             m_detailedStatsSummaryRequested = false;
+            SnapshotState();
             RefreshAsyncData();
             RebuildSettings();
             RebuildVisibleUi(true);
-            ShowToast("Local match history deleted.", false);
+            ShowToast("Deleted local history and identity.", false);
         };
     });
     RebuildSettings();

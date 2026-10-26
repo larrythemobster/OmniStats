@@ -41,15 +41,7 @@ namespace {
     }
 }
 
-std::string RmlUiController::FloatingCardClass() const {
-    return FloatingCardClassHelper(WantsInteraction());
-}
-
-std::string RmlUiController::FloatingCardStyle(float x, float y, float widthDp) const {
-    return FloatingCardStyleHelper(x, y, widthDp, m_dpiScale, m_config.ui_scale);
-}
-
-std::string OverlayPresenter::RenderMatchSummary(const RmlRenderSnapshot& snap, const ConfigData& config) {
+std::string OverlayPresenter::RenderMatchSummary(const RmlRenderSnapshot& snap, const ConfigData& config, const std::shared_ptr<SessionState>& state, bool interactive, float dpiScale) {
     const int myTeam = snap.matchSummaryMyTeam;
     const int score0 = snap.matchSummaryScore[0];
     const int score1 = snap.matchSummaryScore[1];
@@ -107,35 +99,47 @@ std::string OverlayPresenter::RenderMatchSummary(const RmlRenderSnapshot& snap, 
     }
 
     std::ostringstream out;
-    out << "<div class='card match-summary" << FloatingCardClassHelper(false) << "' data-action='floating-card-drag' data-card='match-summary'"
-        << FloatingCardStyleHelper(config.match_summary_x, config.match_summary_y, 420.0f, 1.0f, config.ui_scale)
+    out << "<div class='card match-summary" << FloatingCardClassHelper(interactive) << "' data-action='floating-card-drag' data-card='match-summary'"
+        << FloatingCardStyleHelper(config.match_summary_x, config.match_summary_y, 420.0f, dpiScale, config.ui_scale)
         << "><div class='row'><div class='grow value " << resultClass << "' style='font-size:20dp'>" << result << otTag << "</div>"
         << "<div class='value mono' style='font-size:20dp'>" << myScore << '-' << theirScore << "</div></div>";
     out << StatGrid("PLAY", play) << StatGrid("FUN", fun);
     if (!snap.lastMatchWasVoid) {
         out << "<div class='row match-summary-actions'><button class='ghost compact' data-action='history-open' data-source='match-summary'";
         if (!snap.matchGuid.empty()) out << " data-match-guid='" << Escape(snap.matchGuid) << "'";
-        out << ">Details</button></div>";
+        out << ">Details</button>";
+        if (state && !snap.matchGuid.empty()) {
+            std::string bcUrl;
+            {
+                std::lock_guard lock(state->ui.replayUploadMutex);
+                if (state->ui.lastBallchasingMatchGuid == snap.matchGuid) bcUrl = state->ui.lastBallchasingUrl;
+            }
+            if (bcUrl.rfind("https://ballchasing.com/", 0) == 0) {
+                out << "<button class='ghost compact' data-action='open-ballchasing-url' data-url='"
+                    << Escape(bcUrl) << "'>Ballchasing</button>";
+            }
+        }
+        out << "</div>";
     }
     out << "</div>";
     return out.str();
 }
 
 std::string RmlUiController::RenderMatchSummary() {
-    return m_overlayPresenter ? m_overlayPresenter->RenderMatchSummary(m_snap, m_config) : std::string{};
+    return m_overlayPresenter->RenderMatchSummary(m_snap, m_config, m_state, WantsInteraction(), m_dpiScale);
 }
 
-std::string OverlayPresenter::RenderSessionView(const RmlRenderSnapshot& snap, const ConfigData& config, const std::shared_ptr<SessionState>& state) {
+std::string OverlayPresenter::RenderSessionView(const RmlRenderSnapshot& snap, const ConfigData& config, const std::shared_ptr<SessionState>& state, bool interactive, float dpiScale) {
     const auto category = state ? state->ui.graphMmrCategory.load() : MmrCategory::TwoVTwo;
     const bool graph = state && state->ui.showGraphView.load();
     const bool lifetime = graph && snap.showLifetimeGraph;
     std::ostringstream out;
-    out << "<div class='card match-summary" << FloatingCardClassHelper(false) << "' data-action='floating-card-drag' data-card='session-view'"
-        << FloatingCardStyleHelper(config.session_view_x, config.session_view_y, 450.0f, 1.0f, config.ui_scale)
+    out << "<div class='card match-summary" << FloatingCardClassHelper(interactive) << "' data-action='floating-card-drag' data-card='session-view'"
+        << FloatingCardStyleHelper(config.session_view_x, config.session_view_y, 450.0f, dpiScale, config.ui_scale)
         << "><div class='row session-view-head'><div class='card-title grow'>"
         << (lifetime ? "LIFETIME MMR · " : graph ? "SESSION MMR · "
                                                  : "SESSION · ")
-        << Escape(MmrLabel(category)) << "</div>"
+        << Escape(MmrLabel(category)) << "</div>" << (graph ? RenderGraphPanControls(snap, state) : std::string{})
         << "<span class='badge'>F7 view · F6 playlist</span></div>";
     out << (graph ? RenderMmrGraph(false, false, snap, config, state) : RenderSessionStats(true, true, snap, config));
     out << "</div>";
@@ -146,5 +150,5 @@ std::string RmlUiController::RenderSessionView() {
     if (m_telemetry && m_state && m_state->ui.showGraphView.load()) {
         m_telemetry->RecordMilestone(TelemetryManager::Milestone::MmrGraphView);
     }
-    return m_overlayPresenter ? m_overlayPresenter->RenderSessionView(m_snap, m_config, m_state) : std::string{};
+    return m_overlayPresenter->RenderSessionView(m_snap, m_config, m_state, WantsInteraction(), m_dpiScale);
 }

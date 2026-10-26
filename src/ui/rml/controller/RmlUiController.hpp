@@ -36,16 +36,9 @@
 #include "ui/rml/presenters/OverlayPresenter.hpp"
 #include "ui/rml/presenters/DashboardPresenter.hpp"
 #include "ui/rml/presenters/SettingsPresenter.hpp"
-#include "ui/rml/presenters/HistoryPresenter.hpp"
-#include "ui/rml/presenters/InsightsPresenter.hpp"
-#include "ui/rml/presenters/AccountsPresenter.hpp"
-#include "ui/rml/presenters/OnboardingPresenter.hpp"
-#include "ui/rml/presenters/PlayerNotePresenter.hpp"
 #include "ui/rml/services/BackgroundTaskService.hpp"
 #include "ui/rml/services/InputCaptureService.hpp"
-#include "ui/rml/services/ColorPickerService.hpp"
 #include "ui/rml/services/FontService.hpp"
-#include "ui/rml/services/InteractionService.hpp"
 
 class DatabaseManager;
 class RemoteConfig;
@@ -210,8 +203,6 @@ class RmlUiController final : public Rml::EventListener {
     void SetStatsApiPrompt(StatsApiPrompt state);
     std::string RenderMatchSummary();
     std::string RenderSessionView();
-    std::string FloatingCardClass() const;
-    std::string FloatingCardStyle(float x, float y, float widthDp) const;
     std::string RenderOverlayContainer(const OverlayLayout::ContainerConfig& container, bool editMode);
     // Overlay key hints (cycle / expand / session) that close the roster block.
     std::string RenderRosterFooter() const;
@@ -460,15 +451,8 @@ class RmlUiController final : public Rml::EventListener {
     std::unique_ptr<OverlayPresenter> m_overlayPresenter;
     std::unique_ptr<DashboardPresenter> m_dashboardPresenter;
     std::unique_ptr<SettingsPresenter> m_settingsPresenter;
-    std::unique_ptr<HistoryPresenter> m_historyPresenter;
-    std::unique_ptr<InsightsPresenter> m_insightsPresenter;
-    std::unique_ptr<AccountsPresenter> m_accountsPresenter;
-    std::unique_ptr<OnboardingPresenter> m_onboardingPresenter;
-    std::unique_ptr<PlayerNotePresenter> m_playerNotePresenter;
 
     std::unique_ptr<BackgroundTaskService> m_backgroundTaskService;
     std::unique_ptr<InputCaptureService> m_inputCaptureService;
-    std::unique_ptr<ColorPickerService> m_colorPickerService;
     std::unique_ptr<FontService> m_fontService;
-    std::unique_ptr<InteractionService> m_interactionService;
 };

@@ -156,6 +156,9 @@ bool InputCaptureService::Update(std::shared_ptr<SessionState> state) {
             case BindCaptureTarget::KeySession:
                 c.key_session = vk;
                 break;
+            case BindCaptureTarget::KeyMenu:
+                c.key_menu = vk;
+                break;
             case BindCaptureTarget::KeySaveReplay:
                 c.key_save_replay = vk;
                 break;
