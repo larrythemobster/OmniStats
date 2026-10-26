@@ -18,6 +18,8 @@
 #include <unordered_map>
 #include <vector>
 
+class AccountClient;
+
 #include "core/config/Config.hpp"
 #include "core/tournaments/TournamentSchedule.hpp"
 #include "core/state/SessionState.hpp"
@@ -64,7 +66,8 @@ class RmlUiController final : public Rml::EventListener {
                     std::shared_ptr<AccountManagerService> accounts = nullptr,
                     std::shared_ptr<RemoteConfig> remoteConfig = nullptr,
                     std::shared_ptr<Tournaments::TournamentScheduleService> tournamentService = nullptr,
-                    std::shared_ptr<TelemetryManager> telemetry = nullptr);
+                    std::shared_ptr<TelemetryManager> telemetry = nullptr,
+                    std::shared_ptr<AccountClient> accountClient = nullptr);
     ~RmlUiController() override;
 
     bool Initialize(HWND hwnd, ID3D11Device* device, ID3D11DeviceContext* context, int width, int height, float dpiScale);
@@ -289,6 +292,7 @@ class RmlUiController final : public Rml::EventListener {
     std::shared_ptr<SessionState> m_state;
     std::shared_ptr<DatabaseManager> m_dbManager;
     std::shared_ptr<AccountManagerService> m_accountsService;
+    std::shared_ptr<AccountClient> m_accountClient;
     HWND m_hwnd = nullptr;
     float m_dpiScale = 1.0f;
     // ui_scale currently pushed into the RmlUi context.

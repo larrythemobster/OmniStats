@@ -12,7 +12,7 @@
 #include "core/config/StatsApiIni.hpp"
 #include "database/DatabaseManager.hpp"
 #include "network/ExternalUpdaterLauncher.hpp"
-#include "network/mmr/MMRFetcher.hpp"
+#include "network/mmr/MmrService.hpp"
 #include "network/api/AccountClient.hpp"
 #include "network/api/RemoteConfig.hpp"
 #include "ui/Formatting.hpp"
@@ -29,9 +29,10 @@ RmlUiController::RmlUiController(std::shared_ptr<SessionState> state,
                                  std::shared_ptr<AccountManagerService> accounts,
                                  std::shared_ptr<RemoteConfig> remoteConfig,
                                  std::shared_ptr<Tournaments::TournamentScheduleService> tournamentService,
-                                 std::shared_ptr<TelemetryManager> telemetry)
+                                 std::shared_ptr<TelemetryManager> telemetry,
+                                 std::shared_ptr<AccountClient> accountClient)
     : m_state(std::move(state)), m_dbManager(std::move(dbManager)), m_accountsService(std::move(accounts)),
-      m_remoteConfig(std::move(remoteConfig)), m_tournamentService(std::move(tournamentService)), m_telemetry(std::move(telemetry)),
+      m_accountClient(std::move(accountClient)), m_remoteConfig(std::move(remoteConfig)), m_tournamentService(std::move(tournamentService)), m_telemetry(std::move(telemetry)),
       m_systemInterface(nullptr),
       m_overlayPresenter(std::make_unique<OverlayPresenter>()),
       m_dashboardPresenter(std::make_unique<DashboardPresenter>()),
@@ -481,6 +482,7 @@ void RmlUiController::SetRootRml(const char* id, const std::string& rml) {
 }
 
 void RmlUiController::SnapshotState() {
+    m_snap.accountSignedIn = m_accountClient && m_accountClient->IsSignedIn();
     if (!m_state) return;
     if (m_state && m_state->liveMatch) {
         auto liveSnap = m_state->liveMatch->GetSnapshot();
@@ -602,11 +604,11 @@ void RmlUiController::RebuildVisibleUi(bool force, bool configChanged) {
     }
 
     {
-        const AccountStatusSnapshot accountStatus = AccountClient::Instance().GetStatus();
+        const AccountStatusSnapshot accountStatus = m_accountClient ? m_accountClient->GetStatus() : AccountStatusSnapshot{};
         if (accountStatus.version != m_lastAccountStatusVersion) {
             m_lastAccountStatusVersion = accountStatus.version;
             std::string signedOutReason;
-            if (AccountClient::Instance().ConsumeSignedOutNotification(signedOutReason)) {
+            if (m_accountClient && m_accountClient->ConsumeSignedOutNotification(signedOutReason)) {
                 ShowToast(signedOutReason, true);
             }
             if (m_onboardingVisible) RefreshOnboarding();
@@ -676,8 +678,8 @@ void RmlUiController::RebuildVisibleUi(bool force, bool configChanged) {
     HashAppend(runtimeStructuralHash, static_cast<uint64_t>(h2hExpanded));
     HashAppend(runtimeStructuralHash, static_cast<uint64_t>(m_snap.inMatch));
     HashAppend(runtimeStructuralHash, static_cast<uint64_t>(m_config.second_monitor_mode));
-    HashAppend(runtimeStructuralHash, static_cast<uint64_t>(RankSourceAvailable(m_config)));
-    HashAppend(runtimeStructuralHash, static_cast<uint64_t>(m_config.show_tournaments && AccountClient::Instance().IsSignedIn()));
+    HashAppend(runtimeStructuralHash, static_cast<uint64_t>(RankSourceAvailable(m_config, m_accountClient && m_accountClient->IsSignedIn())));
+    HashAppend(runtimeStructuralHash, static_cast<uint64_t>(m_config.show_tournaments && m_accountClient && m_accountClient->IsSignedIn()));
     if (!m_config.second_monitor_mode) {
         for (const auto& container : m_config.overlay_layout.containers) {
             for (auto widget : container.widgets) {
@@ -815,7 +817,7 @@ void RmlUiController::RebuildVisibleUi(bool force, bool configChanged) {
         HashAppend(settingsHash, static_cast<uint64_t>(m_settingsPage));
         HashAppend(settingsHash, static_cast<uint64_t>(m_bindCaptureTarget));
         HashAppend(settingsHash, static_cast<uint64_t>(m_showBallchasingToken));
-        HashAppend(settingsHash, AccountClient::Instance().GetStatus().version);
+        HashAppend(settingsHash, m_accountClient ? m_accountClient->GetStatus().version : 0);
         HashAppend(settingsHash, static_cast<uint64_t>(m_onboarding.ShowFallback()));
         HashAppend(settingsHash, static_cast<uint64_t>(m_confirmReplayUploads));
         HashAppend(settingsHash, m_remoteConfig ? m_remoteConfig->Version() : 0);
@@ -1309,7 +1311,7 @@ std::string RmlUiController::PlaylistImageForName(const std::string& playlist) {
 void RmlUiController::RefreshTournaments(bool force) {
     const int64_t now = static_cast<int64_t>(std::time(nullptr));
     const auto snapshot = m_tournamentService ? m_tournamentService->Snapshot() : std::make_shared<Tournaments::ScheduleSnapshot>();
-    const bool enabled = AccountClient::Instance().IsSignedIn();
+    const bool enabled = m_accountClient && m_accountClient->IsSignedIn();
     if (enabled && !m_onboardingVisible) {
         const auto* next = Tournaments::NextSlot(snapshot->slots, now, m_config.tournament_reminder_standard_only);
         if (next && m_tournamentReminder.ShouldFire(*next, now, m_config.tournament_reminder_minutes, m_config.tournament_reminder_standard_only)) {

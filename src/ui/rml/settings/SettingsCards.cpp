@@ -11,7 +11,7 @@
 #include "core/config/StatsApiConfig.hpp"
 #include "database/DatabaseManager.hpp"
 #include "network/ExternalUpdaterLauncher.hpp"
-#include "network/mmr/MMRFetcher.hpp"
+#include "network/mmr/MmrService.hpp"
 #include "ui/Formatting.hpp"
 #include "ui/window/KeyNames.hpp"
 #include "ui/rml/backend/RmlInputWin32.hpp"
@@ -21,7 +21,7 @@
 
 using namespace RmlUiDetail;
 
-std::string SettingsPresenter::RenderCards(const ConfigData& config, bool showDetails) {
+std::string SettingsPresenter::RenderCards(const ConfigData& config, bool showDetails, bool signedIn) {
     std::ostringstream out;
     const bool dashboard = config.second_monitor_mode;
     out << SectionStart(dashboard ? "Dashboard cards" : "Overlay cards")
@@ -41,7 +41,7 @@ std::string SettingsPresenter::RenderCards(const ConfigData& config, bool showDe
     for (auto widget : cards) {
         const bool tournament = widget == DashboardLayout::WidgetId::Tournaments;
         const bool enabled = WidgetSettings::Enabled(config, widget, dashboard);
-        const bool disabled = tournament && !AccountClient::Instance().IsSignedIn();
+        const bool disabled = tournament && !signedIn;
         const std::string dom = WidgetDomId(widget);
         out << "<div class='display-card-setting'><div class='setting-row card-row'><div class='setting-info'><div class='setting-name'>"
             << Escape(tournament ? "Tournament countdown" : DashboardLayout::GetWidgetDisplayName(widget)) << "</div>";
@@ -124,14 +124,14 @@ std::string SettingsPresenter::RenderCards(const ConfigData& config, bool showDe
 }
 
 std::string RmlUiController::RenderSettingsCards() {
-    return m_settingsPresenter->RenderCards(m_config, m_showCardDetails);
+    return m_settingsPresenter->RenderCards(m_config, m_showCardDetails, m_accountClient && m_accountClient->IsSignedIn());
 }
 
 std::string RmlUiController::RenderSettingsReminders() {
     std::ostringstream out;
     out << SectionStart("Tournament reminders")
         << "<div class='setting-help section-help'>Reminders work even when the tournament countdown card is off.</div>";
-    const bool signedIn = AccountClient::Instance().IsSignedIn();
+    const bool signedIn = m_accountClient && m_accountClient->IsSignedIn();
     const auto tournaments = m_tournamentService ? m_tournamentService->Snapshot() : std::make_shared<Tournaments::ScheduleSnapshot>();
     if (!signedIn) out << "<div class='setting-notice'>Sign in under Accounts &amp; services to get the tournament schedule.</div>";
     const bool disabled = !signedIn;

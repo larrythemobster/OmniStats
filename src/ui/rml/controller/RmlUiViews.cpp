@@ -490,7 +490,7 @@ void RmlUiController::RefreshOnboarding() {
         result = m_state->ui.statsApiResult;
         checked = m_state->ui.statsApiChecked.load();
     }
-    m_onboarding.Refresh(m_config, result, checked, !m_snap.myPrimaryId.empty());
+    m_onboarding.Refresh(m_config, result, checked, !m_snap.myPrimaryId.empty(), m_accountClient ? m_accountClient->GetStatus() : AccountStatusSnapshot{});
 
     // The account list changes with the live roster, so it is rendered with
     // the same select helper as Settings instead of a bound option list.
@@ -584,13 +584,13 @@ void RmlUiController::CheckAccountLinkPrompt() {
         m_accountPromptPending = false;
         return;
     }
-    const AccountStatusSnapshot accountStatus = AccountClient::Instance().GetStatus();
+    const AccountStatusSnapshot accountStatus = m_accountClient ? m_accountClient->GetStatus() : AccountStatusSnapshot{};
     if (accountStatus.state == AccountAuthState::Migrating) {
         m_accountPromptPending = true;
         return;
     }
     m_accountPromptPending = false;
-    if (accountStatus.state == AccountAuthState::SignedIn || AccountClient::Instance().IsSignedIn() ||
+    if (accountStatus.state == AccountAuthState::SignedIn || (m_accountClient && m_accountClient->IsSignedIn()) ||
         !m_config.account_refresh_token.empty()) {
         return;
     }
@@ -1016,33 +1016,33 @@ bool RmlUiController::HandleViewAction(const std::string& action, Rml::Element* 
         BrowseStatsApiPath();
         RefreshOnboarding();
     } else if (action == "account-sign-in") {
-        AccountClient::Instance().BeginSignInAsync(true);
+        if (m_accountClient) m_accountClient->BeginSignInAsync(true);
         if (m_state && m_state->ui.showMenu.load()) RebuildSettings();
         if (m_onboardingVisible) RefreshOnboarding();
     } else if (action == "account-retry-migration") {
-        AccountClient::Instance().RetryKeyMigrationAsync();
+        if (m_accountClient) m_accountClient->RetryKeyMigrationAsync();
         if (m_state && m_state->ui.showMenu.load()) RebuildSettings();
         if (m_onboardingVisible) RefreshOnboarding();
     } else if (action == "account-cancel") {
-        AccountClient::Instance().CancelAuthorization();
+        if (m_accountClient) m_accountClient->CancelAuthorization();
         m_onboarding.SetShowFallback(false);
         if (m_state && m_state->ui.showMenu.load()) RebuildSettings();
         if (m_onboardingVisible) RefreshOnboarding();
     } else if (action == "account-sign-out") {
-        AccountClient::Instance().LogoutAsync();
+        if (m_accountClient) m_accountClient->LogoutAsync();
         m_config = Config::Read();
         if (m_state && m_state->ui.showMenu.load()) RebuildSettings();
         if (m_onboardingVisible) RefreshOnboarding();
     } else if (action == "account-open-verify") {
-        AccountClient::Instance().OpenVerificationBrowser();
+        if (m_accountClient) m_accountClient->OpenVerificationBrowser();
     } else if (action == "account-copy-link") {
-        const auto status = AccountClient::Instance().GetStatus();
+        const auto status = m_accountClient ? m_accountClient->GetStatus() : AccountStatusSnapshot{};
         if (!status.verificationUri.empty()) {
             m_systemInterface.SetClipboardText(status.verificationUri);
             ShowToast("Copied sign-in link to clipboard.");
         }
     } else if (action == "account-copy-code") {
-        const auto status = AccountClient::Instance().GetStatus();
+        const auto status = m_accountClient ? m_accountClient->GetStatus() : AccountStatusSnapshot{};
         if (!status.userCode.empty()) {
             m_systemInterface.SetClipboardText(status.userCode);
             ShowToast("Copied verification code to clipboard.");
@@ -1052,7 +1052,7 @@ bool RmlUiController::HandleViewAction(const std::string& action, Rml::Element* 
         if (m_onboardingVisible) RefreshOnboarding();
         if (m_state && m_state->ui.showMenu.load()) RebuildSettings();
     } else if (action == "account-manage-devices") {
-        AccountClient::Instance().OpenManageDevicesBrowser();
+        if (m_accountClient) m_accountClient->OpenManageDevicesBrowser();
     } else {
         return false;
     }

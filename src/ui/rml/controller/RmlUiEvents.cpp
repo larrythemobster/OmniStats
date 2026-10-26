@@ -14,7 +14,7 @@
 #include "utils/SupportBundle.hpp"
 #include "database/DatabaseManager.hpp"
 #include "network/ExternalUpdaterLauncher.hpp"
-#include "network/mmr/MMRFetcher.hpp"
+#include "network/mmr/MmrService.hpp"
 #include "network/api/RemoteConfig.hpp"
 #include "network/telemetry/TelemetryManager.hpp"
 #include "ui/Formatting.hpp"
@@ -575,7 +575,7 @@ void RmlUiController::HandleChange(Rml::Element* target, Rml::Event& event) {
         return true;
     };
 
-    const bool signedIn = AccountClient::Instance().IsSignedIn(m_config);
+    const bool signedIn = m_accountClient && m_accountClient->IsSignedIn(m_config);
     bool themeChanged = false;
     Config::Update([&](ConfigData& c) {
         if (key == "require_rl_focus")

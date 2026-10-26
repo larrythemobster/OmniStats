@@ -1,15 +1,15 @@
 #pragma once
 
-// Tuning constants and stateless helpers shared by the MMRFetcher translation units.
+// Tuning constants and stateless helpers shared by the MmrService translation units.
 
 #include <chrono>
 #include <initializer_list>
 #include <map>
 #include <string>
 #include <string_view>
-#include "network/mmr/MMRFetcher.hpp"
+#include "network/mmr/MmrTypes.hpp"
 
-namespace MMRFetcherDetail {
+namespace MmrServiceDetail {
     inline constexpr int kTrackerForbiddenAttempts = 3;
     inline constexpr const char* kTrackerImpersonation = "chrome136";
     inline constexpr const char* kTrackerUserAgent =

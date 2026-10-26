@@ -1,7 +1,7 @@
 #include <gtest/gtest.h>
 #include "network/api/RemoteConfig.hpp"
 #include "network/api/AccountClient.hpp"
-#include "network/mmr/MMRFetcher.hpp"
+#include "network/mmr/MmrService.hpp"
 #include "core/config/Config.hpp"
 #include "core/state/SessionState.hpp"
 #include "network/omninet/OmniNet.hpp"
@@ -19,7 +19,6 @@ namespace {
 
         void SetUp() override {
             remoteConfig.ResetForTests();
-            AccountClient::Instance().ResetForTests();
             tempDir = fs::temp_directory_path() / "OmniStatsRemoteConfigTests";
             std::error_code ec;
             fs::remove_all(tempDir, ec);
@@ -30,7 +29,6 @@ namespace {
 
         void TearDown() override {
             remoteConfig.ResetForTests();
-            AccountClient::Instance().ResetForTests();
             OmniNet::SetTransportForTesting({});
             std::error_code ec;
             fs::remove_all(tempDir, ec);
@@ -175,14 +173,15 @@ TEST_F(RemoteConfigTestFixture, MinVersionIsWarningOnly) {
         res.body = "{}";
         return res;
     });
-    AccountClient::Instance().StartAuthorization();
+    AccountClient account;
+    account.StartAuthorization();
     EXPECT_TRUE(transportCalled);
     OmniNet::SetTransportForTesting({});
     Config::Update([](ConfigData& c) { c.enable_mmr_tracking = true; }, false);
     auto state = std::make_shared<SessionState>();
-    MMRFetcher fetcher(state, nullptr);
+    MmrService fetcher(state, nullptr);
     fetcher.Enqueue("Steam|76561198000000001|0", "TestPlayer");
-    EXPECT_EQ(fetcher.PendingRequestCountForTests(), 1u);
+    EXPECT_EQ(fetcher.PendingRequestCount(), 1u);
 }
 
 TEST_F(RemoteConfigTestFixture, CacheFallbackUnder24hAndDefaultResetAfter24h) {

@@ -59,7 +59,7 @@ const char* RefreshStateKey(AccountManagerService::RefreshState state) {
 }
 
 AccountManagerService::AccountManagerService(std::shared_ptr<DatabaseManager> dbManager,
-                                             std::shared_ptr<MMRFetcher> mmrFetcher)
+                                             std::shared_ptr<MmrService> mmrFetcher)
     : m_db(std::move(dbManager)), m_fetcher(std::move(mmrFetcher)), m_sinkGuard(std::make_shared<SinkGuard>()) {
     m_sinkGuard->owner = this;
 }
@@ -144,7 +144,7 @@ void AccountManagerService::PostDb(std::function<void(DatabaseManager&)> job) {
 }
 
 RankProvider AccountManagerService::CurrentProvider() {
-    return MMRFetcher::ActiveRankProvider();
+    return MmrService::ActiveRankProvider();
 }
 
 AccountManagerService::Snapshot AccountManagerService::GetSnapshot() const {

@@ -14,8 +14,8 @@
 #include "core/reducer/TelemetryReducer.hpp"
 #include "core/state/LiveMatchStore.hpp"
 #include "database/DatabaseManager.hpp"
+#include "network/mmr/MmrService.hpp"
 #include "network/DiscordManager.hpp"
-#include "network/mmr/MMRFetcher.hpp"
 #include "network/telemetry/TelemetryEvents.hpp"
 #include "network/telemetry/TelemetryParser.hpp"
 
@@ -25,9 +25,7 @@ class AccountManagerService;
 
 class StatsClient {
   public:
-    StatsClient(std::shared_ptr<SessionState> state,
-                std::shared_ptr<MMRFetcher> mmrFetcher,
-                std::shared_ptr<DatabaseManager> dbManager);
+    StatsClient(std::shared_ptr<SessionState> state, std::shared_ptr<MmrService> mmrFetcher, std::shared_ptr<DatabaseManager> dbManager);
     ~StatsClient();
 
     void Start();
@@ -56,7 +54,7 @@ class StatsClient {
     };
 
     std::shared_ptr<SessionState> m_state;
-    std::shared_ptr<MMRFetcher> m_mmrFetcher;
+    std::shared_ptr<MmrService> m_mmrFetcher;
     std::shared_ptr<DatabaseManager> m_dbManager;
     std::shared_ptr<DiscordManager> m_discordManager;
     std::shared_ptr<AccountManagerService> m_accountManager;

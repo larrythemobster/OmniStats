@@ -3,6 +3,7 @@
 #include <memory>
 #include <string>
 #include "core/config/Config.hpp"
+#include "network/api/DeviceAuthFlow.hpp"
 #include "ui/rml/services/InputCaptureService.hpp"
 
 class SessionState;
@@ -14,9 +15,10 @@ class SettingsPresenter {
 
     std::string RenderGeneral(const ConfigData& config);
     std::string RenderAppearance(const ConfigData& config, const std::string& editColorKey, float editColorHue, bool showAdvanced = true);
-    std::string RenderCards(const ConfigData& config, bool showDetails);
+    std::string RenderCards(const ConfigData& config, bool showDetails, bool signedIn = false);
     std::string RenderIntegrations(
         const ConfigData& config,
+        const AccountStatusSnapshot& accountStatus,
         const std::string& pendingToken,
         bool showToken,
         bool showFallback = false,

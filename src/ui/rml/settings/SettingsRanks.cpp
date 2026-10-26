@@ -8,7 +8,7 @@
 #include "core/config/StatsApiConfig.hpp"
 #include "database/DatabaseManager.hpp"
 #include "network/ExternalUpdaterLauncher.hpp"
-#include "network/mmr/MMRFetcher.hpp"
+#include "network/mmr/MmrService.hpp"
 #include "network/omninet/OmniNet.hpp"
 #include "ui/Formatting.hpp"
 #include "ui/window/KeyNames.hpp"
@@ -61,7 +61,7 @@ std::string SettingsPresenter::RenderRanks(const ConfigData& config, const RmlRe
         out << "</div>";
     } else {
         out << "<div class='setting-help'>Join a match to see your ranks. If your account isn't detected, pick it in General.</div>";
-        if (!RankSourceAvailable(config) && OmniNet::Available()) out << "<div class='row gap-sm' style='margin-top:8dp'>" << Button("open-rank-settings", "Connect live ranks", "primary") << "</div>";
+        if (!RankSourceAvailable(config, snap.accountSignedIn) && OmniNet::Available()) out << "<div class='row gap-sm' style='margin-top:8dp'>" << Button("open-rank-settings", "Connect live ranks", "primary") << "</div>";
     }
     out << SectionEnd();
     return out.str();

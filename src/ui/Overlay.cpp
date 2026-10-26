@@ -201,9 +201,10 @@ Overlay::Overlay(std::shared_ptr<SessionState> state,
                  std::shared_ptr<AccountManagerService> accounts,
                  std::shared_ptr<RemoteConfig> remoteConfig,
                  std::shared_ptr<Tournaments::TournamentScheduleService> tournamentService,
-                 std::shared_ptr<TelemetryManager> telemetry)
+                 std::shared_ptr<TelemetryManager> telemetry,
+                 std::shared_ptr<AccountClient> accountClient)
     : m_state(std::move(state)), m_dbManager(std::move(dbManager)), m_accounts(std::move(accounts)),
-      m_remoteConfig(std::move(remoteConfig)), m_tournamentService(std::move(tournamentService)), m_telemetry(std::move(telemetry)) {}
+      m_accountClient(std::move(accountClient)), m_remoteConfig(std::move(remoteConfig)), m_tournamentService(std::move(tournamentService)), m_telemetry(std::move(telemetry)) {}
 
 Overlay::~Overlay() {
     Shutdown();
@@ -240,7 +241,7 @@ bool Overlay::Initialize() {
     const int width = std::max(client.right - client.left, 1L);
     const int height = std::max(client.bottom - client.top, 1L);
 
-    m_rmlUi = std::make_unique<RmlUiController>(m_state, m_dbManager, m_accounts, m_remoteConfig, m_tournamentService, m_telemetry);
+    m_rmlUi = std::make_unique<RmlUiController>(m_state, m_dbManager, m_accounts, m_remoteConfig, m_tournamentService, m_telemetry, m_accountClient);
     if (!m_rmlUi->Initialize(m_hwnd, m_d3d11->Device(), m_d3d11->Context(), width, height, m_dpiScale)) {
         std::cout << "[RmlUi] Failed to initialize UI.\n";
         return false;
@@ -590,7 +591,7 @@ bool Overlay::RecreateD3DDevice() {
     GetClientRect(m_hwnd, &client);
     const int width = std::max(client.right - client.left, 1L);
     const int height = std::max(client.bottom - client.top, 1L);
-    if (!m_rmlUi) m_rmlUi = std::make_unique<RmlUiController>(m_state, m_dbManager, m_accounts, m_remoteConfig, m_tournamentService, m_telemetry);
+    if (!m_rmlUi) m_rmlUi = std::make_unique<RmlUiController>(m_state, m_dbManager, m_accounts, m_remoteConfig, m_tournamentService, m_telemetry, m_accountClient);
     if (!m_rmlUi->Initialize(m_hwnd, m_d3d11->Device(), m_d3d11->Context(), width, height, m_dpiScale)) {
         std::cout << "[RmlUi] Failed to reinitialize UI after D3D device recreation.\n";
         return false;

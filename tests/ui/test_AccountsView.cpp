@@ -17,7 +17,7 @@
 #include "utils/Storage.hpp"
 #include "core/accounts/TrackedAccounts.hpp"
 #include "database/DatabaseManager.hpp"
-#include "network/mmr/MMRFetcher.hpp"
+#include "network/mmr/MmrService.hpp"
 #include "ui/rml/controller/RmlUiController.hpp"
 #include "ui/rml/views/AccountsView.hpp"
 #include "ui/Formatting.hpp"
@@ -111,8 +111,8 @@ TEST(AccountsViewTiers, PlacementRanksWithMmrShowTheTierForThatMmr) {
     ASSERT_EQ(view.Rows().size(), 1u);
     const auto& cells = view.Rows()[0].ranks;
     ASSERT_EQ(cells.size(), 3u);
-    const std::string solo = MMRFetcher::GetRankTierForPlaylistMmr("1v1", 642);
-    const std::string standard = MMRFetcher::GetRankTierForPlaylistMmr("3v3", 879);
+    const std::string solo = MmrService::GetRankTierForPlaylistMmr("1v1", 642);
+    const std::string standard = MmrService::GetRankTierForPlaylistMmr("3v3", 879);
     ASSERT_NE(solo, "Unranked");
     ASSERT_NE(standard, "Unranked");
     EXPECT_EQ(cells[0].tier, Format::AbbreviateRank(solo));
@@ -127,7 +127,7 @@ TEST_F(AccountsViewTest, EmptyStateRenders) {
     auto state = std::make_shared<SessionState>();
     auto db = std::make_shared<DatabaseManager>(state);
     ASSERT_TRUE(db->Initialize(":memory:"));
-    auto fetcher = std::make_shared<MMRFetcher>(state, db);
+    auto fetcher = std::make_shared<MmrService>(state, db);
     auto service = std::make_shared<AccountManagerService>(db, fetcher);
     service->SetClockForTests([this]() { return simulatedTime; });
     service->Start();
@@ -163,7 +163,7 @@ TEST_F(AccountsViewTest, SingleAccountRenders) {
     auto state = std::make_shared<SessionState>();
     auto db = std::make_shared<DatabaseManager>(state);
     ASSERT_TRUE(db->Initialize(":memory:"));
-    auto fetcher = std::make_shared<MMRFetcher>(state, db);
+    auto fetcher = std::make_shared<MmrService>(state, db);
     auto service = std::make_shared<AccountManagerService>(db, fetcher);
     service->SetClockForTests([this]() { return simulatedTime; });
     service->Start();
@@ -197,7 +197,7 @@ TEST_F(AccountsViewTest, ManyAccountsRenderAndScroll) {
     auto state = std::make_shared<SessionState>();
     auto db = std::make_shared<DatabaseManager>(state);
     ASSERT_TRUE(db->Initialize(":memory:"));
-    auto fetcher = std::make_shared<MMRFetcher>(state, db);
+    auto fetcher = std::make_shared<MmrService>(state, db);
     auto service = std::make_shared<AccountManagerService>(db, fetcher);
     service->SetClockForTests([this]() { return simulatedTime; });
     service->Start();
@@ -235,7 +235,7 @@ TEST_F(AccountsViewTest, LongNicknameBounded) {
     auto state = std::make_shared<SessionState>();
     auto db = std::make_shared<DatabaseManager>(state);
     ASSERT_TRUE(db->Initialize(":memory:"));
-    auto fetcher = std::make_shared<MMRFetcher>(state, db);
+    auto fetcher = std::make_shared<MmrService>(state, db);
     auto service = std::make_shared<AccountManagerService>(db, fetcher);
     service->SetClockForTests([this]() { return simulatedTime; });
     service->Start();
@@ -293,7 +293,7 @@ TEST_F(AccountsViewTest, SortingByPlaylistDescWithMissingValuesLastAndNickname) 
     rankB.rankTier = "Champion I";
     db->SaveTrackedAccountRanks(pidB, {rankB}, simulatedTime);
 
-    auto fetcher = std::make_shared<MMRFetcher>(state, db);
+    auto fetcher = std::make_shared<MmrService>(state, db);
     auto service = std::make_shared<AccountManagerService>(db, fetcher);
     service->SetClockForTests([this]() { return simulatedTime; });
     service->Start();
@@ -345,7 +345,7 @@ TEST_F(AccountsViewTest, RenameAndRemoveThroughClicks) {
     auto state = std::make_shared<SessionState>();
     auto db = std::make_shared<DatabaseManager>(state);
     ASSERT_TRUE(db->Initialize(":memory:"));
-    auto fetcher = std::make_shared<MMRFetcher>(state, db);
+    auto fetcher = std::make_shared<MmrService>(state, db);
     auto service = std::make_shared<AccountManagerService>(db, fetcher);
     service->SetClockForTests([this]() { return simulatedTime; });
     service->Start();
@@ -406,7 +406,7 @@ TEST_F(AccountsViewTest, ActiveAccountHighlighting) {
     auto state = std::make_shared<SessionState>();
     auto db = std::make_shared<DatabaseManager>(state);
     ASSERT_TRUE(db->Initialize(":memory:"));
-    auto fetcher = std::make_shared<MMRFetcher>(state, db);
+    auto fetcher = std::make_shared<MmrService>(state, db);
     auto service = std::make_shared<AccountManagerService>(db, fetcher);
     service->SetClockForTests([this]() { return simulatedTime; });
     service->Start();
@@ -449,7 +449,7 @@ TEST_F(AccountsViewTest, StaleDataLabelAfterClockAdvance) {
     rank.mmr = 1000;
     db->SaveTrackedAccountRanks(pid, {rank}, simulatedTime);
 
-    auto fetcher = std::make_shared<MMRFetcher>(state, db);
+    auto fetcher = std::make_shared<MmrService>(state, db);
     auto service = std::make_shared<AccountManagerService>(db, fetcher);
     service->SetClockForTests([this]() { return simulatedTime; });
     service->Start();
@@ -491,7 +491,7 @@ TEST_F(AccountsViewTest, NoApiBannerWhenProviderUnavailable) {
     auto state = std::make_shared<SessionState>();
     auto db = std::make_shared<DatabaseManager>(state);
     ASSERT_TRUE(db->Initialize(":memory:"));
-    auto fetcher = std::make_shared<MMRFetcher>(state, db);
+    auto fetcher = std::make_shared<MmrService>(state, db);
     auto service = std::make_shared<AccountManagerService>(db, fetcher);
     service->SetClockForTests([this]() { return simulatedTime; });
     service->Start();
@@ -532,7 +532,7 @@ TEST_F(AccountsViewTest, RefreshFailureStateShowsSavedMmr) {
     rank.rankTier = "Diamond II";
     db->SaveTrackedAccountRanks(pid, {rank}, simulatedTime);
 
-    auto fetcher = std::make_shared<MMRFetcher>(state, db);
+    auto fetcher = std::make_shared<MmrService>(state, db);
     auto service = std::make_shared<AccountManagerService>(db, fetcher);
     service->SetClockForTests([this]() { return simulatedTime; });
     service->Start();
@@ -569,7 +569,7 @@ TEST_F(AccountsViewTest, OpenCloseRepeatedly) {
     auto state = std::make_shared<SessionState>();
     auto db = std::make_shared<DatabaseManager>(state);
     ASSERT_TRUE(db->Initialize(":memory:"));
-    auto fetcher = std::make_shared<MMRFetcher>(state, db);
+    auto fetcher = std::make_shared<MmrService>(state, db);
     auto service = std::make_shared<AccountManagerService>(db, fetcher);
     service->SetClockForTests([this]() { return simulatedTime; });
     service->Start();
@@ -617,7 +617,7 @@ TEST_F(AccountsViewTest, ReloadUiResourcesPreservesState) {
     auto state = std::make_shared<SessionState>();
     auto db = std::make_shared<DatabaseManager>(state);
     ASSERT_TRUE(db->Initialize(":memory:"));
-    auto fetcher = std::make_shared<MMRFetcher>(state, db);
+    auto fetcher = std::make_shared<MmrService>(state, db);
     auto service = std::make_shared<AccountManagerService>(db, fetcher);
     service->SetClockForTests([this]() { return simulatedTime; });
     service->Start();

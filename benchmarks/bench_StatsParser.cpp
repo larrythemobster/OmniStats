@@ -2,13 +2,13 @@
 #include "network/api/StatsClient.hpp"
 #include "core/state/LiveMatchStore.hpp"
 #include "core/state/SessionState.hpp"
-#include "network/mmr/MMRFetcher.hpp"
+#include "network/mmr/MmrService.hpp"
 #include "database/DatabaseManager.hpp"
 #include <memory>
 
 static void BM_ParseUpdateState(benchmark::State& state) {
     auto session = std::make_shared<SessionState>();
-    auto fetcher = std::make_shared<MMRFetcher>(session);
+    auto fetcher = std::make_shared<MmrService>(session);
     auto db = std::make_shared<DatabaseManager>(session);
     (void)db->Initialize(":memory:");
     StatsClient client(session, fetcher, db);
@@ -51,7 +51,7 @@ BENCHMARK(BM_ParseUpdateState)->Unit(benchmark::kMicrosecond);
 
 static void BM_ParseStatFeed(benchmark::State& state) {
     auto session = std::make_shared<SessionState>();
-    auto fetcher = std::make_shared<MMRFetcher>(session);
+    auto fetcher = std::make_shared<MmrService>(session);
     auto db = std::make_shared<DatabaseManager>(session);
     (void)db->Initialize(":memory:");
     StatsClient client(session, fetcher, db);

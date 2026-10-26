@@ -10,6 +10,8 @@
 #include <thread>
 #include <vector>
 
+class AccountClient;
+
 namespace Tournaments {
     struct SecondChance {
         std::string title;
@@ -52,6 +54,9 @@ namespace Tournaments {
         void Stop();
         void RequestRefresh();
         std::shared_ptr<const ScheduleSnapshot> Snapshot() const;
+        void SetAccountClient(std::shared_ptr<AccountClient> accountClient) {
+            m_accountClient = std::move(accountClient);
+        }
 
 #ifdef OMNISTATS_TEST_ENVIRONMENT
         bool FetchForTests(ScheduleSnapshot& snapshot) {
@@ -67,5 +72,6 @@ namespace Tournaments {
         std::atomic<bool> m_stop{false};
         bool m_refresh = false;
         std::shared_ptr<const ScheduleSnapshot> m_snapshot = std::make_shared<ScheduleSnapshot>();
+        std::shared_ptr<AccountClient> m_accountClient;
     };
 }

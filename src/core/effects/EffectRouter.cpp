@@ -3,7 +3,7 @@
 #include "core/config/Config.hpp"
 #include "database/DatabaseManager.hpp"
 #include "network/DiscordManager.hpp"
-#include "network/mmr/MMRFetcher.hpp"
+#include "network/mmr/MmrService.hpp"
 #include "core/accounts/AccountManager.hpp"
 #include "core/state/SessionState.hpp"
 #include "core/state/LiveMatchStore.hpp"
@@ -15,7 +15,7 @@
 void EffectRouter::Route(SideEffects&& effects,
                          std::shared_ptr<DatabaseManager> dbManager,
                          std::shared_ptr<DiscordManager> discordManager,
-                         std::shared_ptr<MMRFetcher> mmrFetcher,
+                         std::shared_ptr<MmrService> mmrFetcher,
                          std::shared_ptr<AccountManagerService> accountManager,
                          std::shared_ptr<SessionState> sessionState) {
     if (effects.selectMmrOwner && sessionState) {

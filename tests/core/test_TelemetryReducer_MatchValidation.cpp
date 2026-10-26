@@ -5,7 +5,7 @@
 #include "utils/Storage.hpp"
 #include "core/config/Constants.hpp"
 #include "core/game/GamemodeUtils.hpp"
-#include "network/mmr/MMRFetcher.hpp"
+#include "network/mmr/MmrService.hpp"
 #include "core/effects/EffectRouter.hpp"
 #include "network/telemetry/TelemetryEvents.hpp"
 #include <nlohmann/json.hpp>
@@ -1659,7 +1659,7 @@ TEST(TelemetryReducerMatchValidation, OpponentForfeitFinalizesOnceAndOwnsOneGrap
     EXPECT_FALSE(duplicateEffects.postMatchMmrRefresh.has_value());
     EXPECT_EQ(state->game.sessionTotals.wins, 1);
 
-    MMRFetcher fetcher(state);
+    MmrService fetcher(state);
     const auto& refresh = *firstEffects.postMatchMmrRefresh;
     fetcher.EnqueuePostMatch(refresh.primaryId,
                              refresh.name,
@@ -1669,8 +1669,8 @@ TEST(TelemetryReducerMatchValidation, OpponentForfeitFinalizesOnceAndOwnsOneGrap
                              refresh.previousMatches,
                              refresh.previousMmrIsPlaylistSpecific,
                              refresh.won);
-    fetcher.ProcessPostMatchResponseForTests(refresh.matchGuid, 1200, 50);
-    const auto points = fetcher.PlaylistMatchPointsForTests("1v1");
+    fetcher.ProcessPostMatchResponse(refresh.matchGuid, 1200, 50);
+    const auto points = fetcher.PlaylistMatchPoints("1v1");
     ASSERT_EQ(points.size(), 1u);
     EXPECT_EQ(points[0].matchGuid, "opponent-forfeit-guid");
     EXPECT_EQ(points[0].mmr, 1209);

@@ -9,7 +9,7 @@
 #include "core/config/StatsApiConfig.hpp"
 #include "database/DatabaseManager.hpp"
 #include "network/ExternalUpdaterLauncher.hpp"
-#include "network/mmr/MMRFetcher.hpp"
+#include "network/mmr/MmrService.hpp"
 #include "ui/Formatting.hpp"
 #include "ui/window/KeyNames.hpp"
 #include "ui/rml/backend/RmlInputWin32.hpp"
@@ -70,7 +70,7 @@ std::string RenderMmrGraphImpl(bool showCategoryBadge, bool showPanControls, con
     const auto series = ResolveGraphSeries(snap, state);
     const int offset = state ? state->ui.graphOffset.load() : 0;
     const auto window = ComputeGraphWindow(static_cast<int>(series.ratings.size()), offset, kVisibleGraphMatches);
-    const auto rankTable = MMRFetcher::RankThresholdsForPlaylist(series.playlist);
+    const auto rankTable = MmrService::RankThresholdsForPlaylist(series.playlist);
 
     std::ostringstream header;
     const std::string pan = showPanControls ? RenderGraphPanControlsImpl(window) : std::string{};

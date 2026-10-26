@@ -153,8 +153,8 @@ namespace RmlUiDetail {
         std::snprintf(buffer, sizeof(buffer), "#%02X%02X%02X%02X", byte(color.r), byte(color.g), byte(color.b), byte(color.a));
         return buffer;
     }
-    inline bool RankSourceAvailable(const ConfigData& config) {
-        return config.enable_mmr_tracking || (OmniNet::Available() && config.custom_api_enabled && AccountClient::Instance().IsSignedIn());
+    inline bool RankSourceAvailable(const ConfigData& config, bool signedIn) {
+        return config.enable_mmr_tracking || (OmniNet::Available() && config.custom_api_enabled && signedIn);
     }
 
     inline std::string WidgetDomId(DashboardLayout::WidgetId id) {

@@ -7,9 +7,9 @@
 #include "database/DatabaseManager.hpp"
 #include "network/api/AccountClient.hpp"
 #include "network/http/CurlImpersonate.hpp"
-#include "network/mmr/MMRFetcher.hpp"
+#include "network/mmr/MmrService.hpp"
 #include "network/omninet/OmniNet.hpp"
-#include "network/mmr/MMRFetcherDetail.hpp"
+#include "network/mmr/MmrServiceDetail.hpp"
 
 #include <algorithm>
 #include <atomic>
@@ -21,7 +21,7 @@
 #include <thread>
 #include <vector>
 
-using namespace MMRFetcherDetail;
+using namespace MmrServiceDetail;
 
 namespace {
     using WriteFn = size_t (*)(void*, size_t, size_t, void*);
@@ -40,6 +40,8 @@ namespace {
     long g_refreshStatus = 200;
     std::string g_refreshBody;
     long g_trackerStatus = 200;
+    std::vector<long> g_trackerStatuses;
+    std::vector<std::string> g_trackerBodies;
     std::string g_trackerBody;
     std::string g_headers;
     long g_lastCode = 0;
@@ -49,67 +51,69 @@ namespace {
         return g_url.find("/v1/ranks") != std::string::npos;
     }
 
-    int MockSetopt(void*, int option, ...) {
+    CURLcode MockSetopt(CURL*, CURLoption option, ...) {
         va_list args;
         va_start(args, option);
-        if (option == CI_CURLOPT_URL) {
+        if (option == CURLOPT_URL) {
             if (const char* u = va_arg(args, const char*)) g_url = u;
-        } else if (option == CI_CURLOPT_POSTFIELDS) {
+        } else if (option == CURLOPT_POSTFIELDS) {
             if (const char* p = va_arg(args, const char*)) {
                 g_postFields = p;
                 g_postHistory.push_back(p);
             }
-        } else if (option == CI_CURLOPT_WRITEFUNCTION) {
+        } else if (option == CURLOPT_WRITEFUNCTION) {
             g_write = va_arg(args, WriteFn);
-        } else if (option == CI_CURLOPT_WRITEDATA) {
+        } else if (option == CURLOPT_WRITEDATA) {
             g_writeData = va_arg(args, void*);
-        } else if (option == CI_CURLOPT_HEADERFUNCTION) {
+        } else if (option == CURLOPT_HEADERFUNCTION) {
             g_header = va_arg(args, HeaderFn);
-        } else if (option == CI_CURLOPT_HEADERDATA) {
+        } else if (option == CURLOPT_HEADERDATA) {
             g_headerData = va_arg(args, void*);
         }
         va_end(args);
-        return 0;
+        return CURLE_OK;
     }
 
-    int MockPerform(void*) {
+    CURLcode MockPerform(CURL*) {
         g_performs.fetch_add(1);
         const bool api = IsApiUrl();
         if (api) {
             g_lastCode = g_apiStatuses.empty() ? g_apiStatus : g_apiStatuses.front();
             if (!g_apiStatuses.empty()) g_apiStatuses.erase(g_apiStatuses.begin());
         } else {
-            g_lastCode = g_trackerStatus;
+            g_lastCode = g_trackerStatuses.empty() ? g_trackerStatus : g_trackerStatuses.front();
+            if (!g_trackerStatuses.empty()) g_trackerStatuses.erase(g_trackerStatuses.begin());
         }
-        const std::string& body = api ? g_apiBody : g_trackerBody;
+        std::string body = api ? g_apiBody : (g_trackerBodies.empty() ? g_trackerBody : g_trackerBodies.front());
+        if (!api && !g_trackerBodies.empty()) g_trackerBodies.erase(g_trackerBodies.begin());
         if (g_header && g_headerData && !g_headers.empty()) g_header(g_headers.data(), 1, g_headers.size(), g_headerData);
         if (g_write && g_writeData && !body.empty()) g_write(const_cast<char*>(body.data()), 1, body.size(), g_writeData);
-        return 0;
+        return CURLE_OK;
     }
 
-    int MockGetinfo(void*, int info, ...) {
+    CURLcode MockGetinfo(CURL*, CURLINFO info, ...) {
         va_list args;
         va_start(args, info);
-        if (info == CI_CURLINFO_RESPONSE_CODE) *va_arg(args, long*) = g_lastCode;
+        if (info == CURLINFO_RESPONSE_CODE) *va_arg(args, long*) = g_lastCode;
         va_end(args);
-        return 0;
+        return CURLE_OK;
     }
 
-    void MockCleanup(void*) {}
-    void MockSlistFree(void*) {}
-    void* MockSlistAppend(void*, const char*) {
-        return reinterpret_cast<void*>(1);
+    void MockCleanup(CURL*) {}
+    void MockSlistFree(struct curl_slist*) {}
+    struct curl_slist* MockSlistAppend(struct curl_slist*, const char*) {
+        return reinterpret_cast<struct curl_slist*>(1);
     }
-    void* MockInit() {
-        return reinterpret_cast<void*>(1);
+    CURL* MockInit() {
+        return reinterpret_cast<CURL*>(1);
     }
     std::string g_escaped;
-    char* MockEscape(void*, const char* value, int length) {
+    char* MockEscape(CURL*, const char* value, int length) {
         g_escaped.assign(value, static_cast<size_t>(length));
         return g_escaped.data();
     }
     void MockFree(void*) {}
-    int MockImpersonate(void*, const char*, int) {
+    int MockImpersonate(CURL*, const char*, int) {
         return 0;
     }
 
@@ -146,7 +150,8 @@ class TrackedAccountRefreshTest : public ::testing::Test {
   protected:
     void SetUp() override {
         originalConfig = Config::Read();
-        AccountClient::Instance().ResetForTests();
+        accountClient = std::make_shared<AccountClient>();
+        accountClient->ResetForTests();
         UseCustomApi();
 
         auto& curl = CurlImpersonate::Instance();
@@ -171,6 +176,8 @@ class TrackedAccountRefreshTest : public ::testing::Test {
         g_apiStatuses.clear();
         g_apiStatus = 200;
         g_trackerStatus = 200;
+        g_trackerStatuses.clear();
+        g_trackerBodies.clear();
         g_trackerBody.clear();
         g_headers.clear();
         g_performs.store(0);
@@ -200,7 +207,7 @@ class TrackedAccountRefreshTest : public ::testing::Test {
         state = std::make_shared<SessionState>();
         db = std::make_shared<DatabaseManager>(state);
         ASSERT_TRUE(db->Initialize(":memory:"));
-        fetcher = std::make_shared<MMRFetcher>(state, db);
+        fetcher = std::make_shared<MmrService>(state, db, accountClient);
         fetcher->SetTrackedAccountSink([this](const TrackedAccountFetchEvent& event) {
             std::lock_guard<std::mutex> lock(eventsMutex);
             events.push_back(event);
@@ -223,13 +230,15 @@ class TrackedAccountRefreshTest : public ::testing::Test {
         curl.free_ptr = saved.free;
         curl.easy_impersonate = saved.impersonate;
         curl.SetReadyForTests(saved.ready);
-        AccountClient::Instance().ResetForTests();
+        if (accountClient) accountClient->ResetForTests();
+        fetcher.reset();
+        accountClient.reset();
         Config::Update([this](ConfigData& c) { c = originalConfig; }, false);
         OmniNet::SetTransportForTesting({});
     }
 
     void UseCustomApi() {
-        auto& account = AccountClient::Instance();
+        auto& account = *accountClient;
         AccountClient::DeviceKeyPair keyPair;
         account.EnsureDeviceKey(&keyPair);
         Config::Update([&](ConfigData& c) {
@@ -256,7 +265,7 @@ class TrackedAccountRefreshTest : public ::testing::Test {
             c.enable_mmr_tracking = true;
         },
                        false);
-        AccountClient::Instance().SyncFromConfig();
+        accountClient->SyncFromConfig();
     }
 
     void UseNoProvider() {
@@ -269,7 +278,7 @@ class TrackedAccountRefreshTest : public ::testing::Test {
             c.enable_mmr_tracking = false;
         },
                        false);
-        AccountClient::Instance().SyncFromConfig();
+        accountClient->SyncFromConfig();
     }
 
     void StartService(int64_t now = 1'800'000'000) {
@@ -304,9 +313,9 @@ class TrackedAccountRefreshTest : public ::testing::Test {
     }
 
     void ProcessNextBatch() {
-        const auto batch = fetcher->TakeNextCustomApiBatchForTests();
+        const auto batch = fetcher->TakeNextCustomApiBatch();
         ASSERT_FALSE(batch.requests.empty());
-        fetcher->ProcessCustomApiBatchForTests(batch);
+        fetcher->ProcessCustomApiBatch(batch);
     }
 
     const AccountManagerService::AccountView* FindView(const AccountManagerService::Snapshot& snapshot, const std::string& primaryId) {
@@ -333,7 +342,8 @@ class TrackedAccountRefreshTest : public ::testing::Test {
     ConfigData originalConfig;
     std::shared_ptr<SessionState> state;
     std::shared_ptr<DatabaseManager> db;
-    std::shared_ptr<MMRFetcher> fetcher;
+    std::shared_ptr<MmrService> fetcher;
+    std::shared_ptr<AccountClient> accountClient;
     std::shared_ptr<AccountManagerService> service;
     std::atomic<int64_t> clock{1'800'000'000};
     std::mutex eventsMutex;
@@ -361,9 +371,9 @@ TEST_F(TrackedAccountRefreshTest, MixedPlatformBatchMatchesFullIdentityNotJustAc
     ASSERT_EQ(fetcher->EnqueueTrackedAccount(kXbox, ""), TrackedEnqueueResult::Queued);
     ASSERT_EQ(fetcher->EnqueueTrackedAccount(kEpic, ""), TrackedEnqueueResult::Queued);
 
-    const auto batch = fetcher->TakeNextCustomApiBatchForTests();
+    const auto batch = fetcher->TakeNextCustomApiBatch();
     ASSERT_EQ(batch.requests.size(), 3u);
-    fetcher->ProcessCustomApiBatchForTests(batch);
+    fetcher->ProcessCustomApiBatch(batch);
     EXPECT_EQ(g_performs.load(), 1);
 
     const auto posted = nlohmann::json::parse(g_postFields);
@@ -414,7 +424,7 @@ TEST_F(TrackedAccountRefreshTest, MissingInvalidAndEmptyPlayersMapToDistinctStat
 TEST_F(TrackedAccountRefreshTest, AuthenticationFailuresReportSignInRequired) {
     for (const long code : {401L, 403L}) {
         events.clear();
-        AccountClient::Instance().ResetForTests();
+        accountClient->ResetForTests();
         UseCustomApi();
         g_refreshStatus = code;
         g_refreshBody = R"({"error":{"code":"invalid_grant","message":"Expired"}})";
@@ -469,7 +479,7 @@ TEST_F(TrackedAccountRefreshTest, RateLimitWithoutRetryBudgetIsReportedAsRateLim
     g_apiStatus = 429;
     fetcher->EnqueueTrackedAccount(kEpic, "");
     ProcessNextBatch();
-    EXPECT_TRUE(fetcher->IsRateLimitedForTests());
+    EXPECT_TRUE(fetcher->IsRateLimited());
     EXPECT_EQ(LastTerminal(kEpic)->status, TrackedAccountFetchStatus::RateLimited);
 }
 
@@ -477,16 +487,16 @@ TEST_F(TrackedAccountRefreshTest, DuplicateRequestsCoalesceAndDoNotShareRosterDe
     EXPECT_EQ(fetcher->EnqueueTrackedAccount(kSteam, ""), TrackedEnqueueResult::Queued);
     EXPECT_EQ(fetcher->EnqueueTrackedAccount(kSteam, ""), TrackedEnqueueResult::AlreadyQueued);
     fetcher->Enqueue(kSteam, "Live");
-    EXPECT_EQ(fetcher->PendingRequestCountForTests(), 2u);
+    EXPECT_EQ(fetcher->PendingRequestCount(), 2u);
 
-    const auto roster = fetcher->TakeNextCustomApiBatchForTests();
+    const auto roster = fetcher->TakeNextCustomApiBatch();
     ASSERT_EQ(roster.requests.size(), 1u);
     EXPECT_EQ(roster.requests[0].reason, MMRRequestReason::Roster);
-    const auto tracked = fetcher->TakeNextCustomApiBatchForTests();
+    const auto tracked = fetcher->TakeNextCustomApiBatch();
     ASSERT_EQ(tracked.requests.size(), 1u);
     EXPECT_EQ(tracked.requests[0].reason, MMRRequestReason::TrackedAccount);
 
-    fetcher->FinishRequestForTests(tracked.requests[0]);
+    fetcher->FinishRequest(tracked.requests[0]);
     EXPECT_EQ(fetcher->EnqueueTrackedAccount(kSteam, ""), TrackedEnqueueResult::Queued);
 }
 
@@ -498,24 +508,24 @@ TEST_F(TrackedAccountRefreshTest, LiveRequestsTakePriorityAndRefreshAllRespectsB
     }
     fetcher->Enqueue("Epic|live_opponent|0", "Opponent");
 
-    auto batch = fetcher->TakeNextCustomApiBatchForTests();
+    auto batch = fetcher->TakeNextCustomApiBatch();
     ASSERT_EQ(batch.requests.size(), 1u);
     EXPECT_EQ(batch.requests[0].reason, MMRRequestReason::Roster);
 
-    batch = fetcher->TakeNextCustomApiBatchForTests();
+    batch = fetcher->TakeNextCustomApiBatch();
     EXPECT_EQ(batch.requests.size(), 8u);
-    batch = fetcher->TakeNextCustomApiBatchForTests();
+    batch = fetcher->TakeNextCustomApiBatch();
     EXPECT_EQ(batch.requests.size(), 8u);
-    batch = fetcher->TakeNextCustomApiBatchForTests();
+    batch = fetcher->TakeNextCustomApiBatch();
     EXPECT_EQ(batch.requests.size(), 4u);
-    EXPECT_TRUE(fetcher->TakeNextCustomApiBatchForTests().requests.empty());
+    EXPECT_TRUE(fetcher->TakeNextCustomApiBatch().requests.empty());
 
     fetcher->EnqueueTrackedAccount(kEpic, "");
     fetcher->Enqueue("Epic|live_teammate|0", "Teammate");
-    const auto single = fetcher->TakeNextTrackerRequestForTests();
+    const auto single = fetcher->TakeNextTrackerRequest();
     ASSERT_TRUE(single.has_value());
     EXPECT_EQ(single->reason, MMRRequestReason::Roster);
-    const auto next = fetcher->TakeNextTrackerRequestForTests();
+    const auto next = fetcher->TakeNextTrackerRequest();
     ASSERT_TRUE(next.has_value());
     EXPECT_EQ(next->reason, MMRRequestReason::TrackedAccount);
 
@@ -529,8 +539,8 @@ TEST_F(TrackedAccountRefreshTest, LiveRequestsTakePriorityAndRefreshAllRespectsB
 TEST_F(TrackedAccountRefreshTest, ProviderUnavailableIsReportedWithoutQueueing) {
     UseNoProvider();
     EXPECT_EQ(fetcher->EnqueueTrackedAccount(kEpic, ""), TrackedEnqueueResult::ProviderUnavailable);
-    EXPECT_EQ(fetcher->PendingRequestCountForTests(), 0u);
-    EXPECT_EQ(MMRFetcher::ActiveRankProvider(), RankProvider::Unavailable);
+    EXPECT_EQ(fetcher->PendingRequestCount(), 0u);
+    EXPECT_EQ(MmrService::ActiveRankProvider(), RankProvider::Unavailable);
 
     RegisterInDb(kEpic, "Main");
     StartService();
@@ -542,12 +552,12 @@ TEST_F(TrackedAccountRefreshTest, ProviderUnavailableIsReportedWithoutQueueing) 
 
 TEST_F(TrackedAccountRefreshTest, TrackerPathNeedsNameForEpicAndUsesSteamId) {
     UseTrackerOnly();
-    fetcher->FetchTrackedAccountForTests(kEpic, "");
+    fetcher->FetchTrackedAccount(kEpic, "");
     EXPECT_EQ(g_performs.load(), 0);
     EXPECT_EQ(LastTerminal(kEpic)->status, TrackedAccountFetchStatus::Unsupported);
 
     g_trackerBody = R"({"data":{"segments":[{"type":"playlist","attributes":{"playlistId":11},"stats":{"rating":{"value":1333},"tier":{"metadata":{"name":"Champion I"}},"matchesPlayed":{"value":12}}}]}})";
-    fetcher->FetchTrackedAccountForTests(kSteam, "");
+    fetcher->FetchTrackedAccount(kSteam, "");
     EXPECT_NE(g_url.find("/profile/steam/76561198000000001"), std::string::npos);
     const auto outcome = LastTerminal(kSteam);
     ASSERT_TRUE(outcome.has_value());
@@ -556,7 +566,87 @@ TEST_F(TrackedAccountRefreshTest, TrackerPathNeedsNameForEpicAndUsesSteamId) {
     EXPECT_EQ(outcome->profile.rankVerificationSource, "Tracker");
 
     g_trackerStatus = 404;
-    fetcher->FetchTrackedAccountForTests(kEpicOther, "SomeName");
+    fetcher->FetchTrackedAccount(kEpicOther, "SomeName");
+    EXPECT_EQ(LastTerminal(kEpicOther)->status, TrackedAccountFetchStatus::NotFound);
+}
+
+TEST_F(TrackedAccountRefreshTest, TrackerForbiddenCircuitPreservesRetryBudgetAndRecovers) {
+    UseTrackerOnly();
+    g_trackerStatuses = {403, 403, 403, 403, 403, 403, 403, 403, 403, 503, 503, 200};
+    g_trackerBody = R"({"data":{"segments":[{"type":"playlist","attributes":{"playlistId":11},"stats":{"rating":{"value":1333}}}]}})";
+    fetcher->Start();
+    ASSERT_EQ(fetcher->EnqueueTrackedAccount(kSteam, ""), TrackedEnqueueResult::Queued);
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+    while (std::chrono::steady_clock::now() < deadline && !LastTerminal(kSteam)) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    fetcher->Stop();
+    const auto outcome = LastTerminal(kSteam);
+    ASSERT_TRUE(outcome.has_value());
+    EXPECT_EQ(outcome->status, TrackedAccountFetchStatus::Success);
+    EXPECT_EQ(g_performs.load(), 12);
+    const auto all = Events();
+    EXPECT_GE(std::count_if(all.begin(), all.end(), [](const TrackedAccountFetchEvent& event) {
+                  return event.status == TrackedAccountFetchStatus::RateLimited &&
+                         event.retryAt != std::chrono::system_clock::time_point{};
+              }),
+              3);
+}
+
+TEST_F(TrackedAccountRefreshTest, TrackerRateLimitUsesRetryAfter) {
+    UseTrackerOnly();
+    g_trackerStatus = 429;
+    g_headers = "Retry-After: 2\r\n";
+    const auto before = std::chrono::system_clock::now();
+    fetcher->Start();
+    ASSERT_EQ(fetcher->EnqueueTrackedAccount(kSteam, ""), TrackedEnqueueResult::Queued);
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+    std::vector<TrackedAccountFetchEvent> all;
+    while (std::chrono::steady_clock::now() < deadline) {
+        all = Events();
+        if (std::any_of(all.begin(), all.end(), [](const TrackedAccountFetchEvent& event) {
+                return event.status == TrackedAccountFetchStatus::RateLimited &&
+                       event.retryAt != std::chrono::system_clock::time_point{};
+            })) break;
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    fetcher->Stop();
+    const auto retry = std::find_if(all.begin(), all.end(), [](const TrackedAccountFetchEvent& event) {
+        return event.status == TrackedAccountFetchStatus::RateLimited &&
+               event.retryAt != std::chrono::system_clock::time_point{};
+    });
+    ASSERT_NE(retry, all.end());
+    EXPECT_GE(retry->retryAt, before + std::chrono::seconds(2));
+    EXPECT_EQ(g_performs.load(), 1);
+}
+
+TEST_F(TrackedAccountRefreshTest, TrackerIncompleteResponseRetriesAndRecovers) {
+    UseTrackerOnly();
+    g_trackerBodies = {R"({"data":{}})",
+                       R"({"data":{"segments":[{"type":"playlist","attributes":{"playlistId":11},"stats":{"rating":{"value":1400}}}]}})"};
+    fetcher->Start();
+    ASSERT_EQ(fetcher->EnqueueTrackedAccount(kSteam, ""), TrackedEnqueueResult::Queued);
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+    while (std::chrono::steady_clock::now() < deadline && !LastTerminal(kSteam)) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    fetcher->Stop();
+    const auto outcome = LastTerminal(kSteam);
+    ASSERT_TRUE(outcome.has_value());
+    EXPECT_EQ(outcome->status, TrackedAccountFetchStatus::Success);
+    EXPECT_EQ(outcome->profile.playlistMMRs.at("2v2"), 1400);
+    EXPECT_EQ(g_performs.load(), 2);
+}
+
+TEST_F(TrackedAccountRefreshTest, TrackerTransientAndNotFoundHaveTypedTerminalStatuses) {
+    UseTrackerOnly();
+    g_trackerStatus = 503;
+    fetcher->FetchTrackedAccount(kSteam, "");
+    ASSERT_TRUE(LastTerminal(kSteam).has_value());
+    EXPECT_EQ(LastTerminal(kSteam)->status, TrackedAccountFetchStatus::Failed);
+    g_trackerStatus = 404;
+    fetcher->FetchTrackedAccount(kEpicOther, "SomeName");
+    ASSERT_TRUE(LastTerminal(kEpicOther).has_value());
     EXPECT_EQ(LastTerminal(kEpicOther)->status, TrackedAccountFetchStatus::NotFound);
 }
 
@@ -566,13 +656,13 @@ TEST_F(TrackedAccountRefreshTest, TrackerHandleFillsMissingInGameNameOnly) {
     StartService();
 
     g_trackerBody = R"({"data":{"platformInfo":{"platformUserHandle":"SteamHandle"},"segments":[{"type":"playlist","attributes":{"playlistId":11},"stats":{"rating":{"value":1333}}}]}})";
-    fetcher->FetchTrackedAccountForTests(kSteam, "");
+    fetcher->FetchTrackedAccount(kSteam, "");
     service->FlushForTests();
     EXPECT_EQ(db->GetTrackedAccount(kSteam)->lastKnownName, "SteamHandle");
     EXPECT_EQ(db->GetTrackedAccount(kSteam)->nickname, "Main");
 
     g_trackerBody = R"({"data":{"platformInfo":{"platformUserHandle":"Renamed"},"segments":[{"type":"playlist","attributes":{"playlistId":11},"stats":{"rating":{"value":1340}}}]}})";
-    fetcher->FetchTrackedAccountForTests(kSteam, "SteamHandle");
+    fetcher->FetchTrackedAccount(kSteam, "SteamHandle");
     service->FlushForTests();
     EXPECT_EQ(db->GetTrackedAccount(kSteam)->lastKnownName, "SteamHandle");
 }
@@ -630,15 +720,15 @@ TEST_F(TrackedAccountRefreshTest, PostMatchReconciliationIsUnaffectedByQueuedTra
     UseTrackerOnly();
     fetcher->EnqueueTrackedAccount("Steam|76561198000000123", "");
     fetcher->EnqueuePostMatch("Steam|76561198000000123", "Me", "pm-guid", "2v2", 1200, 50, true, true);
-    fetcher->ProcessPostMatchResponseForTests("pm-guid", 1209, 51);
+    fetcher->ProcessPostMatchResponse("pm-guid", 1209, 51);
 
-    const auto points = fetcher->PlaylistMatchPointsForTests("2v2");
+    const auto points = fetcher->PlaylistMatchPoints("2v2");
     ASSERT_EQ(points.size(), 1u);
     EXPECT_EQ(points[0].matchGuid, "pm-guid");
     EXPECT_EQ(points[0].mmr, 1209);
     EXPECT_TRUE(points[0].trackerCovered);
 
-    const auto next = fetcher->TakeNextTrackerRequestForTests();
+    const auto next = fetcher->TakeNextTrackerRequest();
     ASSERT_TRUE(next.has_value());
     EXPECT_EQ(next->reason, MMRRequestReason::TrackedAccount);
 }
@@ -690,7 +780,7 @@ TEST_F(TrackedAccountRefreshTest, ManualRefreshCooldownAndStaleRefresh) {
     StartService(1'800'000'100);
 
     EXPECT_EQ(service->RefreshStale(), 1u);
-    EXPECT_EQ(fetcher->PendingRequestCountForTests(), 1u);
+    EXPECT_EQ(fetcher->PendingRequestCount(), 1u);
     g_apiBody = Players({Player("Epic", "0123456789abcdef0123456789abcdef", {Skill(11, 1300)})});
     ProcessNextBatch();
     EXPECT_EQ(service->RefreshStale(), 0u);
@@ -707,11 +797,11 @@ TEST_F(TrackedAccountRefreshTest, OnlyLaunchQueuesStaleAccountsAndDiscoveryDoesN
     RegisterInDb(kSteam);
     ASSERT_TRUE(db->SaveTrackedAccountRanks(kSteam, {TrackedAccounts::PlaylistRank{"2v2", 1500, "", std::nullopt, "OmniStats API", 0}}, 1'800'000'000));
     StartService(1'800'000'100);
-    EXPECT_EQ(fetcher->PendingRequestCountForTests(), 0u);
+    EXPECT_EQ(fetcher->PendingRequestCount(), 0u);
 
     service->QueueStartupRefresh();
     service->FlushForTests();
-    EXPECT_EQ(fetcher->PendingRequestCountForTests(), 1u);
+    EXPECT_EQ(fetcher->PendingRequestCount(), 1u);
     const auto launched = service->GetSnapshot();
     const auto* queued = FindView(launched, kEpic);
     ASSERT_NE(queued, nullptr);
@@ -719,7 +809,7 @@ TEST_F(TrackedAccountRefreshTest, OnlyLaunchQueuesStaleAccountsAndDiscoveryDoesN
 
     service->ObserveLocalAccount(kEpicOther + "|0", "New Alt");
     service->FlushForTests();
-    EXPECT_EQ(fetcher->PendingRequestCountForTests(), 1u);
+    EXPECT_EQ(fetcher->PendingRequestCount(), 1u);
     const auto snapshot = service->GetSnapshot();
     const auto* discovered = FindView(snapshot, kEpicOther);
     ASSERT_NE(discovered, nullptr);
@@ -733,13 +823,13 @@ TEST_F(TrackedAccountRefreshTest, RemovingDuringInFlightRefreshDoesNotRecreateAc
     EXPECT_EQ(added.primaryId, kEpic);
     service->FlushForTests();
 
-    const auto batch = fetcher->TakeNextCustomApiBatchForTests();
+    const auto batch = fetcher->TakeNextCustomApiBatch();
     ASSERT_EQ(batch.requests.size(), 1u);
     ASSERT_TRUE(service->Remove(kEpic));
     service->FlushForTests();
 
     g_apiBody = Players({Player("Epic", "0123456789abcdef0123456789abcdef", {Skill(11, 1500)})});
-    fetcher->ProcessCustomApiBatchForTests(batch);
+    fetcher->ProcessCustomApiBatch(batch);
     service->FlushForTests();
 
     EXPECT_FALSE(db->GetTrackedAccount(kEpic).has_value());
@@ -779,9 +869,9 @@ TEST_F(TrackedAccountRefreshTest, FiveManualAccountsRefreshInOneBatchAndSurviveR
                          Player("Steam", "76561198000000002", {Skill(13, 940)}),
                          Player("Steam", "76561198000000003", {Skill(11, 1020)})});
     service->FlushForTests();
-    const auto batch = fetcher->TakeNextCustomApiBatchForTests();
+    const auto batch = fetcher->TakeNextCustomApiBatch();
     ASSERT_EQ(batch.requests.size(), 5u);
-    fetcher->ProcessCustomApiBatchForTests(batch);
+    fetcher->ProcessCustomApiBatch(batch);
     service->Stop();
     service.reset();
 

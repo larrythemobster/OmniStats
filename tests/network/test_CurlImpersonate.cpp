@@ -8,6 +8,9 @@
 #include "network/http/CurlImpersonate.hpp"
 #include "utils/Env.hpp"
 #include <cstdlib>
+#include "network/http/IHttpClient.hpp"
+#include "network/http/CurlHttpClient.hpp"
+#include "network/http/CurlImpersonateHttpClient.hpp"
 #include <string>
 #include <vector>
 
@@ -168,4 +171,48 @@ TEST_F(CurlRealNetworkTest, SingletonIsReady_ReflectsLoadState) {
     // The result depends on whether the runtime DLL has been downloaded.
     (void)inst.IsReady();
     SUCCEED();
+}
+
+TEST(HttpClientTest, StandardCurlClientIsAvailable) {
+    Http::CurlHttpClient client;
+    EXPECT_TRUE(client.IsAvailable());
+}
+
+TEST(HttpClientTest, StandardCurlClientHonorsCancellation) {
+    Http::CurlHttpClient client;
+    Http::HttpRequest req;
+    req.url = "https://127.0.0.1:9";
+    req.timeout = std::chrono::milliseconds(2000);
+    req.shouldAbort = []() { return true; };
+
+    const auto resp = client.Request(req);
+    EXPECT_TRUE(resp.cancelled);
+}
+
+TEST(HttpClientTest, CurlImpersonateClientReportsUnavailableWhenDllMissing) {
+    auto& inst = CurlImpersonate::Instance();
+    Http::CurlImpersonateHttpClient client(&inst);
+    if (!inst.IsReady()) {
+        Http::HttpRequest req;
+        req.url = "https://example.com";
+        const auto resp = client.Request(req);
+        EXPECT_EQ(resp.transportError, -1);
+        EXPECT_FALSE(resp.errorMessage.empty());
+    }
+}
+
+TEST(HttpClientTest, CurlImpersonateClientRequestValues) {
+    Http::HttpRequest req;
+    req.url = "https://example.com/api";
+    req.method = Http::Method::Post;
+    req.headers = {"Content-Type: application/json", "Authorization: Bearer token"};
+    req.body = "{\"key\":\"value\"}";
+    req.timeout = std::chrono::milliseconds(5000);
+    req.impersonateTarget = "chrome136";
+
+    EXPECT_EQ(req.url, "https://example.com/api");
+    EXPECT_EQ(req.method, Http::Method::Post);
+    EXPECT_EQ(req.headers.size(), 2u);
+    EXPECT_EQ(req.body, "{\"key\":\"value\"}");
+    EXPECT_EQ(req.impersonateTarget, "chrome136");
 }

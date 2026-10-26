@@ -14,6 +14,7 @@ struct RmlRenderSnapshot {
     int score[2] = {0, 0};
     bool inMatch = false;
     bool inReplay = false;
+    bool accountSignedIn = false;
     bool matchFinalized = false;
     std::string myPrimaryId;
     int myTeam = -1;

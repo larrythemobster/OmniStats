@@ -9,7 +9,7 @@
 #include "core/reducer/TelemetryReducer.hpp"
 #include "core/accounts/TrackedAccounts.hpp"
 #include "database/DatabaseManager.hpp"
-#include "network/mmr/MMRFetcher.hpp"
+#include "network/mmr/MmrService.hpp"
 #include "network/telemetry/TelemetryEvents.hpp"
 
 #include <memory>
@@ -132,7 +132,7 @@ class TrackedAccountDiscoveryTest : public ::testing::Test {
         state = std::make_shared<SessionState>();
         db = std::make_shared<DatabaseManager>(state);
         ASSERT_TRUE(db->Initialize(":memory:"));
-        fetcher = std::make_shared<MMRFetcher>(state, db);
+        fetcher = std::make_shared<MmrService>(state, db);
         service = std::make_shared<AccountManagerService>(db, fetcher);
         service->SetClockForTests([this]() { return clock; });
     }
@@ -161,7 +161,7 @@ class TrackedAccountDiscoveryTest : public ::testing::Test {
     int64_t clock = 1'800'000'000;
     std::shared_ptr<SessionState> state;
     std::shared_ptr<DatabaseManager> db;
-    std::shared_ptr<MMRFetcher> fetcher;
+    std::shared_ptr<MmrService> fetcher;
     std::shared_ptr<AccountManagerService> service;
 };
 

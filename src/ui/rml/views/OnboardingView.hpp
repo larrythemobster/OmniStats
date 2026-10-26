@@ -8,6 +8,7 @@
 
 #include "core/config/Config.hpp"
 #include "core/config/StatsApiConfig.hpp"
+#include "network/api/DeviceAuthFlow.hpp"
 
 namespace Rml {
     class Context;
@@ -28,7 +29,7 @@ class OnboardingView {
     }
     void SetStep(int step);
     void Refresh(const ConfigData& config, const StatsApiConfig::CheckResult& statsApi, bool statsApiChecked,
-                 bool accountDetected);
+                 bool accountDetected, const AccountStatusSnapshot& account = {});
 
     void ToggleFallback();
     void SetShowFallback(bool show);

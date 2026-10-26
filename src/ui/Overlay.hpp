@@ -13,6 +13,7 @@
 #include "ui/window/TrayIcon.hpp"
 #include "ui/window/ForegroundDetector.hpp"
 
+class AccountClient;
 class DatabaseManager;
 class RmlUiController;
 class AccountManagerService;
@@ -31,7 +32,8 @@ class Overlay {
             std::shared_ptr<AccountManagerService> accounts = nullptr,
             std::shared_ptr<RemoteConfig> remoteConfig = nullptr,
             std::shared_ptr<Tournaments::TournamentScheduleService> tournamentService = nullptr,
-            std::shared_ptr<TelemetryManager> telemetry = nullptr);
+            std::shared_ptr<TelemetryManager> telemetry = nullptr,
+            std::shared_ptr<AccountClient> accountClient = nullptr);
     ~Overlay();
 
     bool Initialize();
@@ -59,6 +61,7 @@ class Overlay {
     std::shared_ptr<SessionState> m_state;
     std::shared_ptr<DatabaseManager> m_dbManager;
     std::shared_ptr<AccountManagerService> m_accounts;
+    std::shared_ptr<AccountClient> m_accountClient;
     ConfigData m_frameConfig;
     std::shared_ptr<RemoteConfig> m_remoteConfig;
     std::shared_ptr<Tournaments::TournamentScheduleService> m_tournamentService;

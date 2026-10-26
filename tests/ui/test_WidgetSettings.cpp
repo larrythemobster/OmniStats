@@ -58,12 +58,13 @@ TEST(WidgetSettings, AlwaysVisibilityWorksInMenusAndMatches) {
 }
 
 TEST(WidgetSettings, IsSignedInAcceptsConfigReferenceWithoutDeadlockInsideUpdate) {
+    AccountClient account;
     ConfigData conf;
-    EXPECT_FALSE(AccountClient::Instance().IsSignedIn(conf));
+    EXPECT_FALSE(account.IsSignedIn(conf));
     conf.account_refresh_token = "valid_token";
-    EXPECT_TRUE(AccountClient::Instance().IsSignedIn(conf));
+    EXPECT_TRUE(account.IsSignedIn(conf));
     Config::Update([&](ConfigData& c) {
-        EXPECT_FALSE(AccountClient::Instance().IsSignedIn(c));
+        EXPECT_FALSE(account.IsSignedIn(c));
     },
                    false);
 }

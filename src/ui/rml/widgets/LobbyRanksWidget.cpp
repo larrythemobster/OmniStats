@@ -8,7 +8,7 @@
 #include "core/config/StatsApiConfig.hpp"
 #include "database/DatabaseManager.hpp"
 #include "network/ExternalUpdaterLauncher.hpp"
-#include "network/mmr/MMRFetcher.hpp"
+#include "network/mmr/MmrService.hpp"
 #include "ui/Formatting.hpp"
 #include "ui/window/KeyNames.hpp"
 #include "ui/rml/backend/RmlInputWin32.hpp"
@@ -42,7 +42,7 @@ std::string RenderLobbyRanksImpl(const RmlRenderSnapshot& snap, const ConfigData
         out << "<div class='lobby-rank-cell'><div class='lobby-rank-heading'>" << Escape(pl.label) << "</div></div>";
     }
     out << "</div>";
-    const bool rankSource = RankSourceAvailable(config);
+    const bool rankSource = RankSourceAvailable(config, snap.accountSignedIn);
     for (const auto* p : players) {
         std::string platform;
         if (const auto pos = p->primaryId.find('|'); pos != std::string::npos) platform = p->primaryId.substr(0, pos);
@@ -62,7 +62,7 @@ std::string RenderLobbyRanksImpl(const RmlRenderSnapshot& snap, const ConfigData
             std::string tier = "Unranked";
             if (auto it = p->playlistTiers.find(pl.key); it != p->playlistTiers.end()) tier = it->second;
             if (std::string_view(pl.key) != "casual" && (tier.empty() || tier == "Unranked") && mmr > 0) {
-                tier = MMRFetcher::GetRankTierForPlaylistMmr(pl.key, mmr);
+                tier = MmrService::GetRankTierForPlaylistMmr(pl.key, mmr);
             }
             out << "<div class='lobby-rank-cell tooltip-host' style='color:" << CssColor(Format::RankColor(tier)) << "'>";
             if (mmr > 0) {

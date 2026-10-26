@@ -8,7 +8,7 @@
 #include "core/config/StatsApiConfig.hpp"
 #include "database/DatabaseManager.hpp"
 #include "network/ExternalUpdaterLauncher.hpp"
-#include "network/mmr/MMRFetcher.hpp"
+#include "network/mmr/MmrService.hpp"
 #include "network/api/AccountClient.hpp"
 #include "network/omninet/OmniNet.hpp"
 #include "ui/Formatting.hpp"
@@ -22,6 +22,7 @@ using namespace RmlUiDetail;
 
 std::string SettingsPresenter::RenderIntegrations(
     const ConfigData& config,
+    const AccountStatusSnapshot& accountStatus,
     const std::string& pendingToken,
     bool showToken,
     bool showFallback,
@@ -29,7 +30,6 @@ std::string SettingsPresenter::RenderIntegrations(
     BindCaptureTarget bindCaptureTarget) {
     std::string tokenToUse = pendingToken.empty() && !config.ballchasing_token.empty() ? config.ballchasing_token : pendingToken;
     std::ostringstream out;
-    const AccountStatusSnapshot accountStatus = AccountClient::Instance().GetStatus();
     const bool signedIn = accountStatus.state == AccountAuthState::SignedIn;
     out << SectionStart("Live ranks");
     if (OmniNet::Available()) {
@@ -148,5 +148,6 @@ std::string SettingsPresenter::RenderIntegrations(
 }
 
 std::string RmlUiController::RenderSettingsIntegrations() {
-    return m_settingsPresenter->RenderIntegrations(m_config, m_pendingBallchasingToken, m_showBallchasingToken, m_onboarding.ShowFallback(), m_state, m_bindCaptureTarget);
+    const AccountStatusSnapshot accountStatus = m_accountClient ? m_accountClient->GetStatus() : AccountStatusSnapshot{};
+    return m_settingsPresenter->RenderIntegrations(m_config, accountStatus, m_pendingBallchasingToken, m_showBallchasingToken, m_onboarding.ShowFallback(), m_state, m_bindCaptureTarget);
 }

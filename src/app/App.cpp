@@ -11,7 +11,7 @@
 #include "network/api/RemoteConfig.hpp"
 #include "network/api/ReplayUploader.hpp"
 #include "network/api/StatsClient.hpp"
-#include "network/mmr/MMRFetcher.hpp"
+#include "network/mmr/MmrService.hpp"
 #include "network/telemetry/TelemetryManager.hpp"
 #include "platform/InputManager.hpp"
 #include "ui/Overlay.hpp"
@@ -32,11 +32,12 @@ int App::Run() {
     Config::Load();
     m_telemetryManager = std::make_shared<TelemetryManager>();
     ExternalUpdaterLauncher::SetTelemetryManager(m_telemetryManager);
+    m_accountClient = std::make_shared<AccountClient>();
 
     // Network services wait for the Privacy Policy and Terms, which the first-run window collects.
     const bool consentedAtStartup = Config::HasCurrentConsent(Config::Read());
     if (consentedAtStartup) {
-        AccountClient::Instance().SyncFromConfig();
+        m_accountClient->SyncFromConfig();
     }
 
     ConfigData startupUpdateConf = Config::Read();
@@ -102,10 +103,11 @@ int App::Run() {
     m_tournamentService = std::make_shared<Tournaments::TournamentScheduleService>();
 
     m_dbManager->SetTelemetryManager(m_telemetryManager);
-    AccountClient::Instance().SetTelemetryManager(m_telemetryManager);
+    m_accountClient->SetTelemetryManager(m_telemetryManager);
+    m_tournamentService->SetAccountClient(m_accountClient);
 
     const auto startConsentedServices = [this](bool syncAccount) {
-        if (syncAccount) AccountClient::Instance().SyncFromConfig();
+        if (syncAccount) m_accountClient->SyncFromConfig();
         if (!Config::Read().enable_auto_updates) {
             ExternalUpdaterLauncher::StartBackgroundUpdateCheck(
                 m_state, ExternalUpdaterLauncher::BackgroundUpdateCheckReason::Initial);
@@ -119,7 +121,7 @@ int App::Run() {
     }
 
     // Start Backend Threads
-    m_mmrFetcher = std::make_shared<MMRFetcher>(m_state, m_dbManager);
+    m_mmrFetcher = std::make_shared<MmrService>(m_state, m_dbManager, m_accountClient);
     m_mmrFetcher->Start();
 
     m_accountManager = std::make_shared<AccountManagerService>(m_dbManager, m_mmrFetcher);
@@ -146,7 +148,7 @@ int App::Run() {
         m_uploader->Start();
     }
 
-    m_overlay = std::make_unique<Overlay>(m_state, m_dbManager, m_accountManager, m_remoteConfig, m_tournamentService, m_telemetryManager);
+    m_overlay = std::make_unique<Overlay>(m_state, m_dbManager, m_accountManager, m_remoteConfig, m_tournamentService, m_telemetryManager, m_accountClient);
     if (!m_overlay->Initialize()) {
         return 1;
     }
@@ -176,7 +178,7 @@ void App::Stop() {
     }
     if (m_mmrFetcher) {
         m_mmrFetcher->Stop();
-        std::cout << "[Main] MMRFetcher stopped.\n";
+        std::cout << "[Main] MmrService stopped.\n";
     }
     if (m_accountManager) {
         m_accountManager->Stop();
@@ -193,7 +195,7 @@ void App::Stop() {
     if (m_tournamentService) {
         m_tournamentService->Stop();
     }
-    AccountClient::Instance().Shutdown();
+    if (m_accountClient) m_accountClient->Shutdown();
     if (m_remoteConfig) {
         m_remoteConfig->Shutdown();
     }

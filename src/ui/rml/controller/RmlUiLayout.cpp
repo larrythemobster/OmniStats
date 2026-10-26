@@ -11,7 +11,7 @@
 #include "database/DatabaseManager.hpp"
 #include "network/ExternalUpdaterLauncher.hpp"
 #include "network/api/AccountClient.hpp"
-#include "network/mmr/MMRFetcher.hpp"
+#include "network/mmr/MmrService.hpp"
 #include "network/api/RemoteConfig.hpp"
 #include "network/omninet/OmniNet.hpp"
 #include "network/telemetry/TelemetryManager.hpp"
@@ -25,7 +25,7 @@
 using namespace RmlUiDetail;
 
 std::string RmlUiController::RenderRankSourceHint(bool interactive) const {
-    if (RankSourceAvailable(m_config)) return {};
+    if (RankSourceAvailable(m_config, m_accountClient && m_accountClient->IsSignedIn())) return {};
     std::string html = "<div class='rank-source-hint row'>";
     if (!OmniNet::Available()) {
         html += "<div class='grow'>Ranks are off. Enable Tracker Network rank lookup in Settings &#x203A; Accounts &amp; services.</div>";
@@ -109,7 +109,7 @@ std::string RmlUiController::RenderOverlayContainer(const OverlayLayout::Contain
     auto visible = [&](DashboardLayout::WidgetId widget) {
         if (editMode) return true;
         if (!WidgetSettings::Enabled(m_config, widget, false)) return false;
-        if (widget == DashboardLayout::WidgetId::Tournaments && (!m_config.show_tournaments || !AccountClient::Instance().IsSignedIn())) return false;
+        if (widget == DashboardLayout::WidgetId::Tournaments && (!m_config.show_tournaments || !m_accountClient || !m_accountClient->IsSignedIn())) return false;
         if (settingsOpen) return true;
 
         const auto vis = OverlayLayout::GetWidgetVisibility(m_config.overlay_layout, widget);
@@ -254,7 +254,7 @@ std::string RmlUiController::RenderOverlayToolbox(bool editMode) {
         << "<div class='row gap-sm' style='margin-top:8dp'>" << Button("reset-overlay", "Reset layout", "ghost") << "</div>"
         << "<div class='col gap-xs' style='margin-top:8dp'>";
     const std::array<DashboardLayout::WidgetId, 11> all = {DashboardLayout::WidgetId::LiveRoster, DashboardLayout::WidgetId::LiveMatchStats, DashboardLayout::WidgetId::SessionStats, DashboardLayout::WidgetId::RankProgress, DashboardLayout::WidgetId::MmrGraph, DashboardLayout::WidgetId::StreaksStats, DashboardLayout::WidgetId::GamemodeBreakdown, DashboardLayout::WidgetId::LobbyRanks, DashboardLayout::WidgetId::DemoTracker, DashboardLayout::WidgetId::PreviousGames, DashboardLayout::WidgetId::Tournaments};
-    const bool signedIn = AccountClient::Instance().IsSignedIn();
+    const bool signedIn = m_accountClient && m_accountClient->IsSignedIn();
     for (auto w : all) {
         const bool active = present.count(w) != 0;
         const bool locked = !active && w == DashboardLayout::WidgetId::Tournaments && !signedIn;
@@ -325,7 +325,7 @@ void RmlUiController::RebuildDashboard() {
             if (!editMode && p.id == DashboardLayout::WidgetId::DemoTracker && !m_config.show_demo_tracker_overlay) continue;
             if (!editMode && p.id == DashboardLayout::WidgetId::PreviousGames && !m_config.show_previous_games_summary) continue;
             if (!editMode && p.id == DashboardLayout::WidgetId::RankProgress && !m_config.show_rank_progress) continue;
-            if (!editMode && p.id == DashboardLayout::WidgetId::Tournaments && (!m_config.show_tournaments || !AccountClient::Instance().IsSignedIn())) continue;
+            if (!editMode && p.id == DashboardLayout::WidgetId::Tournaments && (!m_config.show_tournaments || !m_accountClient || !m_accountClient->IsSignedIn())) continue;
             result.push_back(p);
         }
         std::sort(result.begin(), result.end(), [](const auto& a, const auto& b) { return a.order < b.order; });
@@ -404,7 +404,7 @@ void RmlUiController::RebuildDashboard() {
     }
     out << "</div><div id='dashboard-match-status' class='match-status'>{{dashboard_status}}</div></div>"
         << "<div id='tournament-topbar-root'>"
-        << (m_config.show_tournaments && AccountClient::Instance().IsSignedIn() && m_tournamentService ? TournamentUi::RenderTopbar(*m_tournamentService->Snapshot(), static_cast<int64_t>(std::time(nullptr)), m_config.tournament_reminder_standard_only, m_config.tournament_reminder_minutes, m_telemetry.get()) : "")
+        << (m_config.show_tournaments && m_accountClient && m_accountClient->IsSignedIn() && m_tournamentService ? TournamentUi::RenderTopbar(*m_tournamentService->Snapshot(), static_cast<int64_t>(std::time(nullptr)), m_config.tournament_reminder_standard_only, m_config.tournament_reminder_minutes, m_telemetry.get()) : "")
         << "</div>"
         << "<div class='topbar-actions'>"
         << Button("history-open", "History", "ghost compact")

@@ -111,7 +111,7 @@ void OnboardingView::SetShowFallback(bool show) {
 }
 
 void OnboardingView::Refresh(const ConfigData& config, const StatsApiConfig::CheckResult& statsApi, bool statsApiChecked,
-                             bool accountDetected) {
+                             bool accountDetected, const AccountStatusSnapshot& account) {
     const bool ok = statsApiChecked && statsApi.status == StatsApiConfig::Status::Valid;
     Set(m_statsOk, ok, "stats_ok");
     Set(m_statsStatus, Rml::String(!statsApiChecked ? "Checking the Stats API config..." : ok ? "Stats API is on. You're connected."
@@ -141,7 +141,6 @@ void OnboardingView::Refresh(const ConfigData& config, const StatsApiConfig::Che
 
     Set(m_customApiEnabled, config.custom_api_enabled, "custom_api_enabled");
 
-    const AccountStatusSnapshot account = AccountClient::Instance().GetStatus();
     Set(m_accountSignedIn, account.state == AccountAuthState::SignedIn, "account_signed_in");
     Set(m_accountAwaiting, account.state == AccountAuthState::AwaitingApproval, "account_awaiting");
     Set(m_accountMigrating, account.state == AccountAuthState::Migrating, "account_migrating");

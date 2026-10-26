@@ -1,5 +1,5 @@
 #include "ReplayDriver.hpp"
-#include "network/http/CurlImpersonate.hpp"
+#include "network/mmr/TrnRankProvider.hpp"
 #include "network/omninet/OmniNet.hpp"
 #include "core/config/Config.hpp"
 #include "core/state/LiveMatchStore.hpp"
@@ -8,7 +8,6 @@
 #include <atomic>
 #include <chrono>
 #include <cmath>
-#include <cstdarg>
 #include <fstream>
 #include <iostream>
 #include <thread>
@@ -18,57 +17,21 @@ namespace omnistats::replay {
 
     namespace {
 
-        struct ScopedOfflineCurlMock {
-            pfn_curl_easy_perform orig_perform = nullptr;
-            pfn_curl_easy_getinfo orig_getinfo = nullptr;
-            pfn_curl_easy_setopt orig_setopt = nullptr;
-            pfn_curl_easy_cleanup orig_cleanup = nullptr;
-            pfn_curl_slist_free_all orig_slist_free = nullptr;
-            pfn_curl_slist_append orig_slist_append = nullptr;
-            pfn_curl_easy_init orig_init = nullptr;
-            pfn_curl_easy_escape orig_escape = nullptr;
-            pfn_curl_free orig_free = nullptr;
-            pfn_curl_easy_impersonate orig_impersonate = nullptr;
-            bool orig_ready = false;
+        class OfflineHttpClient : public Http::IHttpClient {
+          public:
+            bool IsAvailable() const override {
+                return true;
+            }
 
-            ScopedOfflineCurlMock() {
-                auto& curl = CurlImpersonate::Instance();
-                orig_perform = curl.easy_perform;
-                orig_getinfo = curl.easy_getinfo;
-                orig_setopt = curl.easy_setopt;
-                orig_cleanup = curl.easy_cleanup;
-                orig_slist_free = curl.slist_free_all;
-                orig_slist_append = curl.slist_append;
-                orig_init = curl.easy_init;
-                orig_escape = curl.easy_escape;
-                orig_free = curl.free_ptr;
-                orig_impersonate = curl.easy_impersonate;
-                orig_ready = curl.IsReady();
+            Http::HttpResponse Request(const Http::HttpRequest&) override {
+                Http::HttpResponse response;
+                response.statusCode = 200;
+                return response;
+            }
+        };
 
-                curl.easy_init = []() -> void* { return (void*)1; };
-                curl.easy_cleanup = [](void*) {};
-                curl.easy_setopt = [](void*, int, ...) -> int { return 0; };
-                curl.easy_perform = [](void*) -> int { return 0; };
-                curl.easy_getinfo = [](void*, int info, ...) -> int {
-                    if (info == CI_CURLINFO_RESPONSE_CODE) {
-                        va_list args;
-                        va_start(args, info);
-                        long* code = va_arg(args, long*);
-                        if (code) *code = 200;
-                        va_end(args);
-                    }
-                    return 0;
-                };
-                curl.easy_escape = [](void*, const char* val, int len) -> char* {
-                    static std::string buf;
-                    buf.assign(val, static_cast<size_t>(len));
-                    return buf.data();
-                };
-                curl.free_ptr = [](void*) {};
-                curl.slist_append = [](void*, const char*) -> void* { return (void*)1; };
-                curl.slist_free_all = [](void*) {};
-                curl.easy_impersonate = [](void*, const char*, int) -> int { return 0; };
-                curl.SetReadyForTests(true);
+        struct ScopedOfflineOmniNet {
+            ScopedOfflineOmniNet() {
                 OmniNet::ResetUpdateRequiredForTesting();
                 OmniNet::SetTransportForTesting([](const OmniNet::Request&) {
                     OmniNet::Response res;
@@ -78,19 +41,7 @@ namespace omnistats::replay {
                 });
             }
 
-            ~ScopedOfflineCurlMock() {
-                auto& curl = CurlImpersonate::Instance();
-                curl.easy_perform = orig_perform;
-                curl.easy_getinfo = orig_getinfo;
-                curl.easy_setopt = orig_setopt;
-                curl.easy_cleanup = orig_cleanup;
-                curl.slist_free_all = orig_slist_free;
-                curl.slist_append = orig_slist_append;
-                curl.easy_init = orig_init;
-                curl.easy_escape = orig_escape;
-                curl.free_ptr = orig_free;
-                curl.easy_impersonate = orig_impersonate;
-                curl.SetReadyForTests(orig_ready);
+            ~ScopedOfflineOmniNet() {
                 OmniNet::SetTransportForTesting({});
                 OmniNet::ResetUpdateRequiredForTesting();
             }
@@ -443,7 +394,7 @@ namespace omnistats::replay {
 
     ReplayResult ReplayDriver::ReplayRecords(const std::vector<TelemetryRecord>& records) {
         ReplayResult result;
-        ScopedOfflineCurlMock curlMock;
+        ScopedOfflineOmniNet offlineOmniNet;
         ConfigData origConfig = Config::Read();
         Config::Update([&](ConfigData& c) {
             c = ConfigData{};
@@ -493,7 +444,8 @@ namespace omnistats::replay {
             return result;
         }
 
-        auto mmrFetcher = std::make_shared<MMRFetcher>(state, dbManager);
+        auto trackerProvider = std::make_shared<TrnRankProvider>(std::make_shared<OfflineHttpClient>());
+        auto mmrFetcher = std::make_shared<MmrService>(state, dbManager, nullptr, nullptr, trackerProvider);
 
         ReplayPipelineContext ctx{
             .state = state,

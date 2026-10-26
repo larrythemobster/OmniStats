@@ -9,7 +9,7 @@
 #include "database/DatabaseManager.hpp"
 #include "network/ExternalUpdaterLauncher.hpp"
 #include "core/game/RankProgress.hpp"
-#include "network/mmr/MMRFetcher.hpp"
+#include "network/mmr/MmrService.hpp"
 #include "ui/Formatting.hpp"
 #include "ui/window/KeyNames.hpp"
 #include "ui/rml/backend/RmlInputWin32.hpp"
@@ -42,7 +42,7 @@ namespace {
             const auto tierIt = player->playlistTiers.find(playlist);
             if (mmrIt != player->playlists.end() && tierIt != player->playlistTiers.end() && mmrIt->second == mmr) reportedTier = tierIt->second;
         }
-        return RankProgress::Compute(MMRFetcher::RankThresholdsForPlaylist(playlist), mmr, reportedTier);
+        return RankProgress::Compute(MmrService::RankThresholdsForPlaylist(playlist), mmr, reportedTier);
     }
 
     std::string RenderRankProgress(const RankProgress::Progress& progress, const ConfigData& config) {
@@ -131,7 +131,7 @@ namespace {
 std::string RmlUiController::BestRankTier(const PlayerData& p) const {
     if (!p.rankTier.empty() && p.rankTier != "Unranked") return p.rankTier;
     if (p.mmr <= 0) return {};
-    return MMRFetcher::GetRankTierForPlaylistMmr(BestRankSource(p, p.mmr, m_config.show_extra_playlists), p.mmr);
+    return MmrService::GetRankTierForPlaylistMmr(BestRankSource(p, p.mmr, m_config.show_extra_playlists), p.mmr);
 }
 
 std::string OverlayPresenter::RenderPlayerRoster(int team, const char* label, const RmlRenderSnapshot& snap, const ConfigData& config, const std::shared_ptr<SessionState>& state) {
@@ -159,7 +159,7 @@ std::string OverlayPresenter::RenderPlayerRoster(int team, const char* label, co
     out << "<div class='team-block'><div class='team-header'><div class='team-line " << cls << "'></div><div class='grow value'>" << label
         << "</div></div>";
     if (players.empty()) out << "<div class='muted'>Waiting for players...</div>";
-    const bool ranksOn = RankSourceAvailable(config);
+    const bool ranksOn = RankSourceAvailable(config, snap.accountSignedIn);
     for (const auto* p : players) {
         const bool settled = p->fetched || !ranksOn;
         const bool self = !snap.myPrimaryId.empty() && p->primaryId == snap.myPrimaryId;
@@ -175,7 +175,7 @@ std::string OverlayPresenter::RenderPlayerRoster(int team, const char* label, co
             rankSource = BestRankSource(*p, mmr, config.show_extra_playlists);
         }
         if (category != "casual" && (tier.empty() || tier == "Unranked") && mmr > 0) {
-            tier = MMRFetcher::GetRankTierForPlaylistMmr(category == "best" ? rankSource : category, mmr);
+            tier = MmrService::GetRankTierForPlaylistMmr(category == "best" ? rankSource : category, mmr);
         }
         std::string platform;
         if (const auto pos = p->primaryId.find('|'); pos != std::string::npos) platform = p->primaryId.substr(0, pos);

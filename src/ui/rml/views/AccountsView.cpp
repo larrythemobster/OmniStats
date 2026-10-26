@@ -53,7 +53,7 @@ namespace {
     std::string DisplayTier(const std::string& playlistKey, const TrackedAccounts::PlaylistRank& rank) {
         const std::string& tier = rank.rankTier;
         if ((tier.empty() || tier.rfind("Unranked", 0) == 0) && rank.mmr.value_or(0) > 0) {
-            return MMRFetcher::GetRankTierForPlaylistMmr(playlistKey, *rank.mmr);
+            return MmrService::GetRankTierForPlaylistMmr(playlistKey, *rank.mmr);
         }
         return tier;
     }

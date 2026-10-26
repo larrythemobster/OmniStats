@@ -1,46 +1,43 @@
 #pragma once
+
+#include <curl/curl.h>
 #include <string>
 #include <windows.h>
 
-// We use void* and int for the function pointers to avoid
-// clashing with the real curl.h types (which are enums).
-// These are only used for LoadLibrary/GetProcAddress dynamic dispatch.
-struct ci_curl_slist;
+// Option and info constants verified against curl-impersonate DLL expectations
+static_assert(CURLOPT_URL == 10002);
+static_assert(CURLOPT_WRITEFUNCTION == 20011);
+static_assert(CURLOPT_WRITEDATA == 10001);
+static_assert(CURLOPT_HTTPHEADER == 10023);
+static_assert(CURLOPT_POST == 47);
+static_assert(CURLOPT_POSTFIELDS == 10015);
+static_assert(CURLOPT_POSTFIELDSIZE == 60);
+static_assert(CURLOPT_TIMEOUT == 13);
+static_assert(CURLOPT_SSL_VERIFYPEER == 64);
+static_assert(CURLOPT_SSL_VERIFYHOST == 81);
+static_assert(CURLOPT_SSL_OPTIONS == 216);
+static_assert(CURLSSLOPT_NATIVE_CA == (1 << 4));
+static_assert(CURLOPT_FOLLOWLOCATION == 52);
+static_assert(CURLOPT_NOPROGRESS == 43);
+static_assert(CURLOPT_XFERINFOFUNCTION == 20219);
+static_assert(CURLOPT_XFERINFODATA == 10057);
+static_assert(CURLINFO_RESPONSE_CODE == 0x200002);
+static_assert(CURLOPT_HEADERFUNCTION == 20079);
+static_assert(CURLOPT_HEADERDATA == 10029);
+static_assert(CURLOPT_ACCEPT_ENCODING == 10102);
 
-// Standard curl function signatures (using opaque types to avoid redefinition)
-typedef void* (*pfn_curl_easy_init)();
-typedef void (*pfn_curl_easy_cleanup)(void*);
-typedef int (*pfn_curl_easy_setopt)(void*, int, ...);
-typedef int (*pfn_curl_easy_perform)(void*);
-typedef int (*pfn_curl_easy_getinfo)(void*, int, ...);
-typedef char* (*pfn_curl_easy_escape)(void*, const char*, int);
-typedef void (*pfn_curl_free)(void*);
-typedef void* (*pfn_curl_slist_append)(void*, const char*);
-typedef void (*pfn_curl_slist_free_all)(void*);
+// Standard curl function signatures using real curl.h types
+using pfn_curl_easy_init = CURL* (*)();
+using pfn_curl_easy_cleanup = void (*)(CURL*);
+using pfn_curl_easy_setopt = CURLcode (*)(CURL*, CURLoption, ...);
+using pfn_curl_easy_perform = CURLcode (*)(CURL*);
+using pfn_curl_easy_getinfo = CURLcode (*)(CURL*, CURLINFO, ...);
+using pfn_curl_easy_escape = char* (*)(CURL*, const char*, int);
+using pfn_curl_free = void (*)(void*);
+using pfn_curl_slist_append = struct curl_slist* (*)(struct curl_slist*, const char*);
+using pfn_curl_slist_free_all = void (*)(struct curl_slist*);
 // curl-impersonate specific
-typedef int (*pfn_curl_easy_impersonate)(void*, const char*, int);
-
-// Curl option constants (from curl.h)
-#define CI_CURLOPT_URL 10002
-#define CI_CURLOPT_WRITEFUNCTION 20011
-#define CI_CURLOPT_WRITEDATA 10001
-#define CI_CURLOPT_HTTPHEADER 10023
-#define CI_CURLOPT_POST 47
-#define CI_CURLOPT_POSTFIELDS 10015
-#define CI_CURLOPT_POSTFIELDSIZE 60
-#define CI_CURLOPT_TIMEOUT 13
-#define CI_CURLOPT_SSL_VERIFYPEER 64
-#define CI_CURLOPT_SSL_VERIFYHOST 81
-#define CI_CURLOPT_SSL_OPTIONS 216
-#define CI_CURLSSLOPT_NATIVE_CA (1 << 4)
-#define CI_CURLOPT_FOLLOWLOCATION 52
-#define CI_CURLOPT_NOPROGRESS 43
-#define CI_CURLOPT_XFERINFOFUNCTION 20219
-#define CI_CURLOPT_XFERINFODATA 10057
-#define CI_CURLINFO_RESPONSE_CODE 0x200002
-#define CI_CURLOPT_HEADERFUNCTION 20079
-#define CI_CURLOPT_HEADERDATA 10029
-#define CI_CURLOPT_ACCEPT_ENCODING 10102
+using pfn_curl_easy_impersonate = int (*)(CURL*, const char*, int);
 
 class CurlImpersonate {
   public:
@@ -54,7 +51,7 @@ class CurlImpersonate {
     // Verifies that the required runtime DLLs are present and compatible.
     [[nodiscard]] bool EnsureAvailable();
 
-    // Function pointers
+    // Function pointers bound with real types
     pfn_curl_easy_init easy_init = nullptr;
     pfn_curl_easy_cleanup easy_cleanup = nullptr;
     pfn_curl_easy_setopt easy_setopt = nullptr;
@@ -65,11 +62,10 @@ class CurlImpersonate {
     pfn_curl_slist_append slist_append = nullptr;
     pfn_curl_slist_free_all slist_free_all = nullptr;
     pfn_curl_easy_impersonate easy_impersonate = nullptr;
-#ifdef OMNISTATS_TEST_ENVIRONMENT
+
     void SetReadyForTests(bool ready) {
         m_loaded = ready;
     }
-#endif
 
   private:
     CurlImpersonate() = default;

@@ -100,7 +100,8 @@ namespace Tournaments {
 
     bool TournamentScheduleService::Fetch(ScheduleSnapshot& snapshot) {
         if (!OmniNet::Available()) return false;
-        auto& account = AccountClient::Instance();
+        if (!m_accountClient) return false;
+        auto& account = *m_accountClient;
         for (int attempt = 0; attempt < 2 && !m_stop; ++attempt) {
             const std::string token = account.AccessToken();
             const std::string device = account.DevicePublicId();
@@ -142,7 +143,7 @@ namespace Tournaments {
                 config = Config::Read();
                 revision = currentRevision;
             }
-            const bool signedIn = AccountClient::Instance().IsSignedIn(config);
+            const bool signedIn = m_accountClient && m_accountClient->IsSignedIn(config);
             const bool enabled = config.tournament_reminder_minutes > 0 ||
                                  WidgetSettings::Enabled(config, DashboardLayout::WidgetId::Tournaments, false) ||
                                  WidgetSettings::Enabled(config, DashboardLayout::WidgetId::Tournaments, true);
@@ -191,7 +192,7 @@ namespace Tournaments {
                     value.slots.clear();
                     nextFetch = now + 60;
                 }
-                if (!AccountClient::Instance().IsSignedIn()) {
+                if (!m_accountClient || !m_accountClient->IsSignedIn()) {
                     value = {};
                     value.status = ScheduleStatus::SignedOut;
                 }

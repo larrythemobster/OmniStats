@@ -34,7 +34,7 @@
 #include "ui/rml/controller/RmlUiHelpers.hpp"
 #include "network/ExternalUpdaterLauncher.hpp"
 #include "network/api/AccountClient.hpp"
-#include "network/mmr/MMRFetcher.hpp"
+#include "network/mmr/MmrService.hpp"
 #include "ui/Formatting.hpp"
 
 namespace {
@@ -516,7 +516,6 @@ TEST_F(RmlUiControllerStateTest, RankWidgetsExplainMissingRankSourceUntilOneIsEn
             ms.roster[player.primaryId] = player;
         });
     }
-    AccountClient::Instance().ResetForTests();
     ConfigData config = Config::Read();
     config.enable_mmr_tracking = false;
     config.custom_api_enabled = true;
@@ -2984,7 +2983,7 @@ TEST_F(RmlUiControllerStateTest, MmrGraphShowsLabeledDivisionBoundariesPerPlayli
     RmlUiController controller(state, nullptr);
     controller.Update(Config::Read());
 
-    const auto doubles = RankProgress::Compute(MMRFetcher::RankThresholdsForPlaylist("2v2"), 1200, "Champion II Div I");
+    const auto doubles = RankProgress::Compute(MmrService::RankThresholdsForPlaylist("2v2"), 1200, "Champion II Div I");
     ASSERT_TRUE(doubles.next);
     std::string html = RenderGraph(controller);
     EXPECT_EQ(html.find("rank-progress"), std::string::npos);
@@ -2997,7 +2996,7 @@ TEST_F(RmlUiControllerStateTest, MmrGraphShowsLabeledDivisionBoundariesPerPlayli
     SeedGraph(*state, "3v3", {1180.0f, 1190.0f, 1200.0f}, 0, "");
     state->ui.graphMmrCategory.store(MmrCategory::ThreeVThree);
     controller.Update(Config::Read());
-    const auto standard = RankProgress::Compute(MMRFetcher::RankThresholdsForPlaylist("3v3"), 1200, "");
+    const auto standard = RankProgress::Compute(MmrService::RankThresholdsForPlaylist("3v3"), 1200, "");
     ASSERT_TRUE(standard.next);
     html = RenderGraph(controller);
     EXPECT_NE(html.find(" starts at " + std::to_string(standard.next->mmr) + " MMR"), std::string::npos);
@@ -3338,19 +3337,17 @@ TEST_F(RmlUiControllerStateTest, AccountLinkPrompt_AlreadySeenPromptIsNotPrompte
 TEST_F(RmlUiControllerStateTest, AccountLinkPromptWaitsForMigrationAndOffersRecoveryOnFailure) {
     WarpDevice warp;
     if (!warp.Create(1280, 800)) GTEST_SKIP() << "WARP not available.";
-    auto& account = AccountClient::Instance();
-    account.ResetForTests();
+    auto account = std::make_shared<AccountClient>();
     std::promise<void> release;
     bool released = false;
     const auto gate = release.get_future().share();
     struct Cleanup {
-        AccountClient& account;
+        std::shared_ptr<AccountClient> account;
         std::promise<void>& release;
         bool& released;
         ~Cleanup() {
             if (!released) release.set_value();
             OmniNet::SetTransportForTesting({});
-            account.ResetForTests();
         }
     } cleanup{account, release, released};
     OmniNet::SetTransportForTesting([gate](const OmniNet::Request&) {
@@ -3366,9 +3363,9 @@ TEST_F(RmlUiControllerStateTest, AccountLinkPromptWaitsForMigrationAndOffersReco
         c.account_refresh_token.clear();
         c.custom_api_key = "oms_legacy_key";
     });
-    account.SyncFromConfig();
+    account->SyncFromConfig();
     auto state = std::make_shared<SessionState>();
-    RmlUiController controller(state, nullptr);
+    RmlUiController controller(state, nullptr, nullptr, nullptr, nullptr, nullptr, account);
     ASSERT_TRUE(controller.Initialize(nullptr, warp.device.Get(), warp.context.Get(), 1280, 800, 1.0f));
     EXPECT_FALSE(state->ui.showMenu.load());
     EXPECT_FALSE(Config::Read().account_link_prompt_shown);
@@ -3400,9 +3397,8 @@ TEST_F(RmlUiControllerStateTest, OnboardingWizard_StepsTransitionAndSkip) {
 
     OmniNet::SetTransportForTesting([](const OmniNet::Request&) { return OmniNet::Response{}; });
     bool browserOpened = false;
-    auto& account = AccountClient::Instance();
-    account.ResetForTests();
-    account.SetOpenUrlForTests([&](const std::string&) { browserOpened = true; });
+    auto account = std::make_shared<AccountClient>();
+    account->SetOpenUrlForTests([&](const std::string&) { browserOpened = true; });
 
     Config::Update([](ConfigData& c) {
         c.onboarding_completed = false;
@@ -3413,7 +3409,7 @@ TEST_F(RmlUiControllerStateTest, OnboardingWizard_StepsTransitionAndSkip) {
                    true);
 
     auto state = std::make_shared<SessionState>();
-    RmlUiController controller(state, nullptr);
+    RmlUiController controller(state, nullptr, nullptr, nullptr, nullptr, nullptr, account);
     ASSERT_TRUE(controller.Initialize(nullptr, warp.device.Get(), warp.context.Get(), 1280, 800, 1.0f));
     controller.Update(Config::Read(), false);
     controller.Render();
@@ -3433,7 +3429,7 @@ TEST_F(RmlUiControllerStateTest, OnboardingWizard_StepsTransitionAndSkip) {
     Click(controller, nextButtons.front());
     EXPECT_EQ(onboarding.Step(), 2);
 
-    EXPECT_EQ(account.GetStatus().state, AccountAuthState::SignedOut);
+    EXPECT_EQ(account->GetStatus().state, AccountAuthState::SignedOut);
     EXPECT_FALSE(browserOpened);
     nextButtons.clear();
     OnboardingDocument(controller)->QuerySelectorAll(nextButtons, "[data-action='onboarding-next']");
@@ -3441,7 +3437,7 @@ TEST_F(RmlUiControllerStateTest, OnboardingWizard_StepsTransitionAndSkip) {
     Click(controller, nextButtons.front());
 
     EXPECT_EQ(onboarding.Step(), 3);
-    EXPECT_EQ(account.GetStatus().state, AccountAuthState::SignedOut);
+    EXPECT_EQ(account->GetStatus().state, AccountAuthState::SignedOut);
     EXPECT_FALSE(browserOpened);
 
     nextButtons.clear();
@@ -3469,7 +3465,6 @@ TEST_F(RmlUiControllerStateTest, OnboardingWizard_StepsTransitionAndSkip) {
     EXPECT_TRUE(Config::Read().onboarding_completed);
     EXPECT_FALSE(controller.WantsAttention());
     OmniNet::SetTransportForTesting({});
-    account.ResetForTests();
 }
 
 TEST_F(RmlUiControllerStateTest, OnboardingWizard_StubBuildHasFourStepsAndSkipsLiveRanks) {
@@ -3526,9 +3521,8 @@ TEST_F(RmlUiControllerStateTest, OnboardingWizard_ConnectLiveRanks_FlowAndFallba
     WarpDevice warp;
     if (!warp.Create(1280, 800)) GTEST_SKIP() << "WARP not available.";
 
-    auto& account = AccountClient::Instance();
-    account.ResetForTests();
-    account.SetOpenUrlForTests([](const std::string&) {});
+    auto account = std::make_shared<AccountClient>();
+    account->SetOpenUrlForTests([](const std::string&) {});
     OmniNet::SetTransportForTesting([](const OmniNet::Request& omniReq) {
         OmniNet::Response resp;
         if (omniReq.op == OmniNet::Op::AuthStart) {
@@ -3556,7 +3550,7 @@ TEST_F(RmlUiControllerStateTest, OnboardingWizard_ConnectLiveRanks_FlowAndFallba
                    true);
 
     auto state = std::make_shared<SessionState>();
-    RmlUiController controller(state, nullptr);
+    RmlUiController controller(state, nullptr, nullptr, nullptr, nullptr, nullptr, account);
     ASSERT_TRUE(controller.Initialize(nullptr, warp.device.Get(), warp.context.Get(), 1280, 800, 1.0f));
 
     auto& onboarding = OnboardingModel(controller);
@@ -3572,10 +3566,10 @@ TEST_F(RmlUiControllerStateTest, OnboardingWizard_ConnectLiveRanks_FlowAndFallba
     ASSERT_FALSE(signInButtons.empty());
     Click(controller, signInButtons.front());
 
-    for (int i = 0; i < 200 && account.GetStatus().state != AccountAuthState::AwaitingApproval; ++i) {
+    for (int i = 0; i < 200 && account->GetStatus().state != AccountAuthState::AwaitingApproval; ++i) {
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
-    EXPECT_EQ(account.GetStatus().state, AccountAuthState::AwaitingApproval);
+    EXPECT_EQ(account->GetStatus().state, AccountAuthState::AwaitingApproval);
 
     controller.Update(Config::Read(), false);
     controller.Render();
@@ -3594,18 +3588,16 @@ TEST_F(RmlUiControllerStateTest, OnboardingWizard_ConnectLiveRanks_FlowAndFallba
     ASSERT_FALSE(cancelButtons.empty());
     Click(controller, cancelButtons.front());
 
-    EXPECT_EQ(account.GetStatus().state, AccountAuthState::SignedOut);
+    EXPECT_EQ(account->GetStatus().state, AccountAuthState::SignedOut);
     EXPECT_FALSE(onboarding.ShowFallback());
     OmniNet::SetTransportForTesting({});
-    account.ResetForTests();
 }
 
 TEST_F(RmlUiControllerStateTest, OnboardingWizard_ConnectLiveRanks_SuccessAndExplicitContinue) {
     WarpDevice warp;
     if (!warp.Create(1280, 800)) GTEST_SKIP() << "WARP not available.";
 
-    auto& account = AccountClient::Instance();
-    account.ResetForTests();
+    auto account = std::make_shared<AccountClient>();
 
     Config::Update([](ConfigData& c) {
         c.onboarding_completed = false;
@@ -3614,11 +3606,11 @@ TEST_F(RmlUiControllerStateTest, OnboardingWizard_ConnectLiveRanks_SuccessAndExp
         c.custom_api_enabled = true;
     },
                    true);
-    account.SyncFromConfig();
-    EXPECT_TRUE(account.IsSignedIn());
+    account->SyncFromConfig();
+    EXPECT_TRUE(account->IsSignedIn());
 
     auto state = std::make_shared<SessionState>();
-    RmlUiController controller(state, nullptr);
+    RmlUiController controller(state, nullptr, nullptr, nullptr, nullptr, nullptr, account);
     ASSERT_TRUE(controller.Initialize(nullptr, warp.device.Get(), warp.context.Get(), 1280, 800, 1.0f));
 
     auto& onboarding = OnboardingModel(controller);
@@ -3634,7 +3626,6 @@ TEST_F(RmlUiControllerStateTest, OnboardingWizard_ConnectLiveRanks_SuccessAndExp
     Click(controller, continueButtons.front());
 
     EXPECT_EQ(onboarding.Step(), 3);
-    account.ResetForTests();
 }
 
 TEST_F(RmlUiControllerStateTest, DisplayCardToggleWorksWithoutLayoutEditingAndKeepsPlacement) {

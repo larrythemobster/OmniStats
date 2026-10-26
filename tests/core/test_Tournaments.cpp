@@ -55,17 +55,19 @@ TEST(TournamentCountdown, RoundsUpWithoutShowingZeroBeforeStart) {
 }
 
 TEST(TournamentSchedule, FetchUsesOmniNetAndParsesSchedule) {
-    auto& account = AccountClient::Instance();
+    auto account = std::make_shared<AccountClient>();
+    Tournaments::TournamentScheduleService tourneyService;
+    tourneyService.SetAccountClient(account);
     AccountClient::DeviceKeyPair keyPair;
-    ASSERT_TRUE(account.EnsureDeviceKey(&keyPair));
+    ASSERT_TRUE(account->EnsureDeviceKey(&keyPair));
     Config::Update([&](ConfigData& c) {
         c.account_refresh_token = "tourney-refresh";
         c.account_signed_in_name = "TourneyUser";
         c.account_device_public_id = keyPair.publicId;
     });
-    account.SyncFromConfig();
-    account.SetClockForTests([]() { return 1700000000; });
-    account.SetCachedAccessTokenForTests("tourney-access-token", 1700000900);
+    account->SyncFromConfig();
+    account->SetClockForTests([]() { return 1700000000; });
+    account->SetCachedAccessTokenForTests("tourney-access-token", 1700000900);
 
     OmniNet::Request capturedReq;
     bool transportCalled = false;
@@ -78,7 +80,6 @@ TEST(TournamentSchedule, FetchUsesOmniNetAndParsesSchedule) {
         return res;
     });
 
-    Tournaments::TournamentScheduleService tourneyService;
     Tournaments::ScheduleSnapshot snap;
     snap.region = "USE";
     EXPECT_TRUE(tourneyService.FetchForTests(snap));
@@ -102,7 +103,8 @@ TEST(TournamentSchedule, FetchUsesOmniNetAndParsesSchedule) {
     EXPECT_FALSE(tourneyService.FetchForTests(snapUpdate));
 
     OmniNet::SetTransportForTesting({});
-    account.ResetForTests();
+    account->ResetForTests();
+    tourneyService.SetAccountClient(nullptr);
     Config::Update([](ConfigData& c) {
         c.account_refresh_token.clear();
         c.account_signed_in_name.clear();

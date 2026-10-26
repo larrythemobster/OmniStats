@@ -1,10 +1,10 @@
-#include "network/mmr/MMRFetcherDetail.hpp"
-#include "network/mmr/MMRFetcher.hpp"
+#include "network/mmr/MmrServiceDetail.hpp"
+#include "network/mmr/MmrService.hpp"
 
 #include <algorithm>
 #include <cctype>
 #include <cmath>
-namespace MMRFetcherDetail {
+namespace MmrServiceDetail {
     bool CaseInsensitiveEquals(std::string_view a, std::string_view b) {
         if (a.size() != b.size()) return false;
         for (size_t i = 0; i < a.size(); ++i) {
@@ -283,7 +283,7 @@ namespace MMRFetcherDetail {
                 continue;
             }
             int pid = skill["playlist"].get<int>();
-            std::string plName = MMRFetcher::PlaylistNameForTrackerId(pid);
+            std::string plName = MmrService::PlaylistNameForTrackerId(pid);
             if (plName.empty()) {
                 continue;
             }
@@ -302,8 +302,8 @@ namespace MMRFetcherDetail {
             int matches = skill.value("matches_played", -1);
 
             std::string tierName = (plName == "t")
-                                       ? MMRFetcher::GetTournamentTierForMmr(mmrInt)
-                                       : MMRFetcher::RankTierName(tier, div);
+                                       ? MmrService::GetTournamentTierForMmr(mmrInt)
+                                       : MmrService::RankTierName(tier, div);
 
             if (ShouldReplacePlaylistBucket(playlistMMRs, plName, mmrInt)) {
                 playlistMMRs[plName] = mmrInt;

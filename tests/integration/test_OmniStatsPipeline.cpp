@@ -2,7 +2,7 @@
 #include "core/state/SessionState.hpp"
 #include "core/state/LiveMatchStore.hpp"
 #include "network/api/StatsClient.hpp"
-#include "network/mmr/MMRFetcher.hpp"
+#include "network/mmr/MmrService.hpp"
 #include "database/DatabaseManager.hpp"
 #include "network/http/CurlImpersonate.hpp"
 #include "core/config/Config.hpp"
@@ -17,43 +17,43 @@ static void* g_int_write_data = nullptr;
 static std::string g_int_mock_response = "";
 static long g_int_mock_response_code = 200;
 
-static int int_mock_easy_setopt(void*, int option, ...) {
+static CURLcode int_mock_easy_setopt(CURL*, CURLoption option, ...) {
     va_list args;
     va_start(args, option);
-    if (option == CI_CURLOPT_WRITEFUNCTION) {
+    if (option == CURLOPT_WRITEFUNCTION) {
         g_int_write_callback = va_arg(args, IntWriteCallbackType);
-    } else if (option == CI_CURLOPT_WRITEDATA) {
+    } else if (option == CURLOPT_WRITEDATA) {
         g_int_write_data = va_arg(args, void*);
     }
     va_end(args);
-    return 0;
+    return CURLE_OK;
 }
 
-static int int_mock_easy_perform(void*) {
+static CURLcode int_mock_easy_perform(CURL*) {
     if (g_int_write_callback && g_int_write_data && g_int_mock_response_code == 200) {
         g_int_write_callback((void*)g_int_mock_response.data(), 1, g_int_mock_response.size(), g_int_write_data);
     }
-    return 0; // CURLE_OK
+    return CURLE_OK;
 }
 
-static int int_mock_easy_getinfo(void*, int info, ...) {
+static CURLcode int_mock_easy_getinfo(CURL*, CURLINFO info, ...) {
     va_list args;
     va_start(args, info);
-    if (info == CI_CURLINFO_RESPONSE_CODE) {
+    if (info == CURLINFO_RESPONSE_CODE) {
         long* code = va_arg(args, long*);
         *code = g_int_mock_response_code;
     }
     va_end(args);
-    return 0;
+    return CURLE_OK;
 }
 
-static void int_mock_easy_cleanup(void*) {}
-static void int_mock_slist_free_all(void*) {}
-static void* int_mock_slist_append(void*, const char*) {
-    return (void*)1;
+static void int_mock_easy_cleanup(CURL*) {}
+static void int_mock_slist_free_all(struct curl_slist*) {}
+static struct curl_slist* int_mock_slist_append(struct curl_slist*, const char*) {
+    return reinterpret_cast<struct curl_slist*>(1);
 }
-static void* int_mock_easy_init() {
-    return (void*)1;
+static CURL* int_mock_easy_init() {
+    return reinterpret_cast<CURL*>(1);
 }
 
 class OmniStatsPipelineTest : public ::testing::Test {
@@ -66,12 +66,12 @@ class OmniStatsPipelineTest : public ::testing::Test {
             },
             false);
         session = std::make_shared<SessionState>();
-        fetcher = std::make_shared<MMRFetcher>(session);
+        fetcher = std::make_shared<MmrService>(session);
         db = std::make_shared<DatabaseManager>(session);
         ASSERT_TRUE(db->Initialize(":memory:"));
         client = std::make_shared<StatsClient>(session, fetcher, db);
 
-        // Setup Curl mocking for MMRFetcher
+        // Setup Curl mocking for MmrService
         auto& curl = CurlImpersonate::Instance();
         original_perform = curl.easy_perform;
         original_getinfo = curl.easy_getinfo;
@@ -90,13 +90,13 @@ class OmniStatsPipelineTest : public ::testing::Test {
         curl.slist_free_all = int_mock_slist_free_all;
         curl.slist_append = int_mock_slist_append;
         curl.easy_init = int_mock_easy_init;
-        curl.easy_escape = [](void*, const char* val, int len) -> char* {
+        curl.easy_escape = [](CURL*, const char* val, int len) -> char* {
             static std::string escaped;
             escaped.assign(val, static_cast<size_t>(len));
             return escaped.data();
         };
         curl.free_ptr = [](void*) {};
-        curl.easy_impersonate = [](void*, const char*, int) { return 0; };
+        curl.easy_impersonate = [](CURL*, const char*, int) { return 0; };
         curl.SetReadyForTests(true);
 
         g_int_mock_response = R"({
@@ -203,7 +203,7 @@ class OmniStatsPipelineTest : public ::testing::Test {
 
     ConfigData originalConfig;
     std::shared_ptr<SessionState> session;
-    std::shared_ptr<MMRFetcher> fetcher;
+    std::shared_ptr<MmrService> fetcher;
     std::shared_ptr<DatabaseManager> db;
     std::shared_ptr<StatsClient> client;
 
@@ -445,7 +445,7 @@ TEST_F(
         R"({"Event":"MatchDestroyed","Data":{"MatchGuid":"pipeline-replay-forfeit-guid","bLocalPlayerForfeit":true}})");
 
     EXPECT_FALSE(
-        fetcher->HasPendingDestroyedMatchForTests(
+        fetcher->HasPendingDestroyedMatch(
             "pipeline-replay-forfeit-guid"));
     {
         auto snap = session->liveMatch->GetSnapshot();
@@ -454,7 +454,7 @@ TEST_F(
     }
     {
         const auto points =
-            fetcher->PlaylistMatchPointsForTests("1v1");
+            fetcher->PlaylistMatchPoints("1v1");
         ASSERT_EQ(points.size(), 1u);
         EXPECT_EQ(
             points[0].matchGuid,
@@ -464,7 +464,7 @@ TEST_F(
         EXPECT_TRUE(points[0].valueEstimated);
     }
 
-    fetcher->ProcessPostMatchResponseForTests(
+    fetcher->ProcessPostMatchResponse(
         "pipeline-replay-forfeit-guid", 1191, 51);
     ASSERT_TRUE(WaitForDatabase(
         "pipeline_replay_forfeit_barrier"));
@@ -485,7 +485,7 @@ TEST_F(
             session->ui.cachedDbStats.longestLosses, 1);
     }
     const auto confirmedPoints =
-        fetcher->PlaylistMatchPointsForTests("1v1");
+        fetcher->PlaylistMatchPoints("1v1");
     ASSERT_EQ(confirmedPoints.size(), 1u);
     EXPECT_EQ(confirmedPoints[0].mmr, 1191);
     EXPECT_TRUE(confirmedPoints[0].trackerCovered);
@@ -503,7 +503,7 @@ TEST_F(
         "steam|76561198000000001", matches, 5);
     EXPECT_EQ(matches.size(), 1u);
     EXPECT_EQ(
-        fetcher->PlaylistMatchPointsForTests("1v1").size(),
+        fetcher->PlaylistMatchPoints("1v1").size(),
         1u);
     {
         auto snap = session->liveMatch->GetSnapshot();
@@ -521,7 +521,7 @@ TEST_F(
     client->HandleLine(
         R"({"Event":"MatchDestroyed","Data":{"MatchGuid":"pipeline-catch-up-a","bLocalPlayerForfeit":true}})");
     EXPECT_FALSE(
-        fetcher->HasPendingDestroyedMatchForTests(
+        fetcher->HasPendingDestroyedMatch(
             "pipeline-catch-up-a"));
 
     std::this_thread::sleep_for(
@@ -531,7 +531,7 @@ TEST_F(
     client->HandleLine(
         R"({"Event":"MatchEnded","Data":{"MatchGuid":"pipeline-catch-up-b","WinnerTeamNum":0,"Teams":[{"TeamNum":0,"Score":2},{"TeamNum":1,"Score":1}]}})");
 
-    fetcher->ProcessPostMatchResponseForTests(
+    fetcher->ProcessPostMatchResponse(
         "pipeline-catch-up-b", 1200, 13);
     ASSERT_TRUE(WaitForDatabase(
         "pipeline_cumulative_catch_up_barrier"));
@@ -543,7 +543,7 @@ TEST_F(
     }
 
     const auto points =
-        fetcher->PlaylistMatchPointsForTests("1v1");
+        fetcher->PlaylistMatchPoints("1v1");
     ASSERT_EQ(points.size(), 2u);
     EXPECT_EQ(points[0].matchGuid, "pipeline-catch-up-a");
     EXPECT_EQ(points[0].mmr, 1191);
@@ -552,7 +552,7 @@ TEST_F(
     EXPECT_TRUE(points[0].trackerCovered);
     EXPECT_TRUE(points[1].trackerCovered);
     EXPECT_FALSE(
-        fetcher->HasPendingDestroyedMatchForTests(
+        fetcher->HasPendingDestroyedMatch(
             "pipeline-catch-up-a"));
 
     std::vector<SessionMatchSummary> matches;
@@ -631,7 +631,7 @@ TEST_F(
     client->HandleLine(
         R"({"Event":"MatchDestroyed","Data":{"MatchGuid":"partial-created-pipeline-b"}})");
 
-    fetcher->ProcessPostMatchResponseForTests(
+    fetcher->ProcessPostMatchResponse(
         "partial-created-pipeline-b", 1218, 19);
     ASSERT_TRUE(WaitForDatabase(
         "partial_created_pipeline_barrier"));
@@ -664,7 +664,7 @@ TEST_F(
     sqlite3_finalize(stmt);
 
     const auto points =
-        fetcher->PlaylistMatchPointsForTests("1v1");
+        fetcher->PlaylistMatchPoints("1v1");
     ASSERT_EQ(points.size(), 2u);
     EXPECT_EQ(
         points[0].matchGuid,

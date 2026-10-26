@@ -8,14 +8,14 @@
 #include "core/state/SessionState.hpp"
 #include "core/effects/SideEffects.hpp"
 #include "database/DatabaseManager.hpp"
-#include "network/mmr/MMRFetcher.hpp"
+#include "network/mmr/MmrService.hpp"
 
 namespace omnistats::replay {
 
     struct ReplayPipelineContext {
         std::shared_ptr<SessionState> state;
         std::shared_ptr<DatabaseManager> dbManager;
-        std::shared_ptr<MMRFetcher> mmrFetcher;
+        std::shared_ptr<MmrService> mmrFetcher;
         int64_t currentClockMs = 0;
         int64_t lastMatchEndedClockMs = 0;
     };

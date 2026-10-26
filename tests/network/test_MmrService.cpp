@@ -1,14 +1,14 @@
 #include <gtest/gtest.h>
 #include "network/omninet/OmniNet.hpp"
-#include "network/mmr/MMRFetcher.hpp"
+#include "network/mmr/MmrService.hpp"
 #include "network/http/CurlImpersonate.hpp"
 #include "network/api/AccountClient.hpp"
-#include "network/mmr/MMRFetcherDetail.hpp"
+#include "network/mmr/MmrServiceDetail.hpp"
 #include "core/state/SessionState.hpp"
 #include "core/state/LiveMatchStore.hpp"
 #include "core/config/Config.hpp"
 
-using namespace MMRFetcherDetail;
+using namespace MmrServiceDetail;
 #include <chrono>
 #include <thread>
 #include <cstdarg>
@@ -35,29 +35,29 @@ static std::string g_mock_user_agent_header;
 static std::vector<std::string> g_mock_request_headers;
 static std::vector<long> g_mock_custom_api_status_sequence;
 static std::function<OmniNet::Response(const OmniNet::Request&)> g_mock_refresh_fn;
-static int mock_easy_setopt(void*, int option, ...) {
+static CURLcode mock_easy_setopt(CURL*, CURLoption option, ...) {
     va_list args;
     va_start(args, option);
-    if (option == CI_CURLOPT_URL) {
+    if (option == CURLOPT_URL) {
         const char* u = va_arg(args, const char*);
         if (u) g_mock_url = u;
-    } else if (option == CI_CURLOPT_POSTFIELDS) {
+    } else if (option == CURLOPT_POSTFIELDS) {
         const char* p = va_arg(args, const char*);
         if (p) g_mock_post_fields = p;
-    } else if (option == CI_CURLOPT_WRITEFUNCTION) {
+    } else if (option == CURLOPT_WRITEFUNCTION) {
         g_write_callback = va_arg(args, WriteCallbackType);
-    } else if (option == CI_CURLOPT_WRITEDATA) {
+    } else if (option == CURLOPT_WRITEDATA) {
         g_write_data = va_arg(args, void*);
-    } else if (option == CI_CURLOPT_HEADERFUNCTION) {
+    } else if (option == CURLOPT_HEADERFUNCTION) {
         g_header_callback = va_arg(args, HeaderCallbackType);
-    } else if (option == CI_CURLOPT_HEADERDATA) {
+    } else if (option == CURLOPT_HEADERDATA) {
         g_header_data = va_arg(args, void*);
     }
     va_end(args);
-    return 0;
+    return CURLE_OK;
 }
 
-static int mock_easy_perform(void*) {
+static CURLcode mock_easy_perform(CURL*) {
     g_mock_perform_count.fetch_add(1);
     long code = g_mock_response_code;
     const std::string* body = &g_mock_response;
@@ -77,13 +77,13 @@ static int mock_easy_perform(void*) {
     if (g_write_callback && g_write_data && !body->empty()) {
         g_write_callback((void*)body->data(), 1, body->size(), g_write_data);
     }
-    return res;
+    return static_cast<CURLcode>(res);
 }
 
-static int mock_easy_getinfo(void*, int info, ...) {
+static CURLcode mock_easy_getinfo(CURL*, CURLINFO info, ...) {
     va_list args;
     va_start(args, info);
-    if (info == CI_CURLINFO_RESPONSE_CODE) {
+    if (info == CURLINFO_RESPONSE_CODE) {
         long* code = va_arg(args, long*);
         if (g_mock_custom_api_response_code > 0 && (g_mock_url.find("/v1/ranks") != std::string::npos || g_mock_url.find("/v1/pro/ranks") != std::string::npos)) {
             if (!g_mock_custom_api_status_sequence.empty() &&
@@ -91,7 +91,7 @@ static int mock_easy_getinfo(void*, int info, ...) {
                 *code = g_mock_custom_api_status_sequence.front();
                 g_mock_custom_api_status_sequence.erase(g_mock_custom_api_status_sequence.begin());
                 va_end(args);
-                return 0;
+                return CURLE_OK;
             }
             *code = g_mock_custom_api_response_code;
         } else {
@@ -99,34 +99,34 @@ static int mock_easy_getinfo(void*, int info, ...) {
         }
     }
     va_end(args);
-    return 0;
+    return CURLE_OK;
 }
 
-static void mock_easy_cleanup(void*) {}
-static void mock_slist_free_all(void*) {}
-static void* mock_slist_append(void*, const char* str) {
+static void mock_easy_cleanup(CURL*) {}
+static void mock_slist_free_all(struct curl_slist*) {}
+static struct curl_slist* mock_slist_append(struct curl_slist*, const char* str) {
     const std::string header = str ? str : "";
     g_mock_request_headers.push_back(header);
     if (header.rfind("User-Agent: ", 0) == 0) {
         g_mock_user_agent_header = header;
     }
-    return (void*)1;
+    return reinterpret_cast<struct curl_slist*>(1);
 }
-static void* mock_easy_init() {
-    return (void*)1;
+static CURL* mock_easy_init() {
+    return reinterpret_cast<CURL*>(1);
 }
 static std::string g_mock_escaped_value;
-static char* mock_easy_escape(void*, const char* value, int length) {
+static char* mock_easy_escape(CURL*, const char* value, int length) {
     g_mock_escaped_value.assign(value, static_cast<size_t>(length));
     return g_mock_escaped_value.data();
 }
 static void mock_curl_free(void*) {}
-static int mock_easy_impersonate(void*, const char* profile, int) {
+static int mock_easy_impersonate(CURL*, const char* profile, int) {
     g_mock_impersonation_profile = profile ? profile : "";
     return 0;
 }
 
-class MMRFetcherTest : public ::testing::Test {
+class MmrServiceTest : public ::testing::Test {
   protected:
     void SetUp() override {
         originalConfig = Config::Read();
@@ -140,11 +140,12 @@ class MMRFetcherTest : public ::testing::Test {
         g_mock_user_agent_header.clear();
         g_mock_request_headers.clear();
         g_mock_custom_api_status_sequence.clear();
-        AccountClient::Instance().ResetForTests();
+        accountClient = std::make_shared<AccountClient>();
+        accountClient->ResetForTests();
         g_mock_perform_res = 0;
         g_mock_custom_api_perform_res = 0;
         sessionState = std::make_shared<SessionState>();
-        fetcher = std::make_shared<MMRFetcher>(sessionState);
+        fetcher = std::make_shared<MmrService>(sessionState, nullptr, accountClient);
         OmniNet::SetTransportForTesting([](const OmniNet::Request& req) {
             OmniNet::Response res;
             if (req.op == OmniNet::Op::Ranks) {
@@ -216,10 +217,29 @@ class MMRFetcherTest : public ::testing::Test {
         g_mock_custom_api_response.clear();
         g_mock_request_headers.clear();
         g_mock_custom_api_status_sequence.clear();
-        AccountClient::Instance().ResetForTests();
+        accountClient->ResetForTests();
         Config::Update([this](ConfigData& config) { config = originalConfig; }, false);
         g_mock_perform_res = 0;
         g_mock_custom_api_perform_res = 0;
+        fetcher.reset();
+        accountClient.reset();
+    }
+
+    void SetUpSignedInDeviceAuth(bool enableMmrTracking = false) {
+        auto& account = *accountClient;
+        AccountClient::DeviceKeyPair keyPair;
+        account.EnsureDeviceKey(&keyPair);
+        Config::Update([&](ConfigData& c) {
+            c.enable_mmr_tracking = enableMmrTracking;
+            c.custom_api_enabled = true;
+            c.account_refresh_token = "valid_refresh_token";
+            c.account_signed_in_name = "SignedInPlayer";
+            c.account_device_public_id = keyPair.publicId;
+        },
+                       false);
+        account.SyncFromConfig();
+        account.SetClockForTests([]() { return 1700000000; });
+        account.SetCachedAccessTokenForTests("bearer_token_abc", 1700000900);
     }
 
     void EnqueuePostMatch(const std::string& guid,
@@ -260,7 +280,8 @@ class MMRFetcherTest : public ::testing::Test {
     }
 
     std::shared_ptr<SessionState> sessionState;
-    std::shared_ptr<MMRFetcher> fetcher;
+    std::shared_ptr<MmrService> fetcher;
+    std::shared_ptr<AccountClient> accountClient;
 
     pfn_curl_easy_perform original_perform;
     pfn_curl_easy_getinfo original_getinfo;
@@ -276,7 +297,7 @@ class MMRFetcherTest : public ::testing::Test {
     ConfigData originalConfig;
 };
 
-TEST_F(MMRFetcherTest, FetchProfileSuccess) {
+TEST_F(MmrServiceTest, FetchProfileSuccess) {
     g_mock_response_code = 200;
     g_mock_response = R"({"data": {"segments": [{"stats": {"rating": {"value": 1200}}}]}})";
 
@@ -290,7 +311,7 @@ TEST_F(MMRFetcherTest, FetchProfileSuccess) {
     SUCCEED();
 }
 
-TEST_F(MMRFetcherTest, FetchProfileNotFound) {
+TEST_F(MmrServiceTest, FetchProfileNotFound) {
     g_mock_response_code = 404;
 
     fetcher->Start();
@@ -302,7 +323,7 @@ TEST_F(MMRFetcherTest, FetchProfileNotFound) {
     SUCCEED();
 }
 
-TEST_F(MMRFetcherTest, FetchProfileServerError) {
+TEST_F(MmrServiceTest, FetchProfileServerError) {
     g_mock_response_code = 500;
 
     fetcher->Start();
@@ -314,7 +335,7 @@ TEST_F(MMRFetcherTest, FetchProfileServerError) {
     SUCCEED();
 }
 
-TEST_F(MMRFetcherTest, FetchProfileRateLimitedPausesQueue) {
+TEST_F(MmrServiceTest, FetchProfileRateLimitedPausesQueue) {
     g_mock_response_code = 429;
     g_mock_headers = "Retry-After: 90\r\n";
 
@@ -323,147 +344,147 @@ TEST_F(MMRFetcherTest, FetchProfileRateLimitedPausesQueue) {
 
     std::this_thread::sleep_for(std::chrono::milliseconds(100));
 
-    EXPECT_TRUE(fetcher->IsRateLimitedForTests());
+    EXPECT_TRUE(fetcher->IsRateLimited());
 
     fetcher->Stop();
 }
 
-TEST(MMRFetcherTournamentRankTest, UsesTournamentMmrThresholds) {
-    EXPECT_EQ(MMRFetcher::GetTournamentTierForMmr(1421), "Grand Champion I Div I");
-    EXPECT_EQ(MMRFetcher::GetTournamentTierForMmr(1537), "Grand Champion I Div IV");
-    EXPECT_EQ(MMRFetcher::GetTournamentTierForMmr(1561), "Grand Champion II Div I");
-    EXPECT_EQ(MMRFetcher::GetTournamentTierForMmr(1701), "Grand Champion III Div I");
-    EXPECT_EQ(MMRFetcher::GetTournamentTierForMmr(1861), "Supersonic Legend");
+TEST(MmrServiceTournamentRankTest, UsesTournamentMmrThresholds) {
+    EXPECT_EQ(MmrService::GetTournamentTierForMmr(1421), "Grand Champion I Div I");
+    EXPECT_EQ(MmrService::GetTournamentTierForMmr(1537), "Grand Champion I Div IV");
+    EXPECT_EQ(MmrService::GetTournamentTierForMmr(1561), "Grand Champion II Div I");
+    EXPECT_EQ(MmrService::GetTournamentTierForMmr(1701), "Grand Champion III Div I");
+    EXPECT_EQ(MmrService::GetTournamentTierForMmr(1861), "Supersonic Legend");
 }
 
-TEST(MMRFetcherTournamentRankTest, KeepsBoundaryGapsInPreviousDivision) {
-    EXPECT_EQ(MMRFetcher::GetTournamentTierForMmr(1560), "Grand Champion I Div IV");
-    EXPECT_EQ(MMRFetcher::GetTournamentTierForMmr(1530), "Grand Champion I Div III");
-    EXPECT_EQ(MMRFetcher::GetTournamentTierForMmr(0), "Unranked");
+TEST(MmrServiceTournamentRankTest, KeepsBoundaryGapsInPreviousDivision) {
+    EXPECT_EQ(MmrService::GetTournamentTierForMmr(1560), "Grand Champion I Div IV");
+    EXPECT_EQ(MmrService::GetTournamentTierForMmr(1530), "Grand Champion I Div III");
+    EXPECT_EQ(MmrService::GetTournamentTierForMmr(0), "Unranked");
 }
 
-TEST(MMRFetcherPlaylistRankThresholdsTest, UsesPlaylistSpecificMmrThresholds) {
+TEST(MmrServicePlaylistRankThresholdsTest, UsesPlaylistSpecificMmrThresholds) {
     // Casual has no ranks
-    EXPECT_EQ(MMRFetcher::GetRankTierForPlaylistMmr("casual", 1500), "Unranked");
-    EXPECT_EQ(MMRFetcher::GetRankTierForPlaylistMmr("casual", 698), "Unranked");
+    EXPECT_EQ(MmrService::GetRankTierForPlaylistMmr("casual", 1500), "Unranked");
+    EXPECT_EQ(MmrService::GetRankTierForPlaylistMmr("casual", 698), "Unranked");
 
     // 1v1 specific thresholds (playlist 10)
-    EXPECT_EQ(MMRFetcher::GetRankTierForPlaylistMmr("1v1", 586), "Gold III Div II");
-    EXPECT_EQ(MMRFetcher::GetRankTierForPlaylistMmr("1v1", 815), "Diamond I Div I");
-    EXPECT_EQ(MMRFetcher::GetRankTierForPlaylistMmr("1v1", 995), "Champion I Div I");
-    EXPECT_EQ(MMRFetcher::GetRankTierForPlaylistMmr("1v1", 1341), "Supersonic Legend");
+    EXPECT_EQ(MmrService::GetRankTierForPlaylistMmr("1v1", 586), "Gold III Div II");
+    EXPECT_EQ(MmrService::GetRankTierForPlaylistMmr("1v1", 815), "Diamond I Div I");
+    EXPECT_EQ(MmrService::GetRankTierForPlaylistMmr("1v1", 995), "Champion I Div I");
+    EXPECT_EQ(MmrService::GetRankTierForPlaylistMmr("1v1", 1341), "Supersonic Legend");
 
     // 2v2 specific thresholds (playlist 11)
-    EXPECT_EQ(MMRFetcher::GetRankTierForPlaylistMmr("2v2", 1075), "Champion I Div I");
-    EXPECT_EQ(MMRFetcher::GetRankTierForPlaylistMmr("2v2", 1114), "Champion I Div II");
-    EXPECT_EQ(MMRFetcher::GetRankTierForPlaylistMmr("2v2", 1860), "Supersonic Legend");
+    EXPECT_EQ(MmrService::GetRankTierForPlaylistMmr("2v2", 1075), "Champion I Div I");
+    EXPECT_EQ(MmrService::GetRankTierForPlaylistMmr("2v2", 1114), "Champion I Div II");
+    EXPECT_EQ(MmrService::GetRankTierForPlaylistMmr("2v2", 1860), "Supersonic Legend");
 
     // 3v3 specific thresholds (playlist 13)
-    EXPECT_EQ(MMRFetcher::GetRankTierForPlaylistMmr("3v3", 699), "Platinum I Div IV");
-    EXPECT_EQ(MMRFetcher::GetRankTierForPlaylistMmr("3v3", 1075), "Champion I Div I");
+    EXPECT_EQ(MmrService::GetRankTierForPlaylistMmr("3v3", 699), "Platinum I Div IV");
+    EXPECT_EQ(MmrService::GetRankTierForPlaylistMmr("3v3", 1075), "Champion I Div I");
 
     // Tournament thresholds (playlist 34)
-    EXPECT_EQ(MMRFetcher::GetRankTierForPlaylistMmr("t", 1061), "Champion I Div I");
-    EXPECT_EQ(MMRFetcher::GetRankTierForPlaylistMmr("t", 1122), "Champion I Div II");
+    EXPECT_EQ(MmrService::GetRankTierForPlaylistMmr("t", 1061), "Champion I Div I");
+    EXPECT_EQ(MmrService::GetRankTierForPlaylistMmr("t", 1122), "Champion I Div II");
 
     // Extra modes thresholds (hoops, rumble, dropshot, snowday, heatseeker)
-    EXPECT_EQ(MMRFetcher::GetRankTierForPlaylistMmr("hoops", 880), "Diamond III Div II");
-    EXPECT_EQ(MMRFetcher::GetRankTierForPlaylistMmr("rumble", 995), "Champion I Div I");
-    EXPECT_EQ(MMRFetcher::GetRankTierForPlaylistMmr("dropshot", 895), "Champion I Div I");
-    EXPECT_EQ(MMRFetcher::GetRankTierForPlaylistMmr("snowday", 921), "Champion I Div I");
-    EXPECT_EQ(MMRFetcher::GetRankTierForPlaylistMmr("heatseeker", 955), "Champion I Div I");
+    EXPECT_EQ(MmrService::GetRankTierForPlaylistMmr("hoops", 880), "Diamond III Div II");
+    EXPECT_EQ(MmrService::GetRankTierForPlaylistMmr("rumble", 995), "Champion I Div I");
+    EXPECT_EQ(MmrService::GetRankTierForPlaylistMmr("dropshot", 895), "Champion I Div I");
+    EXPECT_EQ(MmrService::GetRankTierForPlaylistMmr("snowday", 921), "Champion I Div I");
+    EXPECT_EQ(MmrService::GetRankTierForPlaylistMmr("heatseeker", 955), "Champion I Div I");
     // Zero or negative MMR
-    EXPECT_EQ(MMRFetcher::GetRankTierForPlaylistMmr("2v2", 0), "Unranked");
-    EXPECT_EQ(MMRFetcher::GetRankTierForPlaylistMmr("1v1", -10), "Unranked");
+    EXPECT_EQ(MmrService::GetRankTierForPlaylistMmr("2v2", 0), "Unranked");
+    EXPECT_EQ(MmrService::GetRankTierForPlaylistMmr("1v1", -10), "Unranked");
 }
 
-TEST(MMRFetcherPlaylistMappingTest, MapsExtraModesToSeparatePlaylists) {
-    EXPECT_EQ(MMRFetcher::PlaylistNameForTrackerId(10), "1v1");
-    EXPECT_EQ(MMRFetcher::PlaylistNameForTrackerId(11), "2v2");
-    EXPECT_EQ(MMRFetcher::PlaylistNameForTrackerId(13), "3v3");
-    EXPECT_EQ(MMRFetcher::PlaylistNameForTrackerId(27), "hoops");
-    EXPECT_EQ(MMRFetcher::PlaylistNameForTrackerId(28), "rumble");
-    EXPECT_EQ(MMRFetcher::PlaylistNameForTrackerId(29), "dropshot");
-    EXPECT_EQ(MMRFetcher::PlaylistNameForTrackerId(30), "snowday");
-    EXPECT_EQ(MMRFetcher::PlaylistNameForTrackerId(34), "t");
-    EXPECT_EQ(MMRFetcher::PlaylistNameForTrackerId(43), "heatseeker");
-    EXPECT_EQ(MMRFetcher::PlaylistNameForTrackerId(63), "heatseeker");
-    EXPECT_EQ(MMRFetcher::PlaylistNameForTrackerId(0), "casual");
+TEST(MmrServicePlaylistMappingTest, MapsExtraModesToSeparatePlaylists) {
+    EXPECT_EQ(MmrService::PlaylistNameForTrackerId(10), "1v1");
+    EXPECT_EQ(MmrService::PlaylistNameForTrackerId(11), "2v2");
+    EXPECT_EQ(MmrService::PlaylistNameForTrackerId(13), "3v3");
+    EXPECT_EQ(MmrService::PlaylistNameForTrackerId(27), "hoops");
+    EXPECT_EQ(MmrService::PlaylistNameForTrackerId(28), "rumble");
+    EXPECT_EQ(MmrService::PlaylistNameForTrackerId(29), "dropshot");
+    EXPECT_EQ(MmrService::PlaylistNameForTrackerId(30), "snowday");
+    EXPECT_EQ(MmrService::PlaylistNameForTrackerId(34), "t");
+    EXPECT_EQ(MmrService::PlaylistNameForTrackerId(43), "heatseeker");
+    EXPECT_EQ(MmrService::PlaylistNameForTrackerId(63), "heatseeker");
+    EXPECT_EQ(MmrService::PlaylistNameForTrackerId(0), "casual");
     // Gameplay playlist IDs are not automatically Tracker segment IDs.
-    EXPECT_EQ(MMRFetcher::PlaylistNameForTrackerId(2), "");
-    EXPECT_EQ(MMRFetcher::PlaylistNameForTrackerId(999), "");
+    EXPECT_EQ(MmrService::PlaylistNameForTrackerId(2), "");
+    EXPECT_EQ(MmrService::PlaylistNameForTrackerId(999), "");
 }
 
-TEST(MMRFetcherProfileTotalsTest, ExtractsOverviewWins) {
+TEST(MmrServiceProfileTotalsTest, ExtractsOverviewWins) {
     nlohmann::json response = {
         {"data", {{"segments", nlohmann::json::array({{{"type", "overview"}, {"stats", {{"wins", {{"value", 60}}}}}}, {{"type", "playlist"}, {"stats", {{"wins", {{"value", 999}}}}}}})}}}};
 
-    MMRProfileTotals totals = MMRFetcher::ExtractProfileTotals(response);
+    MMRProfileTotals totals = MmrService::ExtractProfileTotals(response);
     EXPECT_EQ(totals.totalWins, 60);
 }
 
-TEST(MMRFetcherPostMatchTest, UsesMatchCountsAsThePublicationVersion) {
-    EXPECT_TRUE(MMRFetcher::IsPostMatchMmrStale(1200, 1200, 50, 50));
-    EXPECT_TRUE(MMRFetcher::IsPostMatchMmrStale(1200, 1209, 50, 50));
-    EXPECT_TRUE(MMRFetcher::IsPostMatchMmrStale(1200, 0, 50, 51));
-    EXPECT_FALSE(MMRFetcher::IsPostMatchMmrStale(1200, 1209, 50, 51));
-    EXPECT_FALSE(MMRFetcher::IsPostMatchMmrStale(1200, 1200, 50, 51));
-    EXPECT_FALSE(MMRFetcher::IsPostMatchMmrStale(1200, 1218, 50, 52));
-    EXPECT_TRUE(MMRFetcher::IsPostMatchMmrStale(1200, 1200, 0, 0));
-    EXPECT_FALSE(MMRFetcher::IsPostMatchMmrStale(1200, 1200, 0, 1));
+TEST(MmrServicePostMatchTest, UsesMatchCountsAsThePublicationVersion) {
+    EXPECT_TRUE(MmrService::IsPostMatchMmrStale(1200, 1200, 50, 50));
+    EXPECT_TRUE(MmrService::IsPostMatchMmrStale(1200, 1209, 50, 50));
+    EXPECT_TRUE(MmrService::IsPostMatchMmrStale(1200, 0, 50, 51));
+    EXPECT_FALSE(MmrService::IsPostMatchMmrStale(1200, 1209, 50, 51));
+    EXPECT_FALSE(MmrService::IsPostMatchMmrStale(1200, 1200, 50, 51));
+    EXPECT_FALSE(MmrService::IsPostMatchMmrStale(1200, 1218, 50, 52));
+    EXPECT_TRUE(MmrService::IsPostMatchMmrStale(1200, 1200, 0, 0));
+    EXPECT_FALSE(MmrService::IsPostMatchMmrStale(1200, 1200, 0, 1));
 }
 
-TEST(MMRFetcherPostMatchTest, FallsBackToRatingOnlyWithoutMatchCounts) {
-    EXPECT_TRUE(MMRFetcher::IsPostMatchMmrStale(1200, 1200, -1, -1));
-    EXPECT_FALSE(MMRFetcher::IsPostMatchMmrStale(1200, 1209, -1, -1));
-    EXPECT_TRUE(MMRFetcher::IsPostMatchMmrStale(1200, 1200, 50, -1));
-    EXPECT_FALSE(MMRFetcher::IsPostMatchMmrStale(1200, 1209, 50, -1));
-    EXPECT_TRUE(MMRFetcher::IsPostMatchMmrStale(0, 1200, -1, -1));
+TEST(MmrServicePostMatchTest, FallsBackToRatingOnlyWithoutMatchCounts) {
+    EXPECT_TRUE(MmrService::IsPostMatchMmrStale(1200, 1200, -1, -1));
+    EXPECT_FALSE(MmrService::IsPostMatchMmrStale(1200, 1209, -1, -1));
+    EXPECT_TRUE(MmrService::IsPostMatchMmrStale(1200, 1200, 50, -1));
+    EXPECT_FALSE(MmrService::IsPostMatchMmrStale(1200, 1209, 50, -1));
+    EXPECT_TRUE(MmrService::IsPostMatchMmrStale(0, 1200, -1, -1));
 }
 
-TEST(MMRFetcherPostMatchTest, CountsCumulativePublishedMatches) {
-    EXPECT_EQ(MMRFetcher::CoveredPendingMatchCount(50, 51, 3), 1u);
-    EXPECT_EQ(MMRFetcher::CoveredPendingMatchCount(50, 52, 3), 2u);
-    EXPECT_EQ(MMRFetcher::CoveredPendingMatchCount(50, 50, 3), 0u);
-    EXPECT_EQ(MMRFetcher::CoveredPendingMatchCount(0, 1, 1), 1u);
+TEST(MmrServicePostMatchTest, CountsCumulativePublishedMatches) {
+    EXPECT_EQ(MmrService::CoveredPendingMatchCount(50, 51, 3), 1u);
+    EXPECT_EQ(MmrService::CoveredPendingMatchCount(50, 52, 3), 2u);
+    EXPECT_EQ(MmrService::CoveredPendingMatchCount(50, 50, 3), 0u);
+    EXPECT_EQ(MmrService::CoveredPendingMatchCount(0, 1, 1), 1u);
 }
 
-TEST(MMRFetcherPostMatchTest, UsesPlaylistHistoryInsteadOfIncorrectBestMmrFallback) {
-    EXPECT_EQ(MMRFetcher::ResolvePostMatchBaseline(788, false, {630.0f}), 630);
-    EXPECT_EQ(MMRFetcher::ResolvePostMatchBaseline(788, false, {}), 788);
+TEST(MmrServicePostMatchTest, UsesPlaylistHistoryInsteadOfIncorrectBestMmrFallback) {
+    EXPECT_EQ(MmrService::ResolvePostMatchBaseline(788, false, {630.0f}), 630);
+    EXPECT_EQ(MmrService::ResolvePostMatchBaseline(788, false, {}), 788);
 }
 
-TEST(MMRFetcherPostMatchTest, KeepsFinalizedPlaylistBaselineWhenRosterFetchMovesAhead) {
-    EXPECT_EQ(MMRFetcher::ResolvePostMatchBaseline(630, true, {630.0f, 667.0f}), 630);
+TEST(MmrServicePostMatchTest, KeepsFinalizedPlaylistBaselineWhenRosterFetchMovesAhead) {
+    EXPECT_EQ(MmrService::ResolvePostMatchBaseline(630, true, {630.0f, 667.0f}), 630);
 }
 
-TEST(MMRFetcherPostMatchTest, EstimatesFromRecentNormalChanges) {
+TEST(MmrServicePostMatchTest, EstimatesFromRecentNormalChanges) {
     const std::vector<float> history = {1182.0f, 1191.0f, 1200.0f};
 
-    EXPECT_EQ(MMRFetcher::EstimatePostMatchMmr(1200, true, history), 1209);
-    EXPECT_EQ(MMRFetcher::EstimatePostMatchMmr(1200, false, history), 1191);
+    EXPECT_EQ(MmrService::EstimatePostMatchMmr(1200, true, history), 1209);
+    EXPECT_EQ(MmrService::EstimatePostMatchMmr(1200, false, history), 1191);
 }
 
-TEST(MMRFetcherPostMatchTest, ChainsEstimateFromLatestGraphPoint) {
+TEST(MmrServicePostMatchTest, ChainsEstimateFromLatestGraphPoint) {
     const std::vector<float> history = {1200.0f, 1191.0f};
 
-    EXPECT_EQ(MMRFetcher::EstimatePostMatchMmr(1200, false, history), 1182);
-    EXPECT_EQ(MMRFetcher::EstimatePostMatchMmr(1200, true, history), 1200);
+    EXPECT_EQ(MmrService::EstimatePostMatchMmr(1200, false, history), 1182);
+    EXPECT_EQ(MmrService::EstimatePostMatchMmr(1200, true, history), 1200);
 }
 
-TEST(MMRFetcherPostMatchTest, IgnoresCumulativeJumpsAndUsesDefaultDelta) {
+TEST(MmrServicePostMatchTest, IgnoresCumulativeJumpsAndUsesDefaultDelta) {
     const std::vector<float> history = {1200.0f, 1218.0f};
 
-    EXPECT_EQ(MMRFetcher::EstimatePostMatchMmr(1218, true, history), 1227);
-    EXPECT_EQ(MMRFetcher::EstimatePostMatchMmr(1218, false, history), 1209);
+    EXPECT_EQ(MmrService::EstimatePostMatchMmr(1218, true, history), 1227);
+    EXPECT_EQ(MmrService::EstimatePostMatchMmr(1218, false, history), 1209);
 }
 
-TEST_F(MMRFetcherTest, NormalPublishedUpdateCreatesOneConfirmedOwnedPoint) {
+TEST_F(MmrServiceTest, NormalPublishedUpdateCreatesOneConfirmedOwnedPoint) {
     EnqueuePostMatch("normal", true);
 
-    fetcher->ProcessPostMatchResponseForTests("normal", 1209, 51);
+    fetcher->ProcessPostMatchResponse("normal", 1209, 51);
 
-    const auto points = fetcher->PlaylistMatchPointsForTests("2v2");
+    const auto points = fetcher->PlaylistMatchPoints("2v2");
     ASSERT_EQ(points.size(), 1u);
     EXPECT_EQ(points[0].matchGuid, "normal");
     EXPECT_EQ(points[0].mmr, 1209);
@@ -472,14 +493,14 @@ TEST_F(MMRFetcherTest, NormalPublishedUpdateCreatesOneConfirmedOwnedPoint) {
     EXPECT_FALSE(points[0].valueEstimated);
 }
 
-TEST_F(MMRFetcherTest, CasualPostMatchUsesTheSingleCasualBucket) {
+TEST_F(MmrServiceTest, CasualPostMatchUsesTheSingleCasualBucket) {
     EnqueuePostMatch("casual-published", true, 900, 30, "casual");
 
-    fetcher->ProcessPostMatchResponseForTests(
+    fetcher->ProcessPostMatchResponse(
         "casual-published", 912, 31);
 
     const auto points =
-        fetcher->PlaylistMatchPointsForTests("casual");
+        fetcher->PlaylistMatchPoints("casual");
     ASSERT_EQ(points.size(), 1u);
     EXPECT_EQ(points[0].matchGuid, "casual-published");
     EXPECT_EQ(points[0].mmr, 912);
@@ -488,12 +509,12 @@ TEST_F(MMRFetcherTest, CasualPostMatchUsesTheSingleCasualBucket) {
     EXPECT_FALSE(points[0].valueEstimated);
 }
 
-TEST_F(MMRFetcherTest, StaleResponseStillCreatesOneProvisionalOwnedPoint) {
+TEST_F(MmrServiceTest, StaleResponseStillCreatesOneProvisionalOwnedPoint) {
     EnqueuePostMatch("stale", true);
 
-    fetcher->ProcessPostMatchResponseForTests("stale", 1200, 50);
+    fetcher->ProcessPostMatchResponse("stale", 1200, 50);
 
-    const auto points = fetcher->PlaylistMatchPointsForTests("2v2");
+    const auto points = fetcher->PlaylistMatchPoints("2v2");
     ASSERT_EQ(points.size(), 1u);
     EXPECT_EQ(points[0].matchGuid, "stale");
     EXPECT_EQ(points[0].mmr, 1209);
@@ -501,12 +522,12 @@ TEST_F(MMRFetcherTest, StaleResponseStillCreatesOneProvisionalOwnedPoint) {
     EXPECT_TRUE(points[0].valueEstimated);
 }
 
-TEST_F(MMRFetcherTest, FirstObservedZeroCountConfirmsOwnedPointAtOneWithoutMmrChange) {
+TEST_F(MmrServiceTest, FirstObservedZeroCountConfirmsOwnedPointAtOneWithoutMmrChange) {
     EnqueuePostMatch("missing-pre-match", true, 0, -1);
 
-    fetcher->ProcessPostMatchResponseForTests("missing-pre-match", 1200, 0);
+    fetcher->ProcessPostMatchResponse("missing-pre-match", 1200, 0);
 
-    auto points = fetcher->PlaylistMatchPointsForTests("2v2");
+    auto points = fetcher->PlaylistMatchPoints("2v2");
     ASSERT_EQ(points.size(), 1u);
     EXPECT_EQ(points[0].matchGuid, "missing-pre-match");
     EXPECT_EQ(points[0].mmr, 1200);
@@ -514,8 +535,8 @@ TEST_F(MMRFetcherTest, FirstObservedZeroCountConfirmsOwnedPointAtOneWithoutMmrCh
     EXPECT_TRUE(points[0].valueEstimated);
     EXPECT_EQ(points[0].trackerMatchesPlayed, -1);
 
-    fetcher->ProcessPostMatchResponseForTests("missing-pre-match", 1200, 1);
-    points = fetcher->PlaylistMatchPointsForTests("2v2");
+    fetcher->ProcessPostMatchResponse("missing-pre-match", 1200, 1);
+    points = fetcher->PlaylistMatchPoints("2v2");
     ASSERT_EQ(points.size(), 1u);
     EXPECT_EQ(points[0].mmr, 1200);
     EXPECT_EQ(points[0].trackerMatchesPlayed, 1);
@@ -523,15 +544,15 @@ TEST_F(MMRFetcherTest, FirstObservedZeroCountConfirmsOwnedPointAtOneWithoutMmrCh
     EXPECT_FALSE(points[0].valueEstimated);
 }
 
-TEST_F(MMRFetcherTest, MissingBaselineRemainsPendingUntilPlaylistInitialMmrExists) {
+TEST_F(MmrServiceTest, MissingBaselineRemainsPendingUntilPlaylistInitialMmrExists) {
     EnqueuePostMatch("delayed-baseline", false, 0, -1);
-    fetcher->ProcessPostMatchResponseForTests("delayed-baseline", 0, -1);
-    EXPECT_TRUE(fetcher->PlaylistMatchPointsForTests("2v2").empty());
+    fetcher->ProcessPostMatchResponse("delayed-baseline", 0, -1);
+    EXPECT_TRUE(fetcher->PlaylistMatchPoints("2v2").empty());
 
     sessionState->history.playlistInitialMmr["2v2"] = 1200;
-    fetcher->ProcessPostMatchResponseForTests("delayed-baseline", 0, -1);
+    fetcher->ProcessPostMatchResponse("delayed-baseline", 0, -1);
 
-    const auto points = fetcher->PlaylistMatchPointsForTests("2v2");
+    const auto points = fetcher->PlaylistMatchPoints("2v2");
     ASSERT_EQ(points.size(), 1u);
     EXPECT_EQ(points[0].matchGuid, "delayed-baseline");
     EXPECT_EQ(points[0].mmr, 1191);
@@ -539,15 +560,15 @@ TEST_F(MMRFetcherTest, MissingBaselineRemainsPendingUntilPlaylistInitialMmrExist
     EXPECT_TRUE(points[0].valueEstimated);
 }
 
-TEST_F(MMRFetcherTest, PlaylistReconciliationStateDoesNotCrossContaminate) {
+TEST_F(MmrServiceTest, PlaylistReconciliationStateDoesNotCrossContaminate) {
     EnqueuePostMatch("twos-pending", true, 1200, 50, "2v2");
-    fetcher->ProcessPostMatchResponseForTests("twos-pending", 1200, 50);
+    fetcher->ProcessPostMatchResponse("twos-pending", 1200, 50);
 
     EnqueuePostMatch("threes-published", true, 900, 100, "3v3");
-    fetcher->ProcessPostMatchResponseForTests("threes-published", 909, 101);
+    fetcher->ProcessPostMatchResponse("threes-published", 909, 101);
 
-    auto twos = fetcher->PlaylistMatchPointsForTests("2v2");
-    auto threes = fetcher->PlaylistMatchPointsForTests("3v3");
+    auto twos = fetcher->PlaylistMatchPoints("2v2");
+    auto threes = fetcher->PlaylistMatchPoints("3v3");
     ASSERT_EQ(twos.size(), 1u);
     ASSERT_EQ(threes.size(), 1u);
     EXPECT_EQ(twos[0].matchGuid, "twos-pending");
@@ -558,18 +579,18 @@ TEST_F(MMRFetcherTest, PlaylistReconciliationStateDoesNotCrossContaminate) {
     EXPECT_FALSE(threes[0].valueEstimated);
     EXPECT_TRUE(threes[0].trackerCovered);
 
-    fetcher->ProcessPostMatchResponseForTests("twos-pending", 1209, 51);
-    twos = fetcher->PlaylistMatchPointsForTests("2v2");
+    fetcher->ProcessPostMatchResponse("twos-pending", 1209, 51);
+    twos = fetcher->PlaylistMatchPoints("2v2");
     ASSERT_EQ(twos.size(), 1u);
     EXPECT_EQ(twos[0].mmr, 1209);
     EXPECT_FALSE(twos[0].valueEstimated);
     EXPECT_TRUE(twos[0].trackerCovered);
 }
 
-TEST_F(MMRFetcherTest, MatchesPlayedCounterRollbackStartsNewPublicationEpoch) {
+TEST_F(MmrServiceTest, MatchesPlayedCounterRollbackStartsNewPublicationEpoch) {
     EnqueuePostMatch("old-season", true, 1200, 100, "2v2");
-    fetcher->ProcessPostMatchResponseForTests("old-season", 1209, 101);
-    auto points = fetcher->PlaylistMatchPointsForTests("2v2");
+    fetcher->ProcessPostMatchResponse("old-season", 1209, 101);
+    auto points = fetcher->PlaylistMatchPoints("2v2");
     ASSERT_EQ(points.size(), 1u);
     EXPECT_TRUE(points[0].trackerCovered);
     EXPECT_FALSE(points[0].valueEstimated);
@@ -578,9 +599,9 @@ TEST_F(MMRFetcherTest, MatchesPlayedCounterRollbackStartsNewPublicationEpoch) {
     // unresolved matches from the old epoch, the lower pre-match count is the
     // authoritative baseline for the next reconciliation chain.
     EnqueuePostMatch("new-season", true, 1000, 0, "2v2");
-    fetcher->ProcessPostMatchResponseForTests("new-season", 1009, 1);
+    fetcher->ProcessPostMatchResponse("new-season", 1009, 1);
 
-    points = fetcher->PlaylistMatchPointsForTests("2v2");
+    points = fetcher->PlaylistMatchPoints("2v2");
     ASSERT_EQ(points.size(), 2u);
     EXPECT_EQ(points[1].matchGuid, "new-season");
     EXPECT_EQ(points[1].mmr, 1009);
@@ -589,14 +610,14 @@ TEST_F(MMRFetcherTest, MatchesPlayedCounterRollbackStartsNewPublicationEpoch) {
     EXPECT_FALSE(points[1].valueEstimated);
 }
 
-TEST_F(MMRFetcherTest, DelayedCumulativeUpdatePreservesOnePointPerMatch) {
+TEST_F(MmrServiceTest, DelayedCumulativeUpdatePreservesOnePointPerMatch) {
     EnqueuePostMatch("match-a", true);
-    fetcher->ProcessPostMatchResponseForTests("match-a", 1200, 50);
+    fetcher->ProcessPostMatchResponse("match-a", 1200, 50);
     EnqueuePostMatch("match-b", true);
 
-    fetcher->ProcessPostMatchResponseForTests("match-b", 1218, 52);
+    fetcher->ProcessPostMatchResponse("match-b", 1218, 52);
 
-    const auto points = fetcher->PlaylistMatchPointsForTests("2v2");
+    const auto points = fetcher->PlaylistMatchPoints("2v2");
     ASSERT_EQ(points.size(), 2u);
     EXPECT_EQ(points[0].matchGuid, "match-a");
     EXPECT_EQ(points[0].mmr, 1209);
@@ -609,14 +630,14 @@ TEST_F(MMRFetcherTest, DelayedCumulativeUpdatePreservesOnePointPerMatch) {
     ASSERT_EQ(sessionState->history.playlistHistoryY["2v2"].size(), 2u);
 }
 
-TEST_F(MMRFetcherTest, WinThenLossKeepsDirectionalPointsAndConfirmsNewest) {
+TEST_F(MmrServiceTest, WinThenLossKeepsDirectionalPointsAndConfirmsNewest) {
     EnqueuePostMatch("win", true);
-    fetcher->ProcessPostMatchResponseForTests("win", 1200, 50);
+    fetcher->ProcessPostMatchResponse("win", 1200, 50);
     EnqueuePostMatch("loss", false);
 
-    fetcher->ProcessPostMatchResponseForTests("loss", 1215, 52);
+    fetcher->ProcessPostMatchResponse("loss", 1215, 52);
 
-    const auto points = fetcher->PlaylistMatchPointsForTests("2v2");
+    const auto points = fetcher->PlaylistMatchPoints("2v2");
     ASSERT_EQ(points.size(), 2u);
     EXPECT_EQ(points[0].mmr, 1217);
     EXPECT_LT(points[1].mmr, points[0].mmr);
@@ -628,19 +649,19 @@ TEST_F(MMRFetcherTest, WinThenLossKeepsDirectionalPointsAndConfirmsNewest) {
     EXPECT_FALSE(points[1].valueEstimated);
 }
 
-TEST_F(MMRFetcherTest, EarlyForfeitEstimateStaysDirectionalAfterNextWin) {
+TEST_F(MmrServiceTest, EarlyForfeitEstimateStaysDirectionalAfterNextWin) {
     EnqueuePostMatch(
         "early-forfeit", false, 1274, 352);
-    fetcher->ProcessPostMatchResponseForTests(
+    fetcher->ProcessPostMatchResponse(
         "early-forfeit", 1274, 352);
     EnqueuePostMatch(
         "next-win", true, 1274, 352);
 
-    fetcher->ProcessPostMatchResponseForTests(
+    fetcher->ProcessPostMatchResponse(
         "next-win", 1273, 354);
 
     const auto points =
-        fetcher->PlaylistMatchPointsForTests("2v2");
+        fetcher->PlaylistMatchPoints("2v2");
     ASSERT_EQ(points.size(), 2u);
     EXPECT_EQ(points[0].matchGuid, "early-forfeit");
     EXPECT_EQ(points[0].mmr, 1265);
@@ -652,17 +673,17 @@ TEST_F(MMRFetcherTest, EarlyForfeitEstimateStaysDirectionalAfterNextWin) {
     EXPECT_FALSE(points[1].valueEstimated);
 }
 
-TEST_F(MMRFetcherTest, LargeCorrectionDoesNotReverseKnownLoss) {
+TEST_F(MmrServiceTest, LargeCorrectionDoesNotReverseKnownLoss) {
     EnqueuePostMatch("large-correction-win", true);
-    fetcher->ProcessPostMatchResponseForTests(
+    fetcher->ProcessPostMatchResponse(
         "large-correction-win", 1200, 50);
     EnqueuePostMatch("large-correction-loss", false);
 
-    fetcher->ProcessPostMatchResponseForTests(
+    fetcher->ProcessPostMatchResponse(
         "large-correction-loss", 1220, 52);
 
     const auto points =
-        fetcher->PlaylistMatchPointsForTests("2v2");
+        fetcher->PlaylistMatchPoints("2v2");
     ASSERT_EQ(points.size(), 2u);
     EXPECT_GT(points[0].mmr, 1200);
     EXPECT_EQ(points[1].mmr, 1220);
@@ -671,14 +692,14 @@ TEST_F(MMRFetcherTest, LargeCorrectionDoesNotReverseKnownLoss) {
     EXPECT_FALSE(points[1].valueEstimated);
 }
 
-TEST_F(MMRFetcherTest, TwoWinsWithSmallCumulativeGainRemainIncreasing) {
+TEST_F(MmrServiceTest, TwoWinsWithSmallCumulativeGainRemainIncreasing) {
     EnqueuePostMatch("small-win-a", true);
-    fetcher->ProcessPostMatchResponseForTests("small-win-a", 1200, 50);
+    fetcher->ProcessPostMatchResponse("small-win-a", 1200, 50);
     EnqueuePostMatch("small-win-b", true);
 
-    fetcher->ProcessPostMatchResponseForTests("small-win-b", 1205, 52);
+    fetcher->ProcessPostMatchResponse("small-win-b", 1205, 52);
 
-    const auto points = fetcher->PlaylistMatchPointsForTests("2v2");
+    const auto points = fetcher->PlaylistMatchPoints("2v2");
     ASSERT_EQ(points.size(), 2u);
     EXPECT_EQ(points[0].matchGuid, "small-win-a");
     EXPECT_EQ(points[0].mmr, 1202);
@@ -691,32 +712,32 @@ TEST_F(MMRFetcherTest, TwoWinsWithSmallCumulativeGainRemainIncreasing) {
     EXPECT_FALSE(points[1].valueEstimated);
 }
 
-TEST_F(MMRFetcherTest, ChangedRatingWithoutMatchAdvanceDoesNotConsumePendingMatch) {
+TEST_F(MmrServiceTest, ChangedRatingWithoutMatchAdvanceDoesNotConsumePendingMatch) {
     EnqueuePostMatch("not-published", true);
 
-    fetcher->ProcessPostMatchResponseForTests("not-published", 1209, 50);
+    fetcher->ProcessPostMatchResponse("not-published", 1209, 50);
 
-    auto points = fetcher->PlaylistMatchPointsForTests("2v2");
+    auto points = fetcher->PlaylistMatchPoints("2v2");
     ASSERT_EQ(points.size(), 1u);
     EXPECT_FALSE(points[0].trackerCovered);
     EXPECT_TRUE(points[0].valueEstimated);
     EXPECT_EQ(points[0].mmr, 1209);
 
-    fetcher->ProcessPostMatchResponseForTests("not-published", 1218, 51);
-    points = fetcher->PlaylistMatchPointsForTests("2v2");
+    fetcher->ProcessPostMatchResponse("not-published", 1218, 51);
+    points = fetcher->PlaylistMatchPoints("2v2");
     ASSERT_EQ(points.size(), 1u);
     EXPECT_TRUE(points[0].trackerCovered);
     EXPECT_FALSE(points[0].valueEstimated);
     EXPECT_EQ(points[0].mmr, 1218);
 }
 
-TEST_F(MMRFetcherTest, MissingFetchedCountFallsBackToRatingForOnlyOldestMatch) {
+TEST_F(MmrServiceTest, MissingFetchedCountFallsBackToRatingForOnlyOldestMatch) {
     EnqueuePostMatch("missing-count-a", true);
     EnqueuePostMatch("missing-count-b", true);
 
-    fetcher->ProcessPostMatchResponseForTests("missing-count-b", 1209, -1);
+    fetcher->ProcessPostMatchResponse("missing-count-b", 1209, -1);
 
-    const auto points = fetcher->PlaylistMatchPointsForTests("2v2");
+    const auto points = fetcher->PlaylistMatchPoints("2v2");
     ASSERT_EQ(points.size(), 2u);
     EXPECT_EQ(points[0].matchGuid, "missing-count-a");
     EXPECT_EQ(points[0].mmr, 1209);
@@ -727,14 +748,14 @@ TEST_F(MMRFetcherTest, MissingFetchedCountFallsBackToRatingForOnlyOldestMatch) {
     EXPECT_TRUE(points[1].valueEstimated);
 }
 
-TEST_F(MMRFetcherTest, RepeatedCountlessResponseRequiresNewRatingForSecondMatch) {
+TEST_F(MmrServiceTest, RepeatedCountlessResponseRequiresNewRatingForSecondMatch) {
     EnqueuePostMatch("countless-a", true);
     EnqueuePostMatch("countless-b", true);
 
-    fetcher->ProcessPostMatchResponseForTests("countless-b", 1209, -1);
-    fetcher->ProcessPostMatchResponseForTests("countless-b", 1209, -1);
+    fetcher->ProcessPostMatchResponse("countless-b", 1209, -1);
+    fetcher->ProcessPostMatchResponse("countless-b", 1209, -1);
 
-    auto points = fetcher->PlaylistMatchPointsForTests("2v2");
+    auto points = fetcher->PlaylistMatchPoints("2v2");
     ASSERT_EQ(points.size(), 2u);
     EXPECT_EQ(points[0].matchGuid, "countless-a");
     EXPECT_TRUE(points[0].trackerCovered);
@@ -744,15 +765,15 @@ TEST_F(MMRFetcherTest, RepeatedCountlessResponseRequiresNewRatingForSecondMatch)
     EXPECT_TRUE(points[1].valueEstimated);
 
     // The count later catching up to match A is not evidence for match B.
-    fetcher->ProcessPostMatchResponseForTests("countless-b", 1209, 51);
-    points = fetcher->PlaylistMatchPointsForTests("2v2");
+    fetcher->ProcessPostMatchResponse("countless-b", 1209, 51);
+    points = fetcher->PlaylistMatchPoints("2v2");
     ASSERT_EQ(points.size(), 2u);
     EXPECT_FALSE(points[1].trackerCovered);
     EXPECT_TRUE(points[1].valueEstimated);
 
-    fetcher->ProcessPostMatchResponseForTests("countless-b", 1218, -1);
+    fetcher->ProcessPostMatchResponse("countless-b", 1218, -1);
 
-    points = fetcher->PlaylistMatchPointsForTests("2v2");
+    points = fetcher->PlaylistMatchPoints("2v2");
     ASSERT_EQ(points.size(), 2u);
     EXPECT_EQ(points[1].matchGuid, "countless-b");
     EXPECT_EQ(points[1].mmr, 1218);
@@ -760,28 +781,28 @@ TEST_F(MMRFetcherTest, RepeatedCountlessResponseRequiresNewRatingForSecondMatch)
     EXPECT_FALSE(points[1].valueEstimated);
 }
 
-TEST_F(MMRFetcherTest, SequentialCountlessFallbackCarriesPlaylistBaseline) {
+TEST_F(MmrServiceTest, SequentialCountlessFallbackCarriesPlaylistBaseline) {
     EnqueuePostMatch("sequential-a", true, 1200, 50);
-    fetcher->ProcessPostMatchResponseForTests("sequential-a", 1209, -1);
+    fetcher->ProcessPostMatchResponse("sequential-a", 1209, -1);
 
-    auto points = fetcher->PlaylistMatchPointsForTests("2v2");
+    auto points = fetcher->PlaylistMatchPoints("2v2");
     ASSERT_EQ(points.size(), 1u);
     EXPECT_EQ(points[0].matchGuid, "sequential-a");
     EXPECT_TRUE(points[0].trackerCovered);
     EXPECT_FALSE(points[0].valueEstimated);
 
     EnqueuePostMatch("sequential-b", true, 1209, 50);
-    fetcher->ProcessPostMatchResponseForTests("sequential-b", 1209, 51);
+    fetcher->ProcessPostMatchResponse("sequential-b", 1209, 51);
 
-    points = fetcher->PlaylistMatchPointsForTests("2v2");
+    points = fetcher->PlaylistMatchPoints("2v2");
     ASSERT_EQ(points.size(), 2u);
     EXPECT_EQ(points[1].matchGuid, "sequential-b");
     EXPECT_FALSE(points[1].trackerCovered);
     EXPECT_TRUE(points[1].valueEstimated);
 
-    fetcher->ProcessPostMatchResponseForTests("sequential-b", 1218, -1);
+    fetcher->ProcessPostMatchResponse("sequential-b", 1218, -1);
 
-    points = fetcher->PlaylistMatchPointsForTests("2v2");
+    points = fetcher->PlaylistMatchPoints("2v2");
     ASSERT_EQ(points.size(), 2u);
     EXPECT_EQ(points[1].matchGuid, "sequential-b");
     EXPECT_EQ(points[1].mmr, 1218);
@@ -789,7 +810,7 @@ TEST_F(MMRFetcherTest, SequentialCountlessFallbackCarriesPlaylistBaseline) {
     EXPECT_FALSE(points[1].valueEstimated);
 }
 
-TEST_F(MMRFetcherTest, RosterResponseWithoutMatchesPlayedFallsBackToRating) {
+TEST_F(MmrServiceTest, RosterResponseWithoutMatchesPlayedFallsBackToRating) {
     sessionState->liveMatch->SetLocalPrimaryId("Steam|123");
     EnqueuePostMatch("roster-missing-count", true);
     g_mock_response_code = 200;
@@ -806,9 +827,9 @@ TEST_F(MMRFetcherTest, RosterResponseWithoutMatchesPlayedFallsBackToRating) {
         }
     })";
 
-    fetcher->FetchRosterProfileForTests("Steam|123", "Player");
+    fetcher->FetchRosterProfile("Steam|123", "Player");
 
-    const auto points = fetcher->PlaylistMatchPointsForTests("2v2");
+    const auto points = fetcher->PlaylistMatchPoints("2v2");
     ASSERT_EQ(points.size(), 1u);
     EXPECT_EQ(points[0].matchGuid, "roster-missing-count");
     EXPECT_EQ(points[0].mmr, 1209);
@@ -816,12 +837,12 @@ TEST_F(MMRFetcherTest, RosterResponseWithoutMatchesPlayedFallsBackToRating) {
     EXPECT_FALSE(points[0].valueEstimated);
 }
 
-TEST_F(MMRFetcherTest, UnchangedRatingWithMatchAdvanceConsumesExactlyOneMatch) {
+TEST_F(MmrServiceTest, UnchangedRatingWithMatchAdvanceConsumesExactlyOneMatch) {
     EnqueuePostMatch("unchanged", true);
 
-    fetcher->ProcessPostMatchResponseForTests("unchanged", 1200, 51);
+    fetcher->ProcessPostMatchResponse("unchanged", 1200, 51);
 
-    const auto points = fetcher->PlaylistMatchPointsForTests("2v2");
+    const auto points = fetcher->PlaylistMatchPoints("2v2");
     ASSERT_EQ(points.size(), 1u);
     EXPECT_EQ(points[0].matchGuid, "unchanged");
     EXPECT_EQ(points[0].mmr, 1200);
@@ -829,12 +850,12 @@ TEST_F(MMRFetcherTest, UnchangedRatingWithMatchAdvanceConsumesExactlyOneMatch) {
     EXPECT_FALSE(points[0].valueEstimated);
 }
 
-TEST_F(MMRFetcherTest, KnownPreMatchMmrWithUnknownCountUsesFirstRatingChange) {
+TEST_F(MmrServiceTest, KnownPreMatchMmrWithUnknownCountUsesFirstRatingChange) {
     EnqueuePostMatch("unknown-pre-count", true, 1200, -1);
 
-    fetcher->ProcessPostMatchResponseForTests("unknown-pre-count", 1209, 51);
+    fetcher->ProcessPostMatchResponse("unknown-pre-count", 1209, 51);
 
-    const auto points = fetcher->PlaylistMatchPointsForTests("2v2");
+    const auto points = fetcher->PlaylistMatchPoints("2v2");
     ASSERT_EQ(points.size(), 1u);
     EXPECT_EQ(points[0].matchGuid, "unknown-pre-count");
     EXPECT_EQ(points[0].mmr, 1209);
@@ -843,7 +864,7 @@ TEST_F(MMRFetcherTest, KnownPreMatchMmrWithUnknownCountUsesFirstRatingChange) {
     EXPECT_FALSE(points[0].valueEstimated);
 }
 
-TEST_F(MMRFetcherTest, RosterRefreshDoesNotApplyResultToBestMmrFallback) {
+TEST_F(MmrServiceTest, RosterRefreshDoesNotApplyResultToBestMmrFallback) {
     sessionState->liveMatch->SetLocalPrimaryId("Steam|123");
     EnqueuePostMatch("best-fallback", true, 1300, 50, "2v2", false);
     g_mock_response_code = 200;
@@ -861,9 +882,9 @@ TEST_F(MMRFetcherTest, RosterRefreshDoesNotApplyResultToBestMmrFallback) {
         }
     })";
 
-    fetcher->FetchRosterProfileForTests("Steam|123", "Player");
+    fetcher->FetchRosterProfile("Steam|123", "Player");
 
-    const auto points = fetcher->PlaylistMatchPointsForTests("2v2");
+    const auto points = fetcher->PlaylistMatchPoints("2v2");
     ASSERT_EQ(points.size(), 1u);
     EXPECT_EQ(points[0].matchGuid, "best-fallback");
     EXPECT_EQ(points[0].mmr, 1200);
@@ -872,7 +893,7 @@ TEST_F(MMRFetcherTest, RosterRefreshDoesNotApplyResultToBestMmrFallback) {
     EXPECT_TRUE(points[0].valueEstimated);
 }
 
-TEST_F(MMRFetcherTest, WorkerExhaustsThreeStaleResponsesBeforeOneProvisionalPoint) {
+TEST_F(MmrServiceTest, WorkerExhaustsThreeStaleResponsesBeforeOneProvisionalPoint) {
     g_mock_response_code = 200;
     g_mock_response = R"({
         "data": {
@@ -894,7 +915,7 @@ TEST_F(MMRFetcherTest, WorkerExhaustsThreeStaleResponsesBeforeOneProvisionalPoin
     const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(3);
     std::vector<SessionMmrPoint> points;
     while (std::chrono::steady_clock::now() < deadline) {
-        points = fetcher->PlaylistMatchPointsForTests("2v2");
+        points = fetcher->PlaylistMatchPoints("2v2");
         if (!points.empty() && g_mock_perform_count.load() >= 3) break;
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
@@ -906,42 +927,47 @@ TEST_F(MMRFetcherTest, WorkerExhaustsThreeStaleResponsesBeforeOneProvisionalPoin
     EXPECT_EQ(points[0].mmr, 1209);
     EXPECT_FALSE(points[0].trackerCovered);
     EXPECT_TRUE(points[0].valueEstimated);
-    EXPECT_EQ(fetcher->PendingRequestCountForTests(), 0u);
+    EXPECT_EQ(fetcher->PendingRequestCount(), 0u);
 }
 
-TEST_F(MMRFetcherTest, TrackerDecreaseConfirmsDestroyedMatchLossOnce) {
+TEST_F(MmrServiceTest, TrackerDecreaseConfirmsDestroyedMatchLossOnce) {
     std::vector<std::pair<std::string, bool>> confirmations;
     fetcher->SetDestroyedMatchConfirmationCallback(
         [&](const std::string& matchGuid, bool won) {
+            const auto published = fetcher->PlaylistMatchPoints("2v2");
+            ASSERT_EQ(published.size(), 1u);
+            EXPECT_EQ(published[0].matchGuid, matchGuid);
+            EXPECT_TRUE(published[0].trackerCovered);
+            fetcher->ResolvePendingDestroyedMatch(matchGuid, won);
             confirmations.emplace_back(matchGuid, won);
         });
     EnqueueDestroyedMatch("destroyed-loss", 1200, 50);
 
-    fetcher->ProcessPostMatchResponseForTests(
+    fetcher->ProcessPostMatchResponse(
         "destroyed-loss", 1191, 51);
 
     ASSERT_EQ(confirmations.size(), 1u);
     EXPECT_EQ(confirmations[0].first, "destroyed-loss");
     EXPECT_FALSE(confirmations[0].second);
     EXPECT_FALSE(
-        fetcher->HasPendingDestroyedMatchForTests(
+        fetcher->HasPendingDestroyedMatch(
             "destroyed-loss"));
     const auto points =
-        fetcher->PlaylistMatchPointsForTests("2v2");
+        fetcher->PlaylistMatchPoints("2v2");
     ASSERT_EQ(points.size(), 1u);
     EXPECT_EQ(points[0].matchGuid, "destroyed-loss");
     EXPECT_EQ(points[0].mmr, 1191);
     EXPECT_TRUE(points[0].trackerCovered);
 
-    fetcher->ProcessPostMatchResponseForTests(
+    fetcher->ProcessPostMatchResponse(
         "destroyed-loss", 1191, 51);
     EXPECT_EQ(confirmations.size(), 1u);
     EXPECT_EQ(
-        fetcher->PlaylistMatchPointsForTests("2v2").size(),
+        fetcher->PlaylistMatchPoints("2v2").size(),
         1u);
 }
 
-TEST_F(MMRFetcherTest, TrackerIncreaseConfirmsDestroyedMatchWin) {
+TEST_F(MmrServiceTest, TrackerIncreaseConfirmsDestroyedMatchWin) {
     std::vector<std::pair<std::string, bool>> confirmations;
     fetcher->SetDestroyedMatchConfirmationCallback(
         [&](const std::string& matchGuid, bool won) {
@@ -949,19 +975,19 @@ TEST_F(MMRFetcherTest, TrackerIncreaseConfirmsDestroyedMatchWin) {
         });
     EnqueueDestroyedMatch("destroyed-win", 1200, 50);
 
-    fetcher->ProcessPostMatchResponseForTests(
+    fetcher->ProcessPostMatchResponse(
         "destroyed-win", 1209, 51);
 
     ASSERT_EQ(confirmations.size(), 1u);
     EXPECT_EQ(confirmations[0].first, "destroyed-win");
     EXPECT_TRUE(confirmations[0].second);
     const auto points =
-        fetcher->PlaylistMatchPointsForTests("2v2");
+        fetcher->PlaylistMatchPoints("2v2");
     ASSERT_EQ(points.size(), 1u);
     EXPECT_EQ(points[0].mmr, 1209);
 }
 
-TEST_F(MMRFetcherTest, UnpublishedDestroyedMatchRemainsUnconfirmed) {
+TEST_F(MmrServiceTest, UnpublishedDestroyedMatchRemainsUnconfirmed) {
     std::vector<std::pair<std::string, bool>> confirmations;
     fetcher->SetDestroyedMatchConfirmationCallback(
         [&](const std::string& matchGuid, bool won) {
@@ -969,22 +995,22 @@ TEST_F(MMRFetcherTest, UnpublishedDestroyedMatchRemainsUnconfirmed) {
         });
     EnqueueDestroyedMatch("unconfirmed-disconnect", 1200, 50);
 
-    fetcher->ProcessPostMatchResponseForTests(
+    fetcher->ProcessPostMatchResponse(
         "unconfirmed-disconnect", 1200, 50);
 
     EXPECT_TRUE(confirmations.empty());
     EXPECT_TRUE(
-        fetcher->HasPendingDestroyedMatchForTests(
+        fetcher->HasPendingDestroyedMatch(
             "unconfirmed-disconnect"));
     const auto points =
-        fetcher->PlaylistMatchPointsForTests("2v2");
+        fetcher->PlaylistMatchPoints("2v2");
     ASSERT_EQ(points.size(), 1u);
     EXPECT_EQ(points[0].matchGuid, "unconfirmed-disconnect");
     EXPECT_EQ(points[0].mmr, 1200);
     EXPECT_FALSE(points[0].trackerCovered);
 }
 
-TEST_F(MMRFetcherTest, PartialSameBaselinePublicationKeepsDestroyedMatchPending) {
+TEST_F(MmrServiceTest, PartialSameBaselinePublicationKeepsDestroyedMatchPending) {
     std::vector<std::pair<std::string, bool>> confirmations;
     fetcher->SetDestroyedMatchConfirmationCallback(
         [&](const std::string& matchGuid, bool won) {
@@ -992,7 +1018,7 @@ TEST_F(MMRFetcherTest, PartialSameBaselinePublicationKeepsDestroyedMatchPending)
         });
     EnqueueDestroyedMatch(
         "partial-publication-a", 1200, 50);
-    fetcher->ProcessPostMatchResponseForTests(
+    fetcher->ProcessPostMatchResponse(
         "partial-publication-a", 1200, 50);
     EnqueuePostMatch(
         "partial-publication-b",
@@ -1002,15 +1028,15 @@ TEST_F(MMRFetcherTest, PartialSameBaselinePublicationKeepsDestroyedMatchPending)
         "2v2",
         true);
 
-    fetcher->ProcessPostMatchResponseForTests(
+    fetcher->ProcessPostMatchResponse(
         "partial-publication-b", 1209, 51);
 
     EXPECT_TRUE(confirmations.empty());
     EXPECT_TRUE(
-        fetcher->HasPendingDestroyedMatchForTests(
+        fetcher->HasPendingDestroyedMatch(
             "partial-publication-a"));
     const auto partialPoints =
-        fetcher->PlaylistMatchPointsForTests("2v2");
+        fetcher->PlaylistMatchPoints("2v2");
     ASSERT_EQ(partialPoints.size(), 2u);
     EXPECT_EQ(
         partialPoints[0].matchGuid,
@@ -1021,15 +1047,15 @@ TEST_F(MMRFetcherTest, PartialSameBaselinePublicationKeepsDestroyedMatchPending)
     EXPECT_FALSE(partialPoints[0].trackerCovered);
     EXPECT_FALSE(partialPoints[1].trackerCovered);
 
-    fetcher->ProcessPostMatchResponseForTests(
+    fetcher->ProcessPostMatchResponse(
         "partial-publication-a", 1209, 51);
 
     EXPECT_TRUE(confirmations.empty());
     EXPECT_TRUE(
-        fetcher->HasPendingDestroyedMatchForTests(
+        fetcher->HasPendingDestroyedMatch(
             "partial-publication-a"));
 
-    fetcher->ProcessPostMatchResponseForTests(
+    fetcher->ProcessPostMatchResponse(
         "partial-publication-b", 1200, 52);
 
     ASSERT_EQ(confirmations.size(), 1u);
@@ -1038,16 +1064,16 @@ TEST_F(MMRFetcherTest, PartialSameBaselinePublicationKeepsDestroyedMatchPending)
         "partial-publication-a");
     EXPECT_FALSE(confirmations[0].second);
     EXPECT_FALSE(
-        fetcher->HasPendingDestroyedMatchForTests(
+        fetcher->HasPendingDestroyedMatch(
             "partial-publication-a"));
     const auto confirmedPoints =
-        fetcher->PlaylistMatchPointsForTests("2v2");
+        fetcher->PlaylistMatchPoints("2v2");
     ASSERT_EQ(confirmedPoints.size(), 2u);
     EXPECT_TRUE(confirmedPoints[0].trackerCovered);
     EXPECT_TRUE(confirmedPoints[1].trackerCovered);
 }
 
-TEST_F(MMRFetcherTest, CumulativeCatchUpPreservesDestroyedThenNormalMatch) {
+TEST_F(MmrServiceTest, CumulativeCatchUpPreservesDestroyedThenNormalMatch) {
     std::vector<std::pair<std::string, bool>> confirmations;
     fetcher->SetDestroyedMatchConfirmationCallback(
         [&](const std::string& matchGuid, bool won) {
@@ -1057,14 +1083,14 @@ TEST_F(MMRFetcherTest, CumulativeCatchUpPreservesDestroyedThenNormalMatch) {
     EnqueuePostMatch(
         "catch-up-b", true, 1200, 11, "2v2", true);
 
-    fetcher->ProcessPostMatchResponseForTests(
+    fetcher->ProcessPostMatchResponse(
         "catch-up-b", 1200, 13);
 
     ASSERT_EQ(confirmations.size(), 1u);
     EXPECT_EQ(confirmations[0].first, "catch-up-a");
     EXPECT_FALSE(confirmations[0].second);
     const auto points =
-        fetcher->PlaylistMatchPointsForTests("2v2");
+        fetcher->PlaylistMatchPoints("2v2");
     ASSERT_EQ(points.size(), 2u);
     EXPECT_EQ(points[0].matchGuid, "catch-up-a");
     EXPECT_EQ(points[0].mmr, 1195);
@@ -1073,11 +1099,11 @@ TEST_F(MMRFetcherTest, CumulativeCatchUpPreservesDestroyedThenNormalMatch) {
     EXPECT_TRUE(points[0].trackerCovered);
     EXPECT_TRUE(points[1].trackerCovered);
     EXPECT_FALSE(
-        fetcher->HasPendingDestroyedMatchForTests(
+        fetcher->HasPendingDestroyedMatch(
             "catch-up-a"));
 }
 
-TEST_F(MMRFetcherTest, ScoreResolvesAmbiguousDestroyedMatchCatchUp) {
+TEST_F(MmrServiceTest, ScoreResolvesAmbiguousDestroyedMatchCatchUp) {
     std::vector<std::pair<std::string, bool>> confirmations;
     fetcher->SetDestroyedMatchConfirmationCallback(
         [&](const std::string& matchGuid, bool won) {
@@ -1092,18 +1118,18 @@ TEST_F(MMRFetcherTest, ScoreResolvesAmbiguousDestroyedMatchCatchUp) {
     EnqueuePostMatch(
         "score-catch-up-b", false, 680, 254, "1v1", true);
 
-    fetcher->ProcessPostMatchResponseForTests(
+    fetcher->ProcessPostMatchResponse(
         "score-catch-up-b", 653, 256);
 
     ASSERT_EQ(confirmations.size(), 1u);
     EXPECT_EQ(confirmations[0].first, "score-catch-up-a");
     EXPECT_TRUE(confirmations[0].second);
     EXPECT_FALSE(
-        fetcher->HasPendingDestroyedMatchForTests(
+        fetcher->HasPendingDestroyedMatch(
             "score-catch-up-a"));
 }
 
-TEST_F(MMRFetcherTest, ImpossibleLowMmrPathDoesNotInferDestroyedLoss) {
+TEST_F(MmrServiceTest, ImpossibleLowMmrPathDoesNotInferDestroyedLoss) {
     std::vector<std::pair<std::string, bool>> confirmations;
     fetcher->SetDestroyedMatchConfirmationCallback(
         [&](const std::string& matchGuid, bool won) {
@@ -1113,16 +1139,16 @@ TEST_F(MMRFetcherTest, ImpossibleLowMmrPathDoesNotInferDestroyedLoss) {
     EnqueuePostMatch(
         "low-mmr-win", true, 5, 11, "2v2", true);
 
-    fetcher->ProcessPostMatchResponseForTests(
+    fetcher->ProcessPostMatchResponse(
         "low-mmr-win", 5, 13);
 
     EXPECT_TRUE(confirmations.empty());
     EXPECT_TRUE(
-        fetcher->HasPendingDestroyedMatchForTests(
+        fetcher->HasPendingDestroyedMatch(
             "low-mmr-unknown"));
 }
 
-TEST_F(MMRFetcherTest, ConfirmationDuringNextMatchRefreshesItsPreMatchBaseline) {
+TEST_F(MmrServiceTest, ConfirmationDuringNextMatchRefreshesItsPreMatchBaseline) {
     std::vector<std::pair<std::string, bool>> confirmations;
     fetcher->SetDestroyedMatchConfirmationCallback(
         [&](const std::string& matchGuid, bool won) {
@@ -1139,7 +1165,7 @@ TEST_F(MMRFetcherTest, ConfirmationDuringNextMatchRefreshesItsPreMatchBaseline) 
                 .playlistMatches = {{"2v2", 46}}};
     });
 
-    fetcher->ProcessPostMatchResponseForTests("previous-loss", 1005, 47);
+    fetcher->ProcessPostMatchResponse("previous-loss", 1005, 47);
 
     ASSERT_EQ(confirmations.size(), 1u);
     EXPECT_FALSE(confirmations[0].second);
@@ -1161,7 +1187,7 @@ TEST_F(MMRFetcherTest, ConfirmationDuringNextMatchRefreshesItsPreMatchBaseline) 
     next.validCompetitiveMatch = true;
     fetcher->EnqueuePendingDestroyedMatch(next);
 
-    fetcher->ProcessPostMatchResponseForTests("next-win", 1014, 48);
+    fetcher->ProcessPostMatchResponse("next-win", 1014, 48);
 
     ASSERT_EQ(confirmations.size(), 2u);
     EXPECT_EQ(confirmations[1].first, "next-win");
@@ -1188,41 +1214,22 @@ TEST(SessionMmrAggregationTest, SumsOnlyTrackedCompetitivePlaylists) {
     EXPECT_EQ(totalMmrChange, 40);
 }
 
-TEST(MMRFetcherPostMatchTest, KeepsPostMatchRequestBehindRosterRequest) {
+TEST(MmrServicePostMatchTest, KeepsPostMatchRequestBehindRosterRequest) {
     const ConfigData original = Config::Read();
     Config::Update([](ConfigData& config) { config.enable_mmr_tracking = true; }, false);
 
     auto state = std::make_shared<SessionState>();
-    MMRFetcher fetcher(state);
+    MmrService fetcher(state);
     fetcher.Enqueue("Steam|123", "Player");
     fetcher.EnqueuePostMatch("Steam|123", "Player", "match-guid", "2v2", 1200, 50, true, true);
     fetcher.EnqueuePostMatch("Steam|123", "Player", "match-guid", "2v2", 1200, 50, true, true);
 
-    EXPECT_EQ(fetcher.PendingRequestCountForTests(), 2u);
+    EXPECT_EQ(fetcher.PendingRequestCount(), 2u);
 
     Config::Update([&](ConfigData& config) { config = original; }, false);
 }
 
-namespace {
-    void SetUpSignedInDeviceAuth(bool enableMmrTracking = false) {
-        auto& account = AccountClient::Instance();
-        AccountClient::DeviceKeyPair keyPair;
-        account.EnsureDeviceKey(&keyPair);
-        Config::Update([&](ConfigData& c) {
-            c.enable_mmr_tracking = enableMmrTracking;
-            c.custom_api_enabled = true;
-            c.account_refresh_token = "valid_refresh_token";
-            c.account_signed_in_name = "SignedInPlayer";
-            c.account_device_public_id = keyPair.publicId;
-        },
-                       false);
-        account.SyncFromConfig();
-        account.SetClockForTests([]() { return 1700000000; });
-        account.SetCachedAccessTokenForTests("bearer_token_abc", 1700000900);
-    }
-} // namespace
-
-TEST_F(MMRFetcherTest, ConfiguredLegacyKeyAloneCannotAuthorizeRankLookups) {
+TEST_F(MmrServiceTest, ConfiguredLegacyKeyAloneCannotAuthorizeRankLookups) {
     Config::Update([](ConfigData& c) {
         c.custom_api_enabled = true;
         c.custom_api_key = "legacy_secret_key";
@@ -1232,24 +1239,24 @@ TEST_F(MMRFetcherTest, ConfiguredLegacyKeyAloneCannotAuthorizeRankLookups) {
         c.account_device_public_id.clear();
     },
                    false);
-    AccountClient::Instance().SyncFromConfig();
+    accountClient->SyncFromConfig();
 
-    EXPECT_FALSE(AccountClient::Instance().IsSignedIn());
-    EXPECT_EQ(MMRFetcher::ActiveRankProvider(), RankProvider::Unavailable);
-    EXPECT_FALSE(fetcher->IsCustomApiActiveSourceForTests());
+    EXPECT_FALSE(accountClient->IsSignedIn());
+    EXPECT_EQ(MmrService::ActiveRankProvider(), RankProvider::Unavailable);
+    EXPECT_FALSE(fetcher->IsCustomApiActiveSource());
 
     MMRRequest req;
     req.primaryId = "Epic|test_epic_id|0";
     req.name = "TestPlayer";
-    EXPECT_EQ(fetcher->FetchProfileFromCustomApiForTests(req), CustomApiFetchResult::DisabledOrNotReady);
+    EXPECT_EQ(fetcher->FetchProfileFromCustomApi(req), CustomApiFetchResult::DisabledOrNotReady);
     EXPECT_EQ(g_mock_perform_count.load(), 0);
 
     Config::Update([](ConfigData& c) {
         c.enable_mmr_tracking = true;
     },
                    false);
-    EXPECT_EQ(MMRFetcher::ActiveRankProvider(), RankProvider::Tracker);
-    EXPECT_FALSE(fetcher->IsCustomApiActiveSourceForTests());
+    EXPECT_EQ(MmrService::ActiveRankProvider(), RankProvider::Tracker);
+    EXPECT_FALSE(fetcher->IsCustomApiActiveSource());
 
     sessionState->liveMatch->UpdateMatchStateForTests([](MatchState& ms) {
         ms.myPrimaryId = "Epic|test_epic_id|0";
@@ -1261,14 +1268,14 @@ TEST_F(MMRFetcherTest, ConfiguredLegacyKeyAloneCannotAuthorizeRankLookups) {
     g_mock_custom_api_response =
         R"({"players":[{"platform":"Epic","account_id":"test_epic_id","skills":[{"playlist":11,"mmr":1250}]}]})";
 
-    fetcher->FetchRosterProfileForTests("Epic|test_epic_id|0", "TestPlayer");
+    fetcher->FetchRosterProfile("Epic|test_epic_id|0", "TestPlayer");
 
     for (const auto& h : g_mock_request_headers) {
         EXPECT_TRUE(h.rfind("X-API-Key:", 0) != 0);
     }
 }
 
-TEST_F(MMRFetcherTest, CustomApiMultipleSkillsParsesAllAndSetsBest) {
+TEST_F(MmrServiceTest, CustomApiMultipleSkillsParsesAllAndSetsBest) {
     SetUpSignedInDeviceAuth(false);
     g_mock_custom_api_response_code = 200;
     g_mock_custom_api_response = R"({
@@ -1288,7 +1295,7 @@ TEST_F(MMRFetcherTest, CustomApiMultipleSkillsParsesAllAndSetsBest) {
     sessionState->liveMatch->UpdateMatchStateForTests([](MatchState& ms) {
         ms.roster["Epic|test_epic_id"] = PlayerData{.primaryId = "Epic|test_epic_id", .name = "TestPlayer"};
     });
-    fetcher->FetchRosterProfileForTests("Epic|test_epic_id", "TestPlayer");
+    fetcher->FetchRosterProfile("Epic|test_epic_id", "TestPlayer");
 
     auto snap = sessionState->liveMatch->GetSnapshot();
     ASSERT_TRUE(snap->roster.count("Epic|test_epic_id") > 0);
@@ -1305,10 +1312,10 @@ TEST_F(MMRFetcherTest, CustomApiMultipleSkillsParsesAllAndSetsBest) {
     EXPECT_EQ(player.mmr, 1250);
     EXPECT_EQ(player.rankTier, "Diamond II Div III");
     EXPECT_EQ(player.playlistTiers.at("best"), "Diamond II Div III");
-    EXPECT_EQ(player.playlistTiers.at("t"), MMRFetcher::GetTournamentTierForMmr(1300));
+    EXPECT_EQ(player.playlistTiers.at("t"), MmrService::GetTournamentTierForMmr(1300));
 }
 
-TEST_F(MMRFetcherTest, CustomApiSingleSkillParsesCorrectly) {
+TEST_F(MmrServiceTest, CustomApiSingleSkillParsesCorrectly) {
     SetUpSignedInDeviceAuth(false);
     g_mock_custom_api_response_code = 200;
     g_mock_custom_api_response = R"({
@@ -1327,7 +1334,7 @@ TEST_F(MMRFetcherTest, CustomApiSingleSkillParsesCorrectly) {
     MMRRequest req;
     req.primaryId = "Steam|76561198000000000|0";
     req.name = "SteamPlayer";
-    const auto res = fetcher->FetchProfileFromCustomApiForTests(req);
+    const auto res = fetcher->FetchProfileFromCustomApi(req);
     EXPECT_EQ(res, CustomApiFetchResult::SuccessFinished);
 
     auto snap = sessionState->liveMatch->GetSnapshot();
@@ -1340,7 +1347,7 @@ TEST_F(MMRFetcherTest, CustomApiSingleSkillParsesCorrectly) {
     EXPECT_EQ(player.playlists.at("best"), 1050);
 }
 
-TEST_F(MMRFetcherTest, CustomApiEmptySkillsReturnsUnusableDataAndPreventsFalseSuccess) {
+TEST_F(MmrServiceTest, CustomApiEmptySkillsReturnsUnusableDataAndPreventsFalseSuccess) {
     SetUpSignedInDeviceAuth(true);
     g_mock_response_code = 403;
     g_mock_custom_api_response_code = 200;
@@ -1355,11 +1362,11 @@ TEST_F(MMRFetcherTest, CustomApiEmptySkillsReturnsUnusableDataAndPreventsFalseSu
     MMRRequest req;
     req.primaryId = "XboxOne|2535421607154237|0";
     req.name = "RollrTraks2x";
-    const auto res = fetcher->FetchProfileFromCustomApiForTests(req);
+    const auto res = fetcher->FetchProfileFromCustomApi(req);
     EXPECT_EQ(res, CustomApiFetchResult::UnusableData);
 
     // Now test full path: Tracker 403 followed by custom API fallback
-    fetcher->FetchRosterProfileForTests("XboxOne|2535421607154237|0", "RollrTraks2x");
+    fetcher->FetchRosterProfile("XboxOne|2535421607154237|0", "RollrTraks2x");
 
     auto snap = sessionState->liveMatch->GetSnapshot();
     if (snap->roster.count("XboxOne|2535421607154237|0")) {
@@ -1369,7 +1376,7 @@ TEST_F(MMRFetcherTest, CustomApiEmptySkillsReturnsUnusableDataAndPreventsFalseSu
     }
 }
 
-TEST_F(MMRFetcherTest, CustomApiUnrecognizedPlaylistIdsReturnsUnusableData) {
+TEST_F(MmrServiceTest, CustomApiUnrecognizedPlaylistIdsReturnsUnusableData) {
     SetUpSignedInDeviceAuth(false);
     g_mock_custom_api_response_code = 200;
     g_mock_custom_api_response = R"({
@@ -1385,11 +1392,11 @@ TEST_F(MMRFetcherTest, CustomApiUnrecognizedPlaylistIdsReturnsUnusableData) {
     MMRRequest req;
     req.primaryId = "Epic|test_epic_id|0";
     req.name = "TestPlayer";
-    const auto res = fetcher->FetchProfileFromCustomApiForTests(req);
+    const auto res = fetcher->FetchProfileFromCustomApi(req);
     EXPECT_EQ(res, CustomApiFetchResult::UnusableData);
 }
 
-TEST_F(MMRFetcherTest, CustomApiMissingOrInvalidMmrReturnsUnusableData) {
+TEST_F(MmrServiceTest, CustomApiMissingOrInvalidMmrReturnsUnusableData) {
     SetUpSignedInDeviceAuth(false);
     g_mock_custom_api_response_code = 200;
     g_mock_custom_api_response = R"({
@@ -1406,11 +1413,11 @@ TEST_F(MMRFetcherTest, CustomApiMissingOrInvalidMmrReturnsUnusableData) {
     MMRRequest req;
     req.primaryId = "Epic|test_epic_id|0";
     req.name = "TestPlayer";
-    const auto res = fetcher->FetchProfileFromCustomApiForTests(req);
+    const auto res = fetcher->FetchProfileFromCustomApi(req);
     EXPECT_EQ(res, CustomApiFetchResult::UnusableData);
 }
 
-TEST_F(MMRFetcherTest, CustomApiMissingPlayersArrayReturnsUnusableData) {
+TEST_F(MmrServiceTest, CustomApiMissingPlayersArrayReturnsUnusableData) {
     SetUpSignedInDeviceAuth(false);
     g_mock_custom_api_response_code = 200;
     g_mock_custom_api_response = R"({ "players": [] })";
@@ -1418,11 +1425,11 @@ TEST_F(MMRFetcherTest, CustomApiMissingPlayersArrayReturnsUnusableData) {
     MMRRequest req;
     req.primaryId = "Epic|test_epic_id|0";
     req.name = "TestPlayer";
-    const auto res = fetcher->FetchProfileFromCustomApiForTests(req);
+    const auto res = fetcher->FetchProfileFromCustomApi(req);
     EXPECT_EQ(res, CustomApiFetchResult::UnusableData);
 }
 
-TEST_F(MMRFetcherTest, CustomApiMalformedJsonReturnsUnusableData) {
+TEST_F(MmrServiceTest, CustomApiMalformedJsonReturnsUnusableData) {
     SetUpSignedInDeviceAuth(false);
     g_mock_custom_api_response_code = 200;
     g_mock_custom_api_response = "{ not valid json";
@@ -1430,11 +1437,11 @@ TEST_F(MMRFetcherTest, CustomApiMalformedJsonReturnsUnusableData) {
     MMRRequest req;
     req.primaryId = "Epic|test_epic_id|0";
     req.name = "TestPlayer";
-    const auto res = fetcher->FetchProfileFromCustomApiForTests(req);
+    const auto res = fetcher->FetchProfileFromCustomApi(req);
     EXPECT_EQ(res, CustomApiFetchResult::UnusableData);
 }
 
-TEST_F(MMRFetcherTest, CustomApiNotFound404ReturnsUnusableData) {
+TEST_F(MmrServiceTest, CustomApiNotFound404ReturnsUnusableData) {
     SetUpSignedInDeviceAuth(false);
     g_mock_custom_api_response_code = 404;
     g_mock_custom_api_response = R"({"error": {"code": "not_found", "message": "Player not found"}})";
@@ -1442,10 +1449,10 @@ TEST_F(MMRFetcherTest, CustomApiNotFound404ReturnsUnusableData) {
     MMRRequest req;
     req.primaryId = "Epic|test_epic_id|0";
     req.name = "TestPlayer";
-    EXPECT_EQ(fetcher->FetchProfileFromCustomApiForTests(req), CustomApiFetchResult::UnusableData);
+    EXPECT_EQ(fetcher->FetchProfileFromCustomApi(req), CustomApiFetchResult::UnusableData);
 }
 
-TEST_F(MMRFetcherTest, CustomApiServerAndNetworkFailureReturnsTransientError) {
+TEST_F(MmrServiceTest, CustomApiServerAndNetworkFailureReturnsTransientError) {
     SetUpSignedInDeviceAuth(false);
 
     MMRRequest req;
@@ -1454,14 +1461,14 @@ TEST_F(MMRFetcherTest, CustomApiServerAndNetworkFailureReturnsTransientError) {
 
     g_mock_custom_api_response_code = 500;
     g_mock_custom_api_response = R"({"error": {"code": "server_error", "message": "Internal error"}})";
-    EXPECT_EQ(fetcher->FetchProfileFromCustomApiForTests(req), CustomApiFetchResult::TransientError);
+    EXPECT_EQ(fetcher->FetchProfileFromCustomApi(req), CustomApiFetchResult::TransientError);
 
     g_mock_custom_api_response_code = 200;
     g_mock_custom_api_perform_res = 7; // CURLE_COULDNT_CONNECT
-    EXPECT_EQ(fetcher->FetchProfileFromCustomApiForTests(req), CustomApiFetchResult::TransientError);
+    EXPECT_EQ(fetcher->FetchProfileFromCustomApi(req), CustomApiFetchResult::TransientError);
 }
 
-TEST_F(MMRFetcherTest, CustomApiXboxPlayerResponseHandledCorrectly) {
+TEST_F(MmrServiceTest, CustomApiXboxPlayerResponseHandledCorrectly) {
     SetUpSignedInDeviceAuth(false);
     g_mock_custom_api_response_code = 200;
     g_mock_custom_api_response = R"({
@@ -1480,7 +1487,7 @@ TEST_F(MMRFetcherTest, CustomApiXboxPlayerResponseHandledCorrectly) {
     MMRRequest req;
     req.primaryId = "XboxOne|2535421607154237|0";
     req.name = "RollrTraks2x";
-    const auto res = fetcher->FetchProfileFromCustomApiForTests(req);
+    const auto res = fetcher->FetchProfileFromCustomApi(req);
     EXPECT_EQ(res, CustomApiFetchResult::SuccessFinished);
 
     auto snap = sessionState->liveMatch->GetSnapshot();
@@ -1495,7 +1502,7 @@ TEST_F(MMRFetcherTest, CustomApiXboxPlayerResponseHandledCorrectly) {
     EXPECT_EQ(player.rankTier, "Champion I Div II");
 }
 
-TEST_F(MMRFetcherTest, CustomApiPlatformMappingsSupported) {
+TEST_F(MmrServiceTest, CustomApiPlatformMappingsSupported) {
     SetUpSignedInDeviceAuth(false);
     g_mock_custom_api_response_code = 200;
 
@@ -1522,7 +1529,7 @@ TEST_F(MMRFetcherTest, CustomApiPlatformMappingsSupported) {
         MMRRequest req;
         req.primaryId = primaryId;
         req.name = "PlatformTestPlayer";
-        const auto res = fetcher->FetchProfileFromCustomApiForTests(req);
+        const auto res = fetcher->FetchProfileFromCustomApi(req);
         EXPECT_EQ(res, CustomApiFetchResult::SuccessFinished);
 
         auto snap = sessionState->liveMatch->GetSnapshot();
@@ -1531,7 +1538,7 @@ TEST_F(MMRFetcherTest, CustomApiPlatformMappingsSupported) {
     }
 }
 
-TEST_F(MMRFetcherTest, CustomApiUpdatesLocalPlayerHistoryAndCache) {
+TEST_F(MmrServiceTest, CustomApiUpdatesLocalPlayerHistoryAndCache) {
     sessionState->liveMatch->SetLocalPrimaryId("Epic|local_hero_id|0");
     SetUpSignedInDeviceAuth(false);
     g_mock_custom_api_response_code = 200;
@@ -1549,7 +1556,7 @@ TEST_F(MMRFetcherTest, CustomApiUpdatesLocalPlayerHistoryAndCache) {
     req.name = "LocalHero";
     req.reason = MMRRequestReason::Roster;
 
-    const auto res = fetcher->FetchProfileFromCustomApiForTests(req);
+    const auto res = fetcher->FetchProfileFromCustomApi(req);
     EXPECT_EQ(res, CustomApiFetchResult::SuccessFinished);
 
     {
@@ -1563,7 +1570,7 @@ TEST_F(MMRFetcherTest, CustomApiUpdatesLocalPlayerHistoryAndCache) {
     }
 }
 
-TEST_F(MMRFetcherTest, SwitchingAccountsKeepsEachSessionGraphOnItsOwnRating) {
+TEST_F(MmrServiceTest, SwitchingAccountsKeepsEachSessionGraphOnItsOwnRating) {
     const std::string firstId = "Epic|first_account|0";
     const std::string secondId = "Epic|second_account|0";
     SetUpSignedInDeviceAuth(false);
@@ -1578,13 +1585,13 @@ TEST_F(MMRFetcherTest, SwitchingAccountsKeepsEachSessionGraphOnItsOwnRating) {
         MMRRequest req;
         req.primaryId = primaryId;
         req.reason = MMRRequestReason::Roster;
-        return fetcher->FetchProfileFromCustomApiForTests(req);
+        return fetcher->FetchProfileFromCustomApi(req);
     };
 
     sessionState->liveMatch->SetLocalPrimaryId(firstId);
     ASSERT_EQ(fetch(firstId, "first_account", 1425, 63), CustomApiFetchResult::SuccessFinished);
     fetcher->EnqueuePostMatch(firstId, "First", "first-loss", "2v2", 1425, 63, true, false);
-    fetcher->ProcessPostMatchResponseForTests("first-loss", 1416, 64);
+    fetcher->ProcessPostMatchResponse("first-loss", 1416, 64);
 
     sessionState->liveMatch->SetLocalPrimaryId(secondId);
     {
@@ -1594,7 +1601,7 @@ TEST_F(MMRFetcherTest, SwitchingAccountsKeepsEachSessionGraphOnItsOwnRating) {
     }
     ASSERT_EQ(fetch(secondId, "second_account", 1379, 22), CustomApiFetchResult::SuccessFinished);
     fetcher->EnqueuePostMatch(firstId, "First", "late-loss", "2v2", 1416, 64, true, false);
-    fetcher->ProcessPostMatchResponseForTests("late-loss", 1407, 65);
+    fetcher->ProcessPostMatchResponse("late-loss", 1407, 65);
     {
         std::shared_lock lock(sessionState->history.mutex);
         EXPECT_EQ(sessionState->history.playlistHistoryY.at("2v2"), (std::vector<float>{1379.0f}));
@@ -1617,8 +1624,8 @@ TEST_F(MMRFetcherTest, SwitchingAccountsKeepsEachSessionGraphOnItsOwnRating) {
     EXPECT_EQ(sessionState->history.playlistMatchPoints.at("2v2")[1].mmr, 1407);
 }
 
-TEST_F(MMRFetcherTest, SignedInUsesBearerHeadersAndIsPrimaryForAllPlayers) {
-    auto& account = AccountClient::Instance();
+TEST_F(MmrServiceTest, SignedInUsesBearerHeadersAndIsPrimaryForAllPlayers) {
+    auto& account = *accountClient;
     AccountClient::DeviceKeyPair keyPair;
     ASSERT_TRUE(account.EnsureDeviceKey(&keyPair));
     Config::Update([&](ConfigData& c) {
@@ -1660,7 +1667,7 @@ TEST_F(MMRFetcherTest, SignedInUsesBearerHeadersAndIsPrimaryForAllPlayers) {
         return res;
     });
 
-    fetcher->FetchRosterProfileForTests("Epic|opp_id", "Opponent");
+    fetcher->FetchRosterProfile("Epic|opp_id", "Opponent");
 
     EXPECT_EQ(g_mock_perform_count.load(), 1);
     EXPECT_EQ(capturedReq.op, OmniNet::Op::Ranks);
@@ -1672,8 +1679,8 @@ TEST_F(MMRFetcherTest, SignedInUsesBearerHeadersAndIsPrimaryForAllPlayers) {
     EXPECT_EQ(snap->roster.at("Epic|opp_id").rankVerificationSource, "ServerA");
 }
 
-TEST_F(MMRFetcherTest, SignedIn401RefreshesOnceAndRetriesOnceBeforeSigningOutOnSecond401) {
-    auto& account = AccountClient::Instance();
+TEST_F(MmrServiceTest, SignedIn401RefreshesOnceAndRetriesOnceBeforeSigningOutOnSecond401) {
+    auto& account = *accountClient;
     AccountClient::DeviceKeyPair keyPair;
     ASSERT_TRUE(account.EnsureDeviceKey(&keyPair));
     Config::Update([&](ConfigData& c) {
@@ -1720,7 +1727,7 @@ TEST_F(MMRFetcherTest, SignedIn401RefreshesOnceAndRetriesOnceBeforeSigningOutOnS
     MMRRequest req;
     req.primaryId = "Steam|76561198000000001";
     req.name = "PlayerOne";
-    EXPECT_EQ(fetcher->FetchProfileFromCustomApiForTests(req), CustomApiFetchResult::SuccessFinished);
+    EXPECT_EQ(fetcher->FetchProfileFromCustomApi(req), CustomApiFetchResult::SuccessFinished);
     EXPECT_EQ(refreshCalls, 1);
     EXPECT_EQ(g_mock_perform_count.load(), 2);
     EXPECT_TRUE(account.IsSignedIn());
@@ -1728,7 +1735,7 @@ TEST_F(MMRFetcherTest, SignedIn401RefreshesOnceAndRetriesOnceBeforeSigningOutOnS
 
     g_mock_perform_count.store(0);
     g_mock_custom_api_status_sequence = {401, 401};
-    EXPECT_EQ(fetcher->FetchProfileFromCustomApiForTests(req), CustomApiFetchResult::AuthFailure);
+    EXPECT_EQ(fetcher->FetchProfileFromCustomApi(req), CustomApiFetchResult::AuthFailure);
     EXPECT_EQ(refreshCalls, 2);
     EXPECT_EQ(g_mock_perform_count.load(), 2);
     EXPECT_FALSE(account.IsSignedIn());
@@ -1738,8 +1745,8 @@ TEST_F(MMRFetcherTest, SignedIn401RefreshesOnceAndRetriesOnceBeforeSigningOutOnS
     EXPECT_FALSE(reason.empty());
 }
 
-TEST_F(MMRFetcherTest, SignedInCustomApiFailureOnlyFallsBackToTrackerWhenMmrTrackingEnabled) {
-    auto& account = AccountClient::Instance();
+TEST_F(MmrServiceTest, SignedInCustomApiFailureOnlyFallsBackToTrackerWhenMmrTrackingEnabled) {
+    auto& account = *accountClient;
     AccountClient::DeviceKeyPair keyPair;
     ASSERT_TRUE(account.EnsureDeviceKey(&keyPair));
     Config::Update([&](ConfigData& c) {
@@ -1775,7 +1782,7 @@ TEST_F(MMRFetcherTest, SignedInCustomApiFailureOnlyFallsBackToTrackerWhenMmrTrac
         ms.roster["Steam|76561198000000099"] =
             PlayerData{.primaryId = "Steam|76561198000000099", .name = "TestTarget"};
     });
-    fetcher->FetchRosterProfileForTests("Steam|76561198000000099", "TestTarget");
+    fetcher->FetchRosterProfile("Steam|76561198000000099", "TestTarget");
     EXPECT_EQ(g_mock_perform_count.load(), 1);
     {
         auto snap = sessionState->liveMatch->GetSnapshot();
@@ -1784,7 +1791,7 @@ TEST_F(MMRFetcherTest, SignedInCustomApiFailureOnlyFallsBackToTrackerWhenMmrTrac
 
     g_mock_perform_count.store(0);
     Config::Update([](ConfigData& c) { c.enable_mmr_tracking = true; }, false);
-    fetcher->FetchRosterProfileForTests("Steam|76561198000000099", "TestTarget");
+    fetcher->FetchRosterProfile("Steam|76561198000000099", "TestTarget");
     EXPECT_EQ(g_mock_perform_count.load(), 2);
     {
         auto snap = sessionState->liveMatch->GetSnapshot();
@@ -1793,7 +1800,7 @@ TEST_F(MMRFetcherTest, SignedInCustomApiFailureOnlyFallsBackToTrackerWhenMmrTrac
         EXPECT_EQ(snap->roster.at("Steam|76561198000000099").rankVerificationSource, "Tracker");
     }
 }
-TEST(MMRFetcherBatchTest, SixRosterRequestsFormSingleBatchWithSixPlayers) {
+TEST(MmrServiceBatchTest, SixRosterRequestsFormSingleBatchWithSixPlayers) {
     std::vector<MMRRequest> requests;
     for (int i = 1; i <= 6; ++i) {
         MMRRequest req;
@@ -1823,7 +1830,7 @@ TEST(MMRFetcherBatchTest, SixRosterRequestsFormSingleBatchWithSixPlayers) {
     }
 }
 
-TEST(MMRFetcherBatchTest, TwentyRosterRequestsSplitIntoSixteenAndFour) {
+TEST(MmrServiceBatchTest, TwentyRosterRequestsSplitIntoSixteenAndFour) {
     std::vector<MMRRequest> all20;
     for (int i = 1; i <= 20; ++i) {
         MMRRequest req;
@@ -1846,7 +1853,7 @@ TEST(MMRFetcherBatchTest, TwentyRosterRequestsSplitIntoSixteenAndFour) {
     EXPECT_EQ(batch2.requests.back().name, "SteamPlayer20");
 }
 
-TEST(MMRFetcherBatchTest, MixedPlaylistsSplitIntoDistinctBatches) {
+TEST(MmrServiceBatchTest, MixedPlaylistsSplitIntoDistinctBatches) {
     std::vector<MMRRequest> mixed;
 
     MMRRequest r1;
@@ -1887,7 +1894,7 @@ TEST(MMRFetcherBatchTest, MixedPlaylistsSplitIntoDistinctBatches) {
     EXPECT_EQ(body["players"].size(), 2u);
 }
 
-TEST(MMRFetcherBatchTest, LocalFastLaneRequestNotBatchedOrDelayed) {
+TEST(MmrServiceBatchTest, LocalFastLaneRequestNotBatchedOrDelayed) {
     std::vector<MMRRequest> candidates;
 
     MMRRequest postMatch;
@@ -1915,7 +1922,7 @@ TEST(MMRFetcherBatchTest, LocalFastLaneRequestNotBatchedOrDelayed) {
     }
 }
 
-TEST(MMRFetcherBatchTest, ResponseParsingMapsEachPlayerIncludingMissingAndErrored) {
+TEST(MmrServiceBatchTest, ResponseParsingMapsEachPlayerIncludingMissingAndErrored) {
     std::vector<MMRRequest> requests;
 
     MMRRequest r1;
@@ -1963,7 +1970,7 @@ TEST(MMRFetcherBatchTest, ResponseParsingMapsEachPlayerIncludingMissingAndErrore
     EXPECT_EQ(results[2].errorCode, "not_found");
 }
 
-TEST_F(MMRFetcherTest, WholeBatchHttpFailureYieldsPerPlayerFailures) {
+TEST_F(MmrServiceTest, WholeBatchHttpFailureYieldsPerPlayerFailures) {
     SetUpSignedInDeviceAuth(false);
 
     AssembledBatch batch;
@@ -1979,7 +1986,7 @@ TEST_F(MMRFetcherTest, WholeBatchHttpFailureYieldsPerPlayerFailures) {
     }
 
     g_mock_custom_api_response_code = 500;
-    fetcher->ProcessCustomApiBatchForTests(batch);
+    fetcher->ProcessCustomApiBatch(batch);
 
     auto snap = sessionState->liveMatch->GetSnapshot();
     for (int i = 1; i <= 3; ++i) {
@@ -1990,7 +1997,7 @@ TEST_F(MMRFetcherTest, WholeBatchHttpFailureYieldsPerPlayerFailures) {
     }
 }
 
-TEST_F(MMRFetcherTest, EndToEndCoalescesQueuedRosterRequestsIntoSingleHttpCall) {
+TEST_F(MmrServiceTest, EndToEndCoalescesQueuedRosterRequestsIntoSingleHttpCall) {
     SetUpSignedInDeviceAuth(false);
 
     nlohmann::json playersArray = nlohmann::json::array();
@@ -2033,19 +2040,19 @@ TEST_F(MMRFetcherTest, EndToEndCoalescesQueuedRosterRequestsIntoSingleHttpCall) 
     }
 }
 
-TEST_F(MMRFetcherTest, TrackerPathRemainsSingleRequestWhenCustomApiNotActive) {
+TEST_F(MmrServiceTest, TrackerPathRemainsSingleRequestWhenCustomApiNotActive) {
     Config::Update([](ConfigData& c) {
         c.custom_api_enabled = false;
         c.enable_mmr_tracking = true;
     },
                    false);
 
-    EXPECT_FALSE(fetcher->IsCustomApiActiveSourceForTests());
+    EXPECT_FALSE(fetcher->IsCustomApiActiveSource());
 }
 
-TEST_F(MMRFetcherTest, UpdateRequiredOnRanksDoesNotSignOutAndFallsBackToTracker) {
+TEST_F(MmrServiceTest, UpdateRequiredOnRanksDoesNotSignOutAndFallsBackToTracker) {
     SetUpSignedInDeviceAuth(true);
-    auto& account = AccountClient::Instance();
+    auto& account = *accountClient;
     EXPECT_TRUE(account.IsSignedIn());
 
     g_mock_response_code = 200;
@@ -2076,7 +2083,7 @@ TEST_F(MMRFetcherTest, UpdateRequiredOnRanksDoesNotSignOutAndFallsBackToTracker)
     sessionState->liveMatch->UpdateMatchStateForTests([](MatchState& ms) {
         ms.roster["Epic|test_epic_id|0"] = PlayerData{.primaryId = "Epic|test_epic_id|0", .name = "TrackerPlayer"};
     });
-    fetcher->FetchRosterProfileForTests("Epic|test_epic_id|0", "TrackerPlayer");
+    fetcher->FetchRosterProfile("Epic|test_epic_id|0", "TrackerPlayer");
 
     EXPECT_TRUE(account.IsSignedIn());
     EXPECT_FALSE(Config::Read().account_refresh_token.empty());
@@ -2088,9 +2095,9 @@ TEST_F(MMRFetcherTest, UpdateRequiredOnRanksDoesNotSignOutAndFallsBackToTracker)
     EXPECT_EQ(player.playlists.at("2v2"), 1150);
 }
 
-TEST_F(MMRFetcherTest, UpdateRequiredOnRanksWithoutTrackerFailsWithUpdateMessage) {
+TEST_F(MmrServiceTest, UpdateRequiredOnRanksWithoutTrackerFailsWithUpdateMessage) {
     SetUpSignedInDeviceAuth(false);
-    auto& account = AccountClient::Instance();
+    auto& account = *accountClient;
     EXPECT_TRUE(account.IsSignedIn());
 
     OmniNet::SetTransportForTesting([](const OmniNet::Request& req) {
@@ -2106,7 +2113,7 @@ TEST_F(MMRFetcherTest, UpdateRequiredOnRanksWithoutTrackerFailsWithUpdateMessage
     sessionState->liveMatch->UpdateMatchStateForTests([](MatchState& ms) {
         ms.roster["Epic|test_epic_id|0"] = PlayerData{.primaryId = "Epic|test_epic_id|0", .name = "TestPlayer"};
     });
-    fetcher->FetchRosterProfileForTests("Epic|test_epic_id|0", "TestPlayer");
+    fetcher->FetchRosterProfile("Epic|test_epic_id|0", "TestPlayer");
 
     EXPECT_TRUE(account.IsSignedIn());
 }

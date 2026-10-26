@@ -1,5 +1,5 @@
 #include <gtest/gtest.h>
-#include "network/mmr/MMRFetcher.hpp"
+#include "network/mmr/MmrService.hpp"
 #include "core/state/LiveMatchStore.hpp"
 #include "core/state/SessionState.hpp"
 #include "core/config/Config.hpp"
@@ -29,7 +29,7 @@ namespace {
             originalConfig = Config::Read();
             Config::Update([](ConfigData& config) { config.enable_mmr_tracking = true; }, false);
             state = std::make_shared<SessionState>();
-            fetcher = std::make_shared<MMRFetcher>(state);
+            fetcher = std::make_shared<MmrService>(state);
             state->liveMatch->SetLocalPrimaryId(kMe);
         }
 
@@ -51,7 +51,7 @@ namespace {
                 profile.playlistMatches[playlist] = rating.matches;
                 profile.bestMmr = (std::max)(profile.bestMmr, rating.mmr);
             }
-            fetcher->PublishProfileResultForTests(req, profile);
+            fetcher->PublishProfileResult(req, profile);
         }
 
         void EnqueueMatch(const std::string& guid, const std::string& playlist, bool won,
@@ -63,7 +63,7 @@ namespace {
         void PlayMatch(const std::string& guid, const std::string& playlist, bool won,
                        Rating pre, Rating post, const std::string& primaryId = kMe) {
             EnqueueMatch(guid, playlist, won, pre, primaryId);
-            fetcher->ProcessPostMatchResponseForTests(guid, post.mmr, post.matches);
+            fetcher->ProcessPostMatchResponse(guid, post.mmr, post.matches);
         }
 
         void StartNewSession() {
@@ -117,7 +117,7 @@ namespace {
         }
 
         std::shared_ptr<SessionState> state;
-        std::shared_ptr<MMRFetcher> fetcher;
+        std::shared_ptr<MmrService> fetcher;
         ConfigData originalConfig;
     };
 } // namespace
@@ -171,7 +171,7 @@ TEST_F(SessionMmrLifecycleTest, NewSessionGraphStartsWithoutPreviousSessionPoint
     PlayMatch("s2-g1", "2v2", false, {1210, 51}, {1201, 52});
     EXPECT_EQ(Graph("2v2"), (std::vector<float>{1210.0f, 1201.0f}));
     EXPECT_EQ(Graph("3v3"), (std::vector<float>{909.0f}));
-    const auto points = fetcher->PlaylistMatchPointsForTests("2v2");
+    const auto points = fetcher->PlaylistMatchPoints("2v2");
     ASSERT_EQ(points.size(), 1u);
     EXPECT_EQ(points[0].matchGuid, "s2-g1");
     EXPECT_EQ(points[0].historyIndex, 1u);
@@ -218,13 +218,13 @@ TEST_F(SessionMmrLifecycleTest, SwitchingAccountsNeverMixesSessionMmr) {
     SwitchAccount(kMe);
     EXPECT_EQ(SessionChange("2v2"), 11);
     EXPECT_EQ(TotalChange(), 11);
-    const auto points = fetcher->PlaylistMatchPointsForTests("2v2");
+    const auto points = fetcher->PlaylistMatchPoints("2v2");
     ASSERT_EQ(points.size(), 2u);
     EXPECT_EQ(points[1].matchGuid, "me-pending");
     EXPECT_EQ(points[1].mmr, 1211);
     EXPECT_FALSE(points[1].trackerCovered);
 
-    fetcher->ProcessPostMatchResponseForTests("me-pending", 1212, 52);
+    fetcher->ProcessPostMatchResponse("me-pending", 1212, 52);
     EXPECT_EQ(SessionChange("2v2"), 12);
 }
 
@@ -254,10 +254,10 @@ TEST_F(SessionMmrLifecycleTest, PreviousSessionMatchConfirmedLateOnlyStartsTheNe
     EXPECT_TRUE(Graph("2v2").empty());
     EXPECT_EQ(Baseline("2v2"), std::nullopt);
 
-    fetcher->ProcessPostMatchResponseForTests("s1-g2", 1220, 52);
+    fetcher->ProcessPostMatchResponse("s1-g2", 1220, 52);
     EXPECT_EQ(Baseline("2v2"), 1220);
     EXPECT_EQ(Graph("2v2"), (std::vector<float>{1220.0f}));
-    EXPECT_TRUE(fetcher->PlaylistMatchPointsForTests("2v2").empty());
+    EXPECT_TRUE(fetcher->PlaylistMatchPoints("2v2").empty());
     EXPECT_EQ(SessionChange("2v2"), 0);
 
     PlayMatch("s2-g1", "2v2", false, {1220, 52}, {1211, 53});
@@ -271,9 +271,9 @@ TEST_F(SessionMmrLifecycleTest, NewSessionMatchBehindUnpublishedPreviousSessionM
     StartNewSession();
 
     EnqueueMatch("s2-g1", "2v2", false, {1210, 51});
-    fetcher->ProcessPostMatchResponseForTests("s2-g1", 1201, 52);
+    fetcher->ProcessPostMatchResponse("s2-g1", 1201, 52);
 
-    const auto points = fetcher->PlaylistMatchPointsForTests("2v2");
+    const auto points = fetcher->PlaylistMatchPoints("2v2");
     ASSERT_EQ(points.size(), 1u);
     EXPECT_EQ(points[0].matchGuid, "s2-g1");
     EXPECT_EQ(Baseline("2v2"), 1210);
@@ -286,9 +286,9 @@ TEST_F(SessionMmrLifecycleTest, StaleSnapshotBehindPreviousSessionMatchIsNotABas
     StartNewSession();
 
     EnqueueMatch("s2-g1", "2v2", false, {1200, 50});
-    fetcher->ProcessPostMatchResponseForTests("s2-g1", 1201, 52);
+    fetcher->ProcessPostMatchResponse("s2-g1", 1201, 52);
 
-    const auto points = fetcher->PlaylistMatchPointsForTests("2v2");
+    const auto points = fetcher->PlaylistMatchPoints("2v2");
     ASSERT_EQ(points.size(), 1u);
     EXPECT_EQ(points[0].mmr, 1201);
     EXPECT_EQ(Baseline("2v2"), std::nullopt);
@@ -298,14 +298,14 @@ TEST_F(SessionMmrLifecycleTest, StaleSnapshotBehindPreviousSessionMatchIsNotABas
 
 TEST_F(SessionMmrLifecycleTest, MissingPreMatchRatingNeverBecomesTheBaseline) {
     EnqueueMatch("no-pre", "2v2", false, {0, -1});
-    fetcher->ProcessPostMatchResponseForTests("no-pre", 1211, 53);
+    fetcher->ProcessPostMatchResponse("no-pre", 1211, 53);
 
     EXPECT_EQ(Graph("2v2"), (std::vector<float>{1211.0f}));
     EXPECT_EQ(Baseline("2v2"), std::nullopt);
     EXPECT_EQ(SessionChange("2v2"), std::nullopt);
     EXPECT_EQ(TotalChange(), 0);
 
-    fetcher->ProcessPostMatchResponseForTests("no-pre", 1211, 54);
+    fetcher->ProcessPostMatchResponse("no-pre", 1211, 54);
     PublishRoster({{"2v2", {1211, 54}}});
     EXPECT_EQ(Baseline("2v2"), std::nullopt);
     EXPECT_EQ(SessionChange("2v2"), std::nullopt);
@@ -317,10 +317,10 @@ TEST_F(SessionMmrLifecycleTest, BestPlaylistMmrIsNeverUsedAsAPlaylistBaseline) {
         ms.roster[kMe] = PlayerData{.primaryId = kMe, .name = "Player", .mmr = 1500};
     });
     EnqueueMatch("unknown-twos", "2v2", true, {0, -1});
-    fetcher->ProcessPostMatchResponseForTests("unknown-twos", 0, -1);
-    EXPECT_TRUE(fetcher->PlaylistMatchPointsForTests("2v2").empty());
+    fetcher->ProcessPostMatchResponse("unknown-twos", 0, -1);
+    EXPECT_TRUE(fetcher->PlaylistMatchPoints("2v2").empty());
 
-    fetcher->ProcessPostMatchResponseForTests("unknown-twos", 900, 31);
+    fetcher->ProcessPostMatchResponse("unknown-twos", 900, 31);
     EXPECT_EQ(Baseline("2v2"), std::nullopt);
     EXPECT_EQ(SessionChange("2v2"), std::nullopt);
     EXPECT_EQ(TotalChange(), 0);
@@ -331,11 +331,11 @@ TEST_F(SessionMmrLifecycleTest, LastConfirmedProfileReconstructsAMissingPreMatch
     StartNewSession();
 
     EnqueueMatch("s2-g1", "2v2", false, {0, -1});
-    fetcher->ProcessPostMatchResponseForTests("s2-g1", 1211, 53);
+    fetcher->ProcessPostMatchResponse("s2-g1", 1211, 53);
 
     EXPECT_EQ(Baseline("2v2"), 1220);
     EXPECT_EQ(SessionChange("2v2"), -9);
-    const auto points = fetcher->PlaylistMatchPointsForTests("2v2");
+    const auto points = fetcher->PlaylistMatchPoints("2v2");
     ASSERT_EQ(points.size(), 1u);
     EXPECT_TRUE(points[0].trackerCovered);
     EXPECT_FALSE(points[0].valueEstimated);
@@ -346,7 +346,7 @@ TEST_F(SessionMmrLifecycleTest, UntrackedMatchesInvalidateTheReconstructedBaseli
     StartNewSession();
 
     EnqueueMatch("s2-g1", "2v2", false, {0, -1});
-    fetcher->ProcessPostMatchResponseForTests("s2-g1", 1211, 55);
+    fetcher->ProcessPostMatchResponse("s2-g1", 1211, 55);
 
     EXPECT_EQ(Baseline("2v2"), std::nullopt);
     EXPECT_EQ(SessionChange("2v2"), std::nullopt);
@@ -359,11 +359,11 @@ TEST_F(SessionMmrLifecycleTest, NewSessionFetchesAFreshProfileInsteadOfTheCached
     });
     PublishRoster({{"2v2", {1220, 52}}});
     fetcher->Enqueue(kMe, "Player");
-    EXPECT_EQ(fetcher->PendingRequestCountForTests(), 0u);
+    EXPECT_EQ(fetcher->PendingRequestCount(), 0u);
 
     StartNewSession();
     fetcher->Enqueue(kMe, "Player");
-    EXPECT_EQ(fetcher->PendingRequestCountForTests(), 1u);
+    EXPECT_EQ(fetcher->PendingRequestCount(), 1u);
 }
 
 TEST_F(SessionMmrLifecycleTest, RestartedAppStartsTrackingFromItsFirstProfile) {
@@ -373,7 +373,7 @@ TEST_F(SessionMmrLifecycleTest, RestartedAppStartsTrackingFromItsFirstProfile) {
 
     fetcher.reset();
     state = std::make_shared<SessionState>();
-    fetcher = std::make_shared<MMRFetcher>(state);
+    fetcher = std::make_shared<MmrService>(state);
     state->liveMatch->SetLocalPrimaryId(kMe);
     EXPECT_EQ(SessionChange("2v2"), std::nullopt);
     EXPECT_TRUE(Graph("2v2").empty());
@@ -396,7 +396,7 @@ TEST_F(SessionMmrLifecycleTest, LateConfirmationFinishesTheEndedSessionRecap) {
     StartNewSession();
     ASSERT_EQ(RecapChange("2v2"), provisional);
 
-    fetcher->ProcessPostMatchResponseForTests("s1-g2", 1222, 52);
+    fetcher->ProcessPostMatchResponse("s1-g2", 1222, 52);
     EXPECT_EQ(RecapChange("2v2"), 22);
     EXPECT_EQ(RecapTotal(), 22);
     EXPECT_EQ(Baseline("2v2"), 1222);
@@ -412,12 +412,12 @@ TEST_F(SessionMmrLifecycleTest, RecapAndNewBaselineWaitForTheEndedSessionsLastMa
     const std::optional<int> provisional = RecapChange("2v2");
     ASSERT_TRUE(provisional.has_value());
 
-    fetcher->ProcessPostMatchResponseForTests("s1-g1", 1210, 51);
+    fetcher->ProcessPostMatchResponse("s1-g1", 1210, 51);
     EXPECT_EQ(RecapChange("2v2"), provisional);
     EXPECT_EQ(Baseline("2v2"), std::nullopt);
     EXPECT_TRUE(Graph("2v2").empty());
 
-    fetcher->ProcessPostMatchResponseForTests("s1-g2", 1201, 52);
+    fetcher->ProcessPostMatchResponse("s1-g2", 1201, 52);
     EXPECT_EQ(RecapChange("2v2"), 1);
     EXPECT_EQ(RecapTotal(), 1);
     EXPECT_EQ(Baseline("2v2"), 1201);
@@ -435,7 +435,7 @@ TEST_F(SessionMmrLifecycleTest, OlderSessionConfirmationNeverRewritesANewerRecap
     StartNewSession();
     ASSERT_EQ(RecapChange("3v3"), 9);
 
-    fetcher->ProcessPostMatchResponseForTests("s1-g1", 1210, 51);
+    fetcher->ProcessPostMatchResponse("s1-g1", 1210, 51);
     EXPECT_EQ(RecapChange("2v2"), std::nullopt);
     EXPECT_EQ(RecapTotal(), 9);
 }
@@ -443,7 +443,7 @@ TEST_F(SessionMmrLifecycleTest, OlderSessionConfirmationNeverRewritesANewerRecap
 TEST_F(SessionMmrLifecycleTest, ThreeMatchesThenSimulatedClosePersistsSessionAndLinksMatches) {
     auto db = std::make_shared<DatabaseManager>(state);
     ASSERT_TRUE(db->Initialize(":memory:"));
-    fetcher = std::make_shared<MMRFetcher>(state, db);
+    fetcher = std::make_shared<MmrService>(state, db);
 
     PublishRoster({{"2v2", {1200, 50}}});
 

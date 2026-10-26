@@ -3,7 +3,7 @@
 #include "core/game/MatchAnalytics.hpp"
 #include "core/game/PlaylistMetadata.hpp"
 #include "database/sqlite/Statement.hpp"
-#include "network/mmr/MMRFetcher.hpp"
+#include "network/mmr/MmrService.hpp"
 #include <algorithm>
 #include <cctype>
 #include <iostream>
@@ -1166,7 +1166,7 @@ namespace database::repository {
                 p.mmr = playerStmt.Get<int>(3);
                 p.mmrEstimated = playerStmt.Get<int>(4) != 0;
                 p.isOpponent = playerStmt.Get<int>(5) != 0;
-                p.tier = MMRFetcher::GetRankTierForPlaylistMmr(tierKey, p.mmr);
+                p.tier = MmrService::GetRankTierForPlaylistMmr(tierKey, p.mmr);
                 if (hasStats && !playerStmt.IsNull(6)) {
                     p.hasStats = true;
                     outDetail.hasPlayerStats = true;

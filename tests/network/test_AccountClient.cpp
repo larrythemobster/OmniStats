@@ -4,6 +4,9 @@
 #include "utils/Storage.hpp"
 #include "network/api/AccountClient.hpp"
 #include "network/omninet/OmniNet.hpp"
+#include "network/api/DeviceIdentity.hpp"
+#include "network/api/DeviceAuthFlow.hpp"
+#include "network/api/TokenStore.hpp"
 
 #include <nlohmann/json.hpp>
 #include <sodium.h>
@@ -33,11 +36,9 @@ class AccountClientTest : public ::testing::Test {
             c.custom_api_key.clear();
         });
         Config::Save();
-        AccountClient::Instance().ResetForTests();
     }
 
     void TearDown() override {
-        AccountClient::Instance().ResetForTests();
         OmniNet::SetTransportForTesting({});
         Config::Update([this](ConfigData& c) { c = m_originalConfig; });
         Config::Save();
@@ -347,6 +348,24 @@ TEST_F(AccountClientTest, RefreshRotationPersistsNewTokenAndCachesAccessToken) {
     EXPECT_EQ(client.AccessToken(), "access-token-v2");
     EXPECT_EQ(refreshCount, 2);
     EXPECT_EQ(Config::Read().account_refresh_token, "refresh-token-v3");
+}
+
+TEST_F(AccountClientTest, RefreshRejectionReportsSignedOut) {
+    AccountClient client;
+    Config::Update([](ConfigData& c) { c.account_refresh_token = "rejected-refresh"; });
+    OmniNet::SetTransportForTesting([](const OmniNet::Request& request) {
+        EXPECT_EQ(request.op, OmniNet::Op::AuthRefresh);
+        OmniNet::Response response;
+        response.status = 401;
+        return response;
+    });
+
+    EXPECT_FALSE(client.Refresh());
+    EXPECT_FALSE(client.IsSignedIn());
+    EXPECT_EQ(client.GetStatus().state, AccountAuthState::Error);
+    std::string reason;
+    EXPECT_TRUE(client.ConsumeSignedOutNotification(reason));
+    EXPECT_FALSE(reason.empty());
 }
 
 TEST_F(AccountClientTest, ConcurrentAccessTokenCallsShareSingleFlightRefresh) {
@@ -711,4 +730,64 @@ TEST_F(AccountClientTest, OmniNetStickyLatch) {
     EXPECT_TRUE(OmniNet::UpdateRequired());
 
     OmniNet::ResetUpdateRequiredForTesting();
+}
+
+TEST_F(AccountClientTest, KeyGenerationAndPersistence) {
+    DeviceIdentity identity;
+    DeviceIdentity::DeviceKeyPair key1;
+    ASSERT_TRUE(identity.EnsureDeviceKey(&key1));
+    EXPECT_FALSE(key1.publicId.empty());
+    EXPECT_FALSE(key1.publicKeyBase64Url.empty());
+    EXPECT_FALSE(key1.secretKeyBase64Url.empty());
+
+    DeviceIdentity::DeviceKeyPair key2;
+    ASSERT_TRUE(identity.EnsureDeviceKey(&key2));
+    EXPECT_EQ(key1.publicId, key2.publicId);
+    EXPECT_EQ(key1.publicKeyBase64Url, key2.publicKeyBase64Url);
+}
+
+TEST_F(AccountClientTest, TokenPersistenceAndMemoryCaching) {
+    TokenStore store;
+    store.SetCachedAccessToken("expired_access_token", 1);
+    EXPECT_TRUE(store.AccessToken().empty());
+    EXPECT_FALSE(store.IsSignedIn());
+
+    Config::Update([](ConfigData& c) {
+        c.account_refresh_token = "stored_refresh_token";
+        c.account_signed_in_name = "PlayerOne";
+        c.account_device_public_id = "device_123";
+    });
+    store.SyncFromConfig();
+    EXPECT_TRUE(store.IsSignedIn());
+    EXPECT_EQ(store.DevicePublicId(), "device_123");
+
+    int64_t now = 1700000000;
+    store.SetClockForTests([&]() { return now; });
+    store.SetCachedAccessToken("memory_access_token", 1700000900);
+    EXPECT_EQ(store.AccessToken(), "memory_access_token");
+    now = 1700000840;
+    EXPECT_TRUE(store.AccessToken().empty());
+    EXPECT_EQ(store.AccessToken(1700000839), "memory_access_token");
+
+    store.Clear();
+    EXPECT_FALSE(store.IsSignedIn());
+    EXPECT_TRUE(store.AccessToken().empty());
+}
+
+TEST_F(AccountClientTest, UrlResolutionAndStateManagement) {
+    EXPECT_EQ(DeviceAuthFlow::ResolveVerificationUri("/device?user_code=TEST"), "https://omnistats.org/device?user_code=TEST");
+    EXPECT_EQ(DeviceAuthFlow::ResolveVerificationUri("https://evil.com/phish"), "https://omnistats.org/device");
+
+    DeviceAuthFlow flow;
+    TokenStore tokenStore;
+    EXPECT_EQ(flow.GetStatus(tokenStore).state, AccountAuthState::SignedOut);
+
+    flow.SetState(AccountAuthState::AwaitingApproval);
+    EXPECT_EQ(flow.GetStatus(tokenStore).state, AccountAuthState::AwaitingApproval);
+
+    flow.MarkSignedOut("Token revoked");
+    std::string reason;
+    EXPECT_TRUE(flow.ConsumeSignedOutNotification(reason));
+    EXPECT_EQ(reason, "Token revoked");
+    EXPECT_FALSE(flow.ConsumeSignedOutNotification(reason));
 }

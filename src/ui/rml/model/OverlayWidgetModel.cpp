@@ -7,7 +7,7 @@
 #include <ctime>
 #include "core/game/StatsScope.hpp"
 #include "core/tournaments/TournamentSchedule.hpp"
-#include "network/mmr/MMRFetcher.hpp"
+#include "network/mmr/MmrService.hpp"
 #include "ui/Formatting.hpp"
 #include "ui/rml/controller/RmlRenderSnapshot.hpp"
 #include "ui/rml/controller/RmlUiHelpers.hpp"
@@ -267,7 +267,7 @@ bool OverlayWidgetModel::Update(const RmlRenderSnapshot& snap,
 
     // 1. Roster
     const std::string category = MmrCategoryToString(state ? state->ui.rosterMmrCategory.load() : MmrCategory::Best);
-    const bool ranksOn = RankSourceAvailable(config);
+    const bool ranksOn = RankSourceAvailable(config, snap.accountSignedIn);
 
     auto buildRosterTeam = [&](int team, std::vector<RosterPlayerItem>& target, bool& waitingTarget, const char* teamVar, const char* waitingVar) {
         std::vector<const PlayerData*> players;
@@ -308,7 +308,7 @@ bool OverlayWidgetModel::Update(const RmlRenderSnapshot& snap,
                 rankSource = BestRankSourceHelper(*p, mmr, config.show_extra_playlists);
             }
             if (category != "casual" && (tier.empty() || tier == "Unranked") && mmr > 0) {
-                tier = MMRFetcher::GetRankTierForPlaylistMmr(category == "best" ? rankSource : category, mmr);
+                tier = MmrService::GetRankTierForPlaylistMmr(category == "best" ? rankSource : category, mmr);
             }
             std::string platform;
             if (const auto pos = p->primaryId.find('|'); pos != std::string::npos) platform = p->primaryId.substr(0, pos);
@@ -510,7 +510,7 @@ bool OverlayWidgetModel::Update(const RmlRenderSnapshot& snap,
             std::string tier = "Unranked";
             if (auto it = p->playlistTiers.find(pl.key); it != p->playlistTiers.end()) tier = it->second;
             if (std::string_view(pl.key) != "casual" && (tier.empty() || tier == "Unranked") && mmr > 0) {
-                tier = MMRFetcher::GetRankTierForPlaylistMmr(pl.key, mmr);
+                tier = MmrService::GetRankTierForPlaylistMmr(pl.key, mmr);
             }
             LobbyRankCell cell;
             cell.color = CssColor(Format::RankColor(tier));

@@ -1,11 +1,14 @@
 #pragma once
 
-#include <array>
+#include "network/api/DeviceIdentity.hpp"
+#include "network/api/DeviceAuthFlow.hpp"
+#include "network/api/TokenStore.hpp"
+
 #include <atomic>
 #include <condition_variable>
-#include <cstdint>
 #include <deque>
 #include <functional>
+#include <memory>
 #include <mutex>
 #include <string>
 #include <string_view>
@@ -16,76 +19,17 @@ class TelemetryManager;
 
 struct ConfigData;
 
-enum class AccountAuthState {
-    SignedOut,
-    Migrating,
-    AwaitingApproval,
-    SignedIn,
-    Error
-};
-
-struct AccountStatusSnapshot {
-    AccountAuthState state = AccountAuthState::SignedOut;
-    std::string displayName;
-    std::string devicePublicId;
-    std::string userCode;
-    std::string verificationUri;
-    int64_t expiresAtUnix = 0;
-    int pollIntervalSeconds = 5;
-    std::string errorMessage;
-    uint64_t version = 1;
-};
-
 class AccountClient {
   public:
-    struct DeviceKeyPair {
-        std::string publicKeyBase64Url;
-        std::string secretKeyBase64Url;
-        std::string publicId;
-    };
+    using DeviceKeyPair = DeviceIdentity::DeviceKeyPair;
+    using DeviceProof = DeviceIdentity::DeviceProof;
+    using StartAuthResult = DeviceAuthFlow::StartAuthResult;
+    using PollOutcome = DeviceAuthFlow::PollOutcome;
+    using PollResult = DeviceAuthFlow::PollResult;
 
-    struct DeviceProof {
-        int64_t timestamp = 0;
-        std::string nonce;
-        std::string signature;
-        std::string canonical;
-    };
-
-    struct StartAuthResult {
-        bool ok = false;
-        std::string deviceCode;
-        std::string userCode;
-        std::string verificationUri;
-        int expiresIn = 0;
-        int pollInterval = 5;
-        std::string errorCode;
-        std::string errorMessage;
-    };
-
-    enum class PollOutcome {
-        Pending,
-        SlowDown,
-        Approved,
-        Denied,
-        Expired,
-        Error,
-        Cancelled
-    };
-
-    struct PollResult {
-        PollOutcome outcome = PollOutcome::Error;
-        int pollIntervalSeconds = 5;
-        std::string displayName;
-        std::string errorCode;
-        std::string errorMessage;
-    };
-
-    using ClockFn = std::function<int64_t()>;
-    using SleepFn = std::function<bool(int seconds)>;
-    using OpenUrlFn = std::function<void(const std::string& url)>;
-
-    static AccountClient& Instance();
-    static bool EnsureSodiumInitialized();
+    using ClockFn = DeviceAuthFlow::ClockFn;
+    using SleepFn = DeviceAuthFlow::SleepFn;
+    using OpenUrlFn = DeviceAuthFlow::OpenUrlFn;
     void SetTelemetryManager(std::shared_ptr<TelemetryManager> tm) {
         m_telemetry = std::move(tm);
     }
@@ -96,33 +40,62 @@ class AccountClient {
     AccountClient(const AccountClient&) = delete;
     AccountClient& operator=(const AccountClient&) = delete;
 
-    static std::string Base64UrlEncode(const uint8_t* data, size_t len);
-    static bool Base64UrlDecode(std::string_view encoded, std::vector<uint8_t>& out);
-    static std::string Sha256Hex(std::string_view input);
-    static std::string DerivePublicIdForPublicKey(std::string_view publicKeyBase64Url);
-    static DeviceKeyPair DeriveKeyPairFromSeed(const std::array<uint8_t, 32>& seed);
-    static bool DeriveKeyPairFromSecret(std::string_view secretKeyBase64Url, DeviceKeyPair& out);
+    static bool EnsureSodiumInitialized() {
+        return DeviceIdentity::EnsureSodiumInitialized();
+    }
+    static std::string Base64UrlEncode(const uint8_t* data, size_t len) {
+        return DeviceIdentity::Base64UrlEncode(data, len);
+    }
+    static bool Base64UrlDecode(std::string_view encoded, std::vector<uint8_t>& out) {
+        return DeviceIdentity::Base64UrlDecode(encoded, out);
+    }
+    static std::string Sha256Hex(std::string_view input) {
+        return DeviceIdentity::Sha256Hex(input);
+    }
+    static std::string DerivePublicIdForPublicKey(std::string_view publicKeyBase64Url) {
+        return DeviceIdentity::DerivePublicIdForPublicKey(publicKeyBase64Url);
+    }
+    static DeviceKeyPair DeriveKeyPairFromSeed(const std::array<uint8_t, 32>& seed) {
+        return DeviceIdentity::DeriveKeyPairFromSeed(seed);
+    }
+    static bool DeriveKeyPairFromSecret(std::string_view secretKeyBase64Url, DeviceKeyPair& out) {
+        return DeviceIdentity::DeriveKeyPairFromSecret(secretKeyBase64Url, out);
+    }
     static std::string BuildProofCanonical(std::string_view operation,
                                            std::string_view publicId,
                                            int64_t timestamp,
                                            std::string_view nonceBase64Url,
-                                           std::string_view credential);
+                                           std::string_view credential) {
+        return DeviceIdentity::BuildProofCanonical(operation, publicId, timestamp, nonceBase64Url, credential);
+    }
     static DeviceProof SignProofDeterministic(std::string_view secretKeyBase64Url,
                                               std::string_view operation,
                                               std::string_view publicId,
                                               int64_t timestamp,
                                               std::string_view nonceBase64Url,
-                                              std::string_view credential);
+                                              std::string_view credential) {
+        return DeviceIdentity::SignProofDeterministic(secretKeyBase64Url, operation, publicId, timestamp, nonceBase64Url, credential);
+    }
     static DeviceProof CreateProof(std::string_view secretKeyBase64Url,
                                    std::string_view operation,
                                    std::string_view publicId,
                                    std::string_view credential,
-                                   int64_t timestamp);
+                                   int64_t timestamp) {
+        return DeviceIdentity::CreateProof(secretKeyBase64Url, operation, publicId, credential, timestamp);
+    }
 
-    static std::string SiteBaseUrl();
-    static std::string ManageDevicesUrl();
-    static std::string ResolveVerificationUri(std::string_view rawUri);
-    static std::string LocalDeviceName();
+    static std::string SiteBaseUrl() {
+        return DeviceAuthFlow::SiteBaseUrl();
+    }
+    static std::string ManageDevicesUrl() {
+        return DeviceAuthFlow::ManageDevicesUrl();
+    }
+    static std::string ResolveVerificationUri(std::string_view rawUri) {
+        return DeviceAuthFlow::ResolveVerificationUri(rawUri);
+    }
+    static std::string LocalDeviceName() {
+        return DeviceIdentity::LocalDeviceName();
+    }
 
     bool EnsureDeviceKey(DeviceKeyPair* outKey = nullptr);
     StartAuthResult StartAuthorization();
@@ -154,6 +127,16 @@ class AccountClient {
     void SetCachedAccessTokenForTests(std::string token, int64_t expiresAtUnix);
     void ResetForTests();
 
+    DeviceIdentity& Identity() {
+        return m_identity;
+    }
+    DeviceAuthFlow& AuthFlow() {
+        return m_authFlow;
+    }
+    TokenStore& Tokens() {
+        return m_tokenStore;
+    }
+
   private:
     enum class WorkerCommand {
         StartSignIn,
@@ -173,43 +156,17 @@ class AccountClient {
     void QueueLogoutForRotatedToken(const std::string& previousToken, std::string rotatedToken);
     void EnsureWorkerRunningLocked();
     void WorkerLoop();
-    int64_t NowUnix() const;
-    bool SleepInterruptible(int seconds);
-    void OpenUrl(const std::string& url);
 
-    mutable std::mutex m_mutex;
-    std::condition_variable m_refreshCv;
-    bool m_refreshInFlight = false;
-    bool m_lastRefreshSucceeded = false;
-    // Authentication changes invalidate in-flight refresh and migration results.
-    uint64_t m_authGeneration = 0;
-    bool m_keyExchangeAttempted = false;
+    DeviceIdentity m_identity;
+    DeviceAuthFlow m_authFlow;
+    TokenStore m_tokenStore;
 
-    AccountAuthState m_state = AccountAuthState::SignedOut;
-    std::string m_displayName;
-    std::string m_devicePublicId;
-    std::string m_deviceCode;
-    std::string m_userCode;
-    std::string m_verificationUri;
-    int64_t m_expiresAtUnix = 0;
-    int m_pollIntervalSeconds = 5;
-    std::string m_errorMessage;
-    std::string m_pendingSignedOutToast;
-    uint64_t m_statusVersion = 1;
-
-    std::string m_accessToken;
-    int64_t m_accessTokenExpiresAt = 0;
-
-    ClockFn m_clock;
-    SleepFn m_sleep;
-    OpenUrlFn m_openUrl;
-
-    std::mutex m_workerMutex;
+    mutable std::mutex m_workerMutex;
     std::condition_variable m_workerCv;
     std::deque<WorkerJob> m_workerQueue;
     std::jthread m_workerThread;
     bool m_workerStarted = false;
-    std::atomic<bool> m_cancelPolling{false};
+    bool m_keyExchangeAttempted = false;
     std::atomic<bool> m_stopWorker{false};
     std::shared_ptr<TelemetryManager> m_telemetry;
 };

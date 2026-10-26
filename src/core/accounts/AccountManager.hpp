@@ -13,7 +13,7 @@
 
 #include "utils/WorkQueue.hpp"
 #include "core/accounts/TrackedAccounts.hpp"
-#include "network/mmr/MMRFetcher.hpp"
+#include "network/mmr/MmrService.hpp"
 
 class DatabaseManager;
 
@@ -86,7 +86,7 @@ class AccountManagerService {
     static constexpr int64_t kAutoRefreshRetrySeconds = 5 * 60;
 
     AccountManagerService(std::shared_ptr<DatabaseManager> dbManager,
-                          std::shared_ptr<MMRFetcher> mmrFetcher);
+                          std::shared_ptr<MmrService> mmrFetcher);
     ~AccountManagerService();
     AccountManagerService(const AccountManagerService&) = delete;
     AccountManagerService& operator=(const AccountManagerService&) = delete;
@@ -149,7 +149,7 @@ class AccountManagerService {
     void PostDb(std::function<void(DatabaseManager&)> job);
 
     std::shared_ptr<DatabaseManager> m_db;
-    std::shared_ptr<MMRFetcher> m_fetcher;
+    std::shared_ptr<MmrService> m_fetcher;
     std::shared_ptr<SinkGuard> m_sinkGuard;
 
     mutable std::mutex m_mutex;

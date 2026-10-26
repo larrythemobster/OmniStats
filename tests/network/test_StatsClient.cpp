@@ -1,6 +1,6 @@
 #include <gtest/gtest.h>
 #include "network/api/StatsClient.hpp"
-#include "network/mmr/MMRFetcher.hpp"
+#include "network/mmr/MmrService.hpp"
 #include "database/DatabaseManager.hpp"
 #include "core/state/SessionState.hpp"
 #include "core/state/LiveMatchStore.hpp"
@@ -12,7 +12,7 @@
 
 TEST(StatsClientTest, Lifecycle) {
     auto state = std::make_shared<SessionState>();
-    auto fetcher = std::make_shared<MMRFetcher>(state);
+    auto fetcher = std::make_shared<MmrService>(state);
     auto db = std::make_shared<DatabaseManager>(state);
     ASSERT_TRUE(db->Initialize(":memory:"));
 
@@ -34,7 +34,7 @@ class MockDiscordManager : public DiscordManager {
 
 TEST(StatsClientTest, MatchEndNonBlockingAndDiscordPush) {
     auto state = std::make_shared<SessionState>();
-    auto fetcher = std::make_shared<MMRFetcher>(state);
+    auto fetcher = std::make_shared<MmrService>(state);
     auto db = std::make_shared<DatabaseManager>(state);
     ASSERT_TRUE(db->Initialize(":memory:"));
 
@@ -75,7 +75,7 @@ TEST(StatsClientTest, DisconnectClearsDiscordPresence) {
     Config::Update([](ConfigData& c) { c.host = "not_an_ip"; }, false);
 
     auto state = std::make_shared<SessionState>();
-    auto fetcher = std::make_shared<MMRFetcher>(state);
+    auto fetcher = std::make_shared<MmrService>(state);
     auto db = std::make_shared<DatabaseManager>(state);
     ASSERT_TRUE(db->Initialize(":memory:"));
 
@@ -154,7 +154,7 @@ TEST(StatsClientTest, ClosingTheGameStartsANewSessionWhenResetIsEnabled) {
                    false);
 
     auto state = std::make_shared<SessionState>();
-    auto fetcher = std::make_shared<MMRFetcher>(state);
+    auto fetcher = std::make_shared<MmrService>(state);
     auto db = std::make_shared<DatabaseManager>(state);
     ASSERT_TRUE(db->Initialize(":memory:"));
     StatsClient client(state, fetcher, db);
@@ -190,7 +190,7 @@ TEST(StatsClientTest, ClosingTheGameKeepsTheSessionWhenResetIsDisabled) {
                    false);
 
     auto state = std::make_shared<SessionState>();
-    auto fetcher = std::make_shared<MMRFetcher>(state);
+    auto fetcher = std::make_shared<MmrService>(state);
     auto db = std::make_shared<DatabaseManager>(state);
     ASSERT_TRUE(db->Initialize(":memory:"));
     auto discord = std::make_shared<MockDiscordManager>(state);

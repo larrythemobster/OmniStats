@@ -10,7 +10,7 @@
 #include "core/reducer/TelemetryReducerDetail.hpp"
 #include "database/DatabaseManager.hpp"
 #include "network/DiscordManager.hpp"
-#include "network/mmr/MMRFetcher.hpp"
+#include "network/mmr/MmrService.hpp"
 #include "network/telemetry/TelemetryRecorder.hpp"
 
 static void ConfigureFromSavedIdentity(std::shared_ptr<SessionState> state,
@@ -32,7 +32,7 @@ static void ConfigureFromSavedIdentity(std::shared_ptr<SessionState> state,
 }
 
 StatsClient::StatsClient(std::shared_ptr<SessionState> state,
-                         std::shared_ptr<MMRFetcher> mmrFetcher,
+                         std::shared_ptr<MmrService> mmrFetcher,
                          std::shared_ptr<DatabaseManager> dbManager)
     : m_state(state), m_mmrFetcher(mmrFetcher), m_dbManager(dbManager) {
     ConfigureFromSavedIdentity(state, dbManager);
@@ -211,7 +211,9 @@ void StatsClient::RunLoop() {
             for (int i = 0; i < 30 && m_isRunning; ++i) {
                 std::this_thread::sleep_for(std::chrono::milliseconds(100));
                 if (m_state && m_state->liveMatch) {
-                    m_state->liveMatch->DrainInboxAndApply(MakeReducerContext(m_state->ui));
+                    SideEffects effects = m_state->liveMatch->DrainInboxAndApply(MakeReducerContext(m_state->ui));
+                    EffectRouter::Route(std::move(effects), m_dbManager, m_discordManager,
+                                        m_mmrFetcher, m_accountManager, m_state);
                 }
             }
         }
