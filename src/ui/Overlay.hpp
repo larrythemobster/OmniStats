@@ -39,6 +39,7 @@ class Overlay {
     bool Initialize();
     void RunLoop();
     void Shutdown();
+    void ShutdownBackgroundTasks();
     void UpdateWindowStyle();
     void ResizeSwapChain(int width, int height);
     // Runs once on the UI thread after the user accepts the current Privacy Policy and Terms.

@@ -477,6 +477,12 @@ void Overlay::RunLoop() {
     }
 }
 
+void Overlay::ShutdownBackgroundTasks() {
+    if (m_rmlUi) {
+        m_rmlUi->ShutdownBackgroundTasks();
+    }
+}
+
 void Overlay::Shutdown() {
     timeEndPeriod(1);
     if (m_foreground) {

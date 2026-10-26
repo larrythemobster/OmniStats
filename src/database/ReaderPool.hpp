@@ -67,11 +67,14 @@ namespace database {
         Lease Acquire();
 
       private:
-        std::vector<std::unique_ptr<sqlite::Connection>> m_connections;
-        std::vector<sqlite::Connection*> m_available;
-        std::mutex m_mutex;
-        std::condition_variable m_cv;
-        bool m_stopping = false;
+        struct State {
+            std::vector<std::unique_ptr<sqlite::Connection>> connections;
+            std::vector<sqlite::Connection*> available;
+            std::mutex mutex;
+            std::condition_variable cv;
+            bool stopping = false;
+        };
+        std::shared_ptr<State> m_state = std::make_shared<State>();
     };
 
 } // namespace database

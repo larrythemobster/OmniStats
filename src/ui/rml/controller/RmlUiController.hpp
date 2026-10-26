@@ -72,6 +72,7 @@ class RmlUiController final : public Rml::EventListener {
 
     bool Initialize(HWND hwnd, ID3D11Device* device, ID3D11DeviceContext* context, int width, int height, float dpiScale);
     void Shutdown();
+    void ShutdownBackgroundTasks();
     void Resize(int width, int height, float dpiScale);
     void SetDpiScale(float dpiScale);
     bool ProcessWindowMessage(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam);

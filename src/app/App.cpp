@@ -168,6 +168,7 @@ void App::Stop() {
     m_stopped = true;
 
     std::cout << "[Main] Shutting down components...\n";
+    if (m_overlay) m_overlay->ShutdownBackgroundTasks();
     if (m_inputManager) {
         m_inputManager->Stop();
         std::cout << "[Main] InputManager stopped.\n";

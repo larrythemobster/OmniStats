@@ -149,9 +149,7 @@ void RmlUiController::Shutdown() {
         m_overlayPresenter->Reset();
         CloseViewDocuments();
     }
-    if (m_backgroundTaskService) {
-        m_backgroundTaskService->Shutdown();
-    }
+    ShutdownBackgroundTasks();
     if (m_inputCaptureService && m_state) {
         m_inputCaptureService->FinishCapture(m_state);
     }
@@ -177,6 +175,12 @@ void RmlUiController::Shutdown() {
     m_d3dContext = nullptr;
     m_systemInterface.SetWindow(nullptr);
     m_hwnd = nullptr;
+}
+
+void RmlUiController::ShutdownBackgroundTasks() {
+    if (m_backgroundTaskService) {
+        m_backgroundTaskService->Shutdown();
+    }
 }
 
 void RmlUiController::Resize(int width, int height, float dpiScale) {

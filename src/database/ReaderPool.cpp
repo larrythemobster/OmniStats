@@ -5,59 +5,65 @@ namespace database {
 
     bool ReaderPool::Initialize(const std::string& path, size_t poolSize) {
         Shutdown();
-        std::lock_guard<std::mutex> lock(m_mutex);
-        m_stopping = false;
+        std::lock_guard<std::mutex> lock(m_state->mutex);
+        m_state->stopping = false;
+        m_state->connections.reserve(poolSize);
+        m_state->available.reserve(poolSize);
         for (size_t i = 0; i < poolSize; ++i) {
             try {
                 auto conn = std::make_unique<sqlite::Connection>(
                     sqlite::Connection::Open(path, SQLITE_OPEN_READONLY | SQLITE_OPEN_FULLMUTEX));
                 conn->BusyTimeout(3000);
-                m_available.push_back(conn.get());
-                m_connections.push_back(std::move(conn));
+                m_state->available.push_back(conn.get());
+                m_state->connections.push_back(std::move(conn));
             } catch (const std::exception& e) {
                 std::cerr << "[Database] Reader connection " << i << " failed: " << e.what() << "\n";
             }
         }
-        return !m_connections.empty();
+        return !m_state->connections.empty();
     }
 
     void ReaderPool::Shutdown() {
-        {
-            std::lock_guard<std::mutex> lock(m_mutex);
-            m_stopping = true;
-        }
-        m_cv.notify_all();
-        std::lock_guard<std::mutex> lock(m_mutex);
-        m_available.clear();
-        m_connections.clear();
+        std::unique_lock<std::mutex> lock(m_state->mutex);
+        m_state->stopping = true;
+        m_state->cv.notify_all();
+        m_state->cv.wait(lock, [this] {
+            return m_state->available.size() == m_state->connections.size();
+        });
+        m_state->available.clear();
+        m_state->connections.clear();
     }
 
     bool ReaderPool::HasPool() const {
-        return !m_connections.empty();
+        std::lock_guard<std::mutex> lock(m_state->mutex);
+        return !m_state->connections.empty();
     }
 
     ReaderPool::Lease ReaderPool::Acquire() {
-        std::unique_lock<std::mutex> lock(m_mutex);
-        m_cv.wait(lock, [this] { return m_stopping || !m_available.empty(); });
-        if (m_stopping || m_available.empty()) {
+        auto state = m_state;
+        std::unique_lock<std::mutex> lock(state->mutex);
+        state->cv.wait(lock, [&state] { return state->stopping || !state->available.empty(); });
+        if (state->stopping || state->available.empty()) {
             return Lease();
         }
-        sqlite::Connection* conn = m_available.back();
-        m_available.pop_back();
+        std::function<void(sqlite::Connection*)> returnConnection = [state](sqlite::Connection* c) {
+            std::lock_guard<std::mutex> lk(state->mutex);
+            state->available.push_back(c);
+            state->cv.notify_all();
+        };
+        sqlite::Connection* conn = state->available.back();
+        state->available.pop_back();
+        lock.unlock();
 
         try {
             conn->Execute("BEGIN;");
         } catch (const std::exception& e) {
             std::cerr << "[Database] Cannot begin read snapshot on reader connection: " << e.what() << "\n";
-            m_available.push_back(conn);
+            returnConnection(conn);
             return Lease();
         }
 
-        return Lease(conn, [this](sqlite::Connection* c) {
-            std::lock_guard<std::mutex> lk(m_mutex);
-            m_available.push_back(c);
-            m_cv.notify_one();
-        });
+        return Lease(conn, std::move(returnConnection));
     }
 
     ReaderPool::Lease::Lease(sqlite::Connection* conn, std::function<void(sqlite::Connection*)> returnFn)

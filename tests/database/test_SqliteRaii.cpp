@@ -8,6 +8,7 @@
 #include <atomic>
 #include <chrono>
 #include <filesystem>
+#include <future>
 #include <stdexcept>
 #include <thread>
 #include <vector>
@@ -178,4 +179,23 @@ TEST_F(SqliteRaiiTest, ConcurrentReadersOverlappingWrite) {
     EXPECT_EQ(verify.Get<int>(0), 100);
     EXPECT_GT(totalReads.load(), 0);
     EXPECT_EQ(readErrors.load(), 0);
+}
+
+TEST_F(SqliteRaiiTest, ReaderPoolShutdownWaitsForLeaseAndWakesAcquirers) {
+    auto writer = database::sqlite::Connection::Open(dbPath);
+    writer.Execute("CREATE TABLE Items (id INTEGER);");
+
+    database::ReaderPool pool;
+    ASSERT_TRUE(pool.Initialize(dbPath, 1));
+    auto lease = pool.Acquire();
+    ASSERT_TRUE(lease.IsValid());
+
+    auto shutdown = std::async(std::launch::async, [&pool] { pool.Shutdown(); });
+    auto rejected = pool.Acquire();
+    EXPECT_FALSE(rejected.IsValid());
+    EXPECT_EQ(shutdown.wait_for(std::chrono::seconds(0)), std::future_status::timeout);
+    EXPECT_NO_THROW(lease->Execute("SELECT * FROM Items;"));
+    lease = {};
+    shutdown.get();
+    EXPECT_FALSE(pool.HasPool());
 }
