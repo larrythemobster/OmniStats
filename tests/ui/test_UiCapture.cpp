@@ -8,6 +8,7 @@
 
 #include "core/config/Config.hpp"
 #include "core/state/SessionState.hpp"
+#include "core/state/LiveMatchStore.hpp"
 #include "ui/rml/backend/RmlCapture.hpp"
 #include "ui/rml/controller/RmlUiController.hpp"
 
@@ -39,11 +40,10 @@ namespace {
         }
     };
 
-    void SeedCaptureFixtureState(SessionState& state) {
-        std::unique_lock lock(state.game.mutex);
-        state.game.myPrimaryId = "Steam|capture_self";
-        state.game.myTeam = 0;
-        state.game.inMatch = true;
+    void SeedMatch(MatchState& game) {
+        game.myPrimaryId = "Steam|capture_self";
+        game.myTeam = 0;
+        game.inMatch = true;
 
         PlayerData self;
         self.primaryId = "Steam|capture_self";
@@ -54,7 +54,7 @@ namespace {
         self.playlists["2v2"] = 1250;
         self.playlistTiers["2v2"] = "Champion II Div II";
         self.fetched = true;
-        state.game.roster[self.primaryId] = self;
+        game.roster[self.primaryId] = self;
 
         PlayerData mate;
         mate.primaryId = "Epic|mate_01";
@@ -65,7 +65,7 @@ namespace {
         mate.playlists["2v2"] = 1230;
         mate.playlistTiers["2v2"] = "Champion II Div I";
         mate.fetched = true;
-        state.game.roster[mate.primaryId] = mate;
+        game.roster[mate.primaryId] = mate;
 
         PlayerData opp1;
         opp1.primaryId = "Epic|opp_01";
@@ -76,7 +76,7 @@ namespace {
         opp1.playlists["2v2"] = 1260;
         opp1.playlistTiers["2v2"] = "Champion II Div III";
         opp1.fetched = true;
-        state.game.roster[opp1.primaryId] = opp1;
+        game.roster[opp1.primaryId] = opp1;
 
         PlayerData opp2;
         opp2.primaryId = "Steam|opp_02";
@@ -87,18 +87,23 @@ namespace {
         opp2.playlists["2v2"] = 1240;
         opp2.playlistTiers["2v2"] = "Champion II Div II";
         opp2.fetched = true;
-        state.game.roster[opp2.primaryId] = opp2;
+        game.roster[opp2.primaryId] = opp2;
 
-        state.game.sessionTotals.wins = 5;
-        state.game.sessionTotals.losses = 2;
-        state.game.sessionTotals.goals = 12;
-        state.game.sessionTotals.saves = 8;
-        state.game.sessionTotals.assists = 6;
-        state.game.sessionTotals.demos = 4;
-        state.game.sessionGamemodes["2v2"] = {5, 2, 7};
+        game.sessionTotals.wins = 5;
+        game.sessionTotals.losses = 2;
+        game.sessionTotals.goals = 12;
+        game.sessionTotals.saves = 8;
+        game.sessionTotals.assists = 6;
+        game.sessionTotals.demos = 4;
+        game.sessionGamemodes["2v2"] = {5, 2, 7};
+    }
+
+    void SeedCaptureFixtureState(SessionState& state) {
+        state.liveMatch->UpdateMatchStateForTests(SeedMatch);
+        std::unique_lock lock(state.history.mutex);
         state.history.playlistHistoryY["2v2"] = {1200.0f, 1215.0f, 1205.0f, 1220.0f, 1235.0f, 1250.0f};
         state.history.playlistInitialMmr["2v2"] = 1200;
-        state.game.version.fetch_add(1);
+        state.history.version++;
     }
 }
 

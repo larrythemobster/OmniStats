@@ -128,9 +128,6 @@ std::string RmlUiController::RenderMatchSummary() {
 std::string OverlayPresenter::RenderSessionView(const RmlRenderSnapshot& snap, const ConfigData& config, const std::shared_ptr<SessionState>& state) {
     const auto category = state ? state->ui.graphMmrCategory.load() : MmrCategory::TwoVTwo;
     const bool graph = state && state->ui.showGraphView.load();
-    if (graph) {
-        if (m_telemetry) m_telemetry->RecordMilestone(TelemetryManager::Milestone::MmrGraphView);
-    }
     const bool lifetime = graph && snap.showLifetimeGraph;
     std::ostringstream out;
     out << "<div class='card match-summary" << FloatingCardClassHelper(false) << "' data-action='floating-card-drag' data-card='session-view'"
@@ -146,5 +143,8 @@ std::string OverlayPresenter::RenderSessionView(const RmlRenderSnapshot& snap, c
 }
 
 std::string RmlUiController::RenderSessionView() {
+    if (m_telemetry && m_state && m_state->ui.showGraphView.load()) {
+        m_telemetry->RecordMilestone(TelemetryManager::Milestone::MmrGraphView);
+    }
     return m_overlayPresenter ? m_overlayPresenter->RenderSessionView(m_snap, m_config, m_state) : std::string{};
 }

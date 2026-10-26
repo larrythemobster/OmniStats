@@ -305,10 +305,7 @@ void RmlUiController::RebuildOverlay() {
 }
 
 std::string RmlUiController::RenderReleaseBanners() const {
-    if (m_dashboardPresenter) {
-        return m_dashboardPresenter->RenderReleaseBanners(m_state);
-    }
-    return {};
+    return m_dashboardPresenter ? m_dashboardPresenter->RenderReleaseBanners(m_state, m_remoteConfig.get()) : std::string{};
 }
 
 void RmlUiController::RebuildDashboard() {
