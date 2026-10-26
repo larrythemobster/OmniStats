@@ -49,6 +49,7 @@ namespace AppShell {
 
         wchar_t g_crashDumpPath[MAX_PATH] = {0};
         HANDLE g_fatalLogHandle = INVALID_HANDLE_VALUE;
+        HANDLE g_singleInstanceMutex = NULL;
 
         LONG WINAPI GlobalUnhandledExceptionFilter(struct _EXCEPTION_POINTERS* exceptionInfo) {
             ScopedWinHandle hFile(CreateFileW(g_crashDumpPath, GENERIC_WRITE, 0, NULL,
@@ -107,6 +108,21 @@ namespace AppShell {
         }
         return true;
     }
+    bool ProcessSetup::EnsureSingleInstance() {
+        if (g_singleInstanceMutex) {
+            return true;
+        }
+        HANDLE hMutex = CreateMutexW(nullptr, TRUE, L"Local\\OmniStats_SingleInstance_Mutex");
+        const DWORD err = GetLastError();
+        if (!hMutex || err == ERROR_ALREADY_EXISTS || err == ERROR_ACCESS_DENIED) {
+            if (hMutex) {
+                CloseHandle(hMutex);
+            }
+            return false;
+        }
+        g_singleInstanceMutex = hMutex;
+        return true;
+    }
 
     ProcessSetup::ProcessSetup() {
 
@@ -148,7 +164,15 @@ namespace AppShell {
         m_initialized = true;
     }
 
+    void ProcessSetup::ReleaseSingleInstance() {
+        if (g_singleInstanceMutex) {
+            CloseHandle(g_singleInstanceMutex);
+            g_singleInstanceMutex = NULL;
+        }
+    }
+
     ProcessSetup::~ProcessSetup() {
+        ReleaseSingleInstance();
         if (m_initialized) {
             curl_global_cleanup();
         }

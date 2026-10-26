@@ -14,6 +14,8 @@ namespace AppShell {
       public:
         static void InitializeEarly();
         static bool HandleCommandLine(int argc, char* argv[]);
+        static bool EnsureSingleInstance();
+        static void ReleaseSingleInstance();
 
         ProcessSetup();
         ~ProcessSetup();

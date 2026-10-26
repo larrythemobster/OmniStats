@@ -139,7 +139,11 @@ namespace MmrPublisher {
 
                         auto& playlistHistory = data.playlistHistoryY[playlistName];
                         if (playlistHistory.empty() && data.playlistInitialMmr.count(playlistName) == 0) {
-                            data.playlistInitialMmr[playlistName] = fetchedMmr;
+                            const auto gmIt = match.sessionGamemodes.find(playlistName);
+                            const bool matchesPlayedInPlaylist = gmIt != match.sessionGamemodes.end() && gmIt->second.total > 0;
+                            if (!matchesPlayedInPlaylist) {
+                                data.playlistInitialMmr[playlistName] = fetchedMmr;
+                            }
                         }
                         if (playlistHistory.empty() || static_cast<int>(std::lround(playlistHistory.back())) != fetchedMmr) {
                             playlistHistory.push_back(static_cast<float>(fetchedMmr));

@@ -309,6 +309,15 @@ TEST_F(SessionMmrLifecycleTest, MissingPreMatchRatingNeverBecomesTheBaseline) {
     EXPECT_EQ(SessionChange("2v2"), std::nullopt);
     EXPECT_EQ(TotalChange(), 0);
 }
+TEST_F(SessionMmrLifecycleTest, ProfileFetchedMidSessionAfterMatchCompletedNeverBecomesBaseline) {
+    state->liveMatch->Update([](MatchState& ms) {
+        ms.sessionGamemodes["2v2"].total = 1;
+        ms.sessionGamemodes["2v2"].losses = 1;
+    });
+    PublishRoster({{"2v2", {982, 50}}});
+    EXPECT_EQ(Baseline("2v2"), std::nullopt);
+    EXPECT_EQ(SessionChange("2v2"), std::nullopt);
+}
 
 TEST_F(SessionMmrLifecycleTest, BestPlaylistMmrIsNeverUsedAsAPlaylistBaseline) {
     state->liveMatch->Update([](MatchState& ms) {

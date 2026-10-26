@@ -12,6 +12,9 @@ int main(int argc, char* argv[]) {
     if (!AppShell::ProcessSetup::HandleCommandLine(argc, argv)) {
         return 0;
     }
+    if (!AppShell::ProcessSetup::EnsureSingleInstance()) {
+        return 0;
+    }
     AppShell::ProcessSetup processSetup;
     App app;
     return app.Run();
