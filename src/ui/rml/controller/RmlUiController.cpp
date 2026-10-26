@@ -154,9 +154,6 @@ void RmlUiController::Shutdown() {
     if (m_inputCaptureService && m_state) {
         m_inputCaptureService->FinishCapture(m_state);
     }
-    if (m_colorPickerService) {
-        m_colorPickerService->Close();
-    }
     if (m_rmlInitialized) {
         Rml::Shutdown();
         m_rmlInitialized = false;
