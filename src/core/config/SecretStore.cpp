@@ -160,6 +160,7 @@ void SecretStore::LoadSecretField(const std::string& fieldName, const std::strin
         } else {
             targetValue.clear();
             m_savedCiphertexts[fieldName] = rawValue;
+            m_encryptedPlaintexts.erase(fieldName);
             outCredentialsDecryptionFailed = true;
             std::cerr << "[Config] Failed to decrypt " << fieldName << ". Preserving ciphertext.\n";
         }

@@ -272,4 +272,8 @@ TEST(SecretStoreInstanceTest, LegacyMigrationAndDecryptionErrorHandling) {
     store.LoadSecretField("custom_api_key", corruptedHex, corruptedLoaded, needsLegacyMigration, decryptionFailed);
     EXPECT_TRUE(corruptedLoaded.empty());
     EXPECT_TRUE(decryptionFailed);
+
+    std::string corruptedDiskVal;
+    store.SaveSecretField("custom_api_key", corruptedLoaded, corruptedDiskVal);
+    EXPECT_EQ(corruptedDiskVal, corruptedHex);
 }

@@ -1253,6 +1253,7 @@ TEST_F(MmrServiceTest, ImpossibleLowMmrPathDoesNotInferDestroyedLoss) {
 }
 
 TEST_F(MmrServiceTest, ConfirmationDuringNextMatchRefreshesItsPreMatchBaseline) {
+    sessionState->liveMatch->SetLocalPrimaryId("Steam|123");
     std::vector<std::pair<std::string, bool>> confirmations;
     fetcher->SetDestroyedMatchConfirmationCallback(
         [&](const std::string& matchGuid, bool won) {
@@ -1260,7 +1261,6 @@ TEST_F(MmrServiceTest, ConfirmationDuringNextMatchRefreshesItsPreMatchBaseline) 
         });
     EnqueueDestroyedMatch("previous-loss", 1015, 46, "2v2", {1, 2});
     sessionState->liveMatch->UpdateMatchStateForTests([](MatchState& ms) {
-        ms.myPrimaryId = "Steam|123";
         ms.inMatch = true;
         ms.matchGuid = "next-win";
         ms.preMatchMmrByGuid["next-win"] =
@@ -1299,6 +1299,7 @@ TEST_F(MmrServiceTest, ConfirmationDuringNextMatchRefreshesItsPreMatchBaseline) 
 }
 
 TEST(SessionMmrAggregationTest, SumsOnlyTrackedCompetitivePlaylists) {
+    SessionState state;
     std::map<std::string, int> mmrChangeByPlaylist = {
         {"1v1", 18},
         {"2v2", 27},
@@ -1309,10 +1310,12 @@ TEST(SessionMmrAggregationTest, SumsOnlyTrackedCompetitivePlaylists) {
         {"casual", 25},
         {"2v2_alias", 27}};
 
+    state.ui.graphMmrCategory.store(MmrCategory::OneVOne);
     float totalMmrChange = static_cast<float>(
         CalculateTrackedSessionMmrChange(mmrChangeByPlaylist));
     EXPECT_EQ(totalMmrChange, 40);
 
+    state.ui.graphMmrCategory.store(MmrCategory::Dropshot);
     totalMmrChange = static_cast<float>(
         CalculateTrackedSessionMmrChange(mmrChangeByPlaylist));
     EXPECT_EQ(totalMmrChange, 40);

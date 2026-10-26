@@ -783,7 +783,7 @@ TEST_F(ConfigTest, FullRealShapedConfigRoundTrip) {
         {"vsync", true},
         {"theme", {{"bg", {0.1f, 0.1f, 0.1f, 0.95f}}, {"settingsPanel", {0.05f, 0.05f, 0.05f, 1.0f}}, {"topbar", {0.06f, 0.06f, 0.06f, 1.0f}}, {"graphPanel", {0.04f, 0.04f, 0.04f, 1.0f}}, {"text", {0.9f, 0.9f, 0.9f, 1.0f}}, {"accent", {0.5f, 0.1f, 0.1f, 1.0f}}, {"win", {0.1f, 0.6f, 0.1f, 1.0f}}, {"loss", {0.9f, 0.1f, 0.1f, 1.0f}}, {"dim", {0.8f, 0.8f, 0.8f, 1.0f}}, {"muted", {0.6f, 0.6f, 0.6f, 1.0f}}, {"graphLine", {0.2f, 0.4f, 0.8f, 1.0f}}, {"graphBaseline", {0.9f, 0.9f, 0.1f, 1.0f}}, {"rosterCard", {0.06f, 0.06f, 0.06f, 0.8f}}, {"rosterCardSelf", {0.07f, 0.07f, 0.07f, 0.8f}}, {"scoutTag", {0.3f, 0.1f, 0.1f, 1.0f}}, {"statBox", {0.06f, 0.06f, 0.06f, 0.8f}}, {"matchRow", {0.07f, 0.07f, 0.07f, 0.8f}}, {"matchRowAlt", {0.05f, 0.05f, 0.05f, 0.95f}}}},
         {"dashboard_layout", {{"version", 1}, {"widgets", nlohmann::json::array({{{"id", 0}, {"x", 0.0}, {"y", 0.0}, {"w", 300.0}, {"h", 200.0}, {"enabled", true}}})}}},
-        {"overlay_layout", {{"version", 5}, {"containers", nlohmann::json::array({{{"id", "main_stack"}, {"x", 100.0}, {"y", 200.0}, {"w", 400.0}, {"h", 600.0}, {"widgets", nlohmann::json::array({"live_roster"})}, {"visibility", {{"mode", "key_held"}, {"event", "first_countdown"}, {"seconds", 8}, {"also_while_key_held", true}, {"hide_during_replay", false}}}}})}}}};
+        {"overlay_layout", {{"version", 4}, {"containers", nlohmann::json::array({{{"id", "main_stack"}, {"x", 100.0}, {"y", 200.0}, {"w", 400.0}, {"h", 600.0}, {"widgets", nlohmann::json::array({"live_roster"})}, {"visibility", {{"mode", "key_held"}, {"event", "first_countdown"}, {"seconds", 8}, {"also_while_key_held", true}, {"hide_during_replay", false}}}}})}}}};
 
     {
         std::ofstream file(path, std::ios::trunc);
@@ -880,6 +880,8 @@ TEST_F(ConfigTest, FullRealShapedConfigRoundTrip) {
     EXPECT_EQ(loaded.overlay_layout.version, 5);
     ASSERT_EQ(loaded.overlay_layout.containers.size(), 1u);
     EXPECT_EQ(loaded.overlay_layout.containers[0].id, "main_stack");
+    EXPECT_EQ(loaded.overlay_layout.containers[0].widgets,
+              (std::vector<DashboardLayout::WidgetId>{DashboardLayout::WidgetId::LiveRoster, DashboardLayout::WidgetId::RankProgress}));
 
     Config::Save();
 
@@ -901,6 +903,8 @@ TEST_F(ConfigTest, FullRealShapedConfigRoundTrip) {
     EXPECT_EQ(roundTripJson["font_mono"], "JetBrains Mono");
     EXPECT_EQ(roundTripJson["font_display"], "Russo One");
     EXPECT_EQ(roundTripJson["overlay_layout"]["containers"][0]["id"], "main_stack");
+    EXPECT_EQ(roundTripJson["overlay_layout"]["version"], 5);
+    EXPECT_EQ(roundTripJson["overlay_layout"]["containers"][0]["widgets"], nlohmann::json::array({"live_roster", "rank_progress"}));
 
     Config::Load();
     const ConfigData reloaded = Config::Read();
@@ -911,4 +915,8 @@ TEST_F(ConfigTest, FullRealShapedConfigRoundTrip) {
     EXPECT_EQ(reloaded.client_uuid, "11111111-2222-4333-8444-555555555555");
     EXPECT_EQ(reloaded.font_ui, "Inter");
     EXPECT_FLOAT_EQ(reloaded.ui_scale, 1.25f);
+    EXPECT_EQ(reloaded.overlay_layout.version, 5);
+    ASSERT_EQ(reloaded.overlay_layout.containers.size(), 1u);
+    EXPECT_EQ(reloaded.overlay_layout.containers[0].widgets,
+              (std::vector<DashboardLayout::WidgetId>{DashboardLayout::WidgetId::LiveRoster, DashboardLayout::WidgetId::RankProgress}));
 }
