@@ -158,7 +158,7 @@ namespace UpdaterCommon {
             const CERT_SIMPLE_CHAIN* chain = context->rgpChain[i];
             DWORD checkedElements = chain->cElement;
             if (checkedElements > 0) {
-                const CERT_INFO* last = chain->rgpElement[checkedElements - 1]->pCertContext->pCertInfo;
+                CERT_INFO* last = chain->rgpElement[checkedElements - 1]->pCertContext->pCertInfo;
                 if (CertCompareCertificateName(X509_ASN_ENCODING, &last->Subject, &last->Issuer)) --checkedElements;
             }
             for (DWORD j = 0; j < checkedElements; ++j) {

@@ -550,7 +550,7 @@ TEST_F(ConfigTest, OldLayoutMigratesToKeyHeldEverywhereAndInvalidValuesSanitize)
 }
 
 TEST_F(ConfigTest, ExistingInstallInvalidFieldsUseLegacyDefaults) {
-    const std::string configPath = Config::GetConfigPath();
+    const std::string configPath = Storage::GetDataDirectory() + "config.json";
     {
         std::ofstream file(configPath);
         file << nlohmann::json{{"privacy_policy_accepted_version", "accepted"},
@@ -571,7 +571,7 @@ TEST_F(ConfigTest, LoadMigrationWakesRunningSaver) {
     Config::Save();
     Config::InitSaver();
     std::this_thread::sleep_for(std::chrono::milliseconds(100));
-    const std::string configPath = Config::GetConfigPath();
+    const std::string configPath = Storage::GetDataDirectory() + "config.json";
     {
         std::ofstream file(configPath);
         file << nlohmann::json{{"gamepad_overlay", 6},
@@ -579,14 +579,19 @@ TEST_F(ConfigTest, LoadMigrationWakesRunningSaver) {
                     .dump();
     }
 
+    const auto writtenBefore = std::filesystem::last_write_time(configPath);
     Config::Load();
     bool saved = false;
     const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+    // Polling without opening the file: an open reader blocks the saver's atomic replace.
     while (std::chrono::steady_clock::now() < deadline) {
-        std::ifstream file(configPath);
-        nlohmann::json value = nlohmann::json::parse(file, nullptr, false);
-        if (value.is_object() && value.value("controller_default_back_migrated", false)) {
-            saved = value.value("gamepad_overlay", -1) == 4;
+        std::error_code ec;
+        if (std::filesystem::last_write_time(configPath, ec) != writtenBefore && !ec) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(50));
+            std::ifstream file(configPath);
+            nlohmann::json value = nlohmann::json::parse(file, nullptr, false);
+            saved = value.is_object() && value.value("controller_default_back_migrated", false) &&
+                    value.value("gamepad_overlay", -1) == 4;
             break;
         }
         std::this_thread::sleep_for(std::chrono::milliseconds(20));
