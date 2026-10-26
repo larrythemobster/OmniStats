@@ -171,27 +171,17 @@ void RmlUiController::RefreshInsights(bool force) {
         m_renderDirty = true;
     }
 
-    const uint64_t version = m_state->insights.version.load(std::memory_order_relaxed);
+    auto snap = m_state->insights.GetSnapshot();
+    if (!snap) return;
+    const uint64_t version = snap->version;
     if (!force && version == m_lastInsightsVersion) return;
     m_lastInsightsVersion = version;
-    std::vector<PersonRecord> people;
-    std::vector<MatchOutcome> outcomes;
-    std::vector<MatchMmrContext> mmrContext;
-    std::vector<SessionRecap> sessions;
-    std::vector<AnalyticsMatchRow> analyticsMatches;
-    bool loaded = false;
-    {
-        std::lock_guard lock(m_state->insights.mutex);
-        loaded = m_state->insights.loaded && m_state->insights.primaryId == m_snap.myPrimaryId;
-        if (loaded) {
-            people = m_state->insights.people;
-            outcomes = m_state->insights.outcomes;
-            mmrContext = m_state->insights.mmrContext;
-            sessions = m_state->insights.sessions;
-            analyticsMatches = m_state->insights.analyticsMatches;
-        }
+    bool loaded = snap->loaded && snap->primaryId == m_snap.myPrimaryId;
+    if (loaded) {
+        m_insights.SetHistory(m_snap.myPrimaryId, true, snap->people, snap->outcomes, snap->mmrContext, snap->sessions, snap->analyticsMatches);
+    } else {
+        m_insights.SetHistory(m_snap.myPrimaryId, false, {}, {}, {}, {}, {});
     }
-    m_insights.SetHistory(m_snap.myPrimaryId, loaded, people, outcomes, mmrContext, sessions, analyticsMatches);
     m_renderDirty = true;
 }
 
@@ -267,14 +257,15 @@ void RmlUiController::RefreshAccounts(bool force) {
 
 void RmlUiController::SnapshotNotes() {
     if (!m_state) return;
-    const uint64_t version = m_state->notes.version.load(std::memory_order_relaxed);
+    auto snap = m_state->notes.GetSnapshot();
+    if (!snap) return;
+    const uint64_t version = snap->version;
     if (version == m_snap.notesVersion) return;
-    std::lock_guard lock(m_state->notes.mutex);
     m_snap.notePreviews.clear();
     m_snap.noteTags.clear();
-    for (const auto& [key, note] : m_state->notes.byKey)
+    for (const auto& [key, note] : snap->byKey)
         m_snap.notePreviews.emplace(key, PlayerNotes::Preview(note.text, 140));
-    for (const auto& [key, tags] : m_state->notes.tagsByKey) {
+    for (const auto& [key, tags] : snap->tagsByKey) {
         if (tags.empty()) continue;
         std::string list = "Tags: ";
         for (size_t i = 0; i < tags.size(); ++i)
@@ -283,7 +274,7 @@ void RmlUiController::SnapshotNotes() {
         preview = preview.empty() ? list : preview + " \xC2\xB7 " + list;
         m_snap.noteTags.emplace(key, tags);
     }
-    m_snap.notesLoaded = m_state->notes.loaded;
+    m_snap.notesLoaded = snap->loaded;
     m_snap.notesVersion = version;
 }
 
@@ -302,17 +293,15 @@ void RmlUiController::ShowPlayerNote(const std::string& primaryId, const std::st
     std::optional<PlayerNotes::Note> saved;
     std::vector<std::string> tags;
     {
-        std::lock_guard lock(m_state->notes.mutex);
-        // Opening an editor before the stored notes load could overwrite a note
-        // the user cannot see yet.
-        if (!m_state->notes.loaded) {
-            ShowToast(m_state->notes.loadFailed ? "Player notes could not be read from the local database." : "Player notes are still loading.",
-                      m_state->notes.loadFailed);
+        auto snap = m_state->notes.GetSnapshot();
+        if (!snap || !snap->loaded) {
+            ShowToast((snap && snap->loadFailed) ? "Player notes could not be read from the local database." : "Player notes are still loading.",
+                      snap ? snap->loadFailed : true);
             return;
         }
         if (identity) {
-            if (auto it = m_state->notes.byKey.find(identity->Key()); it != m_state->notes.byKey.end()) saved = it->second;
-            if (auto it = m_state->notes.tagsByKey.find(identity->Key()); it != m_state->notes.tagsByKey.end()) tags = it->second;
+            if (auto it = snap->byKey.find(identity->Key()); it != snap->byKey.end()) saved = it->second;
+            if (auto it = snap->tagsByKey.find(identity->Key()); it != snap->tagsByKey.end()) tags = it->second;
         }
     }
 
@@ -376,57 +365,41 @@ void RmlUiController::RequestClosePlayerNote() {
 
 void RmlUiController::RefreshPlayerNote() {
     if (!m_state) return;
-    const uint64_t notesVersion = m_state->notes.version.load(std::memory_order_relaxed);
-    if (notesVersion != m_lastViewNotesVersion) {
-        m_lastViewNotesVersion = notesVersion;
+    auto notesSnap = m_state->notes.GetSnapshot();
+    if (notesSnap && notesSnap->version != m_lastViewNotesVersion) {
+        m_lastViewNotesVersion = notesSnap->version;
         std::unordered_set<std::string> notedKeys;
-        bool loaded = false;
-        uint64_t completedRequestId = 0;
-        uint64_t completedTagRequestId = 0;
-        bool lastOk = true, lastTagOk = true;
-        std::string lastError, lastTagError;
+        for (const auto& [key, _] : notesSnap->byKey)
+            notedKeys.insert(key);
+        for (const auto& [key, tags] : notesSnap->tagsByKey)
+            if (!tags.empty()) notedKeys.insert(key);
         std::optional<PlayerNotes::Note> editorNote;
         std::vector<std::string> editorTags;
-        {
-            std::lock_guard lock(m_state->notes.mutex);
-            loaded = m_state->notes.loaded;
-            for (const auto& [key, _] : m_state->notes.byKey)
-                notedKeys.insert(key);
-            for (const auto& [key, tags] : m_state->notes.tagsByKey)
-                if (!tags.empty()) notedKeys.insert(key);
-            completedRequestId = m_state->notes.completedRequestId;
-            lastOk = m_state->notes.lastRequestOk;
-            lastError = m_state->notes.lastRequestError;
-            completedTagRequestId = m_state->notes.completedTagRequestId;
-            lastTagOk = m_state->notes.lastTagRequestOk;
-            lastTagError = m_state->notes.lastTagRequestError;
-            if (const auto& identity = m_playerNote.Identity()) {
-                const auto key = identity->Key();
-                if (auto it = m_state->notes.byKey.find(key); it != m_state->notes.byKey.end()) editorNote = it->second;
-                if (auto it = m_state->notes.tagsByKey.find(key); it != m_state->notes.tagsByKey.end()) editorTags = it->second;
-            }
+        if (const auto& identity = m_playerNote.Identity()) {
+            const auto key = identity->Key();
+            if (auto it = notesSnap->byKey.find(key); it != notesSnap->byKey.end()) editorNote = it->second;
+            if (auto it = notesSnap->tagsByKey.find(key); it != notesSnap->tagsByKey.end()) editorTags = it->second;
         }
         if (m_playerNoteVisible) {
-            if (m_playerNote.IsSaving() && completedRequestId == m_playerNote.PendingRequestId())
-                m_playerNote.ApplyResult(completedRequestId, lastOk, lastError, editorNote);
+            if (m_playerNote.IsSaving() && notesSnap->completedRequestId == m_playerNote.PendingRequestId())
+                m_playerNote.ApplyResult(notesSnap->completedRequestId, notesSnap->lastRequestOk, notesSnap->lastRequestError, editorNote);
             else
                 m_playerNote.SyncSaved(editorNote);
-            if (m_playerNote.PendingTagRequestId() && completedTagRequestId == m_playerNote.PendingTagRequestId())
-                m_playerNote.ApplyTagResult(completedTagRequestId, lastTagOk, lastTagError, editorTags);
+            if (m_playerNote.PendingTagRequestId() && notesSnap->completedTagRequestId == m_playerNote.PendingTagRequestId())
+                m_playerNote.ApplyTagResult(notesSnap->completedTagRequestId, notesSnap->lastTagRequestOk, notesSnap->lastTagRequestError, editorTags);
             else if (!m_playerNote.PendingTagRequestId())
                 m_playerNote.SetTags(editorTags);
         }
-        m_history.SetNotedPlayers(notedKeys, loaded);
-        m_insights.SetNotedPlayers(notedKeys, loaded);
+        m_history.SetNotedPlayers(notedKeys, notesSnap->loaded);
+        m_insights.SetNotedPlayers(notedKeys, notesSnap->loaded);
         m_renderDirty = true;
     }
-    const uint64_t scoutVersion = m_state->scout.version.load(std::memory_order_relaxed);
-    if (m_playerNoteVisible && scoutVersion != m_lastScoutViewVersion) {
-        m_lastScoutViewVersion = scoutVersion;
-        std::lock_guard lock(m_state->scout.mutex);
-        if (m_state->scout.loaded && m_state->scout.requestId == m_nextScoutRequestId &&
-            m_playerNote.PrimaryId() == m_state->scout.playerId) {
-            m_playerNote.SetScoutResult(m_state->scout.success ? std::optional{m_state->scout.profile} : std::nullopt);
+    auto scoutSnap = m_state->scout.GetSnapshot();
+    if (scoutSnap && m_playerNoteVisible && scoutSnap->version != m_lastScoutViewVersion) {
+        m_lastScoutViewVersion = scoutSnap->version;
+        if (scoutSnap->loaded && scoutSnap->requestId == m_nextScoutRequestId &&
+            m_playerNote.PrimaryId() == scoutSnap->playerId) {
+            m_playerNote.SetScoutResult(scoutSnap->success ? std::optional{scoutSnap->profile} : std::nullopt);
             m_renderDirty = true;
         }
     }
@@ -490,35 +463,17 @@ void RmlUiController::RefreshHistory(bool force) {
     if (m_history.Account() != effectivePrimary) {
         m_history.SetAccount(effectivePrimary);
     }
-    const uint64_t version = m_state->historyView.version.load(std::memory_order_relaxed);
+    auto snap = m_state->historyView.GetSnapshot();
+    if (!snap) return;
+    const uint64_t version = snap->version;
     if (!force && version == m_lastHistoryViewVersion) return;
     m_lastHistoryViewVersion = version;
 
-    uint64_t reqId = 0;
-    uint64_t detailReqId = 0;
-    bool loading = false;
-    bool detailLoading = false;
-    bool appendMode = false;
-    std::vector<MatchRow> rows;
-    int total = 0;
-    std::optional<MatchDetail> detail;
-    {
-        std::lock_guard lock(m_state->historyView.mutex);
-        reqId = m_state->historyView.requestId;
-        detailReqId = m_state->historyView.detailRequestId;
-        loading = m_state->historyView.loading;
-        detailLoading = m_state->historyView.detailLoading;
-        appendMode = m_state->historyView.appendMode;
-        rows = m_state->historyView.rows;
-        total = m_state->historyView.total;
-        detail = m_state->historyView.detail;
+    if (!snap->loading && snap->requestId > 0) {
+        m_history.ApplyQueryResult(snap->requestId, snap->rows, snap->total, snap->appendMode);
     }
-
-    if (!loading && reqId > 0) {
-        m_history.ApplyQueryResult(reqId, rows, total, appendMode);
-    }
-    if (!detailLoading && (detailReqId > 0 || detail.has_value())) {
-        m_history.ApplyDetailResult(detailReqId, detail);
+    if (!snap->detailLoading && (snap->detailRequestId > 0 || snap->detail.has_value())) {
+        m_history.ApplyDetailResult(snap->detailRequestId, snap->detail);
     }
     m_renderDirty = true;
 }

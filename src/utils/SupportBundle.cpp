@@ -15,6 +15,8 @@
 #endif
 
 #include <sqlite3.h>
+#include "database/sqlite/Connection.hpp"
+#include "database/sqlite/Statement.hpp"
 #include <algorithm>
 #include <cctype>
 #include <chrono>
@@ -221,30 +223,21 @@ namespace SupportBundle {
             return "Database file not found: " + dbPath.string() + "\n";
         }
 
-        sqlite3* db = nullptr;
-        const int rc = sqlite3_open_v2(dbPath.string().c_str(), &db, SQLITE_OPEN_READONLY, nullptr);
-        if (rc != SQLITE_OK || !db) {
-            const std::string msg = db ? sqlite3_errmsg(db) : "cannot open";
-            if (db) sqlite3_close(db);
-            return "Failed to open database read-only: " + msg + "\n";
+        database::sqlite::Connection db;
+        try {
+            db = database::sqlite::Connection::OpenReadOnly(dbPath.string());
+        } catch (const std::exception& e) {
+            return "Failed to open database read-only: " + std::string(e.what()) + "\n";
         }
 
-        int userVersion = 0;
-        sqlite3_stmt* stmt = nullptr;
-        if (sqlite3_prepare_v2(db, "PRAGMA user_version;", -1, &stmt, nullptr) == SQLITE_OK) {
-            if (sqlite3_step(stmt) == SQLITE_ROW) {
-                userVersion = sqlite3_column_int(stmt, 0);
-            }
-            sqlite3_finalize(stmt);
-        }
-
+        int userVersion = db.UserVersion();
         std::vector<std::string> tableNames;
-        if (sqlite3_prepare_v2(db, "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name;", -1, &stmt, nullptr) == SQLITE_OK) {
-            while (sqlite3_step(stmt) == SQLITE_ROW) {
-                const char* name = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 0));
-                if (name) tableNames.push_back(name);
+        try {
+            database::sqlite::Statement stmt(db, "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name;");
+            while (stmt.Step()) {
+                tableNames.push_back(stmt.Get<std::string>(0));
             }
-            sqlite3_finalize(stmt);
+        } catch (...) {
         }
 
         std::ostringstream out;
@@ -260,18 +253,18 @@ namespace SupportBundle {
             }
             if (!safeName) continue;
 
-            const std::string countSql = "SELECT COUNT(*) FROM \"" + tbl + "\";";
             int64_t rowCount = 0;
-            if (sqlite3_prepare_v2(db, countSql.c_str(), -1, &stmt, nullptr) == SQLITE_OK) {
-                if (sqlite3_step(stmt) == SQLITE_ROW) {
-                    rowCount = sqlite3_column_int64(stmt, 0);
+            try {
+                const std::string countSql = "SELECT COUNT(*) FROM \"" + tbl + "\";";
+                database::sqlite::Statement stmt(db, countSql);
+                if (stmt.Step()) {
+                    rowCount = stmt.Get<int64_t>(0);
                 }
-                sqlite3_finalize(stmt);
+            } catch (...) {
             }
             out << "  " << tbl << ": " << rowCount << " rows\n";
         }
 
-        sqlite3_close(db);
         return out.str();
     }
 
@@ -410,38 +403,22 @@ namespace SupportBundle {
         }
         if (!conf.last_primary_id.empty()) secrets.push_back(conf.last_primary_id);
         const std::string dbPath = Storage::GetDataDirectory() + Storage::APP_NAME + ".db";
-        sqlite3* db = nullptr;
-        if (sqlite3_open_v2(dbPath.c_str(), &db, SQLITE_OPEN_READONLY, nullptr) == SQLITE_OK && db) {
-            sqlite3_stmt* checkStmt = nullptr;
-            bool hasTable = false;
-            if (sqlite3_prepare_v2(db, "SELECT 1 FROM sqlite_master WHERE type='table' AND name='TrackedAccounts' LIMIT 1;", -1, &checkStmt, nullptr) == SQLITE_OK) {
-                if (sqlite3_step(checkStmt) == SQLITE_ROW) {
-                    hasTable = true;
-                }
-                sqlite3_finalize(checkStmt);
-            }
-            if (hasTable) {
-                sqlite3_stmt* selStmt = nullptr;
-                if (sqlite3_prepare_v2(db, "SELECT primary_id, platform_account_id, nickname, last_known_name FROM TrackedAccounts;", -1, &selStmt, nullptr) == SQLITE_OK) {
-                    while (sqlite3_step(selStmt) == SQLITE_ROW) {
-                        for (int col = 0; col < 4; ++col) {
-                            if (sqlite3_column_type(selStmt, col) != SQLITE_NULL) {
-                                const unsigned char* text = sqlite3_column_text(selStmt, col);
-                                if (text) {
-                                    std::string val(reinterpret_cast<const char*>(text));
-                                    if (val.size() >= 3) {
-                                        secrets.push_back(std::move(val));
-                                    }
-                                }
+        try {
+            database::sqlite::Connection db = database::sqlite::Connection::OpenReadOnly(dbPath);
+            if (db.TableExists("TrackedAccounts")) {
+                database::sqlite::Statement selStmt(db, "SELECT primary_id, platform_account_id, nickname, last_known_name FROM TrackedAccounts;");
+                while (selStmt.Step()) {
+                    for (int col = 0; col < 4; ++col) {
+                        if (!selStmt.IsNull(col)) {
+                            std::string val = selStmt.Get<std::string>(col);
+                            if (val.size() >= 3) {
+                                secrets.push_back(std::move(val));
                             }
                         }
                     }
-                    sqlite3_finalize(selStmt);
                 }
             }
-            sqlite3_close(db);
-        } else if (db) {
-            sqlite3_close(db);
+        } catch (...) {
         }
 
         Core::ZipWriter zip;

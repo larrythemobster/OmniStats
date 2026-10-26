@@ -530,34 +530,36 @@ void RmlUiController::SnapshotState() {
         }
     }
     {
-        std::shared_lock lock(m_state->history.mutex);
-        m_snap.showLifetimeGraph = m_state->history.showLifetimeGraph.load();
-        const auto version = m_state->history.version.load();
-        if (version != m_lastHistoryVersion) {
-            m_lastHistoryVersion = version;
-            m_snap.initialMmr = static_cast<float>(m_state->history.initialMmr);
-            m_snap.playlistInitialMmr = m_state->history.playlistInitialMmr;
-            m_snap.playlistHistoryY = m_state->history.playlistHistoryY;
-            m_snap.playlistHistoryEstimated.clear();
-            for (const auto& [playlist, history] : m_state->history.playlistHistoryY) {
-                auto& flags = m_snap.playlistHistoryEstimated[playlist];
-                flags.assign(history.size(), false);
-                auto pointIt = m_state->history.playlistMatchPoints.find(playlist);
-                if (pointIt == m_state->history.playlistMatchPoints.end()) continue;
-                for (const auto& point : pointIt->second)
-                    if (point.historyIndex < flags.size()) flags[point.historyIndex] = point.valueEstimated;
+        auto snap = m_state->history.GetSnapshot();
+        if (snap) {
+            m_snap.showLifetimeGraph = snap->showLifetimeGraph;
+            const auto version = snap->version;
+            if (version != m_lastHistoryVersion) {
+                m_lastHistoryVersion = version;
+                m_snap.initialMmr = static_cast<float>(snap->initialMmr);
+                m_snap.playlistInitialMmr = snap->playlistInitialMmr;
+                m_snap.playlistHistoryY = snap->playlistHistoryY;
+                m_snap.playlistHistoryEstimated.clear();
+                for (const auto& [playlist, history] : snap->playlistHistoryY) {
+                    auto& flags = m_snap.playlistHistoryEstimated[playlist];
+                    flags.assign(history.size(), false);
+                    auto pointIt = snap->playlistMatchPoints.find(playlist);
+                    if (pointIt == snap->playlistMatchPoints.end()) continue;
+                    for (const auto& point : pointIt->second)
+                        if (point.historyIndex < flags.size()) flags[point.historyIndex] = point.valueEstimated;
+                }
+                m_snap.lifetimeMmrX = snap->lifetimeMmrX;
+                m_snap.lifetimeMmrY = snap->lifetimeMmrY;
+                m_snap.recentSavedMatches = snap->pendingRecentMatches;
+                for (const auto& saved : snap->recentSavedMatches) {
+                    const bool shadowed = !saved.matchGuid.empty() && std::any_of(snap->pendingRecentMatches.begin(), snap->pendingRecentMatches.end(), [&](const SessionMatchSummary& pending) {
+                        return pending.matchGuid == saved.matchGuid;
+                    });
+                    if (!shadowed) m_snap.recentSavedMatches.push_back(saved);
+                }
+                std::stable_sort(m_snap.recentSavedMatches.begin(), m_snap.recentSavedMatches.end(), [](const auto& a, const auto& b) { return a.endedAtUnix > b.endedAtUnix; });
+                m_snap.recentSavedMatchesLoaded = snap->recentSavedMatchesLoaded || !snap->pendingRecentMatches.empty();
             }
-            m_snap.lifetimeMmrX = m_state->history.lifetimeMmrX;
-            m_snap.lifetimeMmrY = m_state->history.lifetimeMmrY;
-            m_snap.recentSavedMatches = m_state->history.pendingRecentMatches;
-            for (const auto& saved : m_state->history.recentSavedMatches) {
-                const bool shadowed = !saved.matchGuid.empty() && std::any_of(m_state->history.pendingRecentMatches.begin(), m_state->history.pendingRecentMatches.end(), [&](const SessionMatchSummary& pending) {
-                    return pending.matchGuid == saved.matchGuid;
-                });
-                if (!shadowed) m_snap.recentSavedMatches.push_back(saved);
-            }
-            std::stable_sort(m_snap.recentSavedMatches.begin(), m_snap.recentSavedMatches.end(), [](const auto& a, const auto& b) { return a.endedAtUnix > b.endedAtUnix; });
-            m_snap.recentSavedMatchesLoaded = m_state->history.recentSavedMatchesLoaded || !m_state->history.pendingRecentMatches.empty();
         }
     }
     if (m_snap.myPrimaryId.empty() && !m_config.last_primary_id.empty()) m_snap.myPrimaryId = m_config.last_primary_id;

@@ -53,51 +53,6 @@ bool IsExtraMmrCategory(MmrCategory cat) {
            cat == MmrCategory::Heatseeker;
 }
 
-void HistoryState::SelectMmrOwner(const std::string& primaryId) {
-    if (mmrOwnerPrimaryId == primaryId) return;
-
-    if (!mmrOwnerPrimaryId.empty()) {
-        auto& saved = inactiveMmrHistories[mmrOwnerPrimaryId];
-        saved.mmrHistoryY = std::move(mmrHistoryY);
-        saved.mmrHistoryX = std::move(mmrHistoryX);
-        saved.playlistHistoryY = std::move(playlistHistoryY);
-        saved.playlistMatchPoints = std::move(playlistMatchPoints);
-        saved.playlistInitialMmr = std::move(playlistInitialMmr);
-        saved.initialMmr = initialMmr;
-    }
-
-    mmrOwnerPrimaryId = primaryId;
-    const auto previous = inactiveMmrHistories.find(primaryId);
-    if (previous != inactiveMmrHistories.end()) {
-        mmrHistoryY = std::move(previous->second.mmrHistoryY);
-        mmrHistoryX = std::move(previous->second.mmrHistoryX);
-        playlistHistoryY = std::move(previous->second.playlistHistoryY);
-        playlistMatchPoints = std::move(previous->second.playlistMatchPoints);
-        playlistInitialMmr = std::move(previous->second.playlistInitialMmr);
-        initialMmr = previous->second.initialMmr;
-        inactiveMmrHistories.erase(previous);
-    } else {
-        mmrHistoryY.clear();
-        mmrHistoryX.clear();
-        playlistHistoryY.clear();
-        playlistMatchPoints.clear();
-        playlistInitialMmr.clear();
-        initialMmr = -1;
-    }
-    version++;
-}
-
-void HistoryState::ResetSessionMmr() {
-    mmrHistoryY.clear();
-    mmrHistoryX.clear();
-    playlistHistoryY.clear();
-    playlistMatchPoints.clear();
-    playlistInitialMmr.clear();
-    initialMmr = -1;
-    inactiveMmrHistories.clear();
-    version++;
-}
-
 void UIState::ApplyRankProgressConfig(const ConfigData& config, bool initial) {
     if (!config.show_extra_playlists && IsExtraMmrCategory(rankProgressMmrCategory.load())) {
         rankProgressMmrCategory.store(MmrCategory::TwoVTwo);
