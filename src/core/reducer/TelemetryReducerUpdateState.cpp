@@ -66,15 +66,8 @@ namespace TelemetryReducerDetail {
     }
 
     void UpdateLifecycleSignals(MatchState& state, const TelemetryEvents::UpdateStateEvent& ev) {
-        if (ev.explicitLocalForfeitFlag) {
+        if (TelemetryEvents::HasExplicitLocalForfeitSignal(ev.forfeitScopes, state.myTeam)) {
             state.explicitLocalForfeit = true;
-        } else if (ev.bForfeit) {
-            if (ev.forfeitTeam.has_value() && (*ev.forfeitTeam == 0 || *ev.forfeitTeam == 1)) {
-                if (*ev.forfeitTeam == state.myTeam) state.explicitLocalForfeit = true;
-            } else if (ev.winnerTeam.has_value() && (*ev.winnerTeam == 0 || *ev.winnerTeam == 1) &&
-                       (state.myTeam == 0 || state.myTeam == 1) && *ev.winnerTeam != state.myTeam) {
-                state.explicitLocalForfeit = true;
-            }
         }
 
         if (PlaylistMetadata::HasAuthoritativeId(state.playlistId)) {

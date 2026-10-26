@@ -190,7 +190,39 @@ namespace TelemetryEvents {
             return match;
         }
 
+        ForfeitScope ReadForfeitScope(const nlohmann::json& scope) {
+            ForfeitScope s;
+            s.localFlag = ReadTrueBoolean(scope, {"bLocalPlayerForfeit", "bLocalForfeit", "LocalPlayerForfeit",
+                                                  "bLocalPlayerAbandoned", "bLocalPlayerAbandon", "LocalPlayerAbandoned"});
+            s.forfeit = ReadTrueBoolean(scope, {"bForfeit", "Forfeit"});
+            s.forfeitTeam = ReadInteger(scope, {"ForfeitTeamNum", "ForfeitingTeamNum", "AbandoningTeamNum"});
+            s.winnerTeam = ReadInteger(scope, {"WinnerTeamNum", "winner_team_num"});
+            return s;
+        }
+
+        std::vector<ForfeitScope> ReadForfeitScopes(const nlohmann::json& data) {
+            std::vector<ForfeitScope> scopes{ReadForfeitScope(data)};
+            if (const auto* game = Child(data, "Game"); game && game->is_object()) scopes.push_back(ReadForfeitScope(*game));
+            return scopes;
+        }
+
     } // namespace
+
+    bool HasExplicitLocalForfeitSignal(const std::vector<ForfeitScope>& scopes, int localTeam) {
+        for (const auto& scope : scopes) {
+            if (scope.localFlag) return true;
+            if (!scope.forfeit) continue;
+            if (scope.forfeitTeam && (*scope.forfeitTeam == 0 || *scope.forfeitTeam == 1)) {
+                if (*scope.forfeitTeam == localTeam) return true;
+                continue;
+            }
+            if (scope.winnerTeam && (*scope.winnerTeam == 0 || *scope.winnerTeam == 1) &&
+                (localTeam == 0 || localTeam == 1) && *scope.winnerTeam != localTeam) {
+                return true;
+            }
+        }
+        return false;
+    }
 
     std::optional<TelemetryEvent> ParseEventFromJson(std::string_view eventName, const std::string& jsonStr) {
         nlohmann::json data;
@@ -254,24 +286,16 @@ namespace TelemetryEvents {
         if (eventName == Constants::EVT_MATCH_ENDED) {
             MatchEndedEvent ev;
             ev.matchGuid = ExtractGuid(data);
-            if (const auto wt = Integer(data, "WinnerTeamNum")) ev.winnerTeam = *wt;
+            ev.winnerTeam = ReadInteger(data, {"WinnerTeamNum", "winner_team_num"}).value_or(-1);
             ev.hasTeamScores = ReadTeamScores(data, ev.teamScores);
-            ev.explicitLocalForfeitFlag =
-                ReadTrueBoolean(data, {"bLocalPlayerForfeit", "bLocalForfeit", "LocalPlayerForfeit",
-                                       "bLocalPlayerAbandoned", "bLocalPlayerAbandon", "LocalPlayerAbandoned"});
-            ev.bForfeit = ReadTrueBoolean(data, {"bForfeit", "Forfeit"});
-            ev.forfeitTeam = ReadInteger(data, {"ForfeitTeamNum", "ForfeitingTeamNum", "AbandoningTeamNum"});
+            ev.forfeitScopes = ReadForfeitScopes(data);
             return ev;
         }
         if (eventName == Constants::EVT_MATCH_DESTROYED) {
             MatchDestroyedEvent ev;
             ev.matchGuid = ExtractGuid(data);
             ev.hasTeamScores = ReadTeamScores(data, ev.teamScores);
-            ev.explicitLocalForfeitFlag =
-                ReadTrueBoolean(data, {"bLocalPlayerForfeit", "bLocalForfeit", "LocalPlayerForfeit",
-                                       "bLocalPlayerAbandoned", "bLocalPlayerAbandon", "LocalPlayerAbandoned"});
-            ev.bForfeit = ReadTrueBoolean(data, {"bForfeit", "Forfeit"});
-            ev.forfeitTeam = ReadInteger(data, {"ForfeitTeamNum", "ForfeitingTeamNum", "AbandoningTeamNum"});
+            ev.forfeitScopes = ReadForfeitScopes(data);
             ev.winnerTeam = ReadInteger(data, {"WinnerTeamNum", "winner_team_num"});
             return ev;
         }
@@ -340,27 +364,9 @@ namespace TelemetryEvents {
             UpdateStateEvent ev;
             ev.matchGuid = ExtractGuid(data);
             ev.cameraTargetPlayerId = ExtractCameraTarget(data);
-
-            // Forfeit checks
-            auto checkForfeitScope = [&](const nlohmann::json& scope) {
-                if (ReadTrueBoolean(scope, {"bLocalPlayerForfeit", "bLocalForfeit", "LocalPlayerForfeit",
-                                            "bLocalPlayerAbandoned", "bLocalPlayerAbandon", "LocalPlayerAbandoned"})) {
-                    ev.explicitLocalForfeitFlag = true;
-                }
-                if (ReadTrueBoolean(scope, {"bForfeit", "Forfeit"})) {
-                    ev.bForfeit = true;
-                }
-                if (auto ft = ReadInteger(scope, {"ForfeitTeamNum", "ForfeitingTeamNum", "AbandoningTeamNum"})) {
-                    ev.forfeitTeam = ft;
-                }
-                if (auto wt = ReadInteger(scope, {"WinnerTeamNum", "winner_team_num"})) {
-                    ev.winnerTeam = wt;
-                }
-            };
-            checkForfeitScope(data);
+            ev.forfeitScopes = ReadForfeitScopes(data);
 
             if (const auto* game = Child(data, "Game")) {
-                checkForfeitScope(*game);
                 ev.arena = String(*game, "Arena");
                 ev.arenaAsset = String(*game, "ArenaAsset");
                 if (auto pid = ReadInteger(*game, {"PlaylistId", "playlist_id"})) {

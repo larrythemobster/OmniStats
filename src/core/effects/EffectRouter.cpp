@@ -6,6 +6,7 @@
 #include "network/mmr/MMRFetcher.hpp"
 #include "core/accounts/AccountManager.hpp"
 #include "core/state/SessionState.hpp"
+#include "core/state/LiveMatchStore.hpp"
 #include <algorithm>
 #include <mutex>
 
@@ -20,6 +21,12 @@ void EffectRouter::Route(SideEffects&& effects,
     if (effects.selectMmrOwner && sessionState) {
         std::unique_lock lock(sessionState->history.mutex);
         sessionState->selectMmrOwnerLocked(*effects.selectMmrOwner);
+    }
+    if (effects.closeSessionIfInactiveAtUnix && sessionState && sessionState->liveMatch) {
+        std::unique_lock lock(sessionState->history.mutex);
+        if (sessionState->closeSessionIfInactiveLocked(*effects.closeSessionIfInactiveAtUnix)) {
+            effects.persistSession = sessionState->liveMatch->GetSnapshot()->lastSessionRecap;
+        }
     }
     if (effects.persistLocalPrimaryId) {
         Config::Update([&id = *effects.persistLocalPrimaryId](ConfigData& c) { c.last_primary_id = id; });

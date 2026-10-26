@@ -83,6 +83,8 @@ struct SideEffects {
     MatchSaveSnapshot saveSnapshot;
     std::optional<MatchSaveSnapshot> provisionalSaveSnapshot;
     std::optional<SessionRecap> persistSession;
+    // Unix time at which a new match lifecycle started; closes the session if it went inactive.
+    std::optional<int64_t> closeSessionIfInactiveAtUnix;
     std::optional<SessionRecap> updateSession;
     std::optional<ConfirmedLocalAccount> confirmedLocalAccount;
     // Identity changes: the saved local id (empty clears it) and the account whose MMR history is shown.

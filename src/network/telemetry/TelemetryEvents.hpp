@@ -12,6 +12,16 @@
 
 namespace TelemetryEvents {
 
+    // One object level (root or Game) of forfeit metadata; levels are evaluated independently.
+    struct ForfeitScope {
+        bool localFlag = false;
+        bool forfeit = false;
+        std::optional<int> forfeitTeam;
+        std::optional<int> winnerTeam;
+    };
+
+    bool HasExplicitLocalForfeitSignal(const std::vector<ForfeitScope>& scopes, int localTeam);
+
     struct PlayerRef {
         std::string name;
         std::string primaryId;
@@ -77,18 +87,14 @@ namespace TelemetryEvents {
         int winnerTeam = -1;
         std::array<int, 2> teamScores{0, 0};
         bool hasTeamScores = false;
-        bool explicitLocalForfeitFlag = false;
-        bool bForfeit = false;
-        std::optional<int> forfeitTeam;
+        std::vector<ForfeitScope> forfeitScopes;
     };
 
     struct MatchDestroyedEvent {
         std::string matchGuid;
         std::array<int, 2> teamScores{0, 0};
         bool hasTeamScores = false;
-        bool explicitLocalForfeitFlag = false;
-        bool bForfeit = false;
-        std::optional<int> forfeitTeam;
+        std::vector<ForfeitScope> forfeitScopes;
         std::optional<int> winnerTeam;
     };
 
@@ -184,10 +190,7 @@ namespace TelemetryEvents {
         std::string cameraTargetPlayerId;
 
         // Forfeit / early exit flags
-        bool explicitLocalForfeitFlag = false;
-        bool bForfeit = false;
-        std::optional<int> forfeitTeam;
-        std::optional<int> winnerTeam;
+        std::vector<ForfeitScope> forfeitScopes;
 
         // Legacy context fallback
         bool explicitNonRecordable = false;

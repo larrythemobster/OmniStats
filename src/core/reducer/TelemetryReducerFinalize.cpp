@@ -236,27 +236,6 @@ namespace TelemetryReducerDetail {
         state.ResetTiming();
     }
 
-    namespace {
-        template <typename T>
-        bool HasExplicitLocalForfeit(const T& event, int localTeam) {
-            if (event.explicitLocalForfeitFlag) return true;
-            if (!event.bForfeit) return false;
-            if (event.forfeitTeam.has_value() &&
-                (*event.forfeitTeam == 0 || *event.forfeitTeam == 1)) {
-                return *event.forfeitTeam == localTeam;
-            }
-            if constexpr (std::is_same_v<T, TelemetryEvents::MatchEndedEvent>) {
-                return (event.winnerTeam == 0 || event.winnerTeam == 1) &&
-                       (localTeam == 0 || localTeam == 1) &&
-                       event.winnerTeam != localTeam;
-            } else {
-                return event.winnerTeam.has_value() &&
-                       (*event.winnerTeam == 0 || *event.winnerTeam == 1) &&
-                       (localTeam == 0 || localTeam == 1) &&
-                       *event.winnerTeam != localTeam;
-            }
-        }
-    } // namespace
     void HandleMatchEnded(MatchState& state,
                           const TelemetryEvents::MatchEndedEvent& ev,
                           const ReducerContext& ctx,
@@ -276,7 +255,8 @@ namespace TelemetryReducerDetail {
             CapturedMatch match = std::move(pendingIt->second);
             state.pendingDestroyedMatches.erase(pendingIt);
             if (ev.hasTeamScores) match.score = ev.teamScores;
-            const bool localForfeit = HasExplicitLocalForfeit(ev, match.myTeam);
+            const bool localForfeit =
+                TelemetryEvents::HasExplicitLocalForfeitSignal(ev.forfeitScopes, match.myTeam) && winner != match.myTeam;
             const bool won = winner == match.myTeam;
             const std::string resolvedGuid = match.matchGuid;
             FinalizeCapturedMatch(state,
@@ -299,8 +279,7 @@ namespace TelemetryReducerDetail {
             }
             targetsCurrent = true;
         }
-        if (!targetsCurrent || !state.inMatch || state.matchFinalized ||
-            (hasExplicitEventGuid && state.finalizedMatchGuids.count(eventMatchGuid) != 0)) {
+        if (!targetsCurrent || !state.inMatch || state.matchFinalized) {
             return;
         }
 
@@ -310,7 +289,8 @@ namespace TelemetryReducerDetail {
         state.countdownSeenThisRound = false;
         state.roundActive = false;
         if (ev.hasTeamScores) state.score = ev.teamScores;
-        const bool localForfeit = HasExplicitLocalForfeit(ev, state.myTeam);
+        const bool localForfeit =
+            TelemetryEvents::HasExplicitLocalForfeitSignal(ev.forfeitScopes, state.myTeam) && winner != state.myTeam;
         TelemetryReducer::FinalizeMatch(state,
                                         winner,
                                         localForfeit ? TelemetryReducer::MatchFinalizeSource::LocalForfeit
@@ -337,7 +317,7 @@ namespace TelemetryReducerDetail {
         }
 
         state.roundActive = false;
-        if (HasExplicitLocalForfeit(ev, state.myTeam)) state.explicitLocalForfeit = true;
+        if (TelemetryEvents::HasExplicitLocalForfeitSignal(ev.forfeitScopes, state.myTeam)) state.explicitLocalForfeit = true;
         if (ev.hasTeamScores) state.score = ev.teamScores;
 
         if (!state.inMatch) {

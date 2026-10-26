@@ -190,7 +190,7 @@ void StatsClient::RunLoop() {
                         disconnectEffects.persistSession = m_state->liveMatch->GetSnapshot()->lastSessionRecap;
                     }
                 }
-                m_state->liveMatch->ClearActiveMatchOnDisconnect();
+                m_state->clearActiveMatchOnDisconnect();
             }
 
             if (disconnectEffects.persistSession) {

@@ -177,6 +177,10 @@ SideEffects TelemetryReducer::ReduceInPlace(MatchState& state,
                              ? (currentIsNonRecordable ? "non-recordable-transition" : "different-explicit-guid")
                              : "no-active-match";
 
+                if (!context.config.reset_session_on_close) {
+                    effects.closeSessionIfInactiveAtUnix = context.nowUnix;
+                }
+
                 LocalPreMatchMmrSnapshot initialMmrSnapshot;
                 bool hasInitialMmrSnapshot = false;
                 if (!state.myPrimaryId.empty()) {
