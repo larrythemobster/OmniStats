@@ -49,6 +49,7 @@ namespace Tournaments {
     };
     class TournamentScheduleService {
       public:
+        explicit TournamentScheduleService(bool enableWorker = true) : m_enableWorker(enableWorker) {}
         ~TournamentScheduleService();
         void Start();
         void Stop();
@@ -58,14 +59,14 @@ namespace Tournaments {
             m_accountClient = std::move(accountClient);
         }
 
-#ifdef OMNISTATS_TEST_ENVIRONMENT
         bool FetchForTests(ScheduleSnapshot& snapshot) {
             return Fetch(snapshot);
         }
-#endif
+
       private:
         void Worker();
         bool Fetch(ScheduleSnapshot& snapshot);
+        const bool m_enableWorker;
         mutable std::mutex m_mutex;
         std::condition_variable m_cv;
         std::jthread m_thread;

@@ -12,7 +12,9 @@
 #include "network/mmr/MmrService.hpp"
 #include "network/telemetry/TelemetryEvents.hpp"
 
+#include <future>
 #include <memory>
+#include <thread>
 
 using namespace TrackedAccounts;
 
@@ -133,18 +135,17 @@ class TrackedAccountDiscoveryTest : public ::testing::Test {
         db = std::make_shared<DatabaseManager>(state);
         ASSERT_TRUE(db->Initialize(":memory:"));
         fetcher = std::make_shared<MmrService>(state, db);
-        service = std::make_shared<AccountManagerService>(db, fetcher);
-        service->SetClockForTests([this]() { return clock; });
+        service = std::make_shared<AccountManagerService>(db, fetcher, [this]() { return clock; }, worker);
     }
 
     void TearDown() override {
-        service->Stop();
+        if (service) service->Stop();
         Config::Update([this](ConfigData& c) { c = original; }, false);
     }
 
     void Start() {
         service->Start();
-        service->FlushForTests();
+        worker->Drain();
     }
 
     nlohmann::json Lobby(const std::string& localId, const std::string& localName) {
@@ -162,6 +163,7 @@ class TrackedAccountDiscoveryTest : public ::testing::Test {
     std::shared_ptr<SessionState> state;
     std::shared_ptr<DatabaseManager> db;
     std::shared_ptr<MmrService> fetcher;
+    std::shared_ptr<WorkQueue> worker = std::make_shared<WorkQueue>();
     std::shared_ptr<AccountManagerService> service;
 };
 
@@ -201,7 +203,7 @@ TEST_F(TrackedAccountDiscoveryTest, ReducerConfirmsOnlyTheIdentifiedLocalPlayerO
 TEST_F(TrackedAccountDiscoveryTest, ConfirmedAccountsRegisterOnceAndKeepNicknames) {
     Start();
     service->ObserveLocalAccount("Steam|" + kSteamId + "|0", "Me");
-    service->FlushForTests();
+    worker->Drain();
 
     auto stored = db->GetTrackedAccount("Steam|" + kSteamId);
     ASSERT_TRUE(stored.has_value());
@@ -212,13 +214,13 @@ TEST_F(TrackedAccountDiscoveryTest, ConfirmedAccountsRegisterOnceAndKeepNickname
     ASSERT_TRUE(service->Rename("Steam|" + kSteamId, "Main"));
     clock += 600;
     service->ObserveLocalAccount("Steam|" + kSteamId + "|0", "Me");
-    service->FlushForTests();
+    worker->Drain();
     stored = db->GetTrackedAccount("Steam|" + kSteamId);
     EXPECT_EQ(stored->lastSeenAtUnix, clock - 600);
 
     service->ObserveLocalAccount("Steam|" + kSteamOtherId + "|0", "Alt");
     service->ObserveLocalAccount("Steam|" + kSteamId + "|0", "Me New");
-    service->FlushForTests();
+    worker->Drain();
 
     const auto snapshot = service->GetSnapshot();
     ASSERT_EQ(snapshot.accounts.size(), 2u);
@@ -232,10 +234,30 @@ TEST_F(TrackedAccountDiscoveryTest, ConfirmedAccountsRegisterOnceAndKeepNickname
 TEST_F(TrackedAccountDiscoveryTest, ObservationsBeforeLoadAreAppliedAfterLoad) {
     service->ObserveLocalAccount("Steam|" + kSteamId + "|0", "Early");
     Start();
-    service->FlushForTests();
+    worker->Drain();
     const auto snapshot = service->GetSnapshot();
     ASSERT_EQ(snapshot.accounts.size(), 1u);
     EXPECT_EQ(snapshot.accounts[0].record.lastKnownName, "Early");
+}
+
+TEST_F(TrackedAccountDiscoveryTest, DestructionDrainsDatabaseWritesQueuedDuringStartup) {
+    std::promise<void> release;
+    auto gate = release.get_future().share();
+    ASSERT_TRUE(worker->Enqueue([gate] { gate.wait(); }, true));
+    service->ObserveLocalAccount("Steam|" + kSteamId + "|0", "Early");
+    service->Start();
+
+    auto stopped = std::async(std::launch::async, [service = std::move(service)]() mutable {
+        service.reset();
+    });
+    while (worker->Enqueue([] {}, true))
+        std::this_thread::yield();
+    release.set_value();
+    stopped.get();
+
+    const auto stored = db->GetTrackedAccount("Steam|" + kSteamId);
+    ASSERT_TRUE(stored.has_value());
+    EXPECT_EQ(stored->lastKnownName, "Early");
 }
 
 TEST_F(TrackedAccountDiscoveryTest, UnknownIdentitiesAndSharedDisplayNames) {
@@ -247,7 +269,7 @@ TEST_F(TrackedAccountDiscoveryTest, UnknownIdentitiesAndSharedDisplayNames) {
 
     service->ObserveLocalAccount("Steam|" + kSteamId, "Same");
     service->ObserveLocalAccount("Epic|" + kEpicHex, "Same");
-    service->FlushForTests();
+    worker->Drain();
     EXPECT_EQ(service->GetSnapshot().accounts.size(), 2u);
 }
 
@@ -267,7 +289,7 @@ TEST_F(TrackedAccountDiscoveryTest, ManualRegistrationValidatesAndDetectsDuplica
     EXPECT_EQ(result.primaryId, "XboxOne|1234567890");
     EXPECT_NE(result.message.find("Xbox alt"), std::string::npos);
 
-    service->FlushForTests();
+    worker->Drain();
     const auto snapshot = service->GetSnapshot();
     ASSERT_EQ(snapshot.accounts.size(), 2u);
     EXPECT_EQ(snapshot.accounts[0].refreshState, AccountManagerService::RefreshState::ProviderUnavailable);
@@ -282,7 +304,7 @@ TEST_F(TrackedAccountDiscoveryTest, ImportDeduplicatesAndLeavesLiveIdentityAlone
                    false);
     Start();
     service->ObserveLocalAccount("Steam|" + kSteamOtherId + "|0", "Already");
-    service->FlushForTests();
+    worker->Drain();
 
     const auto candidates = service->ImportCandidates();
     ASSERT_EQ(candidates.size(), 2u);
@@ -292,7 +314,7 @@ TEST_F(TrackedAccountDiscoveryTest, ImportDeduplicatesAndLeavesLiveIdentityAlone
     EXPECT_EQ(service->ImportKnown(), 2u);
     EXPECT_EQ(service->ImportKnown(), 0u);
     EXPECT_TRUE(service->ImportCandidates().empty());
-    service->FlushForTests();
+    worker->Drain();
 
     EXPECT_EQ(db->ListTrackedAccounts().size(), 3u);
     EXPECT_EQ(db->GetTrackedAccount("Epic|" + kEpicHex)->discoverySource, DiscoverySource::Import);
@@ -332,7 +354,7 @@ TEST_F(TrackedAccountDiscoveryTest, ImportedAndManualAccountsTakeTheirNameFromMa
     ASSERT_EQ(service->ImportKnown(), 1u);
     ASSERT_EQ(service->AddManual(Platform::Epic, kEpicHex, "").status, AccountManagerService::AddResult::Status::Added);
     ASSERT_EQ(service->AddManual(Platform::Steam, kSteamOtherId, "").status, AccountManagerService::AddResult::Status::Added);
-    service->FlushForTests();
+    worker->Drain();
 
     EXPECT_EQ(db->GetTrackedAccount("Steam|" + kSteamId)->lastKnownName, "NewName");
     EXPECT_EQ(db->GetTrackedAccount("Epic|" + kEpicHex)->lastKnownName, "EpicAlt");
@@ -358,7 +380,7 @@ TEST_F(TrackedAccountDiscoveryTest, ExistingUnnamedAccountsAreBackfilledOnStart)
               TrackedAccountInsertResult::Inserted);
 
     Start();
-    service->FlushForTests();
+    worker->Drain();
 
     EXPECT_EQ(service->GetSnapshot().accounts[0].record.lastKnownName, "Backfilled");
     EXPECT_EQ(db->GetTrackedAccount("Steam|" + kSteamId)->lastKnownName, "Backfilled");

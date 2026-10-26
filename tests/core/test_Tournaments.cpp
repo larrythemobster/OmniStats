@@ -56,7 +56,7 @@ TEST(TournamentCountdown, RoundsUpWithoutShowingZeroBeforeStart) {
 
 TEST(TournamentSchedule, FetchUsesOmniNetAndParsesSchedule) {
     auto account = std::make_shared<AccountClient>();
-    Tournaments::TournamentScheduleService tourneyService;
+    Tournaments::TournamentScheduleService tourneyService{false};
     tourneyService.SetAccountClient(account);
     AccountClient::DeviceKeyPair keyPair;
     ASSERT_TRUE(account->EnsureDeviceKey(&keyPair));

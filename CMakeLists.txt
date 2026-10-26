@@ -145,10 +145,6 @@ file(GLOB UPDATER_ALL_SOURCES CONFIGURE_DEPENDS
 set(UPDATER_ENTRY_SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/src/updater/main.cpp")
 set(UPDATER_ONLY_SOURCES ${UPDATER_ALL_SOURCES})
 list(REMOVE_ITEM UPDATER_ONLY_SOURCES "${UPDATER_ENTRY_SOURCE}")
-set(UPDATER_SOURCES
-    "${UPDATER_ENTRY_SOURCE}"
-    ${UPDATER_ONLY_SOURCES}
-)
 
 # -----------------------------------------------------------------------------
 # Precompiled Headers & Layer Library Helpers
@@ -182,13 +178,9 @@ function(omnistats_enable_rmlui_pch target)
     )
 endfunction()
 
-# Builds a static library for a layer, plus an optional test variant if the layer
-# contains OMNISTATS_TEST_ENVIRONMENT hooks. Other slices are removing these hooks;
-# once removed, remove HAS_TEST_VARIANT to cut over cleanly.
 function(omnistats_add_layer_library name)
-    cmake_parse_arguments(ARG "HAS_TEST_VARIANT" "" "SOURCES;LIBRARIES" ${ARGN})
+    cmake_parse_arguments(ARG "" "" "SOURCES;LIBRARIES" ${ARGN})
 
-    # Clean production library (links into OmniStats.exe, no test hooks)
     add_library(${name} STATIC ${ARG_SOURCES})
     omnistats_configure_layer_target(${name})
     if(ARG_LIBRARIES)
@@ -208,29 +200,6 @@ function(omnistats_add_layer_library name)
         omnistats_enable_shared_pch(${name})
     endif()
 
-    # Test variant for targets with OMNISTATS_TEST_ENVIRONMENT hooks
-    if(BUILD_TESTING AND ARG_HAS_TEST_VARIANT)
-        set(test_target "${name}_test")
-        add_library(${test_target} STATIC ${ARG_SOURCES})
-        omnistats_configure_layer_target(${test_target})
-        target_compile_definitions(${test_target} PUBLIC OMNISTATS_TEST_ENVIRONMENT=1)
-        if(ARG_LIBRARIES)
-            target_link_libraries(${test_target} PUBLIC ${ARG_LIBRARIES})
-        endif()
-
-        if(name STREQUAL "omnistats_ui")
-            omnistats_enable_rmlui_pch(${test_target})
-            set(ui_non_rml ${ARG_SOURCES})
-            list(FILTER ui_non_rml INCLUDE REGEX ".*\\.cpp$")
-            list(FILTER ui_non_rml EXCLUDE REGEX "/src/ui/rml/.*")
-            set_source_files_properties(${ui_non_rml} PROPERTIES SKIP_PRECOMPILE_HEADERS ON)
-            target_compile_definitions(${test_target} PRIVATE
-                $<$<CONFIG:Debug>:OMNISTATS_RML_DEV_DIR="${CMAKE_CURRENT_SOURCE_DIR}/resources/rml">
-            )
-        else()
-            omnistats_enable_shared_pch(${test_target})
-        endif()
-    endif()
 endfunction()
 
 # -----------------------------------------------------------------------------
@@ -251,7 +220,6 @@ endif()
 # Static Layer Libraries
 # -----------------------------------------------------------------------------
 omnistats_add_layer_library(omnistats_utils
-    HAS_TEST_VARIANT
     SOURCES ${UTILS_SOURCES}
     LIBRARIES
         nlohmann_json::nlohmann_json
@@ -280,7 +248,6 @@ omnistats_add_layer_library(omnistats_database
 )
 
 omnistats_add_layer_library(omnistats_network
-    HAS_TEST_VARIANT
     SOURCES ${NETWORK_SOURCES}
     LIBRARIES
         omnistats_omninet
@@ -298,7 +265,6 @@ omnistats_add_layer_library(omnistats_network
 )
 
 omnistats_add_layer_library(omnistats_core
-    HAS_TEST_VARIANT
     SOURCES ${CORE_SOURCES}
     LIBRARIES
         nlohmann_json::nlohmann_json
@@ -330,12 +296,10 @@ omnistats_add_layer_library(omnistats_ui
         shell32.lib
 )
 
-if(BUILD_TESTING)
-    add_library(omnistats_updater_test STATIC ${UPDATER_ONLY_SOURCES})
-    omnistats_configure_layer_target(omnistats_updater_test)
-    omnistats_enable_shared_pch(omnistats_updater_test)
-    target_compile_definitions(omnistats_updater_test PUBLIC OMNISTATS_TEST_ENVIRONMENT=1)
-    target_link_libraries(omnistats_updater_test PUBLIC
+add_library(omnistats_updater STATIC ${UPDATER_ONLY_SOURCES})
+omnistats_configure_layer_target(omnistats_updater)
+omnistats_enable_shared_pch(omnistats_updater)
+target_link_libraries(omnistats_updater PUBLIC
         CURL::libcurl
         version.lib
         crypt32.lib
@@ -348,7 +312,6 @@ if(BUILD_TESTING)
         ole32.lib
         uuid.lib
     )
-endif()
 
 # -----------------------------------------------------------------------------
 # Main Application Executable (OmniStats.exe)
@@ -409,7 +372,7 @@ endif()
 # -----------------------------------------------------------------------------
 if(OMNISTATS_BUILD_UPDATER)
     add_executable(OmniStatsUpdater
-        ${UPDATER_SOURCES}
+        ${UPDATER_ENTRY_SOURCE}
         "${OMNISTATS_UPDATER_RESOURCE_FILE}"
     )
     target_include_directories(OmniStatsUpdater PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
@@ -417,6 +380,7 @@ if(OMNISTATS_BUILD_UPDATER)
         OMNISTATS_VERSION="${OMNISTATS_VERSION}"
     )
     target_link_libraries(OmniStatsUpdater PRIVATE
+        omnistats_updater
         CURL::libcurl
         unofficial-sodium::sodium
         version.lib
@@ -468,7 +432,6 @@ if(BUILD_TESTING)
     target_include_directories(OmniStatsTests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
     omnistats_enable_shared_pch(OmniStatsTests)
     target_compile_definitions(OmniStatsTests PRIVATE
-        OMNISTATS_TEST_ENVIRONMENT=1
         OMNISTATS_ENABLE_LOW_LEVEL_HOOK=$<BOOL:${OMNISTATS_ENABLE_LOW_LEVEL_HOOK}>
         OMNISTATS_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}"
         OMNISTATS_BINARY_DIR="${CMAKE_CURRENT_BINARY_DIR}"
@@ -480,11 +443,11 @@ if(BUILD_TESTING)
         GTest::gmock
         omnistats_ui
         omnistats_platform
-        omnistats_network_test
+        omnistats_network
         omnistats_database
-        omnistats_core_test
-        omnistats_utils_test
-        omnistats_updater_test
+        omnistats_core
+        omnistats_utils
+        omnistats_updater
         dbghelp.lib
     )
 
@@ -517,7 +480,6 @@ if(BUILD_TESTING)
         target_include_directories(OmniStatsBenchmarks PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
         omnistats_enable_shared_pch(OmniStatsBenchmarks)
         target_compile_definitions(OmniStatsBenchmarks PRIVATE
-            OMNISTATS_TEST_ENVIRONMENT=1
             OMNISTATS_ENABLE_LOW_LEVEL_HOOK=$<BOOL:${OMNISTATS_ENABLE_LOW_LEVEL_HOOK}>
             OMNISTATS_VERSION="${OMNISTATS_VERSION}"
         )
@@ -525,10 +487,10 @@ if(BUILD_TESTING)
             benchmark::benchmark_main
             omnistats_ui
             omnistats_platform
-            omnistats_network_test
+            omnistats_network
             omnistats_database
-            omnistats_core_test
-            omnistats_utils_test
+            omnistats_core
+            omnistats_utils
             dbghelp.lib
         )
         if(MSVC)
@@ -555,17 +517,16 @@ if(BUILD_TESTING)
         omnistats_copy_discord_sdk(OmniStatsFuzzer)
         target_include_directories(OmniStatsFuzzer PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
         target_compile_definitions(OmniStatsFuzzer PRIVATE
-            OMNISTATS_TEST_ENVIRONMENT=1
             OMNISTATS_ENABLE_LOW_LEVEL_HOOK=$<BOOL:${OMNISTATS_ENABLE_LOW_LEVEL_HOOK}>
             OMNISTATS_VERSION="${OMNISTATS_VERSION}"
         )
         target_link_libraries(OmniStatsFuzzer PRIVATE
             omnistats_ui
             omnistats_platform
-            omnistats_network_test
+            omnistats_network
             omnistats_database
-            omnistats_core_test
-            omnistats_utils_test
+            omnistats_core
+            omnistats_utils
             dbghelp.lib
         )
         if(MSVC)

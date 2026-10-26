@@ -7,20 +7,27 @@
 #include <filesystem>
 #include <iostream>
 #include <system_error>
+#include <utility>
 
 namespace fs = std::filesystem;
 
 namespace Storage {
+    namespace {
+        std::string dataDirectoryOverride;
+    }
+
+    void SetDataDirectoryOverride(std::string path) {
+        dataDirectoryOverride = std::move(path);
+    }
+
     std::string GetDataDirectory() {
-#ifdef OMNISTATS_TEST_ENVIRONMENT
-        const std::optional<std::string> temp = Env::Get("TEMP") ? Env::Get("TEMP") : Env::Get("TMP");
-        return temp.value_or(".") + "\\omnistats_test\\";
-#else
+        if (!dataDirectoryOverride.empty()) {
+            return dataDirectoryOverride;
+        }
         if (const std::optional<std::string> appData = Env::Get("APPDATA")) {
             return *appData + "\\" + APP_NAME + "\\";
         }
         return "data\\"; // Fallback
-#endif
     }
 
     void InitializeEnvironment() {

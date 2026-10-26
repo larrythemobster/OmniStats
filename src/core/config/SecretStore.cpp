@@ -6,27 +6,8 @@
 #include <sstream>
 #include <wincrypt.h>
 
-#ifdef OMNISTATS_TEST_ENVIRONMENT
-static SecretStore::CryptProtectHook s_protectHook = nullptr;
-static SecretStore::CryptUnprotectHook s_unprotectHook = nullptr;
-
-void SecretStore::SetCryptProtectHookForTests(CryptProtectHook hook) {
-    s_protectHook = std::move(hook);
-}
-
-void SecretStore::SetCryptUnprotectHookForTests(CryptUnprotectHook hook) {
-    s_unprotectHook = std::move(hook);
-}
-
-void SecretStore::ResetCryptHooksForTests() {
-    s_protectHook = nullptr;
-    s_unprotectHook = nullptr;
-}
-#else
-void SecretStore::SetCryptProtectHookForTests(CryptProtectHook) {}
-void SecretStore::SetCryptUnprotectHookForTests(CryptUnprotectHook) {}
-void SecretStore::ResetCryptHooksForTests() {}
-#endif
+SecretStore::SecretStore(CryptFunction protect, CryptFunction unprotect)
+    : m_protect(std::move(protect)), m_unprotect(std::move(unprotect)) {}
 
 std::string SecretStore::StringToHex(std::string_view input) {
     std::stringstream ss;
@@ -73,16 +54,14 @@ SecretStore::CryptResult SecretStore::EncryptSecret(const std::string& plainText
     if (plainText.empty()) {
         return {true, "", 0};
     }
-#ifdef OMNISTATS_TEST_ENVIRONMENT
-    if (s_protectHook) {
+    if (m_protect) {
         std::string cipher;
         DWORD err = 0;
-        if (s_protectHook(plainText, cipher, err)) {
+        if (m_protect(plainText, cipher, err)) {
             return {true, cipher, 0};
         }
         return {false, "", err ? err : static_cast<DWORD>(ERROR_ENCRYPTION_FAILED)};
     }
-#endif
     DATA_BLOB inputBlob;
     inputBlob.pbData = reinterpret_cast<BYTE*>(const_cast<char*>(plainText.data()));
     inputBlob.cbData = static_cast<DWORD>(plainText.size());
@@ -103,16 +82,14 @@ SecretStore::DecryptResult SecretStore::DecryptSecret(const std::string& raw) co
     if (raw.empty()) {
         return {true, "", false, 0};
     }
-#ifdef OMNISTATS_TEST_ENVIRONMENT
-    if (s_unprotectHook) {
+    if (m_unprotect) {
         std::string plain;
         DWORD err = 0;
-        if (s_unprotectHook(raw, plain, err)) {
+        if (m_unprotect(raw, plain, err)) {
             return {true, plain, false, 0};
         }
         return {false, "", false, err ? err : static_cast<DWORD>(ERROR_DECRYPTION_FAILED)};
     }
-#endif
     if (IsHexString(raw)) {
         std::string cipherBytes = HexToString(raw);
         if (!cipherBytes.empty()) {

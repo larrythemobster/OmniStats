@@ -33,10 +33,9 @@ class SecretStore {
         DWORD errorCode = 0;
     };
 
-    using CryptProtectHook = std::function<bool(const std::string&, std::string&, DWORD&)>;
-    using CryptUnprotectHook = std::function<bool(const std::string&, std::string&, DWORD&)>;
+    using CryptFunction = std::function<bool(const std::string&, std::string&, DWORD&)>;
 
-    SecretStore() = default;
+    explicit SecretStore(CryptFunction protect = {}, CryptFunction unprotect = {});
 
     static std::string StringToHex(std::string_view input);
     static bool IsHexString(std::string_view s);
@@ -57,11 +56,9 @@ class SecretStore {
 
     void Reset();
 
-    static void SetCryptProtectHookForTests(CryptProtectHook hook);
-    static void SetCryptUnprotectHookForTests(CryptUnprotectHook hook);
-    static void ResetCryptHooksForTests();
-
   private:
+    CryptFunction m_protect;
+    CryptFunction m_unprotect;
     std::unordered_map<std::string, std::string> m_savedCiphertexts;
     std::unordered_map<std::string, std::string> m_encryptedPlaintexts;
 };

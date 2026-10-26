@@ -2,21 +2,27 @@
 #include "utils/Env.hpp"
 #include <filesystem>
 #include <windows.h>
+#include <utility>
 
 namespace fs = std::filesystem;
 
 namespace UpdaterCommon {
+    namespace {
+        std::string appDataDirOverride;
+    }
+
+    void SetAppDataDirOverride(std::string path) {
+        appDataDirOverride = std::move(path);
+    }
 
     std::string GetAppDataDir() {
-#ifdef OMNISTATS_TEST_ENVIRONMENT
-        const std::optional<std::string> temp = Env::Get("TEMP") ? Env::Get("TEMP") : Env::Get("TMP");
-        return temp.value_or(".") + "\\omnistats_test\\";
-#else
+        if (!appDataDirOverride.empty()) {
+            return appDataDirOverride;
+        }
         if (const std::optional<std::string> appData = Env::Get("APPDATA")) {
             return *appData + "\\omnistats\\";
         }
         return "data\\";
-#endif
     }
 
     std::string GetLocalAppDataDir() {

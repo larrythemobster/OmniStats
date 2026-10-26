@@ -16,11 +16,9 @@ class ConfigSecurityTest : public ::testing::Test {
     void SetUp() override {
         Storage::InitializeEnvironment();
         m_originalConfig = Config::Read();
-        Config::ResetCryptHooksForTests();
     }
 
     void TearDown() override {
-        Config::ResetCryptHooksForTests();
         Config::Update([this](ConfigData& c) { c = m_originalConfig; });
         Config::Save();
     }
@@ -45,9 +43,8 @@ class ConfigSecurityTest : public ::testing::Test {
 TEST_F(ConfigSecurityTest, EncryptionFailureNeverWritesPlaintextToDisk) {
     const std::string testNewSecret = "test_val_alpha_001";
 
-    // Inject encryption failure
-    Config::SetCryptProtectHookForTests([](const std::string&, std::string&, DWORD& err) {
-        err = 0x8009000B; // NTE_BAD_KEY_STATE or simulated DPAPI error
+    SecretStore secrets([](const std::string&, std::string&, DWORD& err) {
+        err = 0x8009000B;
         return false;
     });
 
@@ -55,7 +52,7 @@ TEST_F(ConfigSecurityTest, EncryptionFailureNeverWritesPlaintextToDisk) {
         c.custom_api_key = testNewSecret;
         c.port = 55555; // Unrelated setting
     });
-    Config::Save();
+    Config::Save(secrets);
 
     // Verify plaintext is NEVER written to the config file on disk
     const std::string raw = ReadRawConfigFile();
@@ -70,7 +67,6 @@ TEST_F(ConfigSecurityTest, EncryptionFailurePreservesPreviouslySavedEncryptedVal
     const std::string testInitialSecret = "test_val_bravo_111";
 
     // Step 1: Save with normal encryption working
-    Config::ResetCryptHooksForTests();
     Config::Update([&](ConfigData& c) {
         c.custom_api_key = testInitialSecret;
     });
@@ -83,16 +79,17 @@ TEST_F(ConfigSecurityTest, EncryptionFailurePreservesPreviouslySavedEncryptedVal
     EXPECT_NE(savedCiphertext, testInitialSecret);
 
     // Step 2: User tries to change key, but DPAPI encryption fails
-    const std::string testFailedSecret = "test_val_charlie_failed";
-    Config::SetCryptProtectHookForTests([](const std::string&, std::string&, DWORD& err) {
+    SecretStore secrets([](const std::string&, std::string&, DWORD& err) {
         err = 0x80090005;
         return false;
     });
+    Config::Load(secrets);
+    const std::string testFailedSecret = "test_val_charlie_failed";
 
     Config::Update([&](ConfigData& c) {
         c.custom_api_key = testFailedSecret;
     });
-    Config::Save();
+    Config::Save(secrets);
 
     // Verify the previously saved valid encrypted ciphertext was preserved on disk!
     const std::string updatedRaw = ReadRawConfigFile();
@@ -102,8 +99,6 @@ TEST_F(ConfigSecurityTest, EncryptionFailurePreservesPreviouslySavedEncryptedVal
 }
 
 TEST_F(ConfigSecurityTest, MigratesLegacyPlaintextCredentialsToEncryptedStorage) {
-    Config::ResetCryptHooksForTests();
-
     // Write a legacy config file containing plaintext secrets
     const std::string legacyPlainSecret = "legacy_test_string_445566";
     const std::string legacyPlainBcValue = "legacy_test_string_778899";
@@ -138,23 +133,20 @@ TEST_F(ConfigSecurityTest, FailedLegacyMigrationNeverRewritesPlaintext) {
     legacyJson["port"] = 49123;
     WriteRawConfigFile(legacyJson.dump(4));
 
-    // Force encryption failure during migration
-    Config::SetCryptProtectHookForTests([](const std::string&, std::string&, DWORD& err) {
+    SecretStore secrets([](const std::string&, std::string&, DWORD& err) {
         err = 0x8009000B;
         return false;
     });
 
-    Config::Load();
+    Config::Load(secrets);
 
     // Since migration failed, SaveInternal must not write plaintext
-    Config::Save();
+    Config::Save(secrets);
     const std::string raw = ReadRawConfigFile();
     EXPECT_EQ(raw.find(legacyFailingSecret), std::string::npos);
 }
 
 TEST_F(ConfigSecurityTest, CorruptedCiphertextPreservesDiskValueWithoutCorruptingUnrelatedSettings) {
-    Config::ResetCryptHooksForTests();
-
     // Write a config with corrupted DPAPI hex (DPAPI header followed by invalid ciphertext)
     // Header: 01000000d0029adf0e1c6443969482a170fb26fb followed by corrupted bytes
     const std::string corruptedCipherHex = "01000000d0029adf0e1c6443969482a170fb26fbdeadbeefcafebabe";
@@ -174,6 +166,21 @@ TEST_F(ConfigSecurityTest, CorruptedCiphertextPreservesDiskValueWithoutCorruptin
     const auto afterJson = nlohmann::json::parse(raw);
     EXPECT_EQ(afterJson.value("custom_api_key", ""), corruptedCipherHex);
     EXPECT_EQ(afterJson.value("port", 0), 33333);
+}
+
+TEST_F(ConfigSecurityTest, InjectedDecryptionFailurePreservesCiphertext) {
+    const std::string ciphertext = "01000000d0029adf0e1c6443969482a170fb26fbdeadbeef";
+    WriteRawConfigFile(nlohmann::json{{"custom_api_key", ciphertext}}.dump());
+    SecretStore secrets({}, [](const std::string&, std::string&, DWORD& error) {
+        error = ERROR_DECRYPTION_FAILED;
+        return false;
+    });
+
+    Config::Load(secrets);
+    EXPECT_TRUE(Config::Read().credentials_decryption_failed);
+    EXPECT_TRUE(Config::Read().custom_api_key.empty());
+    Config::Save(secrets);
+    EXPECT_EQ(nlohmann::json::parse(ReadRawConfigFile()).value("custom_api_key", ""), ciphertext);
 }
 
 TEST_F(ConfigSecurityTest, MachineScopedCredentialsMigrateWithoutLosingTheSecret) {
@@ -232,16 +239,42 @@ TEST(SecretStoreInstanceTest, EncryptDecryptAndPreserveCiphertextOnFailure) {
     store.SaveSecretField("custom_api_key", loaded, diskVal);
     EXPECT_EQ(diskVal, enc.value);
 
-    SecretStore::SetCryptProtectHookForTests([](const std::string&, std::string&, DWORD& err) {
+    SecretStore failingStore([](const std::string&, std::string&, DWORD& err) {
         err = 0x8009000B;
         return false;
     });
+    failingStore.LoadSecretField("custom_api_key", enc.value, loaded, needsLegacyMigration, decryptionFailed);
 
     std::string diskValAfterFail;
-    store.SaveSecretField("custom_api_key", "new_secret_attempt", diskValAfterFail);
+    failingStore.SaveSecretField("custom_api_key", "new_secret_attempt", diskValAfterFail);
     EXPECT_EQ(diskValAfterFail, enc.value);
+}
 
-    SecretStore::ResetCryptHooksForTests();
+TEST(SecretStoreInstanceTest, InjectedFunctionsAreInstanceScoped) {
+    SecretStore first(
+        [](const std::string& plain, std::string& cipher, DWORD&) {
+            cipher = "first:" + plain;
+            return true;
+        },
+        [](const std::string& cipher, std::string& plain, DWORD&) {
+            plain = cipher.substr(6);
+            return true;
+        });
+    SecretStore second(
+        [](const std::string&, std::string&, DWORD& error) {
+            error = 123;
+            return false;
+        },
+        [](const std::string&, std::string&, DWORD& error) {
+            error = 456;
+            return false;
+        });
+
+    EXPECT_EQ(first.EncryptSecret("secret").value, "first:secret");
+    EXPECT_EQ(first.DecryptSecret("first:secret").value, "secret");
+    EXPECT_EQ(second.EncryptSecret("secret").errorCode, 123u);
+    EXPECT_EQ(second.DecryptSecret("first:secret").errorCode, 456u);
+    EXPECT_EQ(first.DecryptSecret("first:secret").value, "secret");
 }
 
 TEST(SecretStoreInstanceTest, LegacyMigrationAndDecryptionErrorHandling) {

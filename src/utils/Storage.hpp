@@ -6,6 +6,7 @@ namespace Storage {
 
     // Gets the path to %APPDATA%/omnistats/
     std::string GetDataDirectory();
+    void SetDataDirectoryOverride(std::string path);
 
     // Ensures the data directory exists
     void InitializeEnvironment();

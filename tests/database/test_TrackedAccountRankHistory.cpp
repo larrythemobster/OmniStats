@@ -178,12 +178,12 @@ TEST(TrackedAccountRankHistory, AsyncAccountHistoryQueryKeepsDataOffTheRenderPat
     ASSERT_TRUE(Add(*db, kIdB));
     ASSERT_TRUE(db->SaveTrackedAccountRanks(kIdA, {Rank("2v2", 1210, 1710000000)}, 1710000000));
     ASSERT_TRUE(db->SaveTrackedAccountRanks(kIdB, {Rank("2v2", 1490, 1710000100)}, 1710000100));
-    auto service = std::make_shared<AccountManagerService>(db, nullptr);
-    service->SetClockForTests([] { return 1710000200; });
+    auto worker = std::make_shared<WorkQueue>();
+    auto service = std::make_shared<AccountManagerService>(db, nullptr, [] { return 1710000200; }, worker);
     service->Start();
-    service->FlushForTests();
+    worker->Drain();
     service->RequestHistory({kIdA, kIdB}, "2v2", "all");
-    service->FlushForTests();
+    worker->Drain();
     auto snap = service->GetSnapshot();
     ASSERT_TRUE(snap.history.loaded);
     EXPECT_FALSE(snap.history.loading);
@@ -192,7 +192,7 @@ TEST(TrackedAccountRankHistory, AsyncAccountHistoryQueryKeepsDataOffTheRenderPat
     EXPECT_EQ(snap.history.series[1].observations[0].mmr, 1490);
 
     service->RequestHistory({kIdA}, "1v1", "all");
-    service->FlushForTests();
+    worker->Drain();
     snap = service->GetSnapshot();
     ASSERT_TRUE(snap.history.loaded);
     EXPECT_EQ(snap.history.playlistKey, "1v1");

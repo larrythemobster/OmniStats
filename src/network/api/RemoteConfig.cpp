@@ -56,7 +56,7 @@ namespace {
 
 } // namespace
 
-RemoteConfig::RemoteConfig() = default;
+RemoteConfig::RemoteConfig(bool enableWorker) : m_enableWorker(enableWorker) {}
 
 RemoteConfig::~RemoteConfig() {
     Shutdown();
@@ -374,9 +374,7 @@ void RemoteConfig::Start() {
         }
     }
 
-#ifdef OMNISTATS_TEST_ENVIRONMENT
-    return;
-#endif
+    if (!m_enableWorker) return;
 
     std::lock_guard<std::mutex> workerLock(m_workerMutex);
     if (m_running.load(std::memory_order_relaxed)) return;

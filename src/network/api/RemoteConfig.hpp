@@ -45,7 +45,7 @@ class RemoteConfig {
     static constexpr size_t kMaxAnnouncementsInPayload = 25;
 
     using ClockFn = std::function<int64_t()>;
-    RemoteConfig();
+    explicit RemoteConfig(bool enableWorker = true);
     ~RemoteConfig();
 
     RemoteConfig(const RemoteConfig&) = delete;
@@ -108,6 +108,7 @@ class RemoteConfig {
     std::string m_cacheFileOverride;
     std::string m_dismissedFileOverride;
 
+    const bool m_enableWorker;
     std::mutex m_workerMutex;
     std::condition_variable m_workerCv;
     std::jthread m_workerThread;

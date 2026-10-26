@@ -50,13 +50,7 @@ TEST(UpdaterCommonTest, TrimWhitespace) {
 TEST(UpdaterCommonTest, GetAppDataDir) {
     std::string appData = UpdaterCommon::GetAppDataDir();
     EXPECT_FALSE(appData.empty());
-    // Since unit tests run in a test environment, OMNISTATS_TEST_ENVIRONMENT=1 might be defined.
-    // Let's check both possibilities.
-#ifdef OMNISTATS_TEST_ENVIRONMENT
     EXPECT_EQ(appData.substr(appData.length() - 16), "\\omnistats_test\\");
-#else
-    EXPECT_EQ(appData.substr(appData.length() - 11), "\\omnistats\\");
-#endif
 }
 
 TEST(UpdaterCommonTest, GetLocalAppDataDir) {

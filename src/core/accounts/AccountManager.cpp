@@ -6,7 +6,6 @@
 
 #include <algorithm>
 #include <chrono>
-#include <future>
 #include <iostream>
 #include <set>
 
@@ -59,8 +58,11 @@ const char* RefreshStateKey(AccountManagerService::RefreshState state) {
 }
 
 AccountManagerService::AccountManagerService(std::shared_ptr<DatabaseManager> dbManager,
-                                             std::shared_ptr<MmrService> mmrFetcher)
-    : m_db(std::move(dbManager)), m_fetcher(std::move(mmrFetcher)), m_sinkGuard(std::make_shared<SinkGuard>()) {
+                                             std::shared_ptr<MmrService> mmrFetcher,
+                                             std::function<int64_t()> clock,
+                                             std::shared_ptr<WorkQueue> worker)
+    : m_db(std::move(dbManager)), m_fetcher(std::move(mmrFetcher)), m_sinkGuard(std::make_shared<SinkGuard>()),
+      m_clock(std::move(clock)), m_worker(worker ? std::move(worker) : std::make_shared<WorkQueue>()) {
     m_sinkGuard->owner = this;
 }
 
@@ -80,7 +82,7 @@ void AccountManagerService::Start() {
             if (guard->owner) guard->owner->ApplyFetchEvent(event);
         });
     }
-    m_worker.Enqueue([this]() {
+    m_worker->Enqueue([this]() {
         std::vector<AccountRecord> records;
         if (m_db) records = m_db->ListTrackedAccounts();
         {
@@ -113,7 +115,7 @@ void AccountManagerService::Start() {
             unnamed.push_back(candidate.identity.primaryId);
         ResolveNamesOnWorker(unnamed, false);
     },
-                     true);
+                      true);
 }
 
 void AccountManagerService::Stop() {
@@ -127,7 +129,7 @@ void AccountManagerService::Stop() {
         started = m_started;
     }
     if (started && m_fetcher) m_fetcher->SetTrackedAccountSink(nullptr);
-    m_worker.Stop();
+    m_worker->Stop();
 }
 
 int64_t AccountManagerService::NowUnix() const {
@@ -140,7 +142,7 @@ void AccountManagerService::Publish() {
 
 void AccountManagerService::PostDb(std::function<void(DatabaseManager&)> job) {
     if (!m_db) return;
-    m_worker.Enqueue([db = m_db, job = std::move(job)]() { job(*db); }, true);
+    m_worker->Enqueue([db = m_db, job = std::move(job)]() { job(*db); }, true);
 }
 
 RankProvider AccountManagerService::CurrentProvider() {
@@ -192,7 +194,7 @@ void AccountManagerService::RequestHistory(std::vector<std::string> accountIds,
                               : window == "week"  ? now - 604800
                               : window == "month" ? now - 2592000
                                                   : 0;
-        m_worker.Enqueue([this, request, ids = std::move(canonicalIds), playlistKey, since]() {
+        m_worker->Enqueue([this, request, ids = std::move(canonicalIds), playlistKey, since]() {
             auto results = m_db ? m_db->GetTrackedAccountRankHistory(ids, playlistKey, since)
                                 : std::vector<TrackedAccounts::RankHistorySeries>{};
             {
@@ -204,7 +206,7 @@ void AccountManagerService::RequestHistory(std::vector<std::string> accountIds,
             }
             Publish();
         },
-                         true);
+                          true);
     }
     Publish();
 }
@@ -385,7 +387,7 @@ size_t AccountManagerService::RefreshStale() {
 }
 
 void AccountManagerService::QueueStartupRefresh() {
-    m_worker.Enqueue([this]() { RefreshStale(); }, true);
+    m_worker->Enqueue([this]() { RefreshStale(); }, true);
 }
 
 std::vector<AccountManagerService::ImportCandidate> AccountManagerService::ImportCandidates() const {
@@ -482,7 +484,7 @@ void AccountManagerService::ObserveLocked(const std::string& primaryId, const st
 }
 
 void AccountManagerService::PostResolveNames(std::vector<std::string> primaryIds, bool refreshAfter) {
-    m_worker.Enqueue([this, ids = std::move(primaryIds), refreshAfter]() { ResolveNamesOnWorker(ids, refreshAfter); }, true);
+    m_worker->Enqueue([this, ids = std::move(primaryIds), refreshAfter]() { ResolveNamesOnWorker(ids, refreshAfter); }, true);
 }
 
 void AccountManagerService::ResolveNamesOnWorker(const std::vector<std::string>& primaryIds, bool refreshAfter) {
@@ -609,17 +611,3 @@ void AccountManagerService::ApplyFetchEvent(const TrackedAccountFetchEvent& even
     }
     Publish();
 }
-
-#ifdef OMNISTATS_TEST_ENVIRONMENT
-void AccountManagerService::SetClockForTests(std::function<int64_t()> nowUnix) {
-    std::lock_guard<std::mutex> lock(m_mutex);
-    m_clock = std::move(nowUnix);
-}
-
-void AccountManagerService::FlushForTests() {
-    auto done = std::make_shared<std::promise<void>>();
-    auto future = done->get_future();
-    if (!m_worker.Enqueue([done]() { done->set_value(); }, true)) return;
-    future.wait();
-}
-#endif

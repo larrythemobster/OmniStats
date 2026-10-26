@@ -255,6 +255,7 @@ struct ConfigData {
 };
 
 #include <functional>
+class SecretStore;
 namespace Config {
     inline constexpr const char* CurrentPrivacyPolicyVersion = "2026-07-12";
     inline constexpr const char* CurrentTermsVersion = "2026-07-12";
@@ -276,6 +277,7 @@ namespace Config {
 
     // Loads data/config.json from disk (or creates it with defaults if missing)
     void Load();
+    void Load(SecretStore& secrets);
 
     // Initializes the background thread for saving config to disk asynchronously
     void InitSaver();
@@ -285,17 +287,11 @@ namespace Config {
 
     // Saves the current settings back to data/config.json
     void Save();
+    void Save(SecretStore& secrets);
 
     // Requests an asynchronous save without blocking the caller
     void RequestSave();
 
     // Sets or removes the Windows registry key for running on startup
     void SetWindowsAutoStart(bool enable);
-#ifdef OMNISTATS_TEST_ENVIRONMENT
-    using CryptProtectHook = std::function<bool(const std::string&, std::string&, DWORD&)>;
-    using CryptUnprotectHook = std::function<bool(const std::string&, std::string&, DWORD&)>;
-    void SetCryptProtectHookForTests(CryptProtectHook hook);
-    void SetCryptUnprotectHookForTests(CryptUnprotectHook hook);
-    void ResetCryptHooksForTests();
-#endif
 }

@@ -17,6 +17,7 @@
 #include <cstdio>
 #include <chrono>
 #include <cstdarg>
+#include <future>
 #include <mutex>
 #include <shared_mutex>
 #include <thread>
@@ -270,10 +271,10 @@ class TrackedAccountRefreshTest : public ::testing::Test {
 
     void StartService(int64_t now = 1'800'000'000) {
         clock = now;
-        service = std::make_shared<AccountManagerService>(db, fetcher);
-        service->SetClockForTests([this]() { return clock.load(); });
+        worker = std::make_shared<WorkQueue>();
+        service = std::make_shared<AccountManagerService>(db, fetcher, [this]() { return clock.load(); }, worker);
         service->Start();
-        service->FlushForTests();
+        worker->Drain();
     }
 
     void RegisterInDb(const std::string& primaryId, const std::string& nickname = {}) {
@@ -319,6 +320,7 @@ class TrackedAccountRefreshTest : public ::testing::Test {
     std::shared_ptr<DatabaseManager> db;
     std::shared_ptr<MmrService> fetcher;
     std::shared_ptr<AccountClient> accountClient;
+    std::shared_ptr<WorkQueue> worker = std::make_shared<WorkQueue>();
     std::shared_ptr<AccountManagerService> service;
     std::atomic<int64_t> clock{1'800'000'000};
     std::mutex eventsMutex;
@@ -632,13 +634,13 @@ TEST_F(TrackedAccountRefreshTest, TrackerHandleFillsMissingInGameNameOnly) {
 
     g_trackerBody = R"({"data":{"platformInfo":{"platformUserHandle":"SteamHandle"},"segments":[{"type":"playlist","attributes":{"playlistId":11},"stats":{"rating":{"value":1333}}}]}})";
     fetcher->FetchTrackedAccount(kSteam, "");
-    service->FlushForTests();
+    worker->Drain();
     EXPECT_EQ(db->GetTrackedAccount(kSteam)->lastKnownName, "SteamHandle");
     EXPECT_EQ(db->GetTrackedAccount(kSteam)->nickname, "Main");
 
     g_trackerBody = R"({"data":{"platformInfo":{"platformUserHandle":"Renamed"},"segments":[{"type":"playlist","attributes":{"playlistId":11},"stats":{"rating":{"value":1340}}}]}})";
     fetcher->FetchTrackedAccount(kSteam, "SteamHandle");
-    service->FlushForTests();
+    worker->Drain();
     EXPECT_EQ(db->GetTrackedAccount(kSteam)->lastKnownName, "SteamHandle");
 }
 
@@ -720,7 +722,7 @@ TEST_F(TrackedAccountRefreshTest, ServicePersistsPartialResultsAndKeepsRanksOnFa
     ASSERT_EQ(service->Refresh(kEpic), AccountManagerService::RefreshRequest::Queued);
     EXPECT_EQ(service->Refresh(kEpic), AccountManagerService::RefreshRequest::AlreadyQueued);
     ProcessNextBatch();
-    service->FlushForTests();
+    worker->Drain();
 
     auto stored = db->GetTrackedAccount(kEpic);
     ASSERT_TRUE(stored.has_value());
@@ -733,7 +735,7 @@ TEST_F(TrackedAccountRefreshTest, ServicePersistsPartialResultsAndKeepsRanksOnFa
     g_apiStatus = 500;
     EXPECT_EQ(service->Refresh(kEpic), AccountManagerService::RefreshRequest::Queued);
     ProcessNextBatch();
-    service->FlushForTests();
+    worker->Drain();
 
     const auto snapshot = service->GetSnapshot();
     const auto* view = FindView(snapshot, kEpic);
@@ -745,6 +747,30 @@ TEST_F(TrackedAccountRefreshTest, ServicePersistsPartialResultsAndKeepsRanksOnFa
     stored = db->GetTrackedAccount(kEpic);
     EXPECT_EQ(stored->ranks.at("2v2").mmr, 1525);
     EXPECT_EQ(stored->lastSuccessfulRefreshAtUnix, clock.load() - 3600);
+}
+
+TEST_F(TrackedAccountRefreshTest, DestructionWaitsForPendingRankPersistence) {
+    RegisterInDb(kEpic, "Main");
+    StartService();
+
+    std::promise<void> release;
+    auto gate = release.get_future().share();
+    ASSERT_TRUE(worker->Enqueue([gate] { gate.wait(); }, true));
+    g_apiBody = Players({Player("Epic", "0123456789abcdef0123456789abcdef", {Skill(11, 1525)})});
+    EXPECT_EQ(service->Refresh(kEpic), AccountManagerService::RefreshRequest::Queued);
+    ProcessNextBatch();
+
+    auto stopped = std::async(std::launch::async, [service = std::move(service)]() mutable {
+        service.reset();
+    });
+    while (worker->Enqueue([] {}, true))
+        std::this_thread::yield();
+    release.set_value();
+    stopped.get();
+
+    const auto stored = db->GetTrackedAccount(kEpic);
+    ASSERT_TRUE(stored.has_value());
+    EXPECT_EQ(stored->ranks.at("2v2").mmr, 1525);
 }
 
 TEST_F(TrackedAccountRefreshTest, ManualRefreshCooldownAndStaleRefresh) {
@@ -774,7 +800,7 @@ TEST_F(TrackedAccountRefreshTest, OnlyLaunchQueuesStaleAccountsAndDiscoveryDoesN
     EXPECT_EQ(fetcher->PendingRequestCount(), 0u);
 
     service->QueueStartupRefresh();
-    service->FlushForTests();
+    worker->Drain();
     EXPECT_EQ(fetcher->PendingRequestCount(), 1u);
     const auto launched = service->GetSnapshot();
     const auto* queued = FindView(launched, kEpic);
@@ -782,7 +808,7 @@ TEST_F(TrackedAccountRefreshTest, OnlyLaunchQueuesStaleAccountsAndDiscoveryDoesN
     EXPECT_EQ(queued->refreshState, AccountManagerService::RefreshState::Queued);
 
     service->ObserveLocalAccount(kEpicOther + "|0", "New Alt");
-    service->FlushForTests();
+    worker->Drain();
     EXPECT_EQ(fetcher->PendingRequestCount(), 1u);
     const auto snapshot = service->GetSnapshot();
     const auto* discovered = FindView(snapshot, kEpicOther);
@@ -795,16 +821,16 @@ TEST_F(TrackedAccountRefreshTest, RemovingDuringInFlightRefreshDoesNotRecreateAc
     const auto added = service->AddManual(TrackedAccounts::Platform::Epic, "0123456789ABCDEF0123456789ABCDEF", "Alt");
     ASSERT_EQ(added.status, AccountManagerService::AddResult::Status::Added);
     EXPECT_EQ(added.primaryId, kEpic);
-    service->FlushForTests();
+    worker->Drain();
 
     const auto batch = fetcher->TakeNextCustomApiBatch();
     ASSERT_EQ(batch.requests.size(), 1u);
     ASSERT_TRUE(service->Remove(kEpic));
-    service->FlushForTests();
+    worker->Drain();
 
     g_apiBody = Players({Player("Epic", "0123456789abcdef0123456789abcdef", {Skill(11, 1500)})});
     fetcher->ProcessCustomApiBatch(batch);
-    service->FlushForTests();
+    worker->Drain();
 
     EXPECT_FALSE(db->GetTrackedAccount(kEpic).has_value());
     EXPECT_TRUE(db->GetTrackedAccountRanks(kEpic).empty());
@@ -812,9 +838,9 @@ TEST_F(TrackedAccountRefreshTest, RemovingDuringInFlightRefreshDoesNotRecreateAc
 
     const auto readded = service->AddManual(TrackedAccounts::Platform::Epic, kEpic, "Alt again");
     ASSERT_EQ(readded.status, AccountManagerService::AddResult::Status::Added);
-    service->FlushForTests();
+    worker->Drain();
     ProcessNextBatch();
-    service->FlushForTests();
+    worker->Drain();
     const auto stored = db->GetTrackedAccount(kEpic);
     ASSERT_TRUE(stored.has_value());
     EXPECT_EQ(stored->nickname, "Alt again");
@@ -842,7 +868,7 @@ TEST_F(TrackedAccountRefreshTest, FiveManualAccountsRefreshInOneBatchAndSurviveR
                          Player("Steam", "76561198000000001", {Skill(11, 1530)}),
                          Player("Steam", "76561198000000002", {Skill(13, 940)}),
                          Player("Steam", "76561198000000003", {Skill(11, 1020)})});
-    service->FlushForTests();
+    worker->Drain();
     const auto batch = fetcher->TakeNextCustomApiBatch();
     ASSERT_EQ(batch.requests.size(), 5u);
     fetcher->ProcessCustomApiBatch(batch);

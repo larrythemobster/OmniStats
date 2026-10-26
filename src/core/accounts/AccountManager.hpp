@@ -86,7 +86,9 @@ class AccountManagerService {
     static constexpr int64_t kAutoRefreshRetrySeconds = 5 * 60;
 
     AccountManagerService(std::shared_ptr<DatabaseManager> dbManager,
-                          std::shared_ptr<MmrService> mmrFetcher);
+                          std::shared_ptr<MmrService> mmrFetcher,
+                          std::function<int64_t()> clock = nullptr,
+                          std::shared_ptr<WorkQueue> worker = nullptr);
     ~AccountManagerService();
     AccountManagerService(const AccountManagerService&) = delete;
     AccountManagerService& operator=(const AccountManagerService&) = delete;
@@ -121,11 +123,6 @@ class AccountManagerService {
     void ObserveLocalAccount(const std::string& primaryId, const std::string& displayName);
 
     static RankProvider CurrentProvider();
-
-#ifdef OMNISTATS_TEST_ENVIRONMENT
-    void SetClockForTests(std::function<int64_t()> nowUnix);
-    void FlushForTests();
-#endif
 
   private:
     struct SinkGuard {
@@ -169,7 +166,7 @@ class AccountManagerService {
     std::function<int64_t()> m_clock;
     std::atomic<uint64_t> m_version{1};
 
-    WorkQueue m_worker;
+    std::shared_ptr<WorkQueue> m_worker;
 };
 
 const char* RefreshStateKey(AccountManagerService::RefreshState state);

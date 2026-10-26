@@ -55,6 +55,7 @@ class AccountsViewTest : public ::testing::Test {
   protected:
     ConfigData original;
     int64_t simulatedTime = std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count();
+    std::shared_ptr<WorkQueue> worker = std::make_shared<WorkQueue>();
 
     void SetUp() override {
         Storage::InitializeEnvironment();
@@ -128,10 +129,10 @@ TEST_F(AccountsViewTest, EmptyStateRenders) {
     auto db = std::make_shared<DatabaseManager>(state);
     ASSERT_TRUE(db->Initialize(":memory:"));
     auto fetcher = std::make_shared<MmrService>(state, db);
-    auto service = std::make_shared<AccountManagerService>(db, fetcher);
-    service->SetClockForTests([this]() { return simulatedTime; });
+    auto service = std::make_shared<AccountManagerService>(db, fetcher, [this]() { return simulatedTime; }, worker);
+
     service->Start();
-    service->FlushForTests();
+    worker->Drain();
 
     RmlUiController controller(state, db, service);
     ASSERT_TRUE(controller.Initialize(nullptr, warp.device.Get(), warp.context.Get(), 1280, 800, 1.0f));
@@ -164,14 +165,14 @@ TEST_F(AccountsViewTest, SingleAccountRenders) {
     auto db = std::make_shared<DatabaseManager>(state);
     ASSERT_TRUE(db->Initialize(":memory:"));
     auto fetcher = std::make_shared<MmrService>(state, db);
-    auto service = std::make_shared<AccountManagerService>(db, fetcher);
-    service->SetClockForTests([this]() { return simulatedTime; });
+    auto service = std::make_shared<AccountManagerService>(db, fetcher, [this]() { return simulatedTime; }, worker);
+
     service->Start();
-    service->FlushForTests();
+    worker->Drain();
 
     auto addRes = service->AddManual(TrackedAccounts::Platform::Steam, "76561198000000001", "SoloPlayer");
     EXPECT_EQ(addRes.status, AccountManagerService::AddResult::Status::Added);
-    service->FlushForTests();
+    worker->Drain();
 
     RmlUiController controller(state, db, service);
     ASSERT_TRUE(controller.Initialize(nullptr, warp.device.Get(), warp.context.Get(), 1280, 800, 1.0f));
@@ -198,17 +199,17 @@ TEST_F(AccountsViewTest, ManyAccountsRenderAndScroll) {
     auto db = std::make_shared<DatabaseManager>(state);
     ASSERT_TRUE(db->Initialize(":memory:"));
     auto fetcher = std::make_shared<MmrService>(state, db);
-    auto service = std::make_shared<AccountManagerService>(db, fetcher);
-    service->SetClockForTests([this]() { return simulatedTime; });
+    auto service = std::make_shared<AccountManagerService>(db, fetcher, [this]() { return simulatedTime; }, worker);
+
     service->Start();
-    service->FlushForTests();
+    worker->Drain();
 
     for (int i = 0; i < 20; ++i) {
         std::string idStr = "765611980000000" + (i < 10 ? std::string("0") : std::string()) + std::to_string(i);
         std::string nameStr = "Account_" + std::to_string(i);
         service->AddManual(TrackedAccounts::Platform::Steam, idStr, nameStr);
     }
-    service->FlushForTests();
+    worker->Drain();
 
     RmlUiController controller(state, db, service);
     ASSERT_TRUE(controller.Initialize(nullptr, warp.device.Get(), warp.context.Get(), 1280, 800, 1.0f));
@@ -236,14 +237,14 @@ TEST_F(AccountsViewTest, LongNicknameBounded) {
     auto db = std::make_shared<DatabaseManager>(state);
     ASSERT_TRUE(db->Initialize(":memory:"));
     auto fetcher = std::make_shared<MmrService>(state, db);
-    auto service = std::make_shared<AccountManagerService>(db, fetcher);
-    service->SetClockForTests([this]() { return simulatedTime; });
+    auto service = std::make_shared<AccountManagerService>(db, fetcher, [this]() { return simulatedTime; }, worker);
+
     service->Start();
-    service->FlushForTests();
+    worker->Drain();
 
     const std::string longNick = "ThisIsAFortyCharacterLongNickname1234567";
     service->AddManual(TrackedAccounts::Platform::Steam, "76561198000000001", longNick);
-    service->FlushForTests();
+    worker->Drain();
 
     RmlUiController controller(state, db, service);
     ASSERT_TRUE(controller.Initialize(nullptr, warp.device.Get(), warp.context.Get(), 1280, 800, 1.0f));
@@ -294,10 +295,10 @@ TEST_F(AccountsViewTest, SortingByPlaylistDescWithMissingValuesLastAndNickname) 
     db->SaveTrackedAccountRanks(pidB, {rankB}, simulatedTime);
 
     auto fetcher = std::make_shared<MmrService>(state, db);
-    auto service = std::make_shared<AccountManagerService>(db, fetcher);
-    service->SetClockForTests([this]() { return simulatedTime; });
+    auto service = std::make_shared<AccountManagerService>(db, fetcher, [this]() { return simulatedTime; }, worker);
+
     service->Start();
-    service->FlushForTests();
+    worker->Drain();
 
     RmlUiController controller(state, db, service);
     ASSERT_TRUE(controller.Initialize(nullptr, warp.device.Get(), warp.context.Get(), 1280, 800, 1.0f));
@@ -346,13 +347,13 @@ TEST_F(AccountsViewTest, RenameAndRemoveThroughClicks) {
     auto db = std::make_shared<DatabaseManager>(state);
     ASSERT_TRUE(db->Initialize(":memory:"));
     auto fetcher = std::make_shared<MmrService>(state, db);
-    auto service = std::make_shared<AccountManagerService>(db, fetcher);
-    service->SetClockForTests([this]() { return simulatedTime; });
+    auto service = std::make_shared<AccountManagerService>(db, fetcher, [this]() { return simulatedTime; }, worker);
+
     service->Start();
-    service->FlushForTests();
+    worker->Drain();
 
     service->AddManual(TrackedAccounts::Platform::Steam, "76561198000000001", "InitialName");
-    service->FlushForTests();
+    worker->Drain();
 
     RmlUiController controller(state, db, service);
     ASSERT_TRUE(controller.Initialize(nullptr, warp.device.Get(), warp.context.Get(), 1280, 800, 1.0f));
@@ -376,7 +377,7 @@ TEST_F(AccountsViewTest, RenameAndRemoveThroughClicks) {
     auto* renameSaveBtn = AccountsDocument(controller)->QuerySelector("[data-action='accounts-detail-save-rename']");
     ASSERT_NE(renameSaveBtn, nullptr);
     Click(controller, renameSaveBtn);
-    service->FlushForTests();
+    worker->Drain();
 
     auto snap = service->GetSnapshot();
     ASSERT_EQ(snap.accounts.size(), 1u);
@@ -390,7 +391,7 @@ TEST_F(AccountsViewTest, RenameAndRemoveThroughClicks) {
     auto* removeConfirmBtn = AccountsDocument(controller)->QuerySelector("[data-action='accounts-detail-confirm-remove']");
     ASSERT_NE(removeConfirmBtn, nullptr);
     Click(controller, removeConfirmBtn);
-    service->FlushForTests();
+    worker->Drain();
 
     EXPECT_FALSE(AccountsModel(controller).IsDetailOpen());
     auto snapAfter = service->GetSnapshot();
@@ -407,13 +408,13 @@ TEST_F(AccountsViewTest, ActiveAccountHighlighting) {
     auto db = std::make_shared<DatabaseManager>(state);
     ASSERT_TRUE(db->Initialize(":memory:"));
     auto fetcher = std::make_shared<MmrService>(state, db);
-    auto service = std::make_shared<AccountManagerService>(db, fetcher);
-    service->SetClockForTests([this]() { return simulatedTime; });
+    auto service = std::make_shared<AccountManagerService>(db, fetcher, [this]() { return simulatedTime; }, worker);
+
     service->Start();
-    service->FlushForTests();
+    worker->Drain();
 
     service->AddManual(TrackedAccounts::Platform::Steam, "76561198000000001", "LocalUser");
-    service->FlushForTests();
+    worker->Drain();
 
     state->liveMatch->SetLocalPrimaryId("Steam|76561198000000001|0");
 
@@ -450,10 +451,10 @@ TEST_F(AccountsViewTest, StaleDataLabelAfterClockAdvance) {
     db->SaveTrackedAccountRanks(pid, {rank}, simulatedTime);
 
     auto fetcher = std::make_shared<MmrService>(state, db);
-    auto service = std::make_shared<AccountManagerService>(db, fetcher);
-    service->SetClockForTests([this]() { return simulatedTime; });
+    auto service = std::make_shared<AccountManagerService>(db, fetcher, [this]() { return simulatedTime; }, worker);
+
     service->Start();
-    service->FlushForTests();
+    worker->Drain();
 
     RmlUiController controller(state, db, service);
     ASSERT_TRUE(controller.Initialize(nullptr, warp.device.Get(), warp.context.Get(), 1280, 800, 1.0f));
@@ -465,7 +466,6 @@ TEST_F(AccountsViewTest, StaleDataLabelAfterClockAdvance) {
     EXPECT_EQ(AccountsModel(controller).Rows()[0].status_text, "Updated");
 
     simulatedTime += (AccountManagerService::kStaleAfterSeconds + 100);
-    service->SetClockForTests([this]() { return simulatedTime; });
 
     auto snap = service->GetSnapshot();
     AccountsModel(controller).UpdateSnapshot(snap, "", 0, simulatedTime);
@@ -492,10 +492,10 @@ TEST_F(AccountsViewTest, NoApiBannerWhenProviderUnavailable) {
     auto db = std::make_shared<DatabaseManager>(state);
     ASSERT_TRUE(db->Initialize(":memory:"));
     auto fetcher = std::make_shared<MmrService>(state, db);
-    auto service = std::make_shared<AccountManagerService>(db, fetcher);
-    service->SetClockForTests([this]() { return simulatedTime; });
+    auto service = std::make_shared<AccountManagerService>(db, fetcher, [this]() { return simulatedTime; }, worker);
+
     service->Start();
-    service->FlushForTests();
+    worker->Drain();
 
     RmlUiController controller(state, db, service);
     ASSERT_TRUE(controller.Initialize(nullptr, warp.device.Get(), warp.context.Get(), 1280, 800, 1.0f));
@@ -533,10 +533,10 @@ TEST_F(AccountsViewTest, RefreshFailureStateShowsSavedMmr) {
     db->SaveTrackedAccountRanks(pid, {rank}, simulatedTime);
 
     auto fetcher = std::make_shared<MmrService>(state, db);
-    auto service = std::make_shared<AccountManagerService>(db, fetcher);
-    service->SetClockForTests([this]() { return simulatedTime; });
+    auto service = std::make_shared<AccountManagerService>(db, fetcher, [this]() { return simulatedTime; }, worker);
+
     service->Start();
-    service->FlushForTests();
+    worker->Drain();
 
     RmlUiController controller(state, db, service);
     ASSERT_TRUE(controller.Initialize(nullptr, warp.device.Get(), warp.context.Get(), 1280, 800, 1.0f));
@@ -570,10 +570,10 @@ TEST_F(AccountsViewTest, OpenCloseRepeatedly) {
     auto db = std::make_shared<DatabaseManager>(state);
     ASSERT_TRUE(db->Initialize(":memory:"));
     auto fetcher = std::make_shared<MmrService>(state, db);
-    auto service = std::make_shared<AccountManagerService>(db, fetcher);
-    service->SetClockForTests([this]() { return simulatedTime; });
+    auto service = std::make_shared<AccountManagerService>(db, fetcher, [this]() { return simulatedTime; }, worker);
+
     service->Start();
-    service->FlushForTests();
+    worker->Drain();
 
     RmlUiController controller(state, db, service);
     ASSERT_TRUE(controller.Initialize(nullptr, warp.device.Get(), warp.context.Get(), 1280, 800, 1.0f));
@@ -598,7 +598,7 @@ TEST_F(AccountsViewTest, OpenCloseRepeatedly) {
     EXPECT_FALSE(IsAccountsVisible(controller));
 
     service->AddManual(TrackedAccounts::Platform::Steam, "76561198000000001", "DetailUser");
-    service->FlushForTests();
+    worker->Drain();
     controller.OpenAccounts();
     controller.Update(Config::Read(), false);
     AccountsModel(controller).OpenDetail("Steam|76561198000000001");
@@ -618,13 +618,13 @@ TEST_F(AccountsViewTest, ReloadUiResourcesPreservesState) {
     auto db = std::make_shared<DatabaseManager>(state);
     ASSERT_TRUE(db->Initialize(":memory:"));
     auto fetcher = std::make_shared<MmrService>(state, db);
-    auto service = std::make_shared<AccountManagerService>(db, fetcher);
-    service->SetClockForTests([this]() { return simulatedTime; });
+    auto service = std::make_shared<AccountManagerService>(db, fetcher, [this]() { return simulatedTime; }, worker);
+
     service->Start();
-    service->FlushForTests();
+    worker->Drain();
 
     service->AddManual(TrackedAccounts::Platform::Steam, "76561198000000001", "ReloadUser");
-    service->FlushForTests();
+    worker->Drain();
 
     RmlUiController controller(state, db, service);
     ASSERT_TRUE(controller.Initialize(nullptr, warp.device.Get(), warp.context.Get(), 1280, 800, 1.0f));

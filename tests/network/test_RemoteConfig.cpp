@@ -15,7 +15,7 @@ namespace {
     class RemoteConfigTestFixture : public ::testing::Test {
       protected:
         fs::path tempDir;
-        RemoteConfig remoteConfig;
+        RemoteConfig remoteConfig{false};
 
         void SetUp() override {
             remoteConfig.ResetForTests();

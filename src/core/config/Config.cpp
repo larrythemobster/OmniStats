@@ -590,7 +590,7 @@ namespace Config {
         return s_revision.load(std::memory_order_acquire);
     }
 
-    static void SaveInternal();
+    static void SaveInternal(SecretStore& secrets = s_secretStore);
 
     static void MarkPendingSave() {
         {
@@ -681,13 +681,17 @@ namespace Config {
     }
 
     void Load() {
+        Load(s_secretStore);
+    }
+
+    void Load(SecretStore& secrets) {
         std::unique_lock<std::shared_mutex> lock(Mutex);
         std::string configFile = GetConfigPath();
         if (!fs::exists(configFile)) {
             std::cout << "[Config] No config found. Creating default config.\n";
             Current = ConfigData{};
-            s_secretStore.Reset();
-            SaveInternal();
+            secrets.Reset();
+            SaveInternal(secrets);
             s_revision.fetch_add(1, std::memory_order_release);
             return;
         }
@@ -701,13 +705,13 @@ namespace Config {
             if (!j.is_object()) throw std::invalid_argument("Configuration must be a JSON object");
 
             Current = ConfigData{};
-            s_secretStore.Reset();
+            secrets.Reset();
             bool needsSave = false;
             bool needsLegacyMigration = false;
 
             const auto& descriptors = GetFieldDescriptors();
             for (const auto& desc : descriptors) {
-                desc.load(j, Current, s_secretStore, needsSave, needsLegacyMigration);
+                desc.load(j, Current, secrets, needsSave, needsLegacyMigration);
             }
 
             if (j.contains("gamepad_overlay")) {
@@ -727,7 +731,7 @@ namespace Config {
 
             if ((!j.contains("custom_api_key") || !j["custom_api_key"].is_string()) &&
                 j.contains("pro_api_key") && j["pro_api_key"].is_string()) {
-                s_secretStore.LoadSecretField("custom_api_key", j["pro_api_key"].get<std::string>(), Current.custom_api_key, needsLegacyMigration, Current.credentials_decryption_failed);
+                secrets.LoadSecretField("custom_api_key", j["pro_api_key"].get<std::string>(), Current.custom_api_key, needsLegacyMigration, Current.credentials_decryption_failed);
                 if (!Current.custom_api_key.empty()) needsLegacyMigration = true;
             }
             if ((!j.contains("custom_api_enabled") || !j["custom_api_enabled"].is_boolean()) &&
@@ -811,7 +815,7 @@ namespace Config {
 
             if (Current.themeBg.a < 0.01f) {
                 Current.themeBg.a = 0.85f;
-                SaveInternal();
+                SaveInternal(secrets);
             }
 
             if (needsLegacyMigration) {
@@ -820,8 +824,8 @@ namespace Config {
                     {"account_refresh_token", Current.account_refresh_token},
                     {"account_device_key", Current.account_device_key},
                     {"ballchasing_token", Current.ballchasing_token}};
-                if (s_secretStore.MigrateLegacySecrets(secretsToMigrate)) {
-                    SaveInternal();
+                if (secrets.MigrateLegacySecrets(secretsToMigrate)) {
+                    SaveInternal(secrets);
                 } else {
                     std::cerr << "[Config] Legacy credential migration encryption failed. Plaintext will not be rewritten.\n";
                 }
@@ -838,17 +842,17 @@ namespace Config {
             std::error_code ec;
             fs::rename(configFile, configFile + ".corrupt", ec);
             Current = ConfigData{};
-            s_secretStore.Reset();
-            SaveInternal();
+            secrets.Reset();
+            SaveInternal(secrets);
             s_revision.fetch_add(1, std::memory_order_release);
         }
     }
 
-    static void SaveInternal() {
+    static void SaveInternal(SecretStore& secrets) {
         nlohmann::json j;
         const auto& descriptors = GetFieldDescriptors();
         for (const auto& desc : descriptors) {
-            desc.save(j, Current, s_secretStore);
+            desc.save(j, Current, secrets);
         }
 
         j["check_for_updates"] = true;
@@ -874,6 +878,11 @@ namespace Config {
         SaveInternal();
     }
 
+    void Save(SecretStore& secrets) {
+        std::unique_lock<std::shared_mutex> lock(Mutex);
+        SaveInternal(secrets);
+    }
+
     void RequestSave() {
         MarkPendingSave();
     }
@@ -895,15 +904,4 @@ namespace Config {
         }
     }
 
-#ifdef OMNISTATS_TEST_ENVIRONMENT
-    void SetCryptProtectHookForTests(CryptProtectHook hook) {
-        SecretStore::SetCryptProtectHookForTests(std::move(hook));
-    }
-    void SetCryptUnprotectHookForTests(CryptUnprotectHook hook) {
-        SecretStore::SetCryptUnprotectHookForTests(std::move(hook));
-    }
-    void ResetCryptHooksForTests() {
-        SecretStore::ResetCryptHooksForTests();
-    }
-#endif
 } // namespace Config

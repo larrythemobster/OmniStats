@@ -72,14 +72,11 @@ namespace Tournaments {
         Stop();
     }
     void TournamentScheduleService::Start() {
-#ifdef OMNISTATS_TEST_ENVIRONMENT
-        return;
-#else
+        if (!m_enableWorker) return;
         std::lock_guard lock(m_mutex);
         if (m_thread.joinable()) return;
         m_stop = false;
         m_thread = std::jthread([this] { Worker(); });
-#endif
     }
     void TournamentScheduleService::Stop() {
         m_stop = true;

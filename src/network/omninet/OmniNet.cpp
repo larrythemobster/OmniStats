@@ -8,6 +8,7 @@ namespace OmniNet {
     namespace {
         std::mutex g_transportMutex;
         Transport g_testTransport;
+        Transport g_defaultTransport;
         std::atomic<bool> g_updateRequired{false};
     } // namespace
 
@@ -16,11 +17,10 @@ namespace OmniNet {
         if (g_testTransport) {
             return true;
         }
-#ifdef OMNISTATS_TEST_ENVIRONMENT
-        return false;
-#else
+        if (g_defaultTransport) {
+            return false;
+        }
         return OmniNetBackend::Available();
-#endif
     }
 
     Response Send(const Request& request) {
@@ -28,18 +28,16 @@ namespace OmniNet {
         {
             std::lock_guard<std::mutex> lock(g_transportMutex);
             transport = g_testTransport;
+            if (!transport) {
+                transport = g_defaultTransport;
+            }
         }
 
         Response res;
         if (transport) {
             res = transport(request);
         } else {
-#ifdef OMNISTATS_TEST_ENVIRONMENT
-            // Test builds never reach the live service; unmocked calls fail like the stub backend.
-            res.transportError = -1;
-#else
             res = OmniNetBackend::Send(request);
-#endif
         }
 
         if (res.updateRequired || res.status == 426) {
@@ -57,6 +55,11 @@ namespace OmniNet {
     void SetTransportForTesting(Transport transport) {
         std::lock_guard<std::mutex> lock(g_transportMutex);
         g_testTransport = std::move(transport);
+    }
+
+    void SetDefaultTransportForTesting(Transport transport) {
+        std::lock_guard<std::mutex> lock(g_transportMutex);
+        g_defaultTransport = std::move(transport);
     }
 
     void ResetUpdateRequiredForTesting() {
