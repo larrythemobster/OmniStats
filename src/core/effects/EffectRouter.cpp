@@ -19,14 +19,16 @@ void EffectRouter::Route(SideEffects&& effects,
                          std::shared_ptr<AccountManagerService> accountManager,
                          std::shared_ptr<SessionState> sessionState) {
     if (effects.selectMmrOwner && sessionState) {
-        std::unique_lock lock(sessionState->history.mutex);
-        sessionState->selectMmrOwnerLocked(*effects.selectMmrOwner);
+        sessionState->history.Mutate([&](auto& data) {
+            sessionState->selectMmrOwnerLocked(*effects.selectMmrOwner, data);
+        });
     }
     if (effects.closeSessionIfInactiveAtUnix && sessionState && sessionState->liveMatch) {
-        std::unique_lock lock(sessionState->history.mutex);
-        if (sessionState->closeSessionIfInactiveLocked(*effects.closeSessionIfInactiveAtUnix)) {
-            effects.persistSession = sessionState->liveMatch->GetSnapshot()->lastSessionRecap;
-        }
+        sessionState->history.Mutate([&](auto& data) {
+            if (sessionState->closeSessionIfInactiveLocked(*effects.closeSessionIfInactiveAtUnix, data)) {
+                effects.persistSession = sessionState->liveMatch->GetSnapshot()->lastSessionRecap;
+            }
+        });
     }
     if (effects.persistLocalPrimaryId) {
         Config::Update([&id = *effects.persistLocalPrimaryId](ConfigData& c) { c.last_primary_id = id; });
@@ -55,23 +57,23 @@ void EffectRouter::Route(SideEffects&& effects,
     }
 
     if (effects.pendingMatchHistory && sessionState) {
-        std::unique_lock lock(sessionState->history.mutex);
-        const auto duplicate = std::find_if(
-            sessionState->history.pendingRecentMatches.begin(),
-            sessionState->history.pendingRecentMatches.end(),
-            [&](const SessionMatchSummary& summary) {
-                return summary.matchGuid == effects.pendingMatchHistory->matchGuid;
-            });
-        if (duplicate == sessionState->history.pendingRecentMatches.end()) {
-            sessionState->history.pendingRecentMatches.insert(
-                sessionState->history.pendingRecentMatches.begin(),
-                std::move(*effects.pendingMatchHistory));
-            if (sessionState->history.pendingRecentMatches.size() >
-                static_cast<size_t>(kPreviousGamesMaxLimit)) {
-                sessionState->history.pendingRecentMatches.resize(kPreviousGamesMaxLimit);
+        sessionState->history.Mutate([&](auto& data) {
+            const auto duplicate = std::find_if(
+                data.pendingRecentMatches.begin(),
+                data.pendingRecentMatches.end(),
+                [&](const SessionMatchSummary& summary) {
+                    return summary.matchGuid == effects.pendingMatchHistory->matchGuid;
+                });
+            if (duplicate == data.pendingRecentMatches.end()) {
+                data.pendingRecentMatches.insert(
+                    data.pendingRecentMatches.begin(),
+                    std::move(*effects.pendingMatchHistory));
+                if (data.pendingRecentMatches.size() >
+                    static_cast<size_t>(kPreviousGamesMaxLimit)) {
+                    data.pendingRecentMatches.resize(kPreviousGamesMaxLimit);
+                }
             }
-            sessionState->history.version++;
-        }
+        });
     }
 
     if (effects.confirmedLocalAccount && accountManager) {

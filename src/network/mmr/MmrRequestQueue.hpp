@@ -12,7 +12,7 @@
 
 class MmrRequestQueue {
   public:
-    MmrRequestQueue() = default;
+    explicit MmrRequestQueue(MmrTimings timings = {}) : m_timings(timings) {}
     ~MmrRequestQueue() = default;
 
     MmrRequestQueue(const MmrRequestQueue&) = delete;
@@ -65,6 +65,7 @@ class MmrRequestQueue {
     void Clear();
 
   private:
+    MmrTimings m_timings;
     mutable std::mutex m_mutex;
     std::deque<MMRRequest> m_queue;
     std::unordered_set<std::string> m_rosterQueuedOrInFlight;

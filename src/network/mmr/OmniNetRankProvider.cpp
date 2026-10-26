@@ -11,8 +11,9 @@
 using namespace MmrServiceDetail;
 
 OmniNetRankProvider::OmniNetRankProvider(std::shared_ptr<AccountClient> accountClient,
-                                         std::function<bool()> abortCheck)
-    : m_accountClient(std::move(accountClient)), m_abortCheck(std::move(abortCheck)) {}
+                                         std::function<bool()> abortCheck,
+                                         MmrTimings timings)
+    : m_accountClient(std::move(accountClient)), m_abortCheck(std::move(abortCheck)), m_timings(timings) {}
 
 bool OmniNetRankProvider::IsAvailable() const {
     if (!m_accountClient) return false;
@@ -121,7 +122,7 @@ CustomApiBatchResult OmniNetRankProvider::FetchBatch(const AssembledBatch& batch
     }
     if (resp.status == 429) {
         result.httpResult = CustomApiFetchResult::TransientError;
-        std::chrono::steady_clock::duration lockout = kRateLimitLockoutMinimum;
+        std::chrono::steady_clock::duration lockout = m_timings.rateLimitLockoutMinimum;
         if (resp.retryAfterSeconds > 0) {
             lockout = (std::max)(lockout,
                                  std::chrono::duration_cast<std::chrono::steady_clock::duration>(

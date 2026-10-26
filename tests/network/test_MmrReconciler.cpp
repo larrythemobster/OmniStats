@@ -69,7 +69,7 @@ TEST(MmrReconcilerTest, TrackerLagCreatesProvisionalThenReplacesWithConfirmed) {
     EXPECT_EQ(confirmedResult.dbUpdates[0].mmr, 1211);
 }
 
-TEST(MmrReconcilerTest, CallerRetainsHistoryLockThroughReconciliationAndPublication) {
+TEST(MmrReconcilerTest, ReconciliationAndPublicationShareOneHistoryMutation) {
     SessionState state;
     state.liveMatch->UpdateMatchStateForTests([](MatchState& match) {
         match.myPrimaryId = "Steam|123";
@@ -80,38 +80,25 @@ TEST(MmrReconcilerTest, CallerRetainsHistoryLockThroughReconciliationAndPublicat
     const auto req = MakeRequest(matchGuid);
     reconciler.EnqueuePostMatch(req.primaryId, matchGuid, req.playlist, 1200, 50, true, true, 1);
 
-    std::unique_lock historyLock(state.history.mutex);
-    auto expectLocksHeld = [&] {
-        bool acquiredHistory = false;
-        std::thread contender([&] {
-            acquiredHistory = state.history.mutex.try_lock();
-            if (acquiredHistory) state.history.mutex.unlock();
-        });
-        contender.join();
-        EXPECT_FALSE(acquiredHistory);
-    };
+    state.history.Mutate([&](auto& history) {
+        auto provisional = reconciler.EnsureProvisionalPoint(req, 1200, 1200, 50, {}, 1200);
+        ASSERT_TRUE(provisional.applied);
+        MmrPublisher::PublishProvisionalPointLocked(state, history, provisional.publication);
+        ASSERT_EQ(history.playlistMatchPoints["2v2"].size(), 1u);
+        EXPECT_EQ(history.playlistMatchPoints["2v2"][0].mmr, 1209);
+        EXPECT_FALSE(history.playlistMatchPoints["2v2"][0].trackerCovered);
 
-    auto provisional = reconciler.EnsureProvisionalPoint(req, 1200, 1200, 50, {}, 1200);
-    ASSERT_TRUE(provisional.applied);
-    expectLocksHeld();
-    MmrPublisher::PublishProvisionalPointLocked(state, provisional.publication);
-    expectLocksHeld();
-    ASSERT_EQ(state.history.playlistMatchPoints["2v2"].size(), 1u);
-    EXPECT_EQ(state.history.playlistMatchPoints["2v2"][0].mmr, 1209);
-    EXPECT_FALSE(state.history.playlistMatchPoints["2v2"][0].trackerCovered);
-
-    const auto confirmed = reconciler.ReconcileTrackerResponse(
-        req, 1211, 51, state.history.playlistHistoryY["2v2"], 1, req.primaryId, false, false,
-        &state.history.playlistMatchPoints["2v2"], 1200);
-    ASSERT_TRUE(confirmed.applied);
-    expectLocksHeld();
-    MmrPublisher::PublishReconciledPointsLocked(state, confirmed.publication);
-    expectLocksHeld();
-    ASSERT_EQ(state.history.playlistMatchPoints["2v2"].size(), 1u);
-    EXPECT_EQ(state.history.playlistMatchPoints["2v2"][0].mmr, 1211);
-    EXPECT_TRUE(state.history.playlistMatchPoints["2v2"][0].trackerCovered);
-    ASSERT_EQ(state.history.playlistHistoryY["2v2"].size(), 1u);
-    EXPECT_FLOAT_EQ(state.history.playlistHistoryY["2v2"][0], 1211.0f);
+        const auto confirmed = reconciler.ReconcileTrackerResponse(
+            req, 1211, 51, history.playlistHistoryY["2v2"], 1, req.primaryId, false, false,
+            &history.playlistMatchPoints["2v2"], 1200);
+        ASSERT_TRUE(confirmed.applied);
+        MmrPublisher::PublishReconciledPointsLocked(state, history, confirmed.publication);
+        ASSERT_EQ(history.playlistMatchPoints["2v2"].size(), 1u);
+        EXPECT_EQ(history.playlistMatchPoints["2v2"][0].mmr, 1211);
+        EXPECT_TRUE(history.playlistMatchPoints["2v2"][0].trackerCovered);
+        ASSERT_EQ(history.playlistHistoryY["2v2"].size(), 1u);
+        EXPECT_FLOAT_EQ(history.playlistHistoryY["2v2"][0], 1211.0f);
+    });
 }
 
 TEST(MmrReconcilerTest, DestroyedMatchLossConfirmedByRatingDecrease) {

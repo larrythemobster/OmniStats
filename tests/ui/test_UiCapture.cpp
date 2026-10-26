@@ -101,10 +101,10 @@ namespace {
 
     void SeedCaptureFixtureState(SessionState& state) {
         state.liveMatch->UpdateMatchStateForTests(SeedMatch);
-        std::unique_lock lock(state.history.mutex);
-        state.history.playlistHistoryY["2v2"] = {1200.0f, 1215.0f, 1205.0f, 1220.0f, 1235.0f, 1250.0f};
-        state.history.playlistInitialMmr["2v2"] = 1200;
-        state.history.version++;
+        state.history.Mutate([](auto& history) {
+            history.playlistHistoryY["2v2"] = {1200.0f, 1215.0f, 1205.0f, 1220.0f, 1235.0f, 1250.0f};
+            history.playlistInitialMmr["2v2"] = 1200;
+        });
     }
 }
 

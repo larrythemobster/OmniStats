@@ -415,18 +415,15 @@ TEST_F(DatabaseManagerTest, ConfirmedMmrRefreshReplacesPendingHistoryPlaceholder
         .team = 1,
         .mmr = 1190};
 
-    {
-        std::unique_lock<std::shared_mutex> lock(
-            sessionState->history.mutex);
+    sessionState->history.Mutate([&](auto& history) {
         SessionMatchSummary pending;
         pending.matchGuid = snap.matchGuid;
         pending.mode = "Duel";
         pending.ourScore = 4;
         pending.theirScore = 2;
         pending.pendingTrackerConfirmation = true;
-        sessionState->history.pendingRecentMatches.push_back(
-            std::move(pending));
-    }
+        history.pendingRecentMatches.push_back(std::move(pending));
+    });
 
     dbManager->SaveMatch(snap);
     dbManager->AsyncUpdateMatchPlayerMmr(
@@ -446,21 +443,12 @@ TEST_F(DatabaseManagerTest, ConfirmedMmrRefreshReplacesPendingHistoryPlaceholder
         dbManager->GetSetting("pending_history_barrier", ""),
         "complete");
 
-    std::shared_lock<std::shared_mutex> lock(
-        sessionState->history.mutex);
-    EXPECT_TRUE(
-        sessionState->history.pendingRecentMatches.empty());
-    ASSERT_EQ(
-        sessionState->history.recentSavedMatches.size(), 1u);
-    EXPECT_EQ(
-        sessionState->history.recentSavedMatches[0].matchGuid,
-        snap.matchGuid);
-    EXPECT_EQ(
-        sessionState->history.recentSavedMatches[0].mmr,
-        1211);
-    EXPECT_FALSE(
-        sessionState->history.recentSavedMatches[0]
-            .pendingTrackerConfirmation);
+    const auto history = sessionState->history.GetSnapshot();
+    EXPECT_TRUE(history->pendingRecentMatches.empty());
+    ASSERT_EQ(history->recentSavedMatches.size(), 1u);
+    EXPECT_EQ(history->recentSavedMatches[0].matchGuid, snap.matchGuid);
+    EXPECT_EQ(history->recentSavedMatches[0].mmr, 1211);
+    EXPECT_FALSE(history->recentSavedMatches[0].pendingTrackerConfirmation);
 }
 
 TEST_F(DatabaseManagerTest, AsyncSavePublishesOrderedStreakCacheAndLeavesItClean) {

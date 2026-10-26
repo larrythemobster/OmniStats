@@ -235,8 +235,8 @@ class SessionState : public std::enable_shared_from_this<SessionState> {
 
     // Session management methods.
     // Returns whether a recap was captured.
-    bool startNewSessionLocked(int64_t endedAtUnix);
-    bool closeSessionIfInactiveLocked(int64_t nowUnix);
-    void syncSessionMmrChangeLocked();
-    void selectMmrOwnerLocked(const std::string& primaryId);
+    bool startNewSessionLocked(int64_t endedAtUnix, database::store::HistoryData& data);
+    bool closeSessionIfInactiveLocked(int64_t nowUnix, database::store::HistoryData& data);
+    void syncSessionMmrChangeLocked(database::store::HistoryData& data);
+    void selectMmrOwnerLocked(const std::string& primaryId, database::store::HistoryData& data);
 };

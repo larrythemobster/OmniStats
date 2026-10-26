@@ -8,7 +8,8 @@
 class TrnRankProvider : public IRankProvider {
   public:
     explicit TrnRankProvider(std::shared_ptr<Http::IHttpClient> httpClient = nullptr,
-                             std::function<bool()> abortCheck = nullptr);
+                             std::function<bool()> abortCheck = nullptr,
+                             MmrTimings timings = {});
     ~TrnRankProvider() override = default;
 
     RankProvider ProviderType() const override {
@@ -44,5 +45,6 @@ class TrnRankProvider : public IRankProvider {
   private:
     std::shared_ptr<Http::IHttpClient> m_httpClient;
     std::function<bool()> m_abortCheck;
+    MmrTimings m_timings;
     Result m_lastResult;
 };

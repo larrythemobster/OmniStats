@@ -8,6 +8,35 @@
 #include <vector>
 #include <atomic>
 
+TEST(HistoryStoreTest, MutationPublishesSnapshotAndPreservesPreviousSnapshot) {
+    database::store::HistoryStore history;
+    const auto before = history.GetSnapshot();
+
+    const int result = history.Mutate([](database::store::HistoryData& data) {
+        data.initialMmr = 1200;
+        data.playlistHistoryY["2v2"] = {1200.0f, 1210.0f};
+        data.showLifetimeGraph = true;
+        return data.initialMmr + 10;
+    });
+
+    const auto after = history.GetSnapshot();
+    EXPECT_EQ(result, 1210);
+    EXPECT_EQ(after->initialMmr, 1200);
+    ASSERT_EQ(after->playlistHistoryY.at("2v2").size(), 2u);
+    EXPECT_FLOAT_EQ(after->playlistHistoryY.at("2v2").back(), 1210.0f);
+    EXPECT_TRUE(after->showLifetimeGraph);
+    EXPECT_GT(after->version, before->version);
+    EXPECT_EQ(before->initialMmr, -1);
+    EXPECT_TRUE(before->playlistHistoryY.empty());
+    EXPECT_FALSE(before->showLifetimeGraph);
+
+    history.SetShowLifetimeGraph(false);
+    const auto toggled = history.GetSnapshot();
+    EXPECT_FALSE(toggled->showLifetimeGraph);
+    EXPECT_GT(toggled->version, after->version);
+    EXPECT_TRUE(after->showLifetimeGraph);
+}
+
 TEST(ConcurrencyTest, ConfigConcurrentReadWrite) {
     // Ensure data directory exists and set initial port in valid range
     Storage::InitializeEnvironment();

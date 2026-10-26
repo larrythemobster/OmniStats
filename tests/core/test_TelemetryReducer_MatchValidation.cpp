@@ -19,7 +19,9 @@ namespace {
         ReducerContext ctx = MakeReducerContext(ui);
 
         bool startNewSessionLocked(int64_t endedAtUnix) {
-            return game.StartNewSession(endedAtUnix, &history);
+            bool result = false;
+            history.Mutate([&](auto& data) { result = game.StartNewSession(endedAtUnix, &data); });
+            return result;
         }
 
         SideEffects Reduce(const std::string& eventName, const nlohmann::json& data) {
@@ -1375,8 +1377,9 @@ TEST(TelemetryReducerMatchValidation, DestroyedCompetitiveMatchAppearsInHistoryW
         CurrentMatchEvent(state, nlohmann::json{}));
 
     ASSERT_TRUE(effects.pendingDestroyedMatch.has_value());
-    ASSERT_EQ(state->history.pendingRecentMatches.size(), 1u);
-    const auto& summary = state->history.pendingRecentMatches.front();
+    const auto history = state->history.GetSnapshot();
+    ASSERT_EQ(history->pendingRecentMatches.size(), 1u);
+    const auto& summary = history->pendingRecentMatches.front();
     EXPECT_EQ(summary.matchGuid, "pending-history-guid");
     EXPECT_EQ(summary.mode, "Duel");
     EXPECT_EQ(summary.ourScore, 4);
@@ -1408,7 +1411,7 @@ TEST(TelemetryReducerMatchValidation, DuplicateMatchDestroyedKeepsOnePendingReco
     EXPECT_FALSE(second.pendingDestroyedMatch.has_value());
     EXPECT_FALSE(first.saveMatch);
     EXPECT_FALSE(second.saveMatch);
-    EXPECT_EQ(state->history.pendingRecentMatches.size(), 1u);
+    EXPECT_EQ(state->history.GetSnapshot()->pendingRecentMatches.size(), 1u);
 
     SideEffects confirmed =
         reducer.ConfirmPendingDestroyedMatch(
@@ -1428,7 +1431,6 @@ TEST(TelemetryReducerMatchValidation, DestroyedMatchConfirmedAfterSessionEndsCou
     ASSERT_TRUE(destroyed.pendingDestroyedMatch.has_value());
     {
         std::unique_lock gameLock(state->game.mutex);
-        std::unique_lock historyLock(state->history.mutex);
         state->game.sessionTotals.wins = 1;
         ASSERT_TRUE(state->startNewSessionLocked(1700000000));
     }

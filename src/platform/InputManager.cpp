@@ -129,12 +129,11 @@ namespace {
         const auto category = state.ui.graphMmrCategory.load();
         const std::string playlist = MmrCategoryToString(category);
         int total = 0;
-        if (state.history.showLifetimeGraph.load()) {
-            std::shared_lock lock(state.history.mutex);
-            total = static_cast<int>(state.history.lifetimeMmrY.size());
+        const auto history = state.history.GetSnapshot();
+        if (history->showLifetimeGraph) {
+            total = static_cast<int>(history->lifetimeMmrY.size());
         } else {
-            std::shared_lock lock(state.history.mutex);
-            if (auto it = state.history.playlistHistoryY.find(playlist); it != state.history.playlistHistoryY.end()) {
+            if (auto it = history->playlistHistoryY.find(playlist); it != history->playlistHistoryY.end()) {
                 total = static_cast<int>(it->second.size());
             }
         }
@@ -156,14 +155,14 @@ namespace {
             if (!state.ui.showGraphView.load()) {
                 if (telemetry) telemetry->RecordMilestone(TelemetryManager::Milestone::MmrGraphView);
                 state.ui.showGraphView.store(true);
-                state.history.showLifetimeGraph.store(false);
+                state.history.SetShowLifetimeGraph(false);
                 state.ui.graphOffset.store(0);
-            } else if (!state.history.showLifetimeGraph.load()) {
-                state.history.showLifetimeGraph.store(true);
+            } else if (!state.history.GetSnapshot()->showLifetimeGraph) {
+                state.history.SetShowLifetimeGraph(true);
                 state.ui.graphOffset.store(0);
             } else {
                 state.ui.showGraphView.store(false);
-                state.history.showLifetimeGraph.store(false);
+                state.history.SetShowLifetimeGraph(false);
                 state.ui.graphOffset.store(0);
             }
         } else if (state.ui.showOverlay.load()) {
@@ -176,7 +175,7 @@ namespace {
         state.ui.showSessionView.store(showSessionView);
         if (!showSessionView) {
             state.ui.showGraphView.store(false);
-            state.history.showLifetimeGraph.store(false);
+            state.history.SetShowLifetimeGraph(false);
             state.ui.graphOffset.store(0);
         }
     }
@@ -184,7 +183,7 @@ namespace {
     // Switches every graph between this session and lifetime history without
     // opening or closing any card.
     void ToggleLifetimeGraph(SessionState& state) {
-        state.history.showLifetimeGraph.store(!state.history.showLifetimeGraph.load());
+        state.history.Mutate([](auto& history) { history.showLifetimeGraph = !history.showLifetimeGraph; });
         state.ui.graphOffset.store(0);
     }
 } // namespace

@@ -13,10 +13,6 @@
 #include "core/state/MatchState.hpp"
 #include "network/telemetry/TelemetryEvents.hpp"
 
-namespace database::store {
-    class HistoryStore;
-}
-using HistoryState = database::store::HistoryStore;
 struct ReducerContext;
 
 class LiveMatchStore {
@@ -49,8 +45,8 @@ class LiveMatchStore {
                                   int winsAgainst, int lossesAgainst);
     void SyncSessionMmrChange(const std::map<std::string, int>& changes, float totalChange);
     void UpdateLastSessionRecapMmr(const std::map<std::string, int>& changes, float totalChange);
-    bool StartNewSession(int64_t endedAtUnix, HistoryState* history = nullptr);
-    bool CloseSessionIfInactive(int64_t nowUnix, HistoryState* history = nullptr);
+    bool StartNewSession(int64_t endedAtUnix, database::store::HistoryData* history = nullptr);
+    bool CloseSessionIfInactive(int64_t nowUnix, database::store::HistoryData* history = nullptr);
     void ClearActiveMatchOnDisconnect();
 
     void PostAction(std::function<void(MatchState&, SideEffects&)> action);

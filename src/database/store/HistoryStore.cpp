@@ -4,66 +4,15 @@
 namespace database::store {
 
     HistoryStore::HistoryStore() {
-        m_snapshot.store(std::make_shared<const HistorySnapshot>());
+        m_data.version = 1;
+        m_snapshot.store(std::make_shared<const HistorySnapshot>(m_data), std::memory_order_release);
     }
 
     std::shared_ptr<const HistorySnapshot> HistoryStore::GetSnapshot() const {
-        const bool lifetimeGraph = showLifetimeGraph.load(std::memory_order_relaxed);
-        auto snapshot = m_snapshot.load(std::memory_order_acquire);
-        if (snapshot && snapshot->version == version.load(std::memory_order_relaxed) &&
-            snapshot->showLifetimeGraph == lifetimeGraph) {
-            return snapshot;
-        }
-
-        std::shared_lock lock(mutex);
-        snapshot = m_snapshot.load(std::memory_order_acquire);
-        if (snapshot && snapshot->version == version.load(std::memory_order_relaxed) &&
-            snapshot->showLifetimeGraph == showLifetimeGraph.load(std::memory_order_relaxed)) {
-            return snapshot;
-        }
-
-        auto refreshed = std::make_shared<HistorySnapshot>();
-        refreshed->mmrHistoryY = mmrHistoryY;
-        refreshed->mmrHistoryX = mmrHistoryX;
-        refreshed->playlistHistoryY = playlistHistoryY;
-        refreshed->playlistMatchPoints = playlistMatchPoints;
-        refreshed->playlistInitialMmr = playlistInitialMmr;
-        refreshed->mmrOwnerPrimaryId = mmrOwnerPrimaryId;
-        refreshed->inactiveMmrHistories = inactiveMmrHistories;
-        refreshed->lifetimeMmrY = lifetimeMmrY;
-        refreshed->lifetimeMmrX = lifetimeMmrX;
-        refreshed->showLifetimeGraph = showLifetimeGraph.load(std::memory_order_relaxed);
-        refreshed->recentSavedMatches = recentSavedMatches;
-        refreshed->pendingRecentMatches = pendingRecentMatches;
-        refreshed->recentSavedMatchesLoaded = recentSavedMatchesLoaded;
-        refreshed->initialMmr = initialMmr;
-        refreshed->version = version.load(std::memory_order_relaxed);
-        m_snapshot.store(refreshed, std::memory_order_release);
-        return refreshed;
+        return m_snapshot.load(std::memory_order_acquire);
     }
 
-    void HistoryStore::PublishSnapshot() {
-        auto snap = std::make_shared<HistorySnapshot>();
-        snap->mmrHistoryY = mmrHistoryY;
-        snap->mmrHistoryX = mmrHistoryX;
-        snap->playlistHistoryY = playlistHistoryY;
-        snap->playlistMatchPoints = playlistMatchPoints;
-        snap->playlistInitialMmr = playlistInitialMmr;
-        snap->mmrOwnerPrimaryId = mmrOwnerPrimaryId;
-        snap->inactiveMmrHistories = inactiveMmrHistories;
-        snap->lifetimeMmrY = lifetimeMmrY;
-        snap->lifetimeMmrX = lifetimeMmrX;
-        snap->showLifetimeGraph = showLifetimeGraph.load(std::memory_order_relaxed);
-        snap->recentSavedMatches = recentSavedMatches;
-        snap->pendingRecentMatches = pendingRecentMatches;
-        snap->recentSavedMatchesLoaded = recentSavedMatchesLoaded;
-        snap->initialMmr = initialMmr;
-        snap->version = version.load(std::memory_order_relaxed);
-
-        m_snapshot.store(std::move(snap), std::memory_order_release);
-    }
-
-    void HistoryStore::SelectMmrOwner(const std::string& primaryId) {
+    void HistoryData::SelectMmrOwner(const std::string& primaryId) {
         if (mmrOwnerPrimaryId == primaryId) return;
 
         if (!mmrOwnerPrimaryId.empty()) {
@@ -94,11 +43,9 @@ namespace database::store {
             playlistInitialMmr.clear();
             initialMmr = -1;
         }
-        version.fetch_add(1, std::memory_order_relaxed);
-        PublishSnapshot();
     }
 
-    void HistoryStore::ResetSessionMmr() {
+    void HistoryData::ResetSessionMmr() {
         mmrHistoryY.clear();
         mmrHistoryX.clear();
         playlistHistoryY.clear();
@@ -106,88 +53,82 @@ namespace database::store {
         playlistInitialMmr.clear();
         initialMmr = -1;
         inactiveMmrHistories.clear();
-        version.fetch_add(1, std::memory_order_relaxed);
-        PublishSnapshot();
+    }
+
+    void HistoryStore::SelectMmrOwner(const std::string& primaryId) {
+        Mutate([&](HistoryData& data) { data.SelectMmrOwner(primaryId); });
+    }
+
+    void HistoryStore::ResetSessionMmr() {
+        Mutate([](HistoryData& data) { data.ResetSessionMmr(); });
     }
 
     void HistoryStore::SetLifetimeMmr(std::vector<int64_t> x, std::vector<float> y) {
-        std::unique_lock lock(mutex);
-        lifetimeMmrX = std::move(x);
-        lifetimeMmrY = std::move(y);
-        version.fetch_add(1, std::memory_order_relaxed);
-        PublishSnapshot();
+        Mutate([&](HistoryData& data) {
+            data.lifetimeMmrX = std::move(x);
+            data.lifetimeMmrY = std::move(y);
+        });
     }
 
     void HistoryStore::SetRecentSavedMatches(std::vector<SessionMatchSummary> matches) {
-        std::unique_lock lock(mutex);
-        pendingRecentMatches.erase(
-            std::remove_if(pendingRecentMatches.begin(), pendingRecentMatches.end(),
-                           [&](const SessionMatchSummary& pending) {
-                               return !pending.matchGuid.empty() &&
-                                      std::any_of(matches.begin(), matches.end(),
-                                                  [&](const SessionMatchSummary& saved) {
-                                                      return saved.matchGuid == pending.matchGuid;
-                                                  });
-                           }),
-            pendingRecentMatches.end());
-        recentSavedMatches = std::move(matches);
-        recentSavedMatchesLoaded = true;
-        version.fetch_add(1, std::memory_order_relaxed);
-        PublishSnapshot();
+        Mutate([&](HistoryData& data) {
+            auto& pendingMatches = data.pendingRecentMatches;
+            pendingMatches.erase(
+                std::remove_if(pendingMatches.begin(), pendingMatches.end(),
+                               [&](const SessionMatchSummary& pending) {
+                                   return !pending.matchGuid.empty() &&
+                                          std::any_of(matches.begin(), matches.end(),
+                                                      [&](const SessionMatchSummary& saved) {
+                                                          return saved.matchGuid == pending.matchGuid;
+                                                      });
+                               }),
+                pendingMatches.end());
+            data.recentSavedMatches = std::move(matches);
+            data.recentSavedMatchesLoaded = true;
+        });
     }
 
     void HistoryStore::AddPendingRecentMatch(SessionMatchSummary match) {
-        std::unique_lock lock(mutex);
-        pendingRecentMatches.push_back(std::move(match));
-        version.fetch_add(1, std::memory_order_relaxed);
-        PublishSnapshot();
+        Mutate([&](HistoryData& data) { data.pendingRecentMatches.push_back(std::move(match)); });
     }
 
     void HistoryStore::ResolvePendingRecentMatch(const std::string& matchGuid) {
-        std::unique_lock lock(mutex);
-        pendingRecentMatches.erase(
-            std::remove_if(pendingRecentMatches.begin(), pendingRecentMatches.end(),
-                           [&](const SessionMatchSummary& m) { return m.matchGuid == matchGuid; }),
-            pendingRecentMatches.end());
-        version.fetch_add(1, std::memory_order_relaxed);
-        PublishSnapshot();
+        Mutate([&](HistoryData& data) {
+            auto& pendingMatches = data.pendingRecentMatches;
+            pendingMatches.erase(
+                std::remove_if(pendingMatches.begin(), pendingMatches.end(),
+                               [&](const SessionMatchSummary& m) { return m.matchGuid == matchGuid; }),
+                pendingMatches.end());
+        });
     }
 
     void HistoryStore::SetShowLifetimeGraph(bool show) {
-        showLifetimeGraph.store(show, std::memory_order_relaxed);
-        std::unique_lock lock(mutex);
-        version.fetch_add(1, std::memory_order_relaxed);
-        PublishSnapshot();
+        Mutate([&](HistoryData& data) { data.showLifetimeGraph = show; });
     }
 
     void HistoryStore::SetPlaylistInitialMmr(const std::string& playlist, int mmr) {
-        std::unique_lock lock(mutex);
-        playlistInitialMmr[playlist] = mmr;
-        version.fetch_add(1, std::memory_order_relaxed);
-        PublishSnapshot();
+        Mutate([&](HistoryData& data) { data.playlistInitialMmr[playlist] = mmr; });
     }
 
     void HistoryStore::UpdatePlaylistMmrPoint(const std::string& playlist, size_t index, int mmr, bool estimated) {
-        std::unique_lock lock(mutex);
-        auto& points = playlistMatchPoints[playlist];
-        if (index < points.size()) {
-            points[index].mmr = mmr;
-            points[index].valueEstimated = estimated;
-        }
-        auto& proj = playlistHistoryY[playlist];
-        if (index < proj.size()) {
-            proj[index] = static_cast<float>(mmr);
-        }
-        version.fetch_add(1, std::memory_order_relaxed);
-        PublishSnapshot();
+        Mutate([&](HistoryData& data) {
+            auto& points = data.playlistMatchPoints[playlist];
+            if (index < points.size()) {
+                points[index].mmr = mmr;
+                points[index].valueEstimated = estimated;
+            }
+            auto& proj = data.playlistHistoryY[playlist];
+            if (index < proj.size()) {
+                proj[index] = static_cast<float>(mmr);
+            }
+        });
     }
 
     void HistoryStore::AppendPlaylistMmrPoint(const std::string& playlist, const SessionMmrPoint& point, float mmr) {
-        std::unique_lock lock(mutex);
-        playlistMatchPoints[playlist].push_back(point);
-        playlistHistoryY[playlist].push_back(mmr);
-        version.fetch_add(1, std::memory_order_relaxed);
-        PublishSnapshot();
+        Mutate([&](HistoryData& data) {
+            data.playlistMatchPoints[playlist].push_back(point);
+            data.playlistHistoryY[playlist].push_back(mmr);
+        });
     }
 
 } // namespace database::store

@@ -30,7 +30,8 @@ class MmrService {
                         std::shared_ptr<DatabaseManager> dbManager = nullptr,
                         std::shared_ptr<AccountClient> accountClient = nullptr,
                         std::shared_ptr<IRankProvider> customProvider = nullptr,
-                        std::shared_ptr<IRankProvider> trackerProvider = nullptr);
+                        std::shared_ptr<IRankProvider> trackerProvider = nullptr,
+                        MmrTimings timings = {});
     virtual ~MmrService();
 
     MmrService(const MmrService&) = delete;
@@ -147,6 +148,7 @@ class MmrService {
     std::shared_ptr<IRankProvider> m_customProvider;
     std::shared_ptr<IRankProvider> m_trackerProvider;
 
+    MmrTimings m_timings;
     MmrRequestQueue m_queue;
     MmrReconciler m_reconciler;
     mutable std::mutex m_reconciliationMutex;

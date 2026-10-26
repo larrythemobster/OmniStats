@@ -627,11 +627,9 @@ TEST_F(RmlUiControllerStateTest, PreviousGamesKeepsSessionRecordWhileHistoryIsLo
     EXPECT_NE(html.find("Loading saved match history..."), std::string::npos);
     EXPECT_NE(html.find("Current session: <span class='win'>W:3</span> <span class='loss'>L:2</span>"), std::string::npos);
 
-    {
-        std::unique_lock lock(state->history.mutex);
-        state->history.recentSavedMatchesLoaded = true;
-        state->history.version.fetch_add(1);
-    }
+    state->history.Mutate([](auto& history) {
+        history.recentSavedMatchesLoaded = true;
+    });
     controller.Update(Config::Read());
     html = RenderPreviousGames(controller);
     EXPECT_NE(html.find("No saved games in local history."), std::string::npos);
@@ -740,12 +738,10 @@ TEST_F(RmlUiControllerStateTest, GraphCategoryChangeRefreshesLifetimeHistoryOnce
     auto state = std::make_shared<SessionState>();
     auto db = std::make_shared<DatabaseManager>(state);
     state->ui.graphMmrCategory.store(MmrCategory::TwoVTwo);
-    {
-        std::unique_lock lock(state->history.mutex);
-        state->history.lifetimeMmrX = {1};
-        state->history.lifetimeMmrY = {1200.0f};
-        state->history.version.fetch_add(1);
-    }
+    state->history.Mutate([](auto& history) {
+        history.lifetimeMmrX = {1};
+        history.lifetimeMmrY = {1200.0f};
+    });
     Config::Update([](ConfigData& c) { c.last_primary_id = "Steam|GRAPH"; }, true);
     ConfigData config = Config::Read();
     DatabaseManager::s_test_async_get_lifetime_calls.store(0);
@@ -762,9 +758,9 @@ TEST_F(RmlUiControllerStateTest, GraphCategoryChangeRefreshesLifetimeHistoryOnce
         EXPECT_EQ(DatabaseManager::s_test_last_get_lifetime_playlist, "1v1");
     }
     {
-        std::shared_lock lock(state->history.mutex);
-        EXPECT_TRUE(state->history.lifetimeMmrX.empty());
-        EXPECT_TRUE(state->history.lifetimeMmrY.empty());
+        const auto history = state->history.GetSnapshot();
+        EXPECT_TRUE(history->lifetimeMmrX.empty());
+        EXPECT_TRUE(history->lifetimeMmrY.empty());
     }
 
     controller.Update(config);
@@ -953,7 +949,7 @@ TEST_F(RmlUiControllerStateTest, EmptyGraphShowsAppropriateGuidanceWithoutNaviga
     RmlUiController controller(state, nullptr);
 
     // Session Graph empty state
-    state->history.showLifetimeGraph.store(false);
+    state->history.Mutate([](auto& history) { history.showLifetimeGraph = false; });
     controller.Update(Config::Read());
     const std::string sessionHtml = RenderGraph(controller);
     EXPECT_EQ(sessionHtml.find("data-action='graph-pan"), std::string::npos);
@@ -963,7 +959,7 @@ TEST_F(RmlUiControllerStateTest, EmptyGraphShowsAppropriateGuidanceWithoutNaviga
     EXPECT_NE(sessionHtml.find("Play a match to start plotting!"), std::string::npos);
 
     // Lifetime Graph empty state
-    state->history.showLifetimeGraph.store(true);
+    state->history.Mutate([](auto& history) { history.showLifetimeGraph = true; });
     controller.Update(Config::Read());
     const std::string lifetimeHtml = RenderGraph(controller);
     EXPECT_EQ(lifetimeHtml.find("data-action='graph-pan"), std::string::npos);
@@ -975,15 +971,13 @@ TEST_F(RmlUiControllerStateTest, EmptyGraphShowsAppropriateGuidanceWithoutNaviga
 
 TEST_F(RmlUiControllerStateTest, LifetimeGraphKeepsLatestTwentyFiveDottedMatchesWithPanButtonsOnly) {
     auto state = std::make_shared<SessionState>();
-    state->history.showLifetimeGraph.store(true);
-    {
-        std::unique_lock lock(state->history.mutex);
+    state->history.Mutate([](auto& history) {
+        history.showLifetimeGraph = true;
         for (int mmr = 1200; mmr < 1250; ++mmr) {
-            state->history.lifetimeMmrY.push_back(static_cast<float>(mmr));
-            state->history.lifetimeMmrX.push_back(mmr);
+            history.lifetimeMmrY.push_back(static_cast<float>(mmr));
+            history.lifetimeMmrX.push_back(mmr);
         }
-        state->history.version.fetch_add(1);
-    }
+    });
 
     RmlUiController controller(state, nullptr);
     controller.Update(Config::Read());
@@ -2569,8 +2563,7 @@ TEST_F(RmlUiControllerStateTest, HistoryViewOpensClosesIgnoresStaleResponsesAndO
     EXPECT_FALSE(controller.WantsAttention());
 
     // 5. Previous Games widget has "View all" and row click action, and Match Summary has "Details"
-    {
-        std::unique_lock lock(state->history.mutex);
+    state->history.Mutate([](auto& history) {
         SessionMatchSummary recent;
         recent.matchId = 2;
         recent.matchGuid = "ui-hist-guid-2";
@@ -2581,10 +2574,9 @@ TEST_F(RmlUiControllerStateTest, HistoryViewOpensClosesIgnoresStaleResponsesAndO
         recent.mmr = 1209;
         recent.win = false;
         recent.endedAtUnix = 1'700'100'600LL;
-        state->history.recentSavedMatches = {recent};
-        state->history.recentSavedMatchesLoaded = true;
-        state->history.version.fetch_add(1);
-    }
+        history.recentSavedMatches = {recent};
+        history.recentSavedMatchesLoaded = true;
+    });
     controller.Update(Config::Read(), false);
     const std::string prevGamesHtml = RenderPreviousGames(controller);
     EXPECT_NE(prevGamesHtml.find("previous-games-view-all"), std::string::npos);
@@ -2970,9 +2962,9 @@ namespace {
             if (!rosterTier.empty()) self.playlistTiers[playlist] = rosterTier;
             ms.roster[kSelfId] = self;
         });
-        std::unique_lock lock(state.history.mutex);
-        if (!points.empty()) state.history.playlistHistoryY[playlist] = std::move(points);
-        state.history.version.fetch_add(1);
+        state.history.Mutate([&](auto& history) {
+            if (!points.empty()) history.playlistHistoryY[playlist] = std::move(points);
+        });
     }
 }
 
@@ -3006,11 +2998,7 @@ TEST_F(RmlUiControllerStateTest, MmrGraphShowsLabeledDivisionBoundariesPerPlayli
 TEST_F(RmlUiControllerStateTest, SessionGraphStartsFromThePreSessionRating) {
     auto state = std::make_shared<SessionState>();
     SeedGraph(*state, "2v2", {1009.0f}, 1009, "");
-    {
-        std::unique_lock lock(state->history.mutex);
-        state->history.playlistInitialMmr["2v2"] = 1000;
-        state->history.version.fetch_add(1);
-    }
+    state->history.Mutate([](auto& history) { history.playlistInitialMmr["2v2"] = 1000; });
     state->ui.graphMmrCategory.store(MmrCategory::TwoVTwo);
     RmlUiController controller(state, nullptr);
     controller.Update(Config::Read());
@@ -3113,7 +3101,7 @@ TEST_F(RmlUiControllerStateTest, PannedGraphUsesVisibleRatingsAndDisablesBoundar
         ratings.push_back(800.0f + i * 2.0f);
     SeedGraph(*state, "casual", std::move(ratings), 878, "");
     state->ui.graphMmrCategory.store(MmrCategory::Casual);
-    state->history.playlistInitialMmr["casual"] = 100;
+    state->history.Mutate([](auto& history) { history.playlistInitialMmr["casual"] = 100; });
     RmlUiController controller(state, nullptr);
     ASSERT_TRUE(controller.Initialize(nullptr, warp.device.Get(), warp.context.Get(), 1200, 1000, 1.0f));
     controller.Update(Config::Read());

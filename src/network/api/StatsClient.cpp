@@ -177,18 +177,20 @@ void StatsClient::RunLoop() {
             if (m_state && m_state->liveMatch) {
                 const int64_t nowUnix = static_cast<int64_t>(std::time(nullptr));
                 if (resetSessionAfterDisconnect) {
-                    std::unique_lock<std::shared_mutex> historyLock(m_state->history.mutex);
-                    if (m_state->liveMatch->StartNewSession(nowUnix, &m_state->history)) {
-                        if (conf.show_session_recap_on_close) {
-                            m_state->ui.showSessionRecap.store(true);
+                    m_state->history.Mutate([&](auto& history) {
+                        if (m_state->liveMatch->StartNewSession(nowUnix, &history)) {
+                            if (conf.show_session_recap_on_close) {
+                                m_state->ui.showSessionRecap.store(true);
+                            }
+                            disconnectEffects.persistSession = m_state->liveMatch->GetSnapshot()->lastSessionRecap;
                         }
-                        disconnectEffects.persistSession = m_state->liveMatch->GetSnapshot()->lastSessionRecap;
-                    }
+                    });
                 } else if (!conf.reset_session_on_close) {
-                    std::unique_lock<std::shared_mutex> historyLock(m_state->history.mutex);
-                    if (m_state->liveMatch->CloseSessionIfInactive(nowUnix, &m_state->history)) {
-                        disconnectEffects.persistSession = m_state->liveMatch->GetSnapshot()->lastSessionRecap;
-                    }
+                    m_state->history.Mutate([&](auto& history) {
+                        if (m_state->liveMatch->CloseSessionIfInactive(nowUnix, &history)) {
+                            disconnectEffects.persistSession = m_state->liveMatch->GetSnapshot()->lastSessionRecap;
+                        }
+                    });
                 }
                 m_state->clearActiveMatchOnDisconnect();
             }

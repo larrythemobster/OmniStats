@@ -230,7 +230,7 @@ std::optional<std::pair<size_t, std::chrono::steady_clock::duration>> MmrRequest
     {
         std::lock_guard<std::mutex> lock(m_mutex);
         strike = ++m_forbiddenStrikeCount;
-        lockout = MmrServiceDetail::ForbiddenLockoutForStrike(strike);
+        lockout = MmrServiceDetail::ForbiddenLockoutForStrike(strike, m_timings);
         m_rateLimitedUntil = std::chrono::steady_clock::now() + lockout;
         req.notBefore = m_rateLimitedUntil;
         if (req.reason == MMRRequestReason::TrackedAccount) trackedReq = req;

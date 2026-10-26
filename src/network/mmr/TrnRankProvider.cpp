@@ -31,9 +31,10 @@ std::string TrnRankProvider::GetTRNPlatform(const std::string& primaryId) {
 }
 
 TrnRankProvider::TrnRankProvider(std::shared_ptr<Http::IHttpClient> httpClient,
-                                 std::function<bool()> abortCheck)
+                                 std::function<bool()> abortCheck,
+                                 MmrTimings timings)
     : m_httpClient(httpClient ? std::move(httpClient) : std::make_shared<Http::CurlImpersonateHttpClient>()),
-      m_abortCheck(std::move(abortCheck)) {}
+      m_abortCheck(std::move(abortCheck)), m_timings(timings) {}
 
 bool TrnRankProvider::IsAvailable() const {
     const auto config = Config::Read();
@@ -123,7 +124,7 @@ bool TrnRankProvider::FetchProfile(const MMRRequest& req,
         }
         std::cout << "[MmrService] Tracker.gg returned HTTP 403; retrying with Chrome 136 (attempt "
                   << attempt + 1 << "/" << kTrackerForbiddenAttempts << ").\n";
-        std::this_thread::sleep_for(kForbiddenAttemptDelay);
+        std::this_thread::sleep_for(m_timings.forbiddenAttemptDelay);
     }
 
     if (httpResp.transportError != 0 || httpResp.statusCode != 200) {

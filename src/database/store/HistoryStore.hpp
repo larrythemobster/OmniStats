@@ -2,14 +2,17 @@
 
 #include "core/state/StoreSnapshots.hpp"
 #include <atomic>
-#include <cstdint>
-#include <map>
 #include <memory>
-#include <shared_mutex>
-#include <string>
-#include <vector>
+#include <mutex>
+#include <type_traits>
+#include <utility>
 
 namespace database::store {
+
+    struct HistoryData : HistorySnapshot {
+        void SelectMmrOwner(const std::string& primaryId);
+        void ResetSessionMmr();
+    };
 
     class HistoryStore {
       public:
@@ -21,7 +24,23 @@ namespace database::store {
 
         std::shared_ptr<const HistorySnapshot> GetSnapshot() const;
 
-        // Single-writer store mutation API:
+        template <class F>
+        auto Mutate(F&& f) -> std::invoke_result_t<F, HistoryData&> {
+            using Result = std::invoke_result_t<F, HistoryData&>;
+            static_assert(!std::is_reference_v<Result>);
+            std::lock_guard lock(m_mutex);
+            if constexpr (std::is_void_v<Result>) {
+                std::forward<F>(f)(m_data);
+                ++m_data.version;
+                m_snapshot.store(std::make_shared<const HistorySnapshot>(m_data), std::memory_order_release);
+            } else {
+                Result result = std::forward<F>(f)(m_data);
+                ++m_data.version;
+                m_snapshot.store(std::make_shared<const HistorySnapshot>(m_data), std::memory_order_release);
+                return result;
+            }
+        }
+
         void SelectMmrOwner(const std::string& primaryId);
         void ResetSessionMmr();
         void SetLifetimeMmr(std::vector<int64_t> x, std::vector<float> y);
@@ -33,29 +52,10 @@ namespace database::store {
         void UpdatePlaylistMmrPoint(const std::string& playlist, size_t index, int mmr, bool estimated);
         void AppendPlaylistMmrPoint(const std::string& playlist, const SessionMmrPoint& point, float mmr);
 
-        // Publishes current fields into an immutable snapshot
-        void PublishSnapshot();
-
-        // Fields maintained for MMR code and backward compatibility
-        mutable std::shared_mutex mutex;
-        std::atomic<uint64_t> version{1};
-        std::vector<float> mmrHistoryY;
-        std::vector<float> mmrHistoryX;
-        std::map<std::string, std::vector<float>> playlistHistoryY;
-        std::map<std::string, std::vector<SessionMmrPoint>> playlistMatchPoints;
-        std::map<std::string, int> playlistInitialMmr;
-        std::string mmrOwnerPrimaryId;
-        std::map<std::string, AccountMmrHistory> inactiveMmrHistories;
-        std::vector<float> lifetimeMmrY;
-        std::vector<int64_t> lifetimeMmrX;
-        std::atomic<bool> showLifetimeGraph{false};
-        std::vector<SessionMatchSummary> recentSavedMatches;
-        std::vector<SessionMatchSummary> pendingRecentMatches;
-        bool recentSavedMatchesLoaded = false;
-        int initialMmr = -1;
-
       private:
-        mutable std::atomic<std::shared_ptr<const HistorySnapshot>> m_snapshot;
+        std::mutex m_mutex;
+        HistoryData m_data;
+        std::atomic<std::shared_ptr<const HistorySnapshot>> m_snapshot;
     };
 
 } // namespace database::store

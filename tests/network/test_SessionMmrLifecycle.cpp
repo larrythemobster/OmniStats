@@ -67,12 +67,10 @@ namespace {
         }
 
         void StartNewSession() {
-            std::unique_lock historyLock(state->history.mutex);
-            state->startNewSessionLocked(1700000000);
+            state->history.Mutate([&](auto& history) { state->startNewSessionLocked(1700000000, history); });
         }
         void SwitchAccount(const std::string& primaryId) {
-            std::unique_lock historyLock(state->history.mutex);
-            state->selectMmrOwnerLocked(primaryId);
+            state->history.Mutate([&](auto& history) { state->selectMmrOwnerLocked(primaryId, history); });
         }
 
         std::optional<int> SessionChange(const std::string& playlist) {
@@ -87,15 +85,15 @@ namespace {
         }
 
         std::vector<float> Graph(const std::string& playlist) {
-            std::shared_lock lock(state->history.mutex);
-            const auto it = state->history.playlistHistoryY.find(playlist);
-            return it == state->history.playlistHistoryY.end() ? std::vector<float>{} : it->second;
+            const auto history = state->history.GetSnapshot();
+            const auto it = history->playlistHistoryY.find(playlist);
+            return it == history->playlistHistoryY.end() ? std::vector<float>{} : it->second;
         }
 
         std::optional<int> Baseline(const std::string& playlist) {
-            std::shared_lock lock(state->history.mutex);
-            const auto it = state->history.playlistInitialMmr.find(playlist);
-            if (it == state->history.playlistInitialMmr.end()) return std::nullopt;
+            const auto history = state->history.GetSnapshot();
+            const auto it = history->playlistInitialMmr.find(playlist);
+            if (it == history->playlistInitialMmr.end()) return std::nullopt;
             return it->second;
         }
 
@@ -153,18 +151,18 @@ TEST_F(SessionMmrLifecycleTest, NewSessionGraphStartsWithoutPreviousSessionPoint
     PlayMatch("s1-g1", "2v2", true, {1200, 50}, {1210, 51});
     PlayMatch("s1-g2", "3v3", true, {900, 100}, {909, 101});
     state->ui.graphOffset.store(5);
-    const uint64_t historyVersion = state->history.version.load();
+    const uint64_t historyVersion = state->history.GetSnapshot()->version;
 
     StartNewSession();
     {
-        std::shared_lock lock(state->history.mutex);
-        EXPECT_TRUE(state->history.playlistHistoryY.empty());
-        EXPECT_TRUE(state->history.playlistMatchPoints.empty());
-        EXPECT_TRUE(state->history.playlistInitialMmr.empty());
-        EXPECT_TRUE(state->history.mmrHistoryY.empty());
-        EXPECT_EQ(state->history.initialMmr, -1);
+        const auto history = state->history.GetSnapshot();
+        EXPECT_TRUE(history->playlistHistoryY.empty());
+        EXPECT_TRUE(history->playlistMatchPoints.empty());
+        EXPECT_TRUE(history->playlistInitialMmr.empty());
+        EXPECT_TRUE(history->mmrHistoryY.empty());
+        EXPECT_EQ(history->initialMmr, -1);
     }
-    EXPECT_GT(state->history.version.load(), historyVersion);
+    EXPECT_GT(state->history.GetSnapshot()->version, historyVersion);
     EXPECT_EQ(state->ui.graphOffset.load(), 0);
 
     PublishRoster({{"2v2", {1210, 51}}, {"3v3", {909, 101}}});
@@ -524,17 +522,16 @@ TEST_F(SessionMmrLifecycleTest, InactivityCloseAfterTwoHoursSavesSessionWithoutR
     auto db = std::make_shared<DatabaseManager>(state);
     ASSERT_TRUE(db->Initialize(":memory:"));
 
-    {
-        std::unique_lock historyLock(state->history.mutex);
-        state->liveMatch->UpdateMatchStateForTests([](MatchState& ms) {
-            ms.sessionTotals.wins = 3;
-            ms.sessionTotals.losses = 1;
-            ms.sessionStartedAtUnix = 1700000000;
-            ms.lastMatchEndedAtUnix = 1700001200;
-        });
-        EXPECT_FALSE(state->closeSessionIfInactiveLocked(1700001200 + Insights::kSessionGapSeconds));
-        EXPECT_TRUE(state->closeSessionIfInactiveLocked(1700001200 + Insights::kSessionGapSeconds + 1));
-    }
+    state->liveMatch->UpdateMatchStateForTests([](MatchState& ms) {
+        ms.sessionTotals.wins = 3;
+        ms.sessionTotals.losses = 1;
+        ms.sessionStartedAtUnix = 1700000000;
+        ms.lastMatchEndedAtUnix = 1700001200;
+    });
+    state->history.Mutate([&](auto& history) {
+        EXPECT_FALSE(state->closeSessionIfInactiveLocked(1700001200 + Insights::kSessionGapSeconds, history));
+        EXPECT_TRUE(state->closeSessionIfInactiveLocked(1700001200 + Insights::kSessionGapSeconds + 1, history));
+    });
 
     auto snap = state->liveMatch->GetSnapshot();
     ASSERT_TRUE(snap->lastSessionRecap.valid);

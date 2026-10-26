@@ -32,10 +32,10 @@ namespace MmrServiceDetail {
         return it == playlistMMRs.end() || mmr > it->second;
     }
 
-    std::chrono::milliseconds ForbiddenLockoutForStrike(size_t strike) {
-        if (strike <= 1) return kForbiddenLockoutFirst;
-        if (strike == 2) return kForbiddenLockoutSecond;
-        return kForbiddenLockoutMaximum;
+    std::chrono::milliseconds ForbiddenLockoutForStrike(size_t strike, const MmrTimings& timings) {
+        if (strike <= 1) return timings.forbiddenLockoutFirst;
+        if (strike == 2) return timings.forbiddenLockoutSecond;
+        return timings.forbiddenLockoutMaximum;
     }
 
     std::vector<int> BuildDirectionalMmrPath(

@@ -9,7 +9,8 @@ class AccountClient;
 class OmniNetRankProvider : public IRankProvider {
   public:
     explicit OmniNetRankProvider(std::shared_ptr<AccountClient> accountClient,
-                                 std::function<bool()> abortCheck = nullptr);
+                                 std::function<bool()> abortCheck = nullptr,
+                                 MmrTimings timings = {});
     ~OmniNetRankProvider() override = default;
 
     RankProvider ProviderType() const override {
@@ -28,4 +29,5 @@ class OmniNetRankProvider : public IRankProvider {
   private:
     std::shared_ptr<AccountClient> m_accountClient;
     std::function<bool()> m_abortCheck;
+    MmrTimings m_timings;
 };

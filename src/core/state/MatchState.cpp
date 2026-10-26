@@ -52,7 +52,7 @@ void MatchState::ResetMatch(const std::string& newArena, const std::string& newA
     hideOverlayRequested = true;
 }
 
-bool MatchState::StartNewSession(int64_t endedAtUnix, HistoryState* history) {
+bool MatchState::StartNewSession(int64_t endedAtUnix, database::store::HistoryData* history) {
     const bool captureRecap = sessionTotals.wins + sessionTotals.losses > 0;
     if (captureRecap) {
         std::vector<std::string> matchGuids = std::move(sessionMatchGuids);

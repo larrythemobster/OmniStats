@@ -17,7 +17,9 @@ namespace {
         bool clockOverridden = false;
 
         bool startNewSessionLocked(int64_t endedAtUnix) {
-            return game.StartNewSession(endedAtUnix, &history);
+            bool result = false;
+            history.Mutate([&](auto& data) { result = game.StartNewSession(endedAtUnix, &data); });
+            return result;
         }
 
         SideEffects Reduce(const std::string& eventName, const nlohmann::json& data) {
@@ -845,7 +847,6 @@ TEST(TelemetryReducerStats, SessionResetClearsLastGoalSpeed) {
     reducer.Reduce(std::string(Constants::EVT_GOAL_SCORED), GoalEvent(133.0, "Steam|1"));
 
     std::unique_lock<std::shared_mutex> gameLock(state->game.mutex);
-    std::unique_lock<std::shared_mutex> historyLock(state->history.mutex);
     state->startNewSessionLocked(0);
     EXPECT_FLOAT_EQ(state->game.lastGoalSpeed, 0.0f);
     EXPECT_FLOAT_EQ(state->game.lastGoalSpeedSelf, 0.0f);

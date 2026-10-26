@@ -72,14 +72,14 @@ namespace MmrPublisher {
                                                         const ReconcilePublication& pub);
 
     // Caller holds the exclusive history lock.
-    std::optional<SessionRecap> PublishReconciledPointsLocked(SessionState& state,
+    std::optional<SessionRecap> PublishReconciledPointsLocked(SessionState& state, database::store::HistoryData& data,
                                                               const ReconcilePublication& pub);
 
     void PublishProvisionalPoint(SessionState& state,
                                  const ProvisionalPublication& pub);
 
     // Caller holds the exclusive history lock.
-    void PublishProvisionalPointLocked(SessionState& state,
+    void PublishProvisionalPointLocked(SessionState& state, database::store::HistoryData& data,
                                        const ProvisionalPublication& pub);
 
 } // namespace MmrPublisher

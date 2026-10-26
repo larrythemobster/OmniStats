@@ -89,24 +89,24 @@ TEST_F(InputManagerActionTest, F7CyclesSessionGraphLifetimeGraphAndStats) {
     // Step 1: Session Graph
     Dispatch(InputManager::HotKeyExpand);
     EXPECT_TRUE(m_state->ui.showGraphView.load());
-    EXPECT_FALSE(m_state->history.showLifetimeGraph.load());
+    EXPECT_FALSE(m_state->history.GetSnapshot()->showLifetimeGraph);
 
     // Step 2: Lifetime Graph
     Dispatch(InputManager::HotKeyExpand);
     EXPECT_TRUE(m_state->ui.showGraphView.load());
-    EXPECT_TRUE(m_state->history.showLifetimeGraph.load());
+    EXPECT_TRUE(m_state->history.GetSnapshot()->showLifetimeGraph);
 
     // Step 3: Back to Session Stats
     Dispatch(InputManager::HotKeyExpand);
     EXPECT_FALSE(m_state->ui.showGraphView.load());
-    EXPECT_FALSE(m_state->history.showLifetimeGraph.load());
+    EXPECT_FALSE(m_state->history.GetSnapshot()->showLifetimeGraph);
 }
 
 TEST_F(InputManagerActionTest, LifetimeHotkeySwitchesTheGraphWithoutOpeningCards) {
     m_state->ui.graphOffset.store(10);
 
     Dispatch(InputManager::HotKeyLifetimeGraph);
-    EXPECT_TRUE(m_state->history.showLifetimeGraph.load());
+    EXPECT_TRUE(m_state->history.GetSnapshot()->showLifetimeGraph);
     EXPECT_FALSE(m_state->ui.showSessionView.load());
     EXPECT_FALSE(m_state->ui.showGraphView.load());
     EXPECT_EQ(m_state->ui.graphOffset.load(), 0);
@@ -116,7 +116,7 @@ TEST_F(InputManagerActionTest, LifetimeHotkeySwitchesTheGraphWithoutOpeningCards
     m_state->ui.showGraphView.store(true);
     m_state->ui.graphOffset.store(5);
     Dispatch(InputManager::HotKeyLifetimeGraph);
-    EXPECT_FALSE(m_state->history.showLifetimeGraph.load());
+    EXPECT_FALSE(m_state->history.GetSnapshot()->showLifetimeGraph);
     EXPECT_TRUE(m_state->ui.showSessionView.load());
     EXPECT_TRUE(m_state->ui.showGraphView.load());
     EXPECT_EQ(m_state->ui.graphOffset.load(), 0);
@@ -125,13 +125,12 @@ TEST_F(InputManagerActionTest, LifetimeHotkeySwitchesTheGraphWithoutOpeningCards
 TEST_F(InputManagerActionTest, PanHotkeysScrollGraphWindow) {
     m_state->ui.showSessionView.store(true);
     m_state->ui.showGraphView.store(true);
-    m_state->history.showLifetimeGraph.store(true);
-    {
-        std::unique_lock lock(m_state->history.mutex);
+    m_state->history.Mutate([](auto& history) {
+        history.showLifetimeGraph = true;
         for (int i = 0; i < 40; ++i) {
-            m_state->history.lifetimeMmrY.push_back(1000.0f + static_cast<float>(i));
+            history.lifetimeMmrY.push_back(1000.0f + static_cast<float>(i));
         }
-    }
+    });
     EXPECT_EQ(m_state->ui.graphOffset.load(), 0);
 
     // Pan older (left)

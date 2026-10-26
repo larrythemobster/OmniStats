@@ -82,32 +82,32 @@ void SessionState::clearActiveMatchOnDisconnect() {
     ui.lastMatchStartMs.store(0, std::memory_order_relaxed);
 }
 
-bool SessionState::startNewSessionLocked(int64_t endedAtUnix) {
-    const bool capture = liveMatch ? liveMatch->StartNewSession(endedAtUnix, &history) : false;
+bool SessionState::startNewSessionLocked(int64_t endedAtUnix, database::store::HistoryData& data) {
+    const bool capture = liveMatch ? liveMatch->StartNewSession(endedAtUnix, &data) : false;
     ui.graphOffset.store(0);
     return capture;
 }
 
-bool SessionState::closeSessionIfInactiveLocked(int64_t nowUnix) {
-    return liveMatch ? liveMatch->CloseSessionIfInactive(nowUnix, &history) : false;
+bool SessionState::closeSessionIfInactiveLocked(int64_t nowUnix, database::store::HistoryData& data) {
+    return liveMatch ? liveMatch->CloseSessionIfInactive(nowUnix, &data) : false;
 }
 
-void SessionState::syncSessionMmrChangeLocked() {
+void SessionState::syncSessionMmrChangeLocked(database::store::HistoryData& data) {
     if (!liveMatch) return;
     std::map<std::string, int> changes;
-    for (const auto& [playlist, projection] : history.playlistHistoryY) {
-        const auto initialIt = history.playlistInitialMmr.find(playlist);
-        if (projection.empty() || initialIt == history.playlistInitialMmr.end() || initialIt->second <= 0) continue;
+    for (const auto& [playlist, projection] : data.playlistHistoryY) {
+        const auto initialIt = data.playlistInitialMmr.find(playlist);
+        if (projection.empty() || initialIt == data.playlistInitialMmr.end() || initialIt->second <= 0) continue;
         changes[playlist] = static_cast<int>(std::lround(projection.back())) - initialIt->second;
     }
     const float total = static_cast<float>(CalculateTrackedSessionMmrChange(changes));
     liveMatch->SyncSessionMmrChange(changes, total);
 }
 
-void SessionState::selectMmrOwnerLocked(const std::string& primaryId) {
-    history.SelectMmrOwner(primaryId);
+void SessionState::selectMmrOwnerLocked(const std::string& primaryId, database::store::HistoryData& data) {
+    data.SelectMmrOwner(primaryId);
     if (liveMatch) {
         liveMatch->SetLocalPrimaryId(primaryId);
     }
-    syncSessionMmrChangeLocked();
+    syncSessionMmrChangeLocked(data);
 }

@@ -559,12 +559,10 @@ void RmlUiController::RefreshAsyncData() {
     if (!effectivePrimary.empty()) {
         const auto category = m_state->ui.graphMmrCategory.load();
         if (effectivePrimary != m_lastLifetimeHistoryPrimaryId || category != m_lastLifetimeHistoryCategory) {
-            {
-                std::unique_lock lock(m_state->history.mutex);
-                m_state->history.lifetimeMmrX.clear();
-                m_state->history.lifetimeMmrY.clear();
-                m_state->history.version++;
-            }
+            m_state->history.Mutate([](auto& data) {
+                data.lifetimeMmrX.clear();
+                data.lifetimeMmrY.clear();
+            });
             m_snap.lifetimeMmrX.clear();
             m_snap.lifetimeMmrY.clear();
             m_dbManager->AsyncGetLifetimeMmrHistory(effectivePrimary, MmrCategoryToString(category));
@@ -947,7 +945,7 @@ void RmlUiController::RefreshLiveUi(bool force, bool allowStructural) {
     const MmrCategory rosterCategory = m_state->ui.rosterMmrCategory.load(std::memory_order_relaxed);
     const MmrCategory graphCategory = m_state->ui.graphMmrCategory.load(std::memory_order_relaxed);
     const MmrCategory rankProgressCategory = m_state ? m_state->ui.rankProgressMmrCategory.load(std::memory_order_relaxed) : MmrCategory::TwoVTwo;
-    const bool showLifetimeGraph = m_state->history.showLifetimeGraph.load(std::memory_order_relaxed);
+    const bool showLifetimeGraph = m_snap.showLifetimeGraph;
     const bool rosterCategoryChanged = force || m_lastRosterMmrCategory != rosterCategory;
     const bool graphCategoryChanged = force || m_lastGraphMmrCategory != graphCategory;
     const bool rankProgressCategoryChanged = force || m_lastRankProgressMmrCategory != rankProgressCategory;
@@ -1386,15 +1384,13 @@ void RmlUiController::FinishDatabaseMerge(const DbMergeResult& result) {
         ShowToast("No new matches to merge." + alreadyThere);
     }
     if (m_state) {
-        {
-            std::unique_lock lock(m_state->history.mutex);
-            m_state->history.lifetimeMmrX.clear();
-            m_state->history.lifetimeMmrY.clear();
-            m_state->history.recentSavedMatches.clear();
-            m_state->history.pendingRecentMatches.clear();
-            m_state->history.recentSavedMatchesLoaded = false;
-            m_state->history.version++;
-        }
+        m_state->history.Mutate([](auto& data) {
+            data.lifetimeMmrX.clear();
+            data.lifetimeMmrY.clear();
+            data.recentSavedMatches.clear();
+            data.pendingRecentMatches.clear();
+            data.recentSavedMatchesLoaded = false;
+        });
         {
             std::lock_guard lock(m_state->ui.dbStatsMutex);
             m_state->ui.cachedDbStats = {};
@@ -1427,15 +1423,13 @@ void RmlUiController::DeleteLocalHistory() {
             }
             if (m_state) {
                 if (m_state->liveMatch) m_state->liveMatch->SetLocalPrimaryId("");
-                {
-                    std::unique_lock lock(m_state->history.mutex);
-                    m_state->history.lifetimeMmrX.clear();
-                    m_state->history.lifetimeMmrY.clear();
-                    m_state->history.recentSavedMatches.clear();
-                    m_state->history.pendingRecentMatches.clear();
-                    m_state->history.recentSavedMatchesLoaded = true;
-                    m_state->history.version++;
-                }
+                m_state->history.Mutate([](auto& data) {
+                    data.lifetimeMmrX.clear();
+                    data.lifetimeMmrY.clear();
+                    data.recentSavedMatches.clear();
+                    data.pendingRecentMatches.clear();
+                    data.recentSavedMatchesLoaded = true;
+                });
                 {
                     std::lock_guard lock(m_state->ui.dbStatsMutex);
                     m_state->ui.cachedDbStats = {};

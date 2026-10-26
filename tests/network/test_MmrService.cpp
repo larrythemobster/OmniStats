@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 #include "network/omninet/OmniNet.hpp"
 #include "network/mmr/MmrService.hpp"
+#include "MmrTestTimings.hpp"
 #include "network/http/CurlImpersonate.hpp"
 #include "network/api/AccountClient.hpp"
 #include "network/mmr/MmrServiceDetail.hpp"
@@ -13,6 +14,34 @@ using namespace MmrServiceDetail;
 #include <thread>
 #include <cstdarg>
 #include <atomic>
+
+TEST(MmrTimingsTest, DefaultsUseProductionDurations) {
+    const MmrTimings timings;
+    EXPECT_EQ(timings.postMatchInitialDelay, std::chrono::milliseconds(2500));
+    EXPECT_EQ(timings.stalePostMatchRetryDelay, std::chrono::seconds(3));
+    EXPECT_EQ(timings.transientRetryDelay, std::chrono::seconds(3));
+    EXPECT_EQ(timings.queueSpacing, std::chrono::milliseconds(1500));
+    EXPECT_EQ(timings.rateLimitLockoutMinimum, std::chrono::seconds(120));
+    EXPECT_EQ(timings.forbiddenLockoutFirst, std::chrono::minutes(5));
+    EXPECT_EQ(timings.forbiddenLockoutSecond, std::chrono::minutes(15));
+    EXPECT_EQ(timings.forbiddenLockoutMaximum, std::chrono::minutes(30));
+    EXPECT_EQ(timings.forbiddenAttemptDelay, std::chrono::milliseconds(500));
+    EXPECT_EQ(timings.batchCoalesceWindow, std::chrono::milliseconds(300));
+}
+
+TEST(MmrTimingsTest, QueueUsesInjectedForbiddenLockouts) {
+    MmrRequestQueue queue(FastMmrTimings());
+    MMRRequest request;
+    const auto first = queue.RequeueForbidden(request);
+    const auto second = queue.RequeueForbidden(request);
+    const auto third = queue.RequeueForbidden(request);
+    ASSERT_TRUE(first);
+    ASSERT_TRUE(second);
+    ASSERT_TRUE(third);
+    EXPECT_EQ(first->second, std::chrono::milliseconds(50));
+    EXPECT_EQ(second->second, std::chrono::milliseconds(100));
+    EXPECT_EQ(third->second, std::chrono::milliseconds(150));
+}
 
 typedef size_t (*WriteCallbackType)(void*, size_t, size_t, void*);
 typedef size_t (*HeaderCallbackType)(char*, size_t, size_t, void*);
@@ -145,7 +174,7 @@ class MmrServiceTest : public ::testing::Test {
         g_mock_perform_res = 0;
         g_mock_custom_api_perform_res = 0;
         sessionState = std::make_shared<SessionState>();
-        fetcher = std::make_shared<MmrService>(sessionState, nullptr, accountClient);
+        fetcher = std::make_shared<MmrService>(sessionState, nullptr, accountClient, nullptr, nullptr, FastMmrTimings());
         OmniNet::SetTransportForTesting([](const OmniNet::Request& req) {
             OmniNet::Response res;
             if (req.op == OmniNet::Op::Ranks) {
@@ -549,7 +578,7 @@ TEST_F(MmrServiceTest, MissingBaselineRemainsPendingUntilPlaylistInitialMmrExist
     fetcher->ProcessPostMatchResponse("delayed-baseline", 0, -1);
     EXPECT_TRUE(fetcher->PlaylistMatchPoints("2v2").empty());
 
-    sessionState->history.playlistInitialMmr["2v2"] = 1200;
+    sessionState->history.Mutate([](auto& history) { history.playlistInitialMmr["2v2"] = 1200; });
     fetcher->ProcessPostMatchResponse("delayed-baseline", 0, -1);
 
     const auto points = fetcher->PlaylistMatchPoints("2v2");
@@ -627,7 +656,7 @@ TEST_F(MmrServiceTest, DelayedCumulativeUpdatePreservesOnePointPerMatch) {
     EXPECT_EQ(points[1].mmr, 1218);
     EXPECT_TRUE(points[1].trackerCovered);
     EXPECT_FALSE(points[1].valueEstimated);
-    ASSERT_EQ(sessionState->history.playlistHistoryY["2v2"].size(), 2u);
+    ASSERT_EQ(sessionState->history.GetSnapshot()->playlistHistoryY.at("2v2").size(), 2u);
 }
 
 TEST_F(MmrServiceTest, WinThenLossKeepsDirectionalPointsAndConfirmsNewest) {
@@ -1560,13 +1589,13 @@ TEST_F(MmrServiceTest, CustomApiUpdatesLocalPlayerHistoryAndCache) {
     EXPECT_EQ(res, CustomApiFetchResult::SuccessFinished);
 
     {
-        std::shared_lock<std::shared_mutex> histLock(sessionState->history.mutex);
-        EXPECT_EQ(sessionState->history.initialMmr, 1250);
-        EXPECT_EQ(sessionState->history.playlistInitialMmr["2v2"], 1250);
-        ASSERT_FALSE(sessionState->history.mmrHistoryY.empty());
-        EXPECT_EQ(static_cast<int>(sessionState->history.mmrHistoryY.back()), 1250);
-        ASSERT_FALSE(sessionState->history.playlistHistoryY["2v2"].empty());
-        EXPECT_EQ(static_cast<int>(sessionState->history.playlistHistoryY["2v2"].back()), 1250);
+        const auto history = sessionState->history.GetSnapshot();
+        EXPECT_EQ(history->initialMmr, 1250);
+        EXPECT_EQ(history->playlistInitialMmr.at("2v2"), 1250);
+        ASSERT_FALSE(history->mmrHistoryY.empty());
+        EXPECT_EQ(static_cast<int>(history->mmrHistoryY.back()), 1250);
+        ASSERT_FALSE(history->playlistHistoryY.at("2v2").empty());
+        EXPECT_EQ(static_cast<int>(history->playlistHistoryY.at("2v2").back()), 1250);
     }
 }
 
@@ -1594,34 +1623,32 @@ TEST_F(MmrServiceTest, SwitchingAccountsKeepsEachSessionGraphOnItsOwnRating) {
     fetcher->ProcessPostMatchResponse("first-loss", 1416, 64);
 
     sessionState->liveMatch->SetLocalPrimaryId(secondId);
-    {
-        std::unique_lock lock(sessionState->history.mutex);
-        sessionState->history.SelectMmrOwner(secondId);
-        EXPECT_TRUE(sessionState->history.playlistHistoryY.empty());
-    }
+    sessionState->history.Mutate([&](auto& history) {
+        history.SelectMmrOwner(secondId);
+        EXPECT_TRUE(history.playlistHistoryY.empty());
+    });
     ASSERT_EQ(fetch(secondId, "second_account", 1379, 22), CustomApiFetchResult::SuccessFinished);
     fetcher->EnqueuePostMatch(firstId, "First", "late-loss", "2v2", 1416, 64, true, false);
     fetcher->ProcessPostMatchResponse("late-loss", 1407, 65);
     {
-        std::shared_lock lock(sessionState->history.mutex);
-        EXPECT_EQ(sessionState->history.playlistHistoryY.at("2v2"), (std::vector<float>{1379.0f}));
+        const auto history = sessionState->history.GetSnapshot();
+        EXPECT_EQ(history->playlistHistoryY.at("2v2"), (std::vector<float>{1379.0f}));
     }
 
     sessionState->liveMatch->SetLocalPrimaryId(firstId);
-    {
-        std::unique_lock lock(sessionState->history.mutex);
-        sessionState->history.SelectMmrOwner(firstId);
-        EXPECT_EQ(sessionState->history.playlistHistoryY.at("2v2"),
+    sessionState->history.Mutate([&](auto& history) {
+        history.SelectMmrOwner(firstId);
+        EXPECT_EQ(history.playlistHistoryY.at("2v2"),
                   (std::vector<float>{1425.0f, 1416.0f, 1407.0f}));
-    }
+    });
     ASSERT_EQ(fetch(firstId, "first_account", 1407, 65), CustomApiFetchResult::SuccessFinished);
 
-    std::shared_lock lock(sessionState->history.mutex);
-    EXPECT_EQ(sessionState->history.playlistHistoryY.at("2v2"),
+    const auto history = sessionState->history.GetSnapshot();
+    EXPECT_EQ(history->playlistHistoryY.at("2v2"),
               (std::vector<float>{1425.0f, 1416.0f, 1407.0f}));
-    ASSERT_EQ(sessionState->history.playlistMatchPoints.at("2v2").size(), 2u);
-    EXPECT_EQ(sessionState->history.playlistMatchPoints.at("2v2")[0].mmr, 1416);
-    EXPECT_EQ(sessionState->history.playlistMatchPoints.at("2v2")[1].mmr, 1407);
+    ASSERT_EQ(history->playlistMatchPoints.at("2v2").size(), 2u);
+    EXPECT_EQ(history->playlistMatchPoints.at("2v2")[0].mmr, 1416);
+    EXPECT_EQ(history->playlistMatchPoints.at("2v2")[1].mmr, 1407);
 }
 
 TEST_F(MmrServiceTest, SignedInUsesBearerHeadersAndIsPrimaryForAllPlayers) {

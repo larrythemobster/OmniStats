@@ -400,9 +400,8 @@ TEST_F(OmniStatsPipelineTest, MatchEndedFollowedByMatchDestroyedDoesNotDoubleSav
 
     // Verify session totals and recent history size
     {
-        std::shared_lock<std::shared_mutex> lock2(session->history.mutex);
         EXPECT_EQ(session->liveMatch->GetSnapshot()->sessionTotals.wins, 1);
-        EXPECT_EQ(session->history.recentSavedMatches.size(), 1);
+        EXPECT_EQ(session->history.GetSnapshot()->recentSavedMatches.size(), 1);
     }
 
     // Check DB to verify there is only 1 match record
@@ -420,9 +419,8 @@ TEST_F(OmniStatsPipelineTest, MatchEndedFollowedByMatchDestroyedDoesNotDoubleSav
 
     // Verify no second save, no second win, no duplicate recent saved match
     {
-        std::shared_lock<std::shared_mutex> lock2(session->history.mutex);
         EXPECT_EQ(session->liveMatch->GetSnapshot()->sessionTotals.wins, 1);
-        EXPECT_EQ(session->history.recentSavedMatches.size(), 1);
+        EXPECT_EQ(session->history.GetSnapshot()->recentSavedMatches.size(), 1);
     }
 
     // Check DB to verify there is still only 1 match record
@@ -637,10 +635,9 @@ TEST_F(
         "partial_created_pipeline_barrier"));
 
     {
-        std::shared_lock<std::shared_mutex> historyLock(session->history.mutex);
         EXPECT_EQ(session->liveMatch->GetSnapshot()->sessionTotals.wins, 2);
         EXPECT_EQ(session->liveMatch->GetSnapshot()->sessionTotals.losses, 0);
-        EXPECT_EQ(session->history.recentSavedMatches.size(), 2u);
+        EXPECT_EQ(session->history.GetSnapshot()->recentSavedMatches.size(), 2u);
     }
 
     std::vector<SessionMatchSummary> matches;

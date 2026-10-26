@@ -183,7 +183,7 @@ void LiveMatchStore::UpdateLastSessionRecapMmr(const std::map<std::string, int>&
     });
 }
 
-bool LiveMatchStore::StartNewSession(int64_t endedAtUnix, HistoryState* history) {
+bool LiveMatchStore::StartNewSession(int64_t endedAtUnix, database::store::HistoryData* history) {
     std::lock_guard lock(m_stateMutex);
     SideEffects effects;
     DrainInboxLocked(effects);
@@ -193,7 +193,7 @@ bool LiveMatchStore::StartNewSession(int64_t endedAtUnix, HistoryState* history)
     return captureRecap;
 }
 
-bool LiveMatchStore::CloseSessionIfInactive(int64_t nowUnix, HistoryState* history) {
+bool LiveMatchStore::CloseSessionIfInactive(int64_t nowUnix, database::store::HistoryData* history) {
     int64_t endedAt = 0;
     {
         std::lock_guard lock(m_stateMutex);

@@ -17,9 +17,8 @@
 #include "network/telemetry/TelemetryEvents.hpp"
 
 namespace database::store {
-    class HistoryStore;
+    struct HistoryData;
 }
-using HistoryState = database::store::HistoryStore;
 
 struct CapturedMatch {
     std::string arenaName;
@@ -168,7 +167,7 @@ struct MatchState {
     void ResetMatch(const std::string& newArena, const std::string& newArenaAsset = "");
     void ClearActiveMatchOnDisconnect();
     // Returns whether a recap was captured.
-    bool StartNewSession(int64_t endedAtUnix, HistoryState* history);
+    bool StartNewSession(int64_t endedAtUnix, database::store::HistoryData* history);
     void ResetTiming();
     float PausedSecondsWithin(int64_t windowStartMs, int64_t windowEndMs) const;
 };

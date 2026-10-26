@@ -120,17 +120,18 @@ TEST(StatsClientTest, DisconnectClearsDiscordPresence) {
 
 namespace {
     void SeedFinishedSession(SessionState& state) {
-        std::unique_lock historyLock(state.history.mutex);
-        state.history.SelectMmrOwner("Steam|1");
-        state.history.playlistInitialMmr["2v2"] = 1200;
-        state.history.playlistHistoryY["2v2"] = {1200.0f, 1210.0f, 1220.0f};
-        state.history.lifetimeMmrY = {1100.0f, 1200.0f, 1220.0f};
+        state.history.Mutate([](auto& history) {
+            history.SelectMmrOwner("Steam|1");
+            history.playlistInitialMmr["2v2"] = 1200;
+            history.playlistHistoryY["2v2"] = {1200.0f, 1210.0f, 1220.0f};
+            history.lifetimeMmrY = {1100.0f, 1200.0f, 1220.0f};
+        });
         state.liveMatch->UpdateMatchStateForTests([](MatchState& ms) {
             ms.myPrimaryId = "Steam|1";
             ms.sessionTotals.wins = 2;
             ms.sessionGamemodes["2v2"] = {2, 0, 2};
         });
-        state.syncSessionMmrChangeLocked();
+        state.history.Mutate([&](auto& history) { state.syncSessionMmrChangeLocked(history); });
     }
 
     bool WaitFor(const std::function<bool()>& predicate, std::chrono::milliseconds timeout) {
@@ -172,9 +173,10 @@ TEST(StatsClientTest, ClosingTheGameStartsANewSessionWhenResetIsEnabled) {
     EXPECT_EQ(snap->sessionGeneration, 1u);
     EXPECT_EQ(snap->sessionTotals.wins, 0);
     EXPECT_TRUE(snap->sessionTotals.mmrChangeByPlaylist.empty());
-    EXPECT_TRUE(state->history.playlistHistoryY.empty());
-    EXPECT_TRUE(state->history.playlistInitialMmr.empty());
-    EXPECT_EQ(state->history.lifetimeMmrY, (std::vector<float>{1100.0f, 1200.0f, 1220.0f}));
+    const auto history = state->history.GetSnapshot();
+    EXPECT_TRUE(history->playlistHistoryY.empty());
+    EXPECT_TRUE(history->playlistInitialMmr.empty());
+    EXPECT_EQ(history->lifetimeMmrY, (std::vector<float>{1100.0f, 1200.0f, 1220.0f}));
     ASSERT_TRUE(snap->lastSessionRecap.valid);
     EXPECT_EQ(snap->lastSessionRecap.totals.wins, 2);
     EXPECT_EQ(snap->lastSessionRecap.totals.mmrChangeByPlaylist.at("2v2"), 20);
@@ -209,7 +211,8 @@ TEST(StatsClientTest, ClosingTheGameKeepsTheSessionWhenResetIsDisabled) {
     EXPECT_EQ(snap->sessionGeneration, 0u);
     EXPECT_EQ(snap->sessionTotals.wins, 2);
     EXPECT_EQ(snap->sessionTotals.mmrChangeByPlaylist.at("2v2"), 20);
-    EXPECT_EQ(state->history.playlistHistoryY.at("2v2"), (std::vector<float>{1200.0f, 1210.0f, 1220.0f}));
-    EXPECT_EQ(state->history.playlistInitialMmr.at("2v2"), 1200);
+    const auto history = state->history.GetSnapshot();
+    EXPECT_EQ(history->playlistHistoryY.at("2v2"), (std::vector<float>{1200.0f, 1210.0f, 1220.0f}));
+    EXPECT_EQ(history->playlistInitialMmr.at("2v2"), 1200);
     EXPECT_FALSE(snap->lastSessionRecap.valid);
 }

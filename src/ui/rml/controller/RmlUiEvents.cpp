@@ -807,10 +807,9 @@ void RmlUiController::HandleChange(Rml::Element* target, Rml::Event& event) {
 
     if (key == "run_on_startup") Config::SetWindowsAutoStart(checked);
     if (key == "identity" && m_state) {
-        {
-            std::unique_lock historyLock(m_state->history.mutex);
-            m_state->selectMmrOwnerLocked(value);
-        }
+        m_state->history.Mutate([&](auto& data) {
+            m_state->selectMmrOwnerLocked(value, data);
+        });
         // Force account-scoped async data to refresh for the newly selected identity.
         m_lastDbFetchPrimaryId.clear();
         m_lastLifetimeHistoryPrimaryId.clear();

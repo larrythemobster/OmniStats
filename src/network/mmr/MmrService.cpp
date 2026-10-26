@@ -37,21 +37,20 @@ MmrService::MmrService(std::shared_ptr<SessionState> state,
                        std::shared_ptr<DatabaseManager> dbManager,
                        std::shared_ptr<AccountClient> accountClient,
                        std::shared_ptr<IRankProvider> customProvider,
-                       std::shared_ptr<IRankProvider> trackerProvider)
+                       std::shared_ptr<IRankProvider> trackerProvider,
+                       MmrTimings timings)
     : m_state(std::move(state)),
       m_dbManager(std::move(dbManager)),
       m_accountClient(std::move(accountClient)),
       m_customProvider(std::move(customProvider)),
-      m_trackerProvider(std::move(trackerProvider)) {
+      m_trackerProvider(std::move(trackerProvider)),
+      m_timings(timings),
+      m_queue(timings) {
     if (!m_customProvider && m_accountClient) {
-        m_customProvider = std::make_shared<OmniNetRankProvider>(m_accountClient, [this]() {
-            return !m_isRunning.load();
-        });
+        m_customProvider = std::make_shared<OmniNetRankProvider>(m_accountClient, [this]() { return !m_isRunning.load(); }, m_timings);
     }
     if (!m_trackerProvider) {
-        m_trackerProvider = std::make_shared<TrnRankProvider>(nullptr, [this]() {
-            return !m_isRunning.load();
-        });
+        m_trackerProvider = std::make_shared<TrnRankProvider>(nullptr, [this]() { return !m_isRunning.load(); }, m_timings);
     }
     m_queue.SetRunningCheck([this]() { return m_isRunning.load(); });
     m_queue.SetTrackedRetryCallback([this](const MMRRequest& req, std::chrono::milliseconds delay, bool rateLimited) {
@@ -71,9 +70,7 @@ MmrService::~MmrService() {
 void MmrService::SetAccountClient(std::shared_ptr<AccountClient> accountClient) {
     m_accountClient = std::move(accountClient);
     if (!m_customProvider && m_accountClient) {
-        m_customProvider = std::make_shared<OmniNetRankProvider>(m_accountClient, [this]() {
-            return !m_isRunning.load();
-        });
+        m_customProvider = std::make_shared<OmniNetRankProvider>(m_accountClient, [this]() { return !m_isRunning.load(); }, m_timings);
     }
 }
 
@@ -99,14 +96,10 @@ RankProvider MmrService::CurrentRankProvider() const {
 void MmrService::Start() {
     if (m_isRunning) return;
     if (!m_customProvider && m_accountClient) {
-        m_customProvider = std::make_shared<OmniNetRankProvider>(m_accountClient, [this]() {
-            return !m_isRunning.load();
-        });
+        m_customProvider = std::make_shared<OmniNetRankProvider>(m_accountClient, [this]() { return !m_isRunning.load(); }, m_timings);
     }
     if (!m_trackerProvider) {
-        m_trackerProvider = std::make_shared<TrnRankProvider>(nullptr, [this]() {
-            return !m_isRunning.load();
-        });
+        m_trackerProvider = std::make_shared<TrnRankProvider>(nullptr, [this]() { return !m_isRunning.load(); }, m_timings);
     }
 
     m_isRunning = true;
@@ -165,13 +158,12 @@ void MmrService::EnqueuePostMatch(const std::string& primaryId,
     req.previousMmrIsPlaylistSpecific = previousMmrIsPlaylistSpecific;
     req.won = won;
     req.reason = MMRRequestReason::PostMatch;
-    req.notBefore = std::chrono::steady_clock::now() + MmrServiceDetail::kPostMatchInitialDelay;
+    req.notBefore = std::chrono::steady_clock::now() + m_timings.postMatchInitialDelay;
     req.sessionGeneration = sessionGen;
 
     if (provisionalImmediately && m_state) {
         std::optional<MmrReconciler::DbUpdate> dbUpdate;
-        {
-            std::unique_lock historyLock(m_state->history.mutex);
+        m_state->history.Mutate([&](database::store::HistoryData& data) {
             std::vector<float> historyY;
             int sessionInitialMmr = 0;
             const auto copyHistory = [&](const auto& histories, const auto& initialMmrs) {
@@ -180,11 +172,11 @@ void MmrService::EnqueuePostMatch(const std::string& primaryId,
                 const auto initIt = initialMmrs.find(playlist);
                 if (initIt != initialMmrs.end()) sessionInitialMmr = initIt->second;
             };
-            if (m_state->history.mmrOwnerPrimaryId.empty() || m_state->history.mmrOwnerPrimaryId == primaryId) {
-                copyHistory(m_state->history.playlistHistoryY, m_state->history.playlistInitialMmr);
+            if (data.mmrOwnerPrimaryId.empty() || data.mmrOwnerPrimaryId == primaryId) {
+                copyHistory(data.playlistHistoryY, data.playlistInitialMmr);
             } else {
-                const auto ownerIt = m_state->history.inactiveMmrHistories.find(primaryId);
-                if (ownerIt != m_state->history.inactiveMmrHistories.end()) {
+                const auto ownerIt = data.inactiveMmrHistories.find(primaryId);
+                if (ownerIt != data.inactiveMmrHistories.end()) {
                     copyHistory(ownerIt->second.playlistHistoryY, ownerIt->second.playlistInitialMmr);
                 }
             }
@@ -192,11 +184,11 @@ void MmrService::EnqueuePostMatch(const std::string& primaryId,
                 auto provResult = m_reconciler.EnsureProvisionalPoint(
                     req, previousMmr, previousMmr, previousMatches, historyY, sessionInitialMmr);
                 if (provResult.applied) {
-                    MmrPublisher::PublishProvisionalPointLocked(*m_state, provResult.publication);
+                    MmrPublisher::PublishProvisionalPointLocked(*m_state, data, provResult.publication);
                     dbUpdate = provResult.dbUpdate;
                 }
             }
-        }
+        });
         if (dbUpdate) {
             if (auto db = m_dbManager.lock()) {
                 db->AsyncUpdateMatchPlayerMmr(dbUpdate->matchGuid, dbUpdate->primaryId, dbUpdate->mmr, true);
@@ -233,13 +225,12 @@ void MmrService::EnqueuePendingDestroyedMatch(const PendingDestroyedMatchMmrRefr
     req.won = false;
     req.resultKnown = false;
     req.reason = MMRRequestReason::PostMatch;
-    req.notBefore = std::chrono::steady_clock::now() + MmrServiceDetail::kPostMatchInitialDelay;
+    req.notBefore = std::chrono::steady_clock::now() + m_timings.postMatchInitialDelay;
     req.sessionGeneration = sessionGen;
 
     if (m_state) {
         std::optional<MmrReconciler::DbUpdate> dbUpdate;
-        {
-            std::unique_lock historyLock(m_state->history.mutex);
+        m_state->history.Mutate([&](database::store::HistoryData& data) {
             std::vector<float> historyY;
             int sessionInitialMmr = 0;
             const auto copyHistory = [&](const auto& histories, const auto& initialMmrs) {
@@ -248,11 +239,11 @@ void MmrService::EnqueuePendingDestroyedMatch(const PendingDestroyedMatchMmrRefr
                 const auto initIt = initialMmrs.find(req.playlist);
                 if (initIt != initialMmrs.end()) sessionInitialMmr = initIt->second;
             };
-            if (m_state->history.mmrOwnerPrimaryId.empty() || m_state->history.mmrOwnerPrimaryId == req.primaryId) {
-                copyHistory(m_state->history.playlistHistoryY, m_state->history.playlistInitialMmr);
+            if (data.mmrOwnerPrimaryId.empty() || data.mmrOwnerPrimaryId == req.primaryId) {
+                copyHistory(data.playlistHistoryY, data.playlistInitialMmr);
             } else {
-                const auto ownerIt = m_state->history.inactiveMmrHistories.find(req.primaryId);
-                if (ownerIt != m_state->history.inactiveMmrHistories.end()) {
+                const auto ownerIt = data.inactiveMmrHistories.find(req.primaryId);
+                if (ownerIt != data.inactiveMmrHistories.end()) {
                     copyHistory(ownerIt->second.playlistHistoryY, ownerIt->second.playlistInitialMmr);
                 }
             }
@@ -260,11 +251,11 @@ void MmrService::EnqueuePendingDestroyedMatch(const PendingDestroyedMatchMmrRefr
                 auto provResult = m_reconciler.EnsureProvisionalPoint(
                     req, req.previousMmr, req.previousMmr, req.previousMatches, historyY, sessionInitialMmr);
                 if (provResult.applied) {
-                    MmrPublisher::PublishProvisionalPointLocked(*m_state, provResult.publication);
+                    MmrPublisher::PublishProvisionalPointLocked(*m_state, data, provResult.publication);
                     dbUpdate = provResult.dbUpdate;
                 }
             }
-        }
+        });
         if (dbUpdate) {
             if (auto db = m_dbManager.lock()) {
                 db->AsyncUpdateMatchPlayerMmr(dbUpdate->matchGuid, dbUpdate->primaryId, dbUpdate->mmr, true);
@@ -387,76 +378,81 @@ bool MmrService::ProcessPostMatchResponse(const std::string& matchGuid, int fetc
     bool finalized = false;
     int sessionInitialMmr = 0;
     int rosterMmr = 0;
-    std::unique_lock<std::shared_mutex> historyLock;
-    if (m_state && m_state->liveMatch) {
-        const auto snapshot = m_state->liveMatch->GetSnapshot();
-        historyLock = std::unique_lock<std::shared_mutex>(m_state->history.mutex);
-        const auto copyHistory = [&](const auto& playlistHistory, const auto& matchPoints, const auto& initialMmrs) {
-            const auto it = playlistHistory.find(req.playlist);
-            if (it != playlistHistory.end()) historyY = it->second;
-            const auto pointsIt = matchPoints.find(req.playlist);
-            if (pointsIt != matchPoints.end()) points = pointsIt->second;
-            const auto initIt = initialMmrs.find(req.playlist);
-            if (initIt != initialMmrs.end()) sessionInitialMmr = initIt->second;
-        };
-        if (m_state->history.mmrOwnerPrimaryId.empty() || m_state->history.mmrOwnerPrimaryId == req.primaryId) {
-            copyHistory(m_state->history.playlistHistoryY, m_state->history.playlistMatchPoints,
-                        m_state->history.playlistInitialMmr);
-        } else {
-            const auto ownerIt = m_state->history.inactiveMmrHistories.find(req.primaryId);
-            if (ownerIt != m_state->history.inactiveMmrHistories.end()) {
-                copyHistory(ownerIt->second.playlistHistoryY, ownerIt->second.playlistMatchPoints,
-                            ownerIt->second.playlistInitialMmr);
-            }
-        }
-        const auto playerIt = snapshot->roster.find(req.primaryId);
-        if (playerIt != snapshot->roster.end()) {
-            const auto playlistIt = playerIt->second.playlists.find(req.playlist);
-            if (playlistIt != playerIt->second.playlists.end()) rosterMmr = playlistIt->second;
-        }
-        currentGen = snapshot->sessionGeneration;
-        myPrimaryId = snapshot->myPrimaryId;
-        inMatch = snapshot->inMatch;
-        finalized = snapshot->matchFinalized;
-    }
-    {
-        std::lock_guard<std::mutex> lock(m_cacheMutex);
-        const auto mmrIt = m_localProfileCache.playlists.find(req.playlist);
-        const auto matchesIt = m_localProfileCache.playlistMatches.find(req.playlist);
-        if (m_localProfileCache.primaryId == req.primaryId &&
-            mmrIt != m_localProfileCache.playlists.end() &&
-            matchesIt != m_localProfileCache.playlistMatches.end()) {
-            m_reconciler.AdoptCachedPreMatchBaseline(
-                matchGuid, mmrIt->second, matchesIt->second, fetchedMatches);
-        }
-    }
-
-    auto recResult = m_reconciler.ReconcileTrackerResponse(req, fetchedMmr, fetchedMatches, historyY,
-                                                           currentGen, myPrimaryId, inMatch, finalized,
-                                                           &points, sessionInitialMmr);
+    MmrReconciler::ReconcileResult recResult;
     std::optional<SessionRecap> updatedRecap;
     std::optional<MmrReconciler::DbUpdate> provisionalDbUpdate;
-    if (recResult.applied && historyLock.owns_lock()) {
-        updatedRecap = MmrPublisher::PublishReconciledPointsLocked(*m_state, recResult.publication);
-        std::lock_guard<std::mutex> lock(m_cacheMutex);
-        if (m_localProfileCache.primaryId == req.primaryId) {
-            if (fetchedMatches >= 0) {
-                m_localProfileCache.playlists[req.playlist] = fetchedMmr;
-                m_localProfileCache.playlistMatches[req.playlist] = fetchedMatches;
+    const auto reconcile = [&](database::store::HistoryData* history) {
+        if (history && m_state->liveMatch) {
+            const auto snapshot = m_state->liveMatch->GetSnapshot();
+            const auto copyHistory = [&](const auto& playlistHistory, const auto& matchPoints, const auto& initialMmrs) {
+                const auto it = playlistHistory.find(req.playlist);
+                if (it != playlistHistory.end()) historyY = it->second;
+                const auto pointsIt = matchPoints.find(req.playlist);
+                if (pointsIt != matchPoints.end()) points = pointsIt->second;
+                const auto initIt = initialMmrs.find(req.playlist);
+                if (initIt != initialMmrs.end()) sessionInitialMmr = initIt->second;
+            };
+            if (history->mmrOwnerPrimaryId.empty() || history->mmrOwnerPrimaryId == req.primaryId) {
+                copyHistory(history->playlistHistoryY, history->playlistMatchPoints,
+                            history->playlistInitialMmr);
             } else {
-                m_localProfileCache.playlistMatches.erase(req.playlist);
+                const auto ownerIt = history->inactiveMmrHistories.find(req.primaryId);
+                if (ownerIt != history->inactiveMmrHistories.end()) {
+                    copyHistory(ownerIt->second.playlistHistoryY, ownerIt->second.playlistMatchPoints,
+                                ownerIt->second.playlistInitialMmr);
+                }
+            }
+            const auto playerIt = snapshot->roster.find(req.primaryId);
+            if (playerIt != snapshot->roster.end()) {
+                const auto playlistIt = playerIt->second.playlists.find(req.playlist);
+                if (playlistIt != playerIt->second.playlists.end()) rosterMmr = playlistIt->second;
+            }
+            currentGen = snapshot->sessionGeneration;
+            myPrimaryId = snapshot->myPrimaryId;
+            inMatch = snapshot->inMatch;
+            finalized = snapshot->matchFinalized;
+        }
+        {
+            std::lock_guard<std::mutex> lock(m_cacheMutex);
+            const auto mmrIt = m_localProfileCache.playlists.find(req.playlist);
+            const auto matchesIt = m_localProfileCache.playlistMatches.find(req.playlist);
+            if (m_localProfileCache.primaryId == req.primaryId &&
+                mmrIt != m_localProfileCache.playlists.end() &&
+                matchesIt != m_localProfileCache.playlistMatches.end()) {
+                m_reconciler.AdoptCachedPreMatchBaseline(
+                    matchGuid, mmrIt->second, matchesIt->second, fetchedMatches);
             }
         }
-    }
-    if (!recResult.requestConfirmed && allowProvisional && historyLock.owns_lock() && req.sessionGeneration == currentGen) {
-        const int baselineMmr = req.previousMmr > 0 ? req.previousMmr : rosterMmr;
-        auto provResult = m_reconciler.EnsureProvisionalPoint(req, baselineMmr, fetchedMmr, fetchedMatches, historyY, sessionInitialMmr);
-        if (provResult.applied) {
-            MmrPublisher::PublishProvisionalPointLocked(*m_state, provResult.publication);
-            provisionalDbUpdate = provResult.dbUpdate;
+
+        recResult = m_reconciler.ReconcileTrackerResponse(req, fetchedMmr, fetchedMatches, historyY,
+                                                          currentGen, myPrimaryId, inMatch, finalized,
+                                                          &points, sessionInitialMmr);
+        if (recResult.applied && history) {
+            updatedRecap = MmrPublisher::PublishReconciledPointsLocked(*m_state, *history, recResult.publication);
+            std::lock_guard<std::mutex> lock(m_cacheMutex);
+            if (m_localProfileCache.primaryId == req.primaryId) {
+                if (fetchedMatches >= 0) {
+                    m_localProfileCache.playlists[req.playlist] = fetchedMmr;
+                    m_localProfileCache.playlistMatches[req.playlist] = fetchedMatches;
+                } else {
+                    m_localProfileCache.playlistMatches.erase(req.playlist);
+                }
+            }
         }
+        if (!recResult.requestConfirmed && allowProvisional && history && req.sessionGeneration == currentGen) {
+            const int baselineMmr = req.previousMmr > 0 ? req.previousMmr : rosterMmr;
+            auto provResult = m_reconciler.EnsureProvisionalPoint(req, baselineMmr, fetchedMmr, fetchedMatches, historyY, sessionInitialMmr);
+            if (provResult.applied) {
+                MmrPublisher::PublishProvisionalPointLocked(*m_state, *history, provResult.publication);
+                provisionalDbUpdate = provResult.dbUpdate;
+            }
+        }
+    };
+    if (m_state && m_state->liveMatch) {
+        m_state->history.Mutate([&](database::store::HistoryData& data) { reconcile(&data); });
+    } else {
+        reconcile(nullptr);
     }
-    if (historyLock.owns_lock()) historyLock.unlock();
     if (auto db = m_dbManager.lock()) {
         for (const auto& u : recResult.dbUpdates) {
             db->AsyncUpdateMatchPlayerMmr(u.matchGuid, u.primaryId, u.mmr, u.estimated);
@@ -502,7 +498,7 @@ bool MmrService::PublishProfileResult(const MMRRequest& req, const NormalizedPro
         postMatchConfirmed = ProcessPostMatchResponse(req.matchGuid, fetchedMmr, fetchedMatches, false);
         if (!postMatchConfirmed) {
             if (req.retriesRemaining > 0 &&
-                m_queue.ScheduleRetry(req, MmrServiceDetail::kStalePostMatchRetryDelay,
+                m_queue.ScheduleRetry(req, m_timings.stalePostMatchRetryDelay,
                                       "post-match match count not advanced")) return true;
             ProcessPostMatchResponse(req.matchGuid, fetchedMmr, fetchedMatches);
         }
@@ -612,10 +608,10 @@ void MmrService::ProcessCustomApiBatch(const MmrServiceDetail::AssembledBatch& b
     if (res.httpResult == CustomApiFetchResult::TransientError) {
         const auto delay = (res.httpCode == 429 && res.rateLimitLockout > std::chrono::steady_clock::duration::zero())
                                ? std::chrono::duration_cast<std::chrono::milliseconds>(res.rateLimitLockout)
-                               : MmrServiceDetail::kTransientRetryDelay;
+                               : m_timings.transientRetryDelay;
         const char* reason = (res.httpCode == 429) ? "custom API rate limited" : "transient custom API failure";
         if (res.httpCode == 429) {
-            m_queue.SetRateLimitedUntil(now + (res.rateLimitLockout > std::chrono::steady_clock::duration::zero() ? res.rateLimitLockout : MmrServiceDetail::kRateLimitLockoutMinimum));
+            m_queue.SetRateLimitedUntil(now + (res.rateLimitLockout > std::chrono::steady_clock::duration::zero() ? res.rateLimitLockout : m_timings.rateLimitLockoutMinimum));
         }
         for (const auto& req : batch.requests) {
             if (!m_queue.ScheduleRetry(req, delay, reason)) {
@@ -729,7 +725,7 @@ bool MmrService::FetchProfile(MMRRequest req) {
             }
         } else if (!config.enable_mmr_tracking) {
             if (customResult == CustomApiFetchResult::TransientError) {
-                if (m_queue.ScheduleRetry(req, MmrServiceDetail::kTransientRetryDelay, "transient custom API failure")) {
+                if (m_queue.ScheduleRetry(req, m_timings.transientRetryDelay, "transient custom API failure")) {
                     return true;
                 }
                 if (req.reason == MMRRequestReason::TrackedAccount) {
@@ -761,7 +757,7 @@ bool MmrService::FetchProfile(MMRRequest req) {
             const auto now = std::chrono::steady_clock::now();
             if (m_queue.IsRateLimited(now)) {
                 if (customResult == CustomApiFetchResult::TransientError &&
-                    m_queue.ScheduleRetry(req, MmrServiceDetail::kTransientRetryDelay, "transient custom API failure")) {
+                    m_queue.ScheduleRetry(req, m_timings.transientRetryDelay, "transient custom API failure")) {
                     return true;
                 }
                 if (req.reason == MMRRequestReason::TrackedAccount) {
@@ -829,21 +825,21 @@ bool MmrService::FetchProfileTracker(MMRRequest req) {
         if (result.statusCode == 429) {
             const auto retryDuration = std::chrono::duration_cast<std::chrono::milliseconds>(
                 std::chrono::seconds(result.retryAfterSeconds));
-            const auto lockout = (std::max)(retryDuration, std::chrono::duration_cast<std::chrono::milliseconds>(MmrServiceDetail::kRateLimitLockoutMinimum));
+            const auto lockout = (std::max)(retryDuration, m_timings.rateLimitLockoutMinimum);
             m_queue.SetRateLimitedUntil(std::chrono::steady_clock::now() + lockout);
             std::cout << "[MmrService] Rate limited by Tracker.gg (HTTP 429). Pausing requests for "
                       << std::chrono::duration_cast<std::chrono::seconds>(lockout).count() << " seconds.\n";
             if (m_queue.ScheduleRetry(req, lockout, "rate limited")) return true;
         } else if (result.transportError != 0 || result.statusCode == 408 ||
                    (result.statusCode >= 500 && result.statusCode <= 599)) {
-            if (m_queue.ScheduleRetry(req, MmrServiceDetail::kTransientRetryDelay, "transient Tracker failure")) return true;
+            if (m_queue.ScheduleRetry(req, m_timings.transientRetryDelay, "transient Tracker failure")) return true;
         }
         detail = "Tracker returned HTTP " + std::to_string(result.statusCode) + ".";
     } else if (trn && result.failure == TrnRankProvider::Failure::Incomplete) {
-        if (m_queue.ScheduleRetry(req, MmrServiceDetail::kTransientRetryDelay, "incomplete Tracker response")) return true;
+        if (m_queue.ScheduleRetry(req, m_timings.transientRetryDelay, "incomplete Tracker response")) return true;
         return false;
     } else if (trn && result.failure == TrnRankProvider::Failure::Invalid) {
-        if (m_queue.ScheduleRetry(req, MmrServiceDetail::kTransientRetryDelay, "invalid Tracker response")) return true;
+        if (m_queue.ScheduleRetry(req, m_timings.transientRetryDelay, "invalid Tracker response")) return true;
         detail = "Tracker returned an invalid response.";
     }
 
@@ -906,9 +902,9 @@ bool MmrService::HasPendingDestroyedMatch(const std::string& matchGuid) const {
 
 std::vector<SessionMmrPoint> MmrService::PlaylistMatchPoints(const std::string& playlist) const {
     if (!m_state) return {};
-    std::shared_lock<std::shared_mutex> lock(m_state->history.mutex);
-    const auto it = m_state->history.playlistMatchPoints.find(playlist);
-    return it == m_state->history.playlistMatchPoints.end() ? std::vector<SessionMmrPoint>{} : it->second;
+    const auto snapshot = m_state->history.GetSnapshot();
+    const auto it = snapshot->playlistMatchPoints.find(playlist);
+    return it == snapshot->playlistMatchPoints.end() ? std::vector<SessionMmrPoint>{} : it->second;
 }
 
 MmrServiceDetail::AssembledBatch MmrService::TakeNextCustomApiBatch() {
@@ -976,7 +972,7 @@ void MmrService::DispatchBatch(RankProvider provider) {
                (*reason == MMRRequestReason::TrackedAccount &&
                 m_queue.HasReady(MMRRequestReason::Roster, current));
     };
-    const auto deadline = now + kBatchCoalesceWindow;
+    const auto deadline = now + m_timings.batchCoalesceWindow;
     while (m_isRunning && std::chrono::steady_clock::now() < deadline &&
            m_queue.ReadyCount(*reason, *playlist, std::chrono::steady_clock::now()) < kMaxCustomApiBatchSize) {
         if (higherPriorityReady()) return;
@@ -1021,7 +1017,7 @@ void MmrService::DispatchSingle(RankProvider /*provider*/) {
         m_queue.Finish(req);
     }
     std::unique_lock<std::mutex> lock(m_cvMutex);
-    m_cv.wait_for(lock, kQueueSpacing, [this] { return !m_isRunning; });
+    m_cv.wait_for(lock, m_timings.queueSpacing, [this] { return !m_isRunning; });
 }
 
 std::string MmrService::GetTournamentTierForMmr(int mmr) {

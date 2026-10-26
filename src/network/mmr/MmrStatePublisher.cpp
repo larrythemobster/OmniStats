@@ -14,18 +14,18 @@ namespace MmrPublisher {
 
         class ScopedMmrHistoryOwner {
           public:
-            ScopedMmrHistoryOwner(HistoryState& history, const std::string& requestId,
+            ScopedMmrHistoryOwner(database::store::HistoryData& data, const std::string& requestId,
                                   const std::string& currentId)
-                : m_history(history), m_restoreId(requestId == currentId ? "" : currentId) {
-                m_history.SelectMmrOwner(requestId);
+                : m_data(data), m_restoreId(requestId == currentId ? "" : currentId) {
+                m_data.SelectMmrOwner(requestId);
             }
 
             ~ScopedMmrHistoryOwner() {
-                if (!m_restoreId.empty()) m_history.SelectMmrOwner(m_restoreId);
+                if (!m_restoreId.empty()) m_data.SelectMmrOwner(m_restoreId);
             }
 
           private:
-            HistoryState& m_history;
+            database::store::HistoryData& m_data;
             std::string m_restoreId;
         };
 
@@ -75,7 +75,6 @@ namespace MmrPublisher {
                               const MMRRequest& req,
                               const NormalizedProfileResult& profile,
                               const std::unordered_set<std::string>* playlistsAwaitingPostMatch) {
-        std::unique_lock<std::shared_mutex> historyLock(state.history.mutex);
         const auto snapshot = state.liveMatch ? state.liveMatch->GetSnapshot() : nullptr;
         const bool fetchedThisSession = snapshot && req.sessionGeneration == snapshot->sessionGeneration;
         const bool isLocalPlayer = snapshot && req.primaryId == snapshot->myPrimaryId;
@@ -111,53 +110,56 @@ namespace MmrPublisher {
                 }
             });
         }
-        if (isLocalPlayer && fetchedThisSession) {
-            state.history.SelectMmrOwner(req.primaryId);
-            if (state.history.initialMmr == -1 && profile.bestMmr > 0) {
-                state.history.initialMmr = profile.bestMmr;
-            }
-            if (req.reason == MMRRequestReason::Roster && profile.bestMmr > 0) {
-                state.history.mmrHistoryY.push_back(static_cast<float>(profile.bestMmr));
-                state.history.mmrHistoryX.push_back(static_cast<float>(state.history.mmrHistoryY.size()));
-            }
-
-            for (const auto& [playlistName, fetchedMmr] : profile.playlistMMRs) {
-                if (fetchedMmr <= 0 || playlistName == "best" || playlistName == "t" ||
-                    playlistName == "casual" ||
-                    (playlistsAwaitingPostMatch && playlistsAwaitingPostMatch->count(playlistName) > 0)) {
-                    continue;
+        state.history.Mutate([&](database::store::HistoryData& data) {
+            if (isLocalPlayer && fetchedThisSession) {
+                data.SelectMmrOwner(req.primaryId);
+                if (data.initialMmr == -1 && profile.bestMmr > 0) {
+                    data.initialMmr = profile.bestMmr;
                 }
-                if (req.reason == MMRRequestReason::PostMatch && playlistName == req.playlist) continue;
+                if (req.reason == MMRRequestReason::Roster && profile.bestMmr > 0) {
+                    data.mmrHistoryY.push_back(static_cast<float>(profile.bestMmr));
+                    data.mmrHistoryX.push_back(static_cast<float>(data.mmrHistoryY.size()));
+                }
 
-                auto& history = state.history.playlistHistoryY[playlistName];
-                if (history.empty() && state.history.playlistInitialMmr.count(playlistName) == 0) {
-                    state.history.playlistInitialMmr[playlistName] = fetchedMmr;
+                for (const auto& [playlistName, fetchedMmr] : profile.playlistMMRs) {
+                    if (fetchedMmr <= 0 || playlistName == "best" || playlistName == "t" ||
+                        playlistName == "casual" ||
+                        (playlistsAwaitingPostMatch && playlistsAwaitingPostMatch->count(playlistName) > 0)) {
+                        continue;
+                    }
+                    if (req.reason == MMRRequestReason::PostMatch && playlistName == req.playlist) continue;
+
+                    auto& playlistHistory = data.playlistHistoryY[playlistName];
+                    if (playlistHistory.empty() && data.playlistInitialMmr.count(playlistName) == 0) {
+                        data.playlistInitialMmr[playlistName] = fetchedMmr;
+                    }
+                    if (playlistHistory.empty() || static_cast<int>(std::lround(playlistHistory.back())) != fetchedMmr) {
+                        playlistHistory.push_back(static_cast<float>(fetchedMmr));
+                    }
                 }
-                if (history.empty() || static_cast<int>(std::lround(history.back())) != fetchedMmr) {
-                    history.push_back(static_cast<float>(fetchedMmr));
-                }
+                state.syncSessionMmrChangeLocked(data);
             }
-            state.syncSessionMmrChangeLocked();
-        }
-
-        state.history.version++;
+        });
         return false;
     }
 
     std::optional<SessionRecap> PublishReconciledPoints(SessionState& state,
                                                         const ReconcilePublication& pub) {
-        std::unique_lock<std::shared_mutex> historyLock(state.history.mutex);
-        return PublishReconciledPointsLocked(state, pub);
+        std::optional<SessionRecap> result;
+        state.history.Mutate([&](database::store::HistoryData& data) {
+            result = PublishReconciledPointsLocked(state, data, pub);
+        });
+        return result;
     }
 
-    std::optional<SessionRecap> PublishReconciledPointsLocked(SessionState& state,
+    std::optional<SessionRecap> PublishReconciledPointsLocked(SessionState& state, database::store::HistoryData& data,
                                                               const ReconcilePublication& pub) {
         const auto snapshot = state.liveMatch ? state.liveMatch->GetSnapshot() : nullptr;
         const uint64_t currentSessionGeneration = snapshot ? snapshot->sessionGeneration : 0;
         const std::string myPrimaryId = snapshot ? snapshot->myPrimaryId : std::string{};
-        ScopedMmrHistoryOwner owner(state.history, pub.primaryId, myPrimaryId);
-        auto& points = state.history.playlistMatchPoints[pub.playlist];
-        auto& projection = state.history.playlistHistoryY[pub.playlist];
+        ScopedMmrHistoryOwner owner(data, pub.primaryId, myPrimaryId);
+        auto& points = data.playlistMatchPoints[pub.playlist];
+        auto& projection = data.playlistHistoryY[pub.playlist];
 
         for (const auto& update : pub.updates) {
             if (update.sessionGeneration != currentSessionGeneration) continue;
@@ -178,8 +180,8 @@ namespace MmrPublisher {
                     .valueEstimated = update.valueEstimated});
                 pointIt = std::prev(points.end());
                 if (historyIndex == 0 && update.sessionStartMmr > 0 &&
-                    state.history.playlistInitialMmr.count(pub.playlist) == 0) {
-                    state.history.playlistInitialMmr[pub.playlist] = update.sessionStartMmr;
+                    data.playlistInitialMmr.count(pub.playlist) == 0) {
+                    data.playlistInitialMmr[pub.playlist] = update.sessionStartMmr;
                 }
             } else {
                 pointIt->mmr = update.mmr;
@@ -191,8 +193,8 @@ namespace MmrPublisher {
                 }
             }
             if (pointIt != points.end() && pointIt->historyIndex == 0 &&
-                update.sessionStartMmr > 0 && state.history.playlistInitialMmr.count(pub.playlist) == 0) {
-                state.history.playlistInitialMmr[pub.playlist] = update.sessionStartMmr;
+                update.sessionStartMmr > 0 && data.playlistInitialMmr.count(pub.playlist) == 0) {
+                data.playlistInitialMmr[pub.playlist] = update.sessionStartMmr;
             }
         }
 
@@ -208,8 +210,8 @@ namespace MmrPublisher {
             }
         }
         if (seedMmr > 0 && projection.empty() &&
-            state.history.playlistInitialMmr.count(pub.playlist) == 0) {
-            state.history.playlistInitialMmr[pub.playlist] = seedMmr;
+            data.playlistInitialMmr.count(pub.playlist) == 0) {
+            data.playlistInitialMmr[pub.playlist] = seedMmr;
             projection.push_back(static_cast<float>(seedMmr));
         }
 
@@ -249,26 +251,26 @@ namespace MmrPublisher {
                 }
             });
         }
-        if (pub.primaryId == myPrimaryId) state.syncSessionMmrChangeLocked();
-        state.history.version++;
+        if (pub.primaryId == myPrimaryId) state.syncSessionMmrChangeLocked(data);
         return updatedRecap;
     }
 
     void PublishProvisionalPoint(SessionState& state,
                                  const ProvisionalPublication& pub) {
-        std::unique_lock<std::shared_mutex> historyLock(state.history.mutex);
-        PublishProvisionalPointLocked(state, pub);
+        state.history.Mutate([&](database::store::HistoryData& data) {
+            PublishProvisionalPointLocked(state, data, pub);
+        });
     }
 
-    void PublishProvisionalPointLocked(SessionState& state,
+    void PublishProvisionalPointLocked(SessionState& state, database::store::HistoryData& data,
                                        const ProvisionalPublication& pub) {
 
         const auto snapshot = state.liveMatch ? state.liveMatch->GetSnapshot() : nullptr;
         if (!snapshot || pub.sessionGeneration != snapshot->sessionGeneration) return;
-        ScopedMmrHistoryOwner owner(state.history, pub.primaryId, snapshot->myPrimaryId);
+        ScopedMmrHistoryOwner owner(data, pub.primaryId, snapshot->myPrimaryId);
 
-        auto& points = state.history.playlistMatchPoints[pub.playlist];
-        auto& projection = state.history.playlistHistoryY[pub.playlist];
+        auto& points = data.playlistMatchPoints[pub.playlist];
+        auto& projection = data.playlistHistoryY[pub.playlist];
 
         auto pointIt = std::find_if(points.begin(), points.end(), [&](const SessionMmrPoint& point) {
             return point.matchGuid == pub.matchGuid;
@@ -286,15 +288,14 @@ namespace MmrPublisher {
                 .valueEstimated = true});
 
             if (historyIndex == 0 && pub.sessionStartMmr > 0 &&
-                state.history.playlistInitialMmr.count(pub.playlist) == 0) {
-                state.history.playlistInitialMmr[pub.playlist] = pub.sessionStartMmr;
+                data.playlistInitialMmr.count(pub.playlist) == 0) {
+                data.playlistInitialMmr[pub.playlist] = pub.sessionStartMmr;
             }
         } else {
             return;
         }
 
-        if (pub.primaryId == snapshot->myPrimaryId) state.syncSessionMmrChangeLocked();
-        state.history.version++;
+        if (pub.primaryId == snapshot->myPrimaryId) state.syncSessionMmrChangeLocked(data);
     }
 
 } // namespace MmrPublisher
