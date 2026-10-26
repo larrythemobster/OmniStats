@@ -76,12 +76,23 @@ inline bool operator!=(const RosterPlayerItem& a, const RosterPlayerItem& b) noe
 }
 
 struct LobbyRankCell {
-    Rml::String text;
+    Rml::String tier_label;
+    Rml::String mmr_text;
+    Rml::String match_count_text;
+    Rml::String placeholder;
     Rml::String color;
     Rml::String tooltip;
+    bool has_tier_label = false;
+    bool has_match_count = false;
+    bool has_mmr = false;
+    bool has_tooltip = false;
 };
 inline bool operator==(const LobbyRankCell& a, const LobbyRankCell& b) noexcept {
-    return a.text == b.text && a.color == b.color && a.tooltip == b.tooltip;
+    return a.tier_label == b.tier_label && a.mmr_text == b.mmr_text &&
+           a.match_count_text == b.match_count_text && a.placeholder == b.placeholder &&
+           a.color == b.color && a.tooltip == b.tooltip &&
+           a.has_tier_label == b.has_tier_label && a.has_match_count == b.has_match_count &&
+           a.has_mmr == b.has_mmr && a.has_tooltip == b.has_tooltip;
 }
 inline bool operator!=(const LobbyRankCell& a, const LobbyRankCell& b) noexcept {
     return !(a == b);
@@ -89,10 +100,15 @@ inline bool operator!=(const LobbyRankCell& a, const LobbyRankCell& b) noexcept 
 
 struct LobbyRankRow {
     Rml::String name;
+    Rml::String platform;
+    Rml::String platform_class;
+    bool self = false;
+    bool has_platform = false;
     std::vector<LobbyRankCell> cells;
 };
 inline bool operator==(const LobbyRankRow& a, const LobbyRankRow& b) noexcept {
-    return a.name == b.name && a.cells == b.cells;
+    return a.name == b.name && a.platform == b.platform && a.platform_class == b.platform_class &&
+           a.self == b.self && a.has_platform == b.has_platform && a.cells == b.cells;
 }
 inline bool operator!=(const LobbyRankRow& a, const LobbyRankRow& b) noexcept {
     return !(a == b);
@@ -217,6 +233,11 @@ struct TournamentModel {
     Rml::String region;
     Rml::String countdown;
     bool starting_soon = false;
+    bool topbar_visible = false;
+    Rml::String topbar_title;
+    Rml::String topbar_countdown;
+    bool topbar_starting_soon = false;
+    std::vector<Rml::String> topbar_slots;
 };
 
 struct StatRowItem {
@@ -301,7 +322,9 @@ class OverlayWidgetModel {
     std::vector<PreviousGameItem> m_previousGames;
     bool m_previousGamesLoading = true;
     bool m_previousGamesEmpty = false;
-    Rml::String m_previousGamesFooterSession;
+    int m_previousGamesLimit = 10;
+    int m_previousGamesSessionWins = 0;
+    int m_previousGamesSessionLosses = 0;
 
     // MMR Graph
     bool m_graphEmpty = true;

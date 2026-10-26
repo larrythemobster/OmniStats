@@ -77,7 +77,14 @@ bool OverlayWidgetModel::Bind(Rml::DataModelConstructor& constructor) {
     constructor.RegisterArray<std::vector<Rml::String>>();
 
     if (auto c = constructor.RegisterStruct<LobbyRankCell>()) {
-        c.RegisterMember("text", &LobbyRankCell::text);
+        c.RegisterMember("tier_label", &LobbyRankCell::tier_label);
+        c.RegisterMember("mmr_text", &LobbyRankCell::mmr_text);
+        c.RegisterMember("match_count_text", &LobbyRankCell::match_count_text);
+        c.RegisterMember("placeholder", &LobbyRankCell::placeholder);
+        c.RegisterMember("has_tier_label", &LobbyRankCell::has_tier_label);
+        c.RegisterMember("has_match_count", &LobbyRankCell::has_match_count);
+        c.RegisterMember("has_mmr", &LobbyRankCell::has_mmr);
+        c.RegisterMember("has_tooltip", &LobbyRankCell::has_tooltip);
         c.RegisterMember("color", &LobbyRankCell::color);
         c.RegisterMember("tooltip", &LobbyRankCell::tooltip);
     }
@@ -85,6 +92,10 @@ bool OverlayWidgetModel::Bind(Rml::DataModelConstructor& constructor) {
 
     if (auto r = constructor.RegisterStruct<LobbyRankRow>()) {
         r.RegisterMember("name", &LobbyRankRow::name);
+        r.RegisterMember("self", &LobbyRankRow::self);
+        r.RegisterMember("platform", &LobbyRankRow::platform);
+        r.RegisterMember("platform_class", &LobbyRankRow::platform_class);
+        r.RegisterMember("has_platform", &LobbyRankRow::has_platform);
         r.RegisterMember("cells", &LobbyRankRow::cells);
     }
     constructor.RegisterArray<std::vector<LobbyRankRow>>();
@@ -186,7 +197,9 @@ bool OverlayWidgetModel::Bind(Rml::DataModelConstructor& constructor) {
     constructor.Bind("previous_games", &m_previousGames);
     constructor.Bind("previous_games_loading", &m_previousGamesLoading);
     constructor.Bind("previous_games_empty", &m_previousGamesEmpty);
-    constructor.Bind("previous_games_footer_session", &m_previousGamesFooterSession);
+    constructor.Bind("previous_games_limit", &m_previousGamesLimit);
+    constructor.Bind("previous_games_session_wins", &m_previousGamesSessionWins);
+    constructor.Bind("previous_games_session_losses", &m_previousGamesSessionLosses);
 
     constructor.Bind("graph_empty", &m_graphEmpty);
     constructor.Bind("graph_empty_message", &m_graphEmptyMessage);
@@ -438,6 +451,21 @@ bool OverlayWidgetModel::Update(const RmlRenderSnapshot& snap,
     }
     std::vector<PreviousGameItem> nextGames;
     const int configuredLimit = std::clamp(config.previous_games_limit, 10, kPreviousGamesMaxLimit);
+    if (m_previousGamesLimit != configuredLimit) {
+        m_previousGamesLimit = configuredLimit;
+        Dirty("previous_games_limit");
+        changed = true;
+    }
+    if (m_previousGamesSessionWins != snap.sessionTotals.wins) {
+        m_previousGamesSessionWins = snap.sessionTotals.wins;
+        Dirty("previous_games_session_wins");
+        changed = true;
+    }
+    if (m_previousGamesSessionLosses != snap.sessionTotals.losses) {
+        m_previousGamesSessionLosses = snap.sessionTotals.losses;
+        Dirty("previous_games_session_losses");
+        changed = true;
+    }
     const int limit = std::min<int>(configuredLimit, static_cast<int>(snap.recentSavedMatches.size()));
     nextGames.reserve(limit);
     for (int i = 0; i < limit; ++i) {
@@ -502,6 +530,14 @@ bool OverlayWidgetModel::Update(const RmlRenderSnapshot& snap,
     for (const auto* p : lobbyPlayers) {
         LobbyRankRow row;
         row.name = p->name;
+        row.self = p->primaryId == snap.myPrimaryId;
+        if (const auto pos = p->primaryId.find('|'); pos != std::string::npos && pos > 0) {
+            const std::string platform = p->primaryId.substr(0, pos);
+            const auto kind = PlatformKindFor(platform);
+            row.platform = PlatformDisplayName(kind, platform);
+            row.platform_class = std::string("label ") + PlatformClass(kind);
+            row.has_platform = true;
+        }
         for (const auto& pl : playlistDefs) {
             if (!pl.show) continue;
             int mmr = 0;
@@ -514,13 +550,26 @@ bool OverlayWidgetModel::Update(const RmlRenderSnapshot& snap,
             }
             LobbyRankCell cell;
             cell.color = CssColor(Format::RankColor(tier));
-            if (mmr > 0) {
-                cell.text = std::to_string(mmr);
-                if (matches > 0) cell.text += " (" + std::to_string(matches) + ")";
-                cell.tooltip = (std::string_view(pl.key) == "casual") ? ("Casual · MMR " + std::to_string(mmr))
-                                                                      : (Format::RankTier(tier, config.use_roman_numerals) + " · MMR " + std::to_string(mmr));
+            cell.has_mmr = mmr > 0;
+            if (cell.has_mmr) {
+                cell.has_tier_label = tier != "Unranked" && !tier.empty() && std::string_view(pl.key) != "casual";
+                if (cell.has_tier_label) cell.tier_label = Format::AbbreviateRank(tier);
+                cell.mmr_text = std::to_string(mmr);
+                cell.has_match_count = matches > 0;
+                if (cell.has_match_count) cell.match_count_text = "(" + std::to_string(matches) + ")";
+                cell.tooltip = std::string_view(pl.key) == "casual"  ? "Casual"
+                               : tier != "Unranked" && !tier.empty() ? Format::RankTier(tier, config.use_roman_numerals)
+                                                                     : "Unranked";
+                cell.tooltip += " · MMR " + std::to_string(mmr);
+                if (matches > 0) cell.tooltip += " · " + std::to_string(matches) + " games this season";
+                cell.has_tooltip = true;
             } else {
-                cell.text = "-";
+                const bool pending = ranksOn && !p->fetched;
+                cell.placeholder = pending ? "..." : "-";
+                if (pending) {
+                    cell.tooltip = "Fetching rank...";
+                    cell.has_tooltip = true;
+                }
             }
             row.cells.push_back(std::move(cell));
         }
