@@ -172,7 +172,7 @@ bool DatabaseManager::EnqueueDbJob(std::function<void()> job, DbJobPriority prio
 void DatabaseManager::SaveMatch(const MatchSaveSnapshot& snapshot) {
     std::lock_guard lock(m_writeMutex);
     if (!m_db.IsOpen()) return;
-    repository::MatchRepository::SaveMatch(m_db, snapshot, repository::Migrations::HasStatsTables(m_db));
+    repository::MatchRepository::SaveMatch(m_db, snapshot, repository::Migrations::HasStatsTables(m_db), m_telemetry.get());
 }
 
 void DatabaseManager::AsyncSaveMatch(MatchSaveSnapshot snapshot) {

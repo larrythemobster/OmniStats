@@ -278,7 +278,7 @@ namespace database::repository {
         }
     }
 
-    void MatchRepository::SaveMatch(sqlite::Connection& db, const MatchSaveSnapshot& snapshot, bool hasStatsTables) {
+    void MatchRepository::SaveMatch(sqlite::Connection& db, const MatchSaveSnapshot& snapshot, bool hasStatsTables, TelemetryManager* telemetry) {
         if (!db.IsOpen() || snapshot.arenaName.empty()) return;
 
         int64_t pendingMatchId = 0;
@@ -412,7 +412,7 @@ namespace database::repository {
 
             tx.Commit();
             std::cout << "Match saved to database. ID: " << matchId << " Gamemode: " << gamemode << "\n";
-            TelemetryManager::RecordMilestone(TelemetryManager::Milestone::FirstMatchTracked);
+            if (telemetry) telemetry->RecordMilestone(TelemetryManager::Milestone::FirstMatchTracked);
         } catch (const std::exception& e) {
             std::cerr << "Failed to save match: " << e.what() << "\n";
         }

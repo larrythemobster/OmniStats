@@ -1,5 +1,6 @@
 #include "network/mmr/MMRFetcher.hpp"
 #include "core/state/LiveMatchStore.hpp"
+#include "core/state/SessionState.hpp"
 #include "network/http/CurlImpersonate.hpp"
 #include "core/config/Config.hpp"
 #include "core/game/GamemodeUtils.hpp"

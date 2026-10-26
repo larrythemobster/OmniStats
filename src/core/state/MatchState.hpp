@@ -16,7 +16,10 @@
 #include "core/state/MatchSaveSnapshot.hpp"
 #include "network/telemetry/TelemetryEvents.hpp"
 
-struct HistoryState;
+namespace database::store {
+    class HistoryStore;
+}
+using HistoryState = database::store::HistoryStore;
 
 struct CapturedMatch {
     std::string arenaName;
