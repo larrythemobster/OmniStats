@@ -464,7 +464,7 @@ void DatabaseManager::AsyncGetPlayerEncounterRecord(const std::string& primaryId
         if (account.empty() || account == pid) return;
         const auto record = GetPlayerEncounterRecord(account, pid);
         if (!record) return;
-        m_state->liveMatch->UpdatePlayerLifetimeData(pid, record->winsWith, record->lossesWith, record->winsAgainst, record->lossesAgainst);
+        m_state->liveMatch->UpdatePlayerLifetimeData(account, pid, record->winsWith, record->lossesWith, record->winsAgainst, record->lossesAgainst);
     });
 }
 

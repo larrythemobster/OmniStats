@@ -3,6 +3,7 @@
 #include "utils/Storage.hpp"
 #include "core/state/SessionState.hpp"
 #include "core/state/LiveMatchStore.hpp"
+#include "core/reducer/TelemetryReducer.hpp"
 #include "database/DatabaseManager.hpp"
 #include <thread>
 #include <vector>
@@ -35,6 +36,49 @@ TEST(HistoryStoreTest, MutationPublishesSnapshotAndPreservesPreviousSnapshot) {
     EXPECT_FALSE(toggled->showLifetimeGraph);
     EXPECT_GT(toggled->version, after->version);
     EXPECT_TRUE(after->showLifetimeGraph);
+}
+
+TEST(ConcurrencyTest, LiveWritersPublishWhileTelemetryIsRunning) {
+    LiveMatchStore store;
+    store.Update([](MatchState& state) {
+        state.inMatch = true;
+        state.matchGuid = "active";
+        state.roster["player"] = PlayerData{.primaryId = "player", .team = 1};
+    });
+    const auto before = store.GetSnapshot();
+    std::atomic<bool> started{false};
+    std::atomic<bool> stop{false};
+    std::thread telemetry([&] {
+        ReducerContext context;
+        store.ApplyEvent(TelemetryEvents::ClockUpdatedSecondsEvent{42.0f}, context);
+        started.store(true);
+        while (!stop.load()) {
+            store.ApplyEvent(TelemetryEvents::ClockUpdatedSecondsEvent{42.0f}, context);
+        }
+    });
+    while (!started.load())
+        std::this_thread::yield();
+
+    store.SetLocalPrimaryId("player");
+    store.UpdateRosterMmr("player", {{"2v2", 1200}}, {{"2v2", 50}});
+    store.UpdatePlayerLifetimeData("previous-account", "player", 9, 9, 9, 9);
+    const auto rejected = store.GetSnapshot();
+    store.UpdatePlayerLifetimeData("player", "player", 1, 2, 3, 4);
+    const auto published = store.GetSnapshot();
+    stop.store(true);
+    telemetry.join();
+
+    EXPECT_EQ(published->myPrimaryId, "player");
+    EXPECT_EQ(published->myTeam, 1);
+    ASSERT_TRUE(published->roster.count("player"));
+    EXPECT_FALSE(rejected->roster.at("player").hasLifetimeData);
+    EXPECT_EQ(published->roster.at("player").playlists.at("2v2"), 1200);
+    EXPECT_TRUE(published->roster.at("player").hasLifetimeData);
+    EXPECT_EQ(published->roster.at("player").lifetimeWinsAgainst, 3);
+    ASSERT_TRUE(published->preMatchMmrByGuid.count("active"));
+    EXPECT_EQ(published->preMatchMmrByGuid.at("active").playlistMatches.at("2v2"), 50);
+    EXPECT_TRUE(before->myPrimaryId.empty());
+    EXPECT_TRUE(before->preMatchMmrByGuid.empty());
 }
 
 TEST(ConcurrencyTest, ConfigConcurrentReadWrite) {

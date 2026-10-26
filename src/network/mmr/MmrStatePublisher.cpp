@@ -4,9 +4,7 @@
 
 #include <algorithm>
 #include <cmath>
-#include <iostream>
-#include <mutex>
-#include <shared_mutex>
+#include <utility>
 
 namespace MmrPublisher {
 
@@ -29,6 +27,18 @@ namespace MmrPublisher {
             std::string m_restoreId;
         };
 
+        void SyncSessionMmrChange(const database::store::HistoryData& data, MatchState& match) {
+            std::map<std::string, int> changes;
+            for (const auto& [playlist, projection] : data.playlistHistoryY) {
+                const auto initialIt = data.playlistInitialMmr.find(playlist);
+                if (projection.empty() || initialIt == data.playlistInitialMmr.end() || initialIt->second <= 0) continue;
+                changes[playlist] = static_cast<int>(std::lround(projection.back())) - initialIt->second;
+            }
+            match.sessionTotals.mmrChangeByPlaylist = std::move(changes);
+            match.sessionTotals.totalMmrChange = static_cast<float>(
+                CalculateTrackedSessionMmrChange(match.sessionTotals.mmrChangeByPlaylist));
+        }
+
     } // namespace
 
     void PublishRosterFetchFailure(SessionState& state, const std::string& primaryId) {
@@ -37,6 +47,7 @@ namespace MmrPublisher {
 
     bool PublishCachedLocalRoster(SessionState& state,
                                   const std::string& primaryId,
+                                  uint64_t sessionGeneration,
                                   const std::map<std::string, int>& playlists,
                                   const std::map<std::string, std::string>& playlistTiers,
                                   const std::map<std::string, int>& playlistMatches,
@@ -44,12 +55,12 @@ namespace MmrPublisher {
                                   const std::string& bestTier,
                                   int totalWins) {
         if (!state.liveMatch) return false;
-        const auto snapshot = state.liveMatch->GetSnapshot();
-        if (!snapshot || snapshot->myPrimaryId != primaryId || !snapshot->roster.count(primaryId)) return false;
-        state.liveMatch->PostAction([primaryId, playlists, playlistTiers, playlistMatches, bestMmr, bestTier, totalWins](MatchState& match, SideEffects&) {
-            if (match.myPrimaryId != primaryId) return;
+        bool published = false;
+        state.liveMatch->Update([&](MatchState& match) {
+            if (match.myPrimaryId != primaryId || match.sessionGeneration != sessionGeneration) return;
             const auto playerIt = match.roster.find(primaryId);
             if (playerIt == match.roster.end()) return;
+            published = true;
             auto& player = playerIt->second;
             player.playlists = playlists;
             player.playlistTiers = playlistTiers;
@@ -68,18 +79,18 @@ namespace MmrPublisher {
                 }
             }
         });
-        return true;
+        return published;
     }
 
     bool PublishProfileResult(SessionState& state,
                               const MMRRequest& req,
                               const NormalizedProfileResult& profile,
                               const std::unordered_set<std::string>* playlistsAwaitingPostMatch) {
-        const auto snapshot = state.liveMatch ? state.liveMatch->GetSnapshot() : nullptr;
-        const bool fetchedThisSession = snapshot && req.sessionGeneration == snapshot->sessionGeneration;
-        const bool isLocalPlayer = snapshot && req.primaryId == snapshot->myPrimaryId;
-        if (state.liveMatch) {
-            state.liveMatch->PostAction([req, profile, fetchedThisSession, isLocalPlayer](MatchState& match, SideEffects&) {
+        if (!state.liveMatch) return false;
+        state.history.Mutate([&](database::store::HistoryData& data) {
+            state.liveMatch->Update([&](MatchState& match) {
+                const bool fetchedThisSession = req.sessionGeneration == match.sessionGeneration;
+                const bool isLocalPlayer = req.primaryId == match.myPrimaryId;
                 if (req.reason == MMRRequestReason::Roster && fetchedThisSession &&
                     req.primaryId == match.myPrimaryId && match.inMatch && !match.matchGuid.empty() &&
                     !match.preMatchMmrByGuid.count(match.matchGuid)) {
@@ -108,37 +119,35 @@ namespace MmrPublisher {
                     player.fetched = true;
                     player.fetchFailed = false;
                 }
+                if (isLocalPlayer && fetchedThisSession) {
+                    data.SelectMmrOwner(req.primaryId);
+                    if (data.initialMmr == -1 && profile.bestMmr > 0) {
+                        data.initialMmr = profile.bestMmr;
+                    }
+                    if (req.reason == MMRRequestReason::Roster && profile.bestMmr > 0) {
+                        data.mmrHistoryY.push_back(static_cast<float>(profile.bestMmr));
+                        data.mmrHistoryX.push_back(static_cast<float>(data.mmrHistoryY.size()));
+                    }
+
+                    for (const auto& [playlistName, fetchedMmr] : profile.playlistMMRs) {
+                        if (fetchedMmr <= 0 || playlistName == "best" || playlistName == "t" ||
+                            playlistName == "casual" ||
+                            (playlistsAwaitingPostMatch && playlistsAwaitingPostMatch->count(playlistName) > 0)) {
+                            continue;
+                        }
+                        if (req.reason == MMRRequestReason::PostMatch && playlistName == req.playlist) continue;
+
+                        auto& playlistHistory = data.playlistHistoryY[playlistName];
+                        if (playlistHistory.empty() && data.playlistInitialMmr.count(playlistName) == 0) {
+                            data.playlistInitialMmr[playlistName] = fetchedMmr;
+                        }
+                        if (playlistHistory.empty() || static_cast<int>(std::lround(playlistHistory.back())) != fetchedMmr) {
+                            playlistHistory.push_back(static_cast<float>(fetchedMmr));
+                        }
+                    }
+                    SyncSessionMmrChange(data, match);
+                }
             });
-        }
-        state.history.Mutate([&](database::store::HistoryData& data) {
-            if (isLocalPlayer && fetchedThisSession) {
-                data.SelectMmrOwner(req.primaryId);
-                if (data.initialMmr == -1 && profile.bestMmr > 0) {
-                    data.initialMmr = profile.bestMmr;
-                }
-                if (req.reason == MMRRequestReason::Roster && profile.bestMmr > 0) {
-                    data.mmrHistoryY.push_back(static_cast<float>(profile.bestMmr));
-                    data.mmrHistoryX.push_back(static_cast<float>(data.mmrHistoryY.size()));
-                }
-
-                for (const auto& [playlistName, fetchedMmr] : profile.playlistMMRs) {
-                    if (fetchedMmr <= 0 || playlistName == "best" || playlistName == "t" ||
-                        playlistName == "casual" ||
-                        (playlistsAwaitingPostMatch && playlistsAwaitingPostMatch->count(playlistName) > 0)) {
-                        continue;
-                    }
-                    if (req.reason == MMRRequestReason::PostMatch && playlistName == req.playlist) continue;
-
-                    auto& playlistHistory = data.playlistHistoryY[playlistName];
-                    if (playlistHistory.empty() && data.playlistInitialMmr.count(playlistName) == 0) {
-                        data.playlistInitialMmr[playlistName] = fetchedMmr;
-                    }
-                    if (playlistHistory.empty() || static_cast<int>(std::lround(playlistHistory.back())) != fetchedMmr) {
-                        playlistHistory.push_back(static_cast<float>(fetchedMmr));
-                    }
-                }
-                state.syncSessionMmrChangeLocked(data);
-            }
         });
         return false;
     }
@@ -152,11 +161,11 @@ namespace MmrPublisher {
         return result;
     }
 
-    std::optional<SessionRecap> PublishReconciledPointsLocked(SessionState& state, database::store::HistoryData& data,
-                                                              const ReconcilePublication& pub) {
-        const auto snapshot = state.liveMatch ? state.liveMatch->GetSnapshot() : nullptr;
-        const uint64_t currentSessionGeneration = snapshot ? snapshot->sessionGeneration : 0;
-        const std::string myPrimaryId = snapshot ? snapshot->myPrimaryId : std::string{};
+    std::optional<SessionRecap> PublishReconciledPointsLocked(database::store::HistoryData& data,
+                                                              const ReconcilePublication& pub, MatchState& match) {
+        std::optional<SessionRecap> updatedRecap;
+        const uint64_t currentSessionGeneration = match.sessionGeneration;
+        const std::string& myPrimaryId = match.myPrimaryId;
         ScopedMmrHistoryOwner owner(data, pub.primaryId, myPrimaryId);
         auto& points = data.playlistMatchPoints[pub.playlist];
         auto& projection = data.playlistHistoryY[pub.playlist];
@@ -215,8 +224,7 @@ namespace MmrPublisher {
             projection.push_back(static_cast<float>(seedMmr));
         }
 
-        std::optional<SessionRecap> updatedRecap;
-        auto recap = snapshot ? snapshot->lastSessionRecap : SessionRecap{};
+        auto recap = match.lastSessionRecap;
         if (recap.valid && recap.sessionGeneration != currentSessionGeneration &&
             recap.mmrOwnerPrimaryId == pub.primaryId &&
             pub.pendingSessionGenerations.count(recap.sessionGeneration) == 0) {
@@ -233,26 +241,34 @@ namespace MmrPublisher {
                 recap.totals.totalMmrChange = static_cast<float>(
                     CalculateTrackedSessionMmrChange(recap.totals.mmrChangeByPlaylist));
                 updatedRecap = recap;
-                if (state.liveMatch) state.liveMatch->UpdateLastSessionRecapMmr(
-                    recap.totals.mmrChangeByPlaylist, recap.totals.totalMmrChange);
+                match.lastSessionRecap = recap;
             }
         }
 
-        if (pub.shouldUpdatePreMatchSnapshots && pub.fetchedMatches >= 0 && state.liveMatch) {
-            state.liveMatch->PostAction([pub](MatchState& match, SideEffects&) {
-                if (!match.inMatch || match.matchFinalized || pub.primaryId != match.myPrimaryId) return;
-                for (auto& [snapshotGuid, baseline] : match.preMatchMmrByGuid) {
-                    if (pub.protectedSnapshotGuids.count(snapshotGuid)) continue;
-                    auto matchesIt = baseline.playlistMatches.find(pub.playlist);
-                    if (matchesIt == baseline.playlistMatches.end() || matchesIt->second < 0 ||
-                        matchesIt->second >= pub.fetchedMatches) continue;
-                    matchesIt->second = pub.fetchedMatches;
-                    baseline.playlistMmrs[pub.playlist] = pub.updates.empty() ? 0 : pub.updates.back().mmr;
-                }
+        if (pub.shouldUpdatePreMatchSnapshots && pub.fetchedMatches >= 0 &&
+            match.inMatch && !match.matchFinalized && pub.primaryId == match.myPrimaryId) {
+            for (auto& [snapshotGuid, baseline] : match.preMatchMmrByGuid) {
+                if (pub.protectedSnapshotGuids.count(snapshotGuid)) continue;
+                auto matchesIt = baseline.playlistMatches.find(pub.playlist);
+                if (matchesIt == baseline.playlistMatches.end() || matchesIt->second < 0 ||
+                    matchesIt->second >= pub.fetchedMatches) continue;
+                matchesIt->second = pub.fetchedMatches;
+                baseline.playlistMmrs[pub.playlist] = pub.updates.empty() ? 0 : pub.updates.back().mmr;
+            }
+        }
+        if (pub.primaryId == myPrimaryId) SyncSessionMmrChange(data, match);
+        return updatedRecap;
+    }
+
+    std::optional<SessionRecap> PublishReconciledPointsLocked(SessionState& state, database::store::HistoryData& data,
+                                                              const ReconcilePublication& pub) {
+        if (state.liveMatch) {
+            return state.liveMatch->Update([&](MatchState& match) {
+                return PublishReconciledPointsLocked(data, pub, match);
             });
         }
-        if (pub.primaryId == myPrimaryId) state.syncSessionMmrChangeLocked(data);
-        return updatedRecap;
+        MatchState emptyMatch;
+        return PublishReconciledPointsLocked(data, pub, emptyMatch);
     }
 
     void PublishProvisionalPoint(SessionState& state,
@@ -262,12 +278,10 @@ namespace MmrPublisher {
         });
     }
 
-    void PublishProvisionalPointLocked(SessionState& state, database::store::HistoryData& data,
-                                       const ProvisionalPublication& pub) {
-
-        const auto snapshot = state.liveMatch ? state.liveMatch->GetSnapshot() : nullptr;
-        if (!snapshot || pub.sessionGeneration != snapshot->sessionGeneration) return;
-        ScopedMmrHistoryOwner owner(data, pub.primaryId, snapshot->myPrimaryId);
+    void PublishProvisionalPointLocked(database::store::HistoryData& data,
+                                       const ProvisionalPublication& pub, MatchState& match) {
+        if (pub.sessionGeneration != match.sessionGeneration) return;
+        ScopedMmrHistoryOwner owner(data, pub.primaryId, match.myPrimaryId);
 
         auto& points = data.playlistMatchPoints[pub.playlist];
         auto& projection = data.playlistHistoryY[pub.playlist];
@@ -295,7 +309,15 @@ namespace MmrPublisher {
             return;
         }
 
-        if (pub.primaryId == snapshot->myPrimaryId) state.syncSessionMmrChangeLocked(data);
+        if (pub.primaryId == match.myPrimaryId) SyncSessionMmrChange(data, match);
+    }
+
+    void PublishProvisionalPointLocked(SessionState& state, database::store::HistoryData& data,
+                                       const ProvisionalPublication& pub) {
+        if (!state.liveMatch) return;
+        state.liveMatch->Update([&](MatchState& match) {
+            PublishProvisionalPointLocked(data, pub, match);
+        });
     }
 
 } // namespace MmrPublisher

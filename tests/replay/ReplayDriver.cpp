@@ -17,6 +17,8 @@ namespace omnistats::replay {
 
     namespace {
 
+        // Match the pre-IHttpClient replay curl mock: successful transport, HTTP 200,
+        // and no response bytes. The tracker provider must not fetch real ranks.
         class OfflineHttpClient : public Http::IHttpClient {
           public:
             bool IsAvailable() const override {

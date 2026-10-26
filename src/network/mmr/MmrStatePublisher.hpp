@@ -1,6 +1,7 @@
 #pragma once
 
 #include "core/state/SessionState.hpp"
+#include "core/state/MatchState.hpp"
 #include <map>
 #include <optional>
 #include <string>
@@ -56,6 +57,7 @@ namespace MmrPublisher {
 
     bool PublishCachedLocalRoster(SessionState& state,
                                   const std::string& primaryId,
+                                  uint64_t sessionGeneration,
                                   const std::map<std::string, int>& playlists,
                                   const std::map<std::string, std::string>& playlistTiers,
                                   const std::map<std::string, int>& playlistMatches,
@@ -74,6 +76,8 @@ namespace MmrPublisher {
     // Caller holds the exclusive history lock.
     std::optional<SessionRecap> PublishReconciledPointsLocked(SessionState& state, database::store::HistoryData& data,
                                                               const ReconcilePublication& pub);
+    std::optional<SessionRecap> PublishReconciledPointsLocked(database::store::HistoryData& data,
+                                                              const ReconcilePublication& pub, MatchState& match);
 
     void PublishProvisionalPoint(SessionState& state,
                                  const ProvisionalPublication& pub);
@@ -81,5 +85,7 @@ namespace MmrPublisher {
     // Caller holds the exclusive history lock.
     void PublishProvisionalPointLocked(SessionState& state, database::store::HistoryData& data,
                                        const ProvisionalPublication& pub);
+    void PublishProvisionalPointLocked(database::store::HistoryData& data,
+                                       const ProvisionalPublication& pub, MatchState& match);
 
 } // namespace MmrPublisher

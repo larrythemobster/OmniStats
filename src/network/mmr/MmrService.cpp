@@ -164,30 +164,33 @@ void MmrService::EnqueuePostMatch(const std::string& primaryId,
     if (provisionalImmediately && m_state) {
         std::optional<MmrReconciler::DbUpdate> dbUpdate;
         m_state->history.Mutate([&](database::store::HistoryData& data) {
-            std::vector<float> historyY;
-            int sessionInitialMmr = 0;
-            const auto copyHistory = [&](const auto& histories, const auto& initialMmrs) {
-                const auto it = histories.find(playlist);
-                if (it != histories.end()) historyY = it->second;
-                const auto initIt = initialMmrs.find(playlist);
-                if (initIt != initialMmrs.end()) sessionInitialMmr = initIt->second;
-            };
-            if (data.mmrOwnerPrimaryId.empty() || data.mmrOwnerPrimaryId == primaryId) {
-                copyHistory(data.playlistHistoryY, data.playlistInitialMmr);
-            } else {
-                const auto ownerIt = data.inactiveMmrHistories.find(primaryId);
-                if (ownerIt != data.inactiveMmrHistories.end()) {
-                    copyHistory(ownerIt->second.playlistHistoryY, ownerIt->second.playlistInitialMmr);
+            if (!m_state->liveMatch) return;
+            m_state->liveMatch->Update([&](MatchState& match) {
+                std::vector<float> historyY;
+                int sessionInitialMmr = 0;
+                const auto copyHistory = [&](const auto& histories, const auto& initialMmrs) {
+                    const auto it = histories.find(playlist);
+                    if (it != histories.end()) historyY = it->second;
+                    const auto initIt = initialMmrs.find(playlist);
+                    if (initIt != initialMmrs.end()) sessionInitialMmr = initIt->second;
+                };
+                if (data.mmrOwnerPrimaryId.empty() || data.mmrOwnerPrimaryId == primaryId) {
+                    copyHistory(data.playlistHistoryY, data.playlistInitialMmr);
+                } else {
+                    const auto ownerIt = data.inactiveMmrHistories.find(primaryId);
+                    if (ownerIt != data.inactiveMmrHistories.end()) {
+                        copyHistory(ownerIt->second.playlistHistoryY, ownerIt->second.playlistInitialMmr);
+                    }
                 }
-            }
-            if (m_state->liveMatch && sessionGen == m_state->liveMatch->GetSnapshot()->sessionGeneration) {
-                auto provResult = m_reconciler.EnsureProvisionalPoint(
-                    req, previousMmr, previousMmr, previousMatches, historyY, sessionInitialMmr);
-                if (provResult.applied) {
-                    MmrPublisher::PublishProvisionalPointLocked(*m_state, data, provResult.publication);
-                    dbUpdate = provResult.dbUpdate;
+                if (sessionGen == match.sessionGeneration) {
+                    auto provResult = m_reconciler.EnsureProvisionalPoint(
+                        req, previousMmr, previousMmr, previousMatches, historyY, sessionInitialMmr);
+                    if (provResult.applied) {
+                        MmrPublisher::PublishProvisionalPointLocked(data, provResult.publication, match);
+                        dbUpdate = provResult.dbUpdate;
+                    }
                 }
-            }
+            });
         });
         if (dbUpdate) {
             if (auto db = m_dbManager.lock()) {
@@ -231,30 +234,33 @@ void MmrService::EnqueuePendingDestroyedMatch(const PendingDestroyedMatchMmrRefr
     if (m_state) {
         std::optional<MmrReconciler::DbUpdate> dbUpdate;
         m_state->history.Mutate([&](database::store::HistoryData& data) {
-            std::vector<float> historyY;
-            int sessionInitialMmr = 0;
-            const auto copyHistory = [&](const auto& histories, const auto& initialMmrs) {
-                const auto it = histories.find(req.playlist);
-                if (it != histories.end()) historyY = it->second;
-                const auto initIt = initialMmrs.find(req.playlist);
-                if (initIt != initialMmrs.end()) sessionInitialMmr = initIt->second;
-            };
-            if (data.mmrOwnerPrimaryId.empty() || data.mmrOwnerPrimaryId == req.primaryId) {
-                copyHistory(data.playlistHistoryY, data.playlistInitialMmr);
-            } else {
-                const auto ownerIt = data.inactiveMmrHistories.find(req.primaryId);
-                if (ownerIt != data.inactiveMmrHistories.end()) {
-                    copyHistory(ownerIt->second.playlistHistoryY, ownerIt->second.playlistInitialMmr);
+            if (!m_state->liveMatch) return;
+            m_state->liveMatch->Update([&](MatchState& match) {
+                std::vector<float> historyY;
+                int sessionInitialMmr = 0;
+                const auto copyHistory = [&](const auto& histories, const auto& initialMmrs) {
+                    const auto it = histories.find(req.playlist);
+                    if (it != histories.end()) historyY = it->second;
+                    const auto initIt = initialMmrs.find(req.playlist);
+                    if (initIt != initialMmrs.end()) sessionInitialMmr = initIt->second;
+                };
+                if (data.mmrOwnerPrimaryId.empty() || data.mmrOwnerPrimaryId == req.primaryId) {
+                    copyHistory(data.playlistHistoryY, data.playlistInitialMmr);
+                } else {
+                    const auto ownerIt = data.inactiveMmrHistories.find(req.primaryId);
+                    if (ownerIt != data.inactiveMmrHistories.end()) {
+                        copyHistory(ownerIt->second.playlistHistoryY, ownerIt->second.playlistInitialMmr);
+                    }
                 }
-            }
-            if (m_state->liveMatch && sessionGen == m_state->liveMatch->GetSnapshot()->sessionGeneration) {
-                auto provResult = m_reconciler.EnsureProvisionalPoint(
-                    req, req.previousMmr, req.previousMmr, req.previousMatches, historyY, sessionInitialMmr);
-                if (provResult.applied) {
-                    MmrPublisher::PublishProvisionalPointLocked(*m_state, data, provResult.publication);
-                    dbUpdate = provResult.dbUpdate;
+                if (sessionGen == match.sessionGeneration) {
+                    auto provResult = m_reconciler.EnsureProvisionalPoint(
+                        req, req.previousMmr, req.previousMmr, req.previousMatches, historyY, sessionInitialMmr);
+                    if (provResult.applied) {
+                        MmrPublisher::PublishProvisionalPointLocked(data, provResult.publication, match);
+                        dbUpdate = provResult.dbUpdate;
+                    }
                 }
-            }
+            });
         });
         if (dbUpdate) {
             if (auto db = m_dbManager.lock()) {
@@ -323,7 +329,7 @@ bool MmrService::TrySatisfyLocalRosterRequest(const std::string& primaryId) {
     }
 
     return MmrPublisher::PublishCachedLocalRoster(
-        *m_state, cached.primaryId, cached.playlists, cached.playlistTiers,
+        *m_state, cached.primaryId, cached.sessionGeneration, cached.playlists, cached.playlistTiers,
         cached.playlistMatches, cached.bestMmr, cached.bestTier, cached.totalWins);
 }
 
@@ -381,9 +387,8 @@ bool MmrService::ProcessPostMatchResponse(const std::string& matchGuid, int fetc
     MmrReconciler::ReconcileResult recResult;
     std::optional<SessionRecap> updatedRecap;
     std::optional<MmrReconciler::DbUpdate> provisionalDbUpdate;
-    const auto reconcile = [&](database::store::HistoryData* history) {
-        if (history && m_state->liveMatch) {
-            const auto snapshot = m_state->liveMatch->GetSnapshot();
+    const auto reconcile = [&](database::store::HistoryData* history, MatchState* match) {
+        if (history && match) {
             const auto copyHistory = [&](const auto& playlistHistory, const auto& matchPoints, const auto& initialMmrs) {
                 const auto it = playlistHistory.find(req.playlist);
                 if (it != playlistHistory.end()) historyY = it->second;
@@ -402,15 +407,15 @@ bool MmrService::ProcessPostMatchResponse(const std::string& matchGuid, int fetc
                                 ownerIt->second.playlistInitialMmr);
                 }
             }
-            const auto playerIt = snapshot->roster.find(req.primaryId);
-            if (playerIt != snapshot->roster.end()) {
+            const auto playerIt = match->roster.find(req.primaryId);
+            if (playerIt != match->roster.end()) {
                 const auto playlistIt = playerIt->second.playlists.find(req.playlist);
                 if (playlistIt != playerIt->second.playlists.end()) rosterMmr = playlistIt->second;
             }
-            currentGen = snapshot->sessionGeneration;
-            myPrimaryId = snapshot->myPrimaryId;
-            inMatch = snapshot->inMatch;
-            finalized = snapshot->matchFinalized;
+            currentGen = match->sessionGeneration;
+            myPrimaryId = match->myPrimaryId;
+            inMatch = match->inMatch;
+            finalized = match->matchFinalized;
         }
         {
             std::lock_guard<std::mutex> lock(m_cacheMutex);
@@ -427,8 +432,8 @@ bool MmrService::ProcessPostMatchResponse(const std::string& matchGuid, int fetc
         recResult = m_reconciler.ReconcileTrackerResponse(req, fetchedMmr, fetchedMatches, historyY,
                                                           currentGen, myPrimaryId, inMatch, finalized,
                                                           &points, sessionInitialMmr);
-        if (recResult.applied && history) {
-            updatedRecap = MmrPublisher::PublishReconciledPointsLocked(*m_state, *history, recResult.publication);
+        if (recResult.applied && history && match) {
+            updatedRecap = MmrPublisher::PublishReconciledPointsLocked(*history, recResult.publication, *match);
             std::lock_guard<std::mutex> lock(m_cacheMutex);
             if (m_localProfileCache.primaryId == req.primaryId) {
                 if (fetchedMatches >= 0) {
@@ -439,19 +444,21 @@ bool MmrService::ProcessPostMatchResponse(const std::string& matchGuid, int fetc
                 }
             }
         }
-        if (!recResult.requestConfirmed && allowProvisional && history && req.sessionGeneration == currentGen) {
+        if (!recResult.requestConfirmed && allowProvisional && history && match && req.sessionGeneration == currentGen) {
             const int baselineMmr = req.previousMmr > 0 ? req.previousMmr : rosterMmr;
             auto provResult = m_reconciler.EnsureProvisionalPoint(req, baselineMmr, fetchedMmr, fetchedMatches, historyY, sessionInitialMmr);
             if (provResult.applied) {
-                MmrPublisher::PublishProvisionalPointLocked(*m_state, *history, provResult.publication);
+                MmrPublisher::PublishProvisionalPointLocked(*history, provResult.publication, *match);
                 provisionalDbUpdate = provResult.dbUpdate;
             }
         }
     };
     if (m_state && m_state->liveMatch) {
-        m_state->history.Mutate([&](database::store::HistoryData& data) { reconcile(&data); });
+        m_state->history.Mutate([&](database::store::HistoryData& data) {
+            m_state->liveMatch->Update([&](MatchState& match) { reconcile(&data, &match); });
+        });
     } else {
-        reconcile(nullptr);
+        reconcile(nullptr, nullptr);
     }
     if (auto db = m_dbManager.lock()) {
         for (const auto& u : recResult.dbUpdates) {

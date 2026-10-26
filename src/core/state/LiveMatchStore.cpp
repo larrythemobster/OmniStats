@@ -21,46 +21,14 @@ std::shared_ptr<const LiveMatchSnapshot> LiveMatchStore::GetSnapshot() const {
     return m_snapshot.load(std::memory_order_acquire);
 }
 
-void LiveMatchStore::SetTelemetryThreadActive(bool active) {
-    m_telemetryThreadActive.store(active, std::memory_order_release);
-}
-
-bool LiveMatchStore::IsTelemetryThreadActive() const {
-    return m_telemetryThreadActive.load(std::memory_order_acquire);
-}
-
 void LiveMatchStore::PublishSnapshotLocked() {
     m_state.version++;
     m_snapshot.store(std::make_shared<LiveMatchSnapshot>(m_state), std::memory_order_release);
 }
 
-void LiveMatchStore::DrainInboxLocked(SideEffects& effects) {
-    std::vector<std::function<void(MatchState&, SideEffects&)>> pending;
-    {
-        std::lock_guard lock(m_inboxMutex);
-        if (m_inbox.empty()) return;
-        pending = std::move(m_inbox);
-        m_inbox.clear();
-    }
-    for (auto& action : pending) {
-        if (action) action(m_state, effects);
-    }
-}
-
-SideEffects LiveMatchStore::DrainInboxAndApply(const ReducerContext& context) {
-    (void)context;
-    std::lock_guard lock(m_stateMutex);
-    SideEffects effects;
-    DrainInboxLocked(effects);
-    PublishSnapshotLocked();
-    return effects;
-}
-
 SideEffects LiveMatchStore::ApplyEvent(const TelemetryEvents::TelemetryEvent& event, const ReducerContext& context) {
     std::lock_guard lock(m_stateMutex);
-    SideEffects effects;
-    DrainInboxLocked(effects);
-    effects = TelemetryReducer::ReduceInPlace(m_state, event, context);
+    SideEffects effects = TelemetryReducer::ReduceInPlace(m_state, event, context);
     PublishSnapshotLocked();
     return effects;
 }
@@ -78,21 +46,8 @@ void LiveMatchStore::OnTelemetryDisconnected() {
     PublishSnapshotLocked();
 }
 
-void LiveMatchStore::PostAction(std::function<void(MatchState&, SideEffects&)> action) {
-    {
-        std::lock_guard lock(m_inboxMutex);
-        m_inbox.push_back(std::move(action));
-    }
-    if (!m_telemetryThreadActive.load(std::memory_order_relaxed)) {
-        std::lock_guard lock(m_stateMutex);
-        SideEffects effects;
-        DrainInboxLocked(effects);
-        PublishSnapshotLocked();
-    }
-}
-
 void LiveMatchStore::SetLocalPrimaryId(const std::string& primaryId) {
-    PostAction([primaryId](MatchState& state, SideEffects& effects) {
+    Update([&](MatchState& state) {
         state.myPrimaryId = primaryId;
         state.myTeam = -1;
         if (!primaryId.empty()) {
@@ -101,14 +56,13 @@ void LiveMatchStore::SetLocalPrimaryId(const std::string& primaryId) {
                 state.myTeam = it->second.team;
             }
         }
-        (void)effects;
     });
 }
 
 void LiveMatchStore::UpdateRosterMmr(const std::string& primaryId,
                                      const std::map<std::string, int>& playlists,
                                      const std::map<std::string, int>& playlistMatches) {
-    PostAction([primaryId, playlists, playlistMatches](MatchState& state, SideEffects& effects) {
+    Update([&](MatchState& state) {
         auto it = state.roster.find(primaryId);
         if (it != state.roster.end()) {
             it->second.playlists = playlists;
@@ -121,7 +75,7 @@ void LiveMatchStore::UpdateRosterMmr(const std::string& primaryId,
             state.myPrimaryId == primaryId) {
             bool hasPlaylistMmr = false;
             for (const auto& [pl, mmr] : playlists) {
-                if (mmr > 0) {
+                if (pl != "best" && mmr > 0) {
                     hasPlaylistMmr = true;
                     break;
                 }
@@ -133,25 +87,24 @@ void LiveMatchStore::UpdateRosterMmr(const std::string& primaryId,
                                              .playlistMatches = playlistMatches});
             }
         }
-        (void)effects;
     });
 }
 
 void LiveMatchStore::SetRosterFetchFailed(const std::string& primaryId) {
-    PostAction([primaryId](MatchState& state, SideEffects& effects) {
+    Update([&](MatchState& state) {
         auto it = state.roster.find(primaryId);
         if (it != state.roster.end()) {
             it->second.fetched = true;
             it->second.fetchFailed = true;
         }
-        (void)effects;
     });
 }
 
-void LiveMatchStore::UpdatePlayerLifetimeData(const std::string& primaryId,
+void LiveMatchStore::UpdatePlayerLifetimeData(const std::string& account, const std::string& primaryId,
                                               int winsWith, int lossesWith,
                                               int winsAgainst, int lossesAgainst) {
-    PostAction([primaryId, winsWith, lossesWith, winsAgainst, lossesAgainst](MatchState& state, SideEffects& effects) {
+    Update([&](MatchState& state) {
+        if (state.myPrimaryId != account) return;
         auto it = state.roster.find(primaryId);
         if (it != state.roster.end()) {
             auto& player = it->second;
@@ -161,49 +114,37 @@ void LiveMatchStore::UpdatePlayerLifetimeData(const std::string& primaryId,
             player.lifetimeLossesAgainst = lossesAgainst;
             player.hasLifetimeData = true;
         }
-        (void)effects;
     });
 }
 
 void LiveMatchStore::SyncSessionMmrChange(const std::map<std::string, int>& changes, float totalChange) {
-    PostAction([changes, totalChange](MatchState& state, SideEffects& effects) {
+    Update([&](MatchState& state) {
         state.sessionTotals.mmrChangeByPlaylist = changes;
         state.sessionTotals.totalMmrChange = totalChange;
-        (void)effects;
     });
 }
 
 void LiveMatchStore::UpdateLastSessionRecapMmr(const std::map<std::string, int>& changes, float totalChange) {
-    PostAction([changes, totalChange](MatchState& state, SideEffects& effects) {
+    Update([&](MatchState& state) {
         if (state.lastSessionRecap.valid) {
             state.lastSessionRecap.totals.mmrChangeByPlaylist = changes;
             state.lastSessionRecap.totals.totalMmrChange = totalChange;
         }
-        (void)effects;
     });
 }
 
-bool LiveMatchStore::StartNewSession(int64_t endedAtUnix, database::store::HistoryData* history) {
-    std::lock_guard lock(m_stateMutex);
-    SideEffects effects;
-    DrainInboxLocked(effects);
-
-    const bool captureRecap = m_state.StartNewSession(endedAtUnix, history);
-    PublishSnapshotLocked();
-    return captureRecap;
+bool LiveMatchStore::StartNewSession(int64_t endedAtUnix, database::store::HistoryData& history) {
+    return Update([&](MatchState& state) { return state.StartNewSession(endedAtUnix, &history); });
 }
 
-bool LiveMatchStore::CloseSessionIfInactive(int64_t nowUnix, database::store::HistoryData* history) {
-    int64_t endedAt = 0;
-    {
-        std::lock_guard lock(m_stateMutex);
-        if (m_state.inMatch) return false;
-        if (m_state.sessionTotals.wins + m_state.sessionTotals.losses <= 0) return false;
-        if (m_state.lastMatchEndedAtUnix <= 0) return false;
-        if (!Insights::StartsNewSession(m_state.lastMatchEndedAtUnix, nowUnix, true)) return false;
-        endedAt = m_state.lastMatchEndedAtUnix;
-    }
-    return StartNewSession(endedAt, history);
+bool LiveMatchStore::CloseSessionIfInactive(int64_t nowUnix, database::store::HistoryData& history) {
+    return Update([&](MatchState& state) {
+        if (state.inMatch) return false;
+        if (state.sessionTotals.wins + state.sessionTotals.losses <= 0) return false;
+        if (state.lastMatchEndedAtUnix <= 0) return false;
+        if (!Insights::StartsNewSession(state.lastMatchEndedAtUnix, nowUnix, true)) return false;
+        return state.StartNewSession(state.lastMatchEndedAtUnix, &history);
+    });
 }
 
 void LiveMatchStore::ClearActiveMatchOnDisconnect() {

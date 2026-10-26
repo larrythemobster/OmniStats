@@ -80,9 +80,6 @@ void StatsClient::Stop() {
         std::lock_guard<std::mutex> lock(m_confirmationCallbackGuard->mutex);
         m_confirmationCallbackGuard->owner = nullptr;
     }
-    if (m_state && m_state->liveMatch) {
-        m_state->liveMatch->SetTelemetryThreadActive(false);
-    }
     if (m_workerThread.joinable()) m_workerThread.join();
 }
 
@@ -144,9 +141,6 @@ void StatsClient::HandleDestroyedMatchConfirmation(const std::string& matchGuid,
 }
 
 void StatsClient::RunLoop() {
-    if (m_state && m_state->liveMatch) {
-        m_state->liveMatch->SetTelemetryThreadActive(true);
-    }
     bool errorLogged = false;
     while (m_isRunning) {
         try {
@@ -178,7 +172,7 @@ void StatsClient::RunLoop() {
                 const int64_t nowUnix = static_cast<int64_t>(std::time(nullptr));
                 if (resetSessionAfterDisconnect) {
                     m_state->history.Mutate([&](auto& history) {
-                        if (m_state->liveMatch->StartNewSession(nowUnix, &history)) {
+                        if (m_state->liveMatch->StartNewSession(nowUnix, history)) {
                             if (conf.show_session_recap_on_close) {
                                 m_state->ui.showSessionRecap.store(true);
                             }
@@ -187,7 +181,7 @@ void StatsClient::RunLoop() {
                     });
                 } else if (!conf.reset_session_on_close) {
                     m_state->history.Mutate([&](auto& history) {
-                        if (m_state->liveMatch->CloseSessionIfInactive(nowUnix, &history)) {
+                        if (m_state->liveMatch->CloseSessionIfInactive(nowUnix, history)) {
                             disconnectEffects.persistSession = m_state->liveMatch->GetSnapshot()->lastSessionRecap;
                         }
                     });
@@ -212,11 +206,6 @@ void StatsClient::RunLoop() {
         if (m_isRunning) {
             for (int i = 0; i < 30 && m_isRunning; ++i) {
                 std::this_thread::sleep_for(std::chrono::milliseconds(100));
-                if (m_state && m_state->liveMatch) {
-                    SideEffects effects = m_state->liveMatch->DrainInboxAndApply(MakeReducerContext(m_state->ui));
-                    EffectRouter::Route(std::move(effects), m_dbManager, m_discordManager,
-                                        m_mmrFetcher, m_accountManager, m_state);
-                }
             }
         }
     }

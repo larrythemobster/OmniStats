@@ -5,6 +5,7 @@
 #include "network/http/CurlImpersonate.hpp"
 #include "network/api/AccountClient.hpp"
 #include "network/mmr/MmrServiceDetail.hpp"
+#include "network/mmr/MmrStatePublisher.hpp"
 #include "core/state/SessionState.hpp"
 #include "core/state/LiveMatchStore.hpp"
 #include "core/config/Config.hpp"
@@ -549,6 +550,80 @@ TEST_F(MmrServiceTest, StaleResponseStillCreatesOneProvisionalOwnedPoint) {
     EXPECT_EQ(points[0].mmr, 1209);
     EXPECT_FALSE(points[0].trackerCovered);
     EXPECT_TRUE(points[0].valueEstimated);
+}
+
+TEST_F(MmrServiceTest, ProfilePublicationRejectsStaleGenerationAndNonlocalIdentityForHistory) {
+    sessionState->liveMatch->Update([](MatchState& match) {
+        match.myPrimaryId = "current";
+        match.sessionGeneration = 7;
+        match.inMatch = true;
+        match.matchGuid = "active";
+        match.roster["other"] = PlayerData{.primaryId = "other"};
+    });
+    MMRRequest request;
+    request.primaryId = "other";
+    request.sessionGeneration = 6;
+    NormalizedProfileResult profile;
+    profile.bestMmr = 1300;
+    profile.playlistMMRs["2v2"] = 1300;
+
+    MmrPublisher::PublishProfileResult(*sessionState, request, profile);
+    auto snapshot = sessionState->liveMatch->GetSnapshot();
+    EXPECT_FALSE(snapshot->roster.at("other").fetched);
+    EXPECT_TRUE(snapshot->preMatchMmrByGuid.empty());
+    EXPECT_TRUE(sessionState->history.GetSnapshot()->playlistHistoryY.empty());
+
+    request.primaryId = "current";
+    MmrPublisher::PublishProfileResult(*sessionState, request, profile);
+    snapshot = sessionState->liveMatch->GetSnapshot();
+    EXPECT_TRUE(snapshot->preMatchMmrByGuid.empty());
+    EXPECT_TRUE(sessionState->history.GetSnapshot()->playlistHistoryY.empty());
+
+    request.sessionGeneration = 7;
+    MmrPublisher::PublishProfileResult(*sessionState, request, profile);
+    snapshot = sessionState->liveMatch->GetSnapshot();
+    ASSERT_TRUE(snapshot->preMatchMmrByGuid.count("active"));
+    EXPECT_EQ(snapshot->preMatchMmrByGuid.at("active").playlistMmrs.at("2v2"), 1300);
+    EXPECT_EQ(sessionState->history.GetSnapshot()->mmrOwnerPrimaryId, "current");
+}
+
+TEST_F(MmrServiceTest, ProvisionalPublicationRejectsOldSessionAndKeepsOwnerHistoriesSeparate) {
+    sessionState->liveMatch->Update([](MatchState& match) {
+        match.myPrimaryId = "current";
+        match.sessionGeneration = 7;
+    });
+    sessionState->history.Mutate([](auto& history) {
+        history.SelectMmrOwner("current");
+        history.playlistHistoryY["2v2"] = {1400.0f};
+        history.playlistInitialMmr["2v2"] = 1400;
+    });
+    MmrPublisher::ProvisionalPublication publication;
+    publication.primaryId = "other";
+    publication.playlist = "2v2";
+    publication.matchGuid = "old-session";
+    publication.sessionGeneration = 6;
+    publication.provisionalMmr = 1209;
+    publication.sessionStartMmr = 1200;
+    MmrPublisher::PublishProvisionalPoint(*sessionState, publication);
+    auto history = sessionState->history.GetSnapshot();
+    EXPECT_EQ(history->mmrOwnerPrimaryId, "current");
+    EXPECT_TRUE(history->inactiveMmrHistories.empty());
+    EXPECT_EQ(history->playlistHistoryY.at("2v2"), (std::vector<float>{1400.0f}));
+
+    publication.sessionGeneration = 7;
+    publication.matchGuid = "other-match";
+    MmrPublisher::PublishProvisionalPoint(*sessionState, publication);
+    MmrPublisher::PublishProvisionalPoint(*sessionState, publication);
+    history = sessionState->history.GetSnapshot();
+    EXPECT_EQ(history->mmrOwnerPrimaryId, "current");
+    EXPECT_EQ(history->playlistHistoryY.at("2v2"), (std::vector<float>{1400.0f}));
+    ASSERT_TRUE(history->inactiveMmrHistories.count("other"));
+    const auto& other = history->inactiveMmrHistories.at("other");
+    EXPECT_EQ(other.playlistHistoryY.at("2v2"), (std::vector<float>{1209.0f}));
+    ASSERT_EQ(other.playlistMatchPoints.at("2v2").size(), 1u);
+    EXPECT_EQ(other.playlistMatchPoints.at("2v2")[0].matchGuid, "other-match");
+    EXPECT_TRUE(other.playlistMatchPoints.at("2v2")[0].valueEstimated);
+    EXPECT_TRUE(sessionState->liveMatch->GetSnapshot()->sessionTotals.mmrChangeByPlaylist.empty());
 }
 
 TEST_F(MmrServiceTest, FirstObservedZeroCountConfirmsOwnedPointAtOneWithoutMmrChange) {

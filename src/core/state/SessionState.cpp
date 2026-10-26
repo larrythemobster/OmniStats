@@ -83,13 +83,13 @@ void SessionState::clearActiveMatchOnDisconnect() {
 }
 
 bool SessionState::startNewSessionLocked(int64_t endedAtUnix, database::store::HistoryData& data) {
-    const bool capture = liveMatch ? liveMatch->StartNewSession(endedAtUnix, &data) : false;
+    const bool capture = liveMatch ? liveMatch->StartNewSession(endedAtUnix, data) : false;
     ui.graphOffset.store(0);
     return capture;
 }
 
 bool SessionState::closeSessionIfInactiveLocked(int64_t nowUnix, database::store::HistoryData& data) {
-    return liveMatch ? liveMatch->CloseSessionIfInactive(nowUnix, &data) : false;
+    return liveMatch ? liveMatch->CloseSessionIfInactive(nowUnix, data) : false;
 }
 
 void SessionState::syncSessionMmrChangeLocked(database::store::HistoryData& data) {
@@ -105,9 +105,24 @@ void SessionState::syncSessionMmrChangeLocked(database::store::HistoryData& data
 }
 
 void SessionState::selectMmrOwnerLocked(const std::string& primaryId, database::store::HistoryData& data) {
-    data.SelectMmrOwner(primaryId);
-    if (liveMatch) {
-        liveMatch->SetLocalPrimaryId(primaryId);
+    if (!liveMatch) {
+        data.SelectMmrOwner(primaryId);
+        return;
     }
-    syncSessionMmrChangeLocked(data);
+    liveMatch->Update([&](MatchState& match) {
+        data.SelectMmrOwner(primaryId);
+        match.myPrimaryId = primaryId;
+        match.myTeam = -1;
+        const auto it = match.roster.find(primaryId);
+        if (!primaryId.empty() && it != match.roster.end()) match.myTeam = it->second.team;
+        std::map<std::string, int> changes;
+        for (const auto& [playlist, projection] : data.playlistHistoryY) {
+            const auto initialIt = data.playlistInitialMmr.find(playlist);
+            if (projection.empty() || initialIt == data.playlistInitialMmr.end() || initialIt->second <= 0) continue;
+            changes[playlist] = static_cast<int>(std::lround(projection.back())) - initialIt->second;
+        }
+        match.sessionTotals.mmrChangeByPlaylist = std::move(changes);
+        match.sessionTotals.totalMmrChange =
+            static_cast<float>(CalculateTrackedSessionMmrChange(match.sessionTotals.mmrChangeByPlaylist));
+    });
 }
