@@ -71,8 +71,8 @@ namespace Http {
 
     } // namespace
 
-    CurlImpersonateHttpClient::CurlImpersonateHttpClient(CurlImpersonate* backend)
-        : m_backend(backend ? backend : &CurlImpersonate::Instance()) {}
+    CurlImpersonateHttpClient::CurlImpersonateHttpClient(std::shared_ptr<CurlImpersonate> backend)
+        : m_backend(backend ? std::move(backend) : std::make_shared<CurlImpersonate>()) {}
 
     bool CurlImpersonateHttpClient::IsAvailable() const {
         return m_backend && (m_backend->IsReady() || m_backend->EnsureAvailable());

@@ -41,6 +41,9 @@ class TrnRankProvider : public IRankProvider {
     const Result& LastResult() const {
         return m_lastResult;
     }
+    std::shared_ptr<Http::IHttpClient> GetHttpClient() const {
+        return m_httpClient;
+    }
 
   private:
     std::shared_ptr<Http::IHttpClient> m_httpClient;

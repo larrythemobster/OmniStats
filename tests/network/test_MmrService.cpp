@@ -200,47 +200,22 @@ class MmrServiceTest : public ::testing::Test {
             return res;
         });
 
-        auto& curl = CurlImpersonate::Instance();
-        original_perform = curl.easy_perform;
-        original_getinfo = curl.easy_getinfo;
-        original_setopt = curl.easy_setopt;
-        original_cleanup = curl.easy_cleanup;
-        original_slist_free_all = curl.slist_free_all;
-        original_slist_append = curl.slist_append;
-        original_easy_init = curl.easy_init;
-        original_easy_escape = curl.easy_escape;
-        original_free = curl.free_ptr;
-        original_easy_impersonate = curl.easy_impersonate;
-        original_ready = curl.IsReady();
-
-        curl.easy_perform = mock_easy_perform;
-        curl.easy_getinfo = mock_easy_getinfo;
-        curl.easy_setopt = mock_easy_setopt;
-        curl.easy_cleanup = mock_easy_cleanup;
-        curl.slist_free_all = mock_slist_free_all;
-        curl.slist_append = mock_slist_append;
-        curl.easy_init = mock_easy_init;
-        curl.easy_escape = mock_easy_escape;
-        curl.free_ptr = mock_curl_free;
-        curl.easy_impersonate = mock_easy_impersonate;
-        curl.SetReadyForTests(true);
+        auto curl = fetcher->GetCurlImpersonate();
+        ASSERT_NE(curl, nullptr);
+        curl->easy_perform = mock_easy_perform;
+        curl->easy_getinfo = mock_easy_getinfo;
+        curl->easy_setopt = mock_easy_setopt;
+        curl->easy_cleanup = mock_easy_cleanup;
+        curl->slist_free_all = mock_slist_free_all;
+        curl->slist_append = mock_slist_append;
+        curl->easy_init = mock_easy_init;
+        curl->easy_escape = mock_easy_escape;
+        curl->free_ptr = mock_curl_free;
+        curl->easy_impersonate = mock_easy_impersonate;
+        curl->SetReadyForTests(true);
     }
 
     void TearDown() override {
-        auto& curl = CurlImpersonate::Instance();
-        curl.easy_perform = original_perform;
-        curl.easy_getinfo = original_getinfo;
-        curl.easy_setopt = original_setopt;
-        curl.easy_cleanup = original_cleanup;
-        curl.slist_free_all = original_slist_free_all;
-        curl.slist_append = original_slist_append;
-        curl.easy_init = original_easy_init;
-        curl.easy_escape = original_easy_escape;
-        curl.free_ptr = original_free;
-        curl.easy_impersonate = original_easy_impersonate;
-        OmniNet::SetTransportForTesting({});
-        g_mock_refresh_fn = nullptr;
-        curl.SetReadyForTests(original_ready);
         g_mock_url.clear();
         g_mock_post_fields.clear();
         g_mock_custom_api_response_code = 0;
@@ -313,17 +288,6 @@ class MmrServiceTest : public ::testing::Test {
     std::shared_ptr<MmrService> fetcher;
     std::shared_ptr<AccountClient> accountClient;
 
-    pfn_curl_easy_perform original_perform;
-    pfn_curl_easy_getinfo original_getinfo;
-    pfn_curl_easy_setopt original_setopt;
-    pfn_curl_easy_cleanup original_cleanup;
-    pfn_curl_slist_free_all original_slist_free_all;
-    pfn_curl_slist_append original_slist_append;
-    pfn_curl_easy_init original_easy_init;
-    pfn_curl_easy_escape original_easy_escape;
-    pfn_curl_free original_free;
-    pfn_curl_easy_impersonate original_easy_impersonate;
-    bool original_ready = false;
     ConfigData originalConfig;
 };
 

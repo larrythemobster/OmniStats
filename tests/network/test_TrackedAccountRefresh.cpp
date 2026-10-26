@@ -155,20 +155,18 @@ class TrackedAccountRefreshTest : public ::testing::Test {
         accountClient->ResetForTests();
         UseCustomApi();
 
-        auto& curl = CurlImpersonate::Instance();
-        saved = {curl.easy_perform, curl.easy_getinfo, curl.easy_setopt, curl.easy_cleanup, curl.slist_free_all,
-                 curl.slist_append, curl.easy_init, curl.easy_escape, curl.free_ptr, curl.easy_impersonate, curl.IsReady()};
-        curl.easy_perform = MockPerform;
-        curl.easy_getinfo = MockGetinfo;
-        curl.easy_setopt = MockSetopt;
-        curl.easy_cleanup = MockCleanup;
-        curl.slist_free_all = MockSlistFree;
-        curl.slist_append = MockSlistAppend;
-        curl.easy_init = MockInit;
-        curl.easy_escape = MockEscape;
-        curl.free_ptr = MockFree;
-        curl.easy_impersonate = MockImpersonate;
-        curl.SetReadyForTests(true);
+        curl = std::make_shared<CurlImpersonate>();
+        curl->easy_perform = MockPerform;
+        curl->easy_getinfo = MockGetinfo;
+        curl->easy_setopt = MockSetopt;
+        curl->easy_cleanup = MockCleanup;
+        curl->slist_free_all = MockSlistFree;
+        curl->slist_append = MockSlistAppend;
+        curl->easy_init = MockInit;
+        curl->easy_escape = MockEscape;
+        curl->free_ptr = MockFree;
+        curl->easy_impersonate = MockImpersonate;
+        curl->SetReadyForTests(true);
 
         g_url.clear();
         g_postFields.clear();
@@ -208,7 +206,7 @@ class TrackedAccountRefreshTest : public ::testing::Test {
         state = std::make_shared<SessionState>();
         db = std::make_shared<DatabaseManager>(state);
         ASSERT_TRUE(db->Initialize(":memory:"));
-        fetcher = std::make_shared<MmrService>(state, db, accountClient, nullptr, nullptr, FastMmrTimings());
+        fetcher = std::make_shared<MmrService>(state, db, accountClient, nullptr, nullptr, FastMmrTimings(), curl);
         fetcher->SetTrackedAccountSink([this](const TrackedAccountFetchEvent& event) {
             std::lock_guard<std::mutex> lock(eventsMutex);
             events.push_back(event);
@@ -219,18 +217,6 @@ class TrackedAccountRefreshTest : public ::testing::Test {
         if (service) service->Stop();
         service.reset();
         fetcher->Stop();
-        auto& curl = CurlImpersonate::Instance();
-        curl.easy_perform = saved.perform;
-        curl.easy_getinfo = saved.getinfo;
-        curl.easy_setopt = saved.setopt;
-        curl.easy_cleanup = saved.cleanup;
-        curl.slist_free_all = saved.slistFree;
-        curl.slist_append = saved.slistAppend;
-        curl.easy_init = saved.init;
-        curl.easy_escape = saved.escape;
-        curl.free_ptr = saved.free;
-        curl.easy_impersonate = saved.impersonate;
-        curl.SetReadyForTests(saved.ready);
         if (accountClient) accountClient->ResetForTests();
         fetcher.reset();
         accountClient.reset();
@@ -326,19 +312,7 @@ class TrackedAccountRefreshTest : public ::testing::Test {
         return nullptr;
     }
 
-    struct SavedCurl {
-        pfn_curl_easy_perform perform;
-        pfn_curl_easy_getinfo getinfo;
-        pfn_curl_easy_setopt setopt;
-        pfn_curl_easy_cleanup cleanup;
-        pfn_curl_slist_free_all slistFree;
-        pfn_curl_slist_append slistAppend;
-        pfn_curl_easy_init init;
-        pfn_curl_easy_escape escape;
-        pfn_curl_free free;
-        pfn_curl_easy_impersonate impersonate;
-        bool ready;
-    } saved{};
+    std::shared_ptr<CurlImpersonate> curl;
 
     ConfigData originalConfig;
     std::shared_ptr<SessionState> state;

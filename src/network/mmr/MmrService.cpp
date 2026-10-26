@@ -1,6 +1,8 @@
 #include "network/mmr/MmrService.hpp"
 #include "network/mmr/OmniNetRankProvider.hpp"
 #include "network/mmr/TrnRankProvider.hpp"
+#include "network/http/CurlImpersonate.hpp"
+#include "network/http/CurlImpersonateHttpClient.hpp"
 #include "network/api/AccountClient.hpp"
 #include "database/DatabaseManager.hpp"
 #include "core/config/Config.hpp"
@@ -38,19 +40,22 @@ MmrService::MmrService(std::shared_ptr<SessionState> state,
                        std::shared_ptr<AccountClient> accountClient,
                        std::shared_ptr<IRankProvider> customProvider,
                        std::shared_ptr<IRankProvider> trackerProvider,
-                       MmrTimings timings)
+                       MmrTimings timings,
+                       std::shared_ptr<CurlImpersonate> curl)
     : m_state(std::move(state)),
       m_dbManager(std::move(dbManager)),
       m_accountClient(std::move(accountClient)),
       m_customProvider(std::move(customProvider)),
       m_trackerProvider(std::move(trackerProvider)),
+      m_curlImpersonate(curl ? std::move(curl) : std::make_shared<CurlImpersonate>()),
       m_timings(timings),
       m_queue(timings) {
     if (!m_customProvider && m_accountClient) {
         m_customProvider = std::make_shared<OmniNetRankProvider>(m_accountClient, [this]() { return !m_isRunning.load(); }, m_timings);
     }
     if (!m_trackerProvider) {
-        m_trackerProvider = std::make_shared<TrnRankProvider>(nullptr, [this]() { return !m_isRunning.load(); }, m_timings);
+        auto curlClient = std::make_shared<Http::CurlImpersonateHttpClient>(m_curlImpersonate);
+        m_trackerProvider = std::make_shared<TrnRankProvider>(std::move(curlClient), [this]() { return !m_isRunning.load(); }, m_timings);
     }
     m_queue.SetRunningCheck([this]() { return m_isRunning.load(); });
     m_queue.SetTrackedRetryCallback([this](const MMRRequest& req, std::chrono::milliseconds delay, bool rateLimited) {
@@ -99,12 +104,22 @@ void MmrService::Start() {
         m_customProvider = std::make_shared<OmniNetRankProvider>(m_accountClient, [this]() { return !m_isRunning.load(); }, m_timings);
     }
     if (!m_trackerProvider) {
-        m_trackerProvider = std::make_shared<TrnRankProvider>(nullptr, [this]() { return !m_isRunning.load(); }, m_timings);
+        auto curlClient = std::make_shared<Http::CurlImpersonateHttpClient>(m_curlImpersonate);
+        m_trackerProvider = std::make_shared<TrnRankProvider>(std::move(curlClient), [this]() { return !m_isRunning.load(); }, m_timings);
     }
 
     m_isRunning = true;
     m_workerThread = std::jthread(&MmrService::WorkerLoop, this);
     std::cout << "[MmrService] Background worker started.\n";
+}
+std::shared_ptr<CurlImpersonate> MmrService::GetCurlImpersonate() const {
+    if (m_curlImpersonate) return m_curlImpersonate;
+    if (auto trn = std::dynamic_pointer_cast<TrnRankProvider>(m_trackerProvider)) {
+        if (auto client = std::dynamic_pointer_cast<Http::CurlImpersonateHttpClient>(trn->GetHttpClient())) {
+            return client->GetBackend();
+        }
+    }
+    return nullptr;
 }
 
 void MmrService::Stop() {

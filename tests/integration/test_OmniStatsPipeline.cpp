@@ -71,32 +71,23 @@ class OmniStatsPipelineTest : public ::testing::Test {
         ASSERT_TRUE(db->Initialize(":memory:"));
         client = std::make_shared<StatsClient>(session, fetcher, db);
 
-        auto& curl = CurlImpersonate::Instance();
-        original_perform = curl.easy_perform;
-        original_getinfo = curl.easy_getinfo;
-        original_setopt = curl.easy_setopt;
-        original_cleanup = curl.easy_cleanup;
-        original_slist_free_all = curl.slist_free_all;
-        original_easy_escape = curl.easy_escape;
-        original_free = curl.free_ptr;
-        original_easy_impersonate = curl.easy_impersonate;
-        original_ready = curl.IsReady();
-
-        curl.easy_perform = int_mock_easy_perform;
-        curl.easy_getinfo = int_mock_easy_getinfo;
-        curl.easy_setopt = int_mock_easy_setopt;
-        curl.easy_cleanup = int_mock_easy_cleanup;
-        curl.slist_free_all = int_mock_slist_free_all;
-        curl.slist_append = int_mock_slist_append;
-        curl.easy_init = int_mock_easy_init;
-        curl.easy_escape = [](CURL*, const char* val, int len) -> char* {
+        auto curl = fetcher->GetCurlImpersonate();
+        ASSERT_NE(curl, nullptr);
+        curl->easy_perform = int_mock_easy_perform;
+        curl->easy_getinfo = int_mock_easy_getinfo;
+        curl->easy_setopt = int_mock_easy_setopt;
+        curl->easy_cleanup = int_mock_easy_cleanup;
+        curl->slist_free_all = int_mock_slist_free_all;
+        curl->slist_append = int_mock_slist_append;
+        curl->easy_init = int_mock_easy_init;
+        curl->easy_escape = [](CURL*, const char* val, int len) -> char* {
             static std::string escaped;
             escaped.assign(val, static_cast<size_t>(len));
             return escaped.data();
         };
-        curl.free_ptr = [](void*) {};
-        curl.easy_impersonate = [](CURL*, const char*, int) { return 0; };
-        curl.SetReadyForTests(true);
+        curl->free_ptr = [](void*) {};
+        curl->easy_impersonate = [](CURL*, const char*, int) { return 0; };
+        curl->SetReadyForTests(true);
 
         g_int_mock_response = R"({
             "data": {
@@ -116,18 +107,6 @@ class OmniStatsPipelineTest : public ::testing::Test {
         g_int_mock_response_code = 200;
     }
     void TearDown() override {
-        auto& curl = CurlImpersonate::Instance();
-        curl.easy_perform = original_perform;
-        curl.easy_getinfo = original_getinfo;
-        curl.easy_setopt = original_setopt;
-        curl.easy_cleanup = original_cleanup;
-        curl.slist_free_all = original_slist_free_all;
-        curl.slist_append = original_slist_append;
-        curl.easy_init = original_easy_init;
-        curl.easy_escape = original_easy_escape;
-        curl.free_ptr = original_free;
-        curl.easy_impersonate = original_easy_impersonate;
-        curl.SetReadyForTests(original_ready);
         Config::Update(
             [this](ConfigData& config) {
                 config = originalConfig;
@@ -205,18 +184,6 @@ class OmniStatsPipelineTest : public ::testing::Test {
     std::shared_ptr<MmrService> fetcher;
     std::shared_ptr<DatabaseManager> db;
     std::shared_ptr<StatsClient> client;
-
-    pfn_curl_easy_perform original_perform;
-    pfn_curl_easy_getinfo original_getinfo;
-    pfn_curl_easy_setopt original_setopt;
-    pfn_curl_easy_cleanup original_cleanup;
-    pfn_curl_slist_free_all original_slist_free_all;
-    pfn_curl_slist_append original_slist_append;
-    pfn_curl_easy_init original_easy_init;
-    pfn_curl_easy_escape original_easy_escape = nullptr;
-    pfn_curl_free original_free = nullptr;
-    pfn_curl_easy_impersonate original_easy_impersonate = nullptr;
-    bool original_ready = false;
 };
 
 TEST_F(OmniStatsPipelineTest, FullLifecycleMatchFlow) {

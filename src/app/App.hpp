@@ -5,6 +5,7 @@
 class SessionState;
 class DatabaseManager;
 class MmrService;
+class CurlImpersonate;
 class AccountClient;
 class AccountManagerService;
 class StatsClient;
@@ -36,6 +37,7 @@ class App {
     std::shared_ptr<Tournaments::TournamentScheduleService> m_tournamentService;
     std::shared_ptr<TelemetryManager> m_telemetryManager;
     std::shared_ptr<MmrService> m_mmrFetcher;
+    std::shared_ptr<CurlImpersonate> m_curlImpersonate;
     std::shared_ptr<AccountClient> m_accountClient;
     std::shared_ptr<AccountManagerService> m_accountManager;
     std::unique_ptr<StatsClient> m_statsClient;

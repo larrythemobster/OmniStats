@@ -49,9 +49,61 @@ namespace {
     }
 } // namespace
 
-CurlImpersonate& CurlImpersonate::Instance() {
-    static CurlImpersonate inst;
-    return inst;
+CurlImpersonate::CurlImpersonate() = default;
+
+CurlImpersonate::~CurlImpersonate() {
+    if (m_hDll) {
+        FreeLibrary(m_hDll);
+        m_hDll = nullptr;
+    }
+    if (m_hZlib) {
+        FreeLibrary(m_hZlib);
+        m_hZlib = nullptr;
+    }
+}
+
+CurlImpersonate::CurlImpersonate(CurlImpersonate&& other) noexcept
+    : easy_init(other.easy_init),
+      easy_cleanup(other.easy_cleanup),
+      easy_setopt(other.easy_setopt),
+      easy_perform(other.easy_perform),
+      easy_getinfo(other.easy_getinfo),
+      easy_escape(other.easy_escape),
+      free_ptr(other.free_ptr),
+      slist_append(other.slist_append),
+      slist_free_all(other.slist_free_all),
+      easy_impersonate(other.easy_impersonate),
+      m_hDll(other.m_hDll),
+      m_hZlib(other.m_hZlib),
+      m_loaded(other.m_loaded),
+      m_attempted(other.m_attempted) {
+    other.m_hDll = nullptr;
+    other.m_hZlib = nullptr;
+    other.m_loaded = false;
+}
+
+CurlImpersonate& CurlImpersonate::operator=(CurlImpersonate&& other) noexcept {
+    if (this == &other) return *this;
+    if (m_hDll) FreeLibrary(m_hDll);
+    if (m_hZlib) FreeLibrary(m_hZlib);
+    easy_init = other.easy_init;
+    easy_cleanup = other.easy_cleanup;
+    easy_setopt = other.easy_setopt;
+    easy_perform = other.easy_perform;
+    easy_getinfo = other.easy_getinfo;
+    easy_escape = other.easy_escape;
+    free_ptr = other.free_ptr;
+    slist_append = other.slist_append;
+    slist_free_all = other.slist_free_all;
+    easy_impersonate = other.easy_impersonate;
+    m_hDll = other.m_hDll;
+    m_hZlib = other.m_hZlib;
+    m_loaded = other.m_loaded;
+    m_attempted = other.m_attempted;
+    other.m_hDll = nullptr;
+    other.m_hZlib = nullptr;
+    other.m_loaded = false;
+    return *this;
 }
 
 std::string CurlImpersonate::GetDLLPath() {

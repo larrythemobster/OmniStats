@@ -17,10 +17,9 @@
 #include <string_view>
 #include <thread>
 #include <vector>
-
 class DatabaseManager;
 class AccountClient;
-
+class CurlImpersonate;
 class MmrService {
   public:
     using DestroyedMatchConfirmationCallback = MmrReconciler::DestroyedMatchConfirmationCallback;
@@ -31,7 +30,8 @@ class MmrService {
                         std::shared_ptr<AccountClient> accountClient = nullptr,
                         std::shared_ptr<IRankProvider> customProvider = nullptr,
                         std::shared_ptr<IRankProvider> trackerProvider = nullptr,
-                        MmrTimings timings = {});
+                        MmrTimings timings = {},
+                        std::shared_ptr<CurlImpersonate> curl = nullptr);
     virtual ~MmrService();
 
     MmrService(const MmrService&) = delete;
@@ -40,7 +40,7 @@ class MmrService {
     void SetAccountClient(std::shared_ptr<AccountClient> accountClient);
     void SetCustomProvider(std::shared_ptr<IRankProvider> provider);
     void SetTrackerProvider(std::shared_ptr<IRankProvider> provider);
-
+    std::shared_ptr<CurlImpersonate> GetCurlImpersonate() const;
     void Start();
     void Stop();
 
@@ -147,7 +147,7 @@ class MmrService {
     std::shared_ptr<AccountClient> m_accountClient;
     std::shared_ptr<IRankProvider> m_customProvider;
     std::shared_ptr<IRankProvider> m_trackerProvider;
-
+    std::shared_ptr<CurlImpersonate> m_curlImpersonate;
     MmrTimings m_timings;
     MmrRequestQueue m_queue;
     MmrReconciler m_reconciler;

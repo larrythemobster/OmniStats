@@ -40,8 +40,13 @@ using pfn_curl_easy_impersonate = int (*)(CURL*, const char*, int);
 
 class CurlImpersonate {
   public:
-    static CurlImpersonate& Instance();
+    CurlImpersonate();
+    ~CurlImpersonate();
 
+    CurlImpersonate(const CurlImpersonate&) = delete;
+    CurlImpersonate& operator=(const CurlImpersonate&) = delete;
+    CurlImpersonate(CurlImpersonate&&) noexcept;
+    CurlImpersonate& operator=(CurlImpersonate&&) noexcept;
     // Returns true if the DLL is loaded and ready
     bool IsReady() const {
         return m_loaded;
@@ -65,8 +70,6 @@ class CurlImpersonate {
         m_loaded = ready;
     }
 
-  private:
-    CurlImpersonate() = default;
     bool LoadDLL();
     std::string GetDLLPath();
     std::string GetZlibPath();

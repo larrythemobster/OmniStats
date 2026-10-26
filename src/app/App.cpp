@@ -13,6 +13,7 @@
 #include "network/api/StatsClient.hpp"
 #include "network/mmr/MmrService.hpp"
 #include "network/telemetry/TelemetryManager.hpp"
+#include "network/http/CurlImpersonate.hpp"
 #include "platform/InputManager.hpp"
 #include "ui/Overlay.hpp"
 #include "utils/Storage.hpp"
@@ -121,7 +122,8 @@ int App::Run() {
     }
 
     // Start Backend Threads
-    m_mmrFetcher = std::make_shared<MmrService>(m_state, m_dbManager, m_accountClient);
+    m_curlImpersonate = std::make_shared<CurlImpersonate>();
+    m_mmrFetcher = std::make_shared<MmrService>(m_state, m_dbManager, m_accountClient, nullptr, nullptr, MmrTimings{}, m_curlImpersonate);
     m_mmrFetcher->Start();
 
     m_accountManager = std::make_shared<AccountManagerService>(m_dbManager, m_mmrFetcher);

@@ -163,12 +163,8 @@ TEST_F(CurlRealNetworkTest, RepeatedInitCleanup_NoLeaksOrCrashes) {
     SUCCEED();
 }
 
-TEST_F(CurlRealNetworkTest, SingletonIsReady_ReflectsLoadState) {
-    // CurlImpersonate::Instance().IsReady() should return false in test
-    // environments where the curl-impersonate DLL has not been downloaded.
-    // This just verifies the accessor is callable and consistent.
-    auto& inst = CurlImpersonate::Instance();
-    // The result depends on whether the runtime DLL has been downloaded.
+TEST_F(CurlRealNetworkTest, InstanceIsReady_ReflectsLoadState) {
+    CurlImpersonate inst;
     (void)inst.IsReady();
     SUCCEED();
 }
@@ -190,9 +186,9 @@ TEST(HttpClientTest, StandardCurlClientHonorsCancellation) {
 }
 
 TEST(HttpClientTest, CurlImpersonateClientReportsUnavailableWhenDllMissing) {
-    auto& inst = CurlImpersonate::Instance();
-    Http::CurlImpersonateHttpClient client(&inst);
-    if (!inst.IsReady()) {
+    auto inst = std::make_shared<CurlImpersonate>();
+    Http::CurlImpersonateHttpClient client(inst);
+    if (!inst->IsReady()) {
         Http::HttpRequest req;
         req.url = "https://example.com";
         const auto resp = client.Request(req);
