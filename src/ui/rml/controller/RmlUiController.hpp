@@ -312,17 +312,6 @@ class RmlUiController final : public Rml::EventListener {
     Rml::ElementDocument* m_document = nullptr;
     Rml::SharedPtr<Rml::StyleSheetContainer> m_baseStyleSheet;
     bool m_rmlInitialized = false;
-    // Faces loaded from disk must outlive Rml::Shutdown; RCDATA-backed faces
-    // point into the module image and need no storage.
-    std::vector<std::vector<unsigned char>> m_fontBlobs;
-    // Installed family name -> registered Rml alias; empty when loading failed.
-    std::map<std::string, std::string> m_systemFontAliases;
-    std::vector<std::string> m_systemFontFamilies;
-    bool m_systemFontFamiliesLoaded = false;
-    // Font choices behind the stylesheet currently applied to the documents.
-    std::string m_appliedFontUi;
-    std::string m_appliedFontMono;
-    std::string m_appliedFontDisplay;
     bool m_rmlInterfacesInstalled = false;
     std::unique_ptr<Rml::ElementInstancer> m_graphLineInstancer;
     ID3D11DeviceContext* m_d3dContext = nullptr;

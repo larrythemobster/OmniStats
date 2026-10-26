@@ -11,6 +11,7 @@
 #include "core/state/LiveMatchStore.hpp"
 #include "ui/rml/backend/RmlCapture.hpp"
 #include "ui/rml/controller/RmlUiController.hpp"
+#include "utils/Storage.hpp"
 
 namespace {
     struct WarpCaptureDevice {
@@ -123,6 +124,18 @@ TEST(UiCapture, EmitOverlayAndDashboardScreenshots) {
         GTEST_SKIP() << "WARP not available.";
     }
 
+    Storage::InitializeEnvironment();
+    const ConfigData original = Config::Read();
+    Config::Update([](ConfigData& c) {
+        c.last_primary_id.clear();
+        c.graph_mmr_category = "2v2";
+        c.onboarding_completed = true;
+        c.privacy_policy_accepted_version = Config::CurrentPrivacyPolicyVersion;
+        c.terms_accepted_version = Config::CurrentTermsVersion;
+        c.account_link_prompt_shown = true;
+    },
+                   true);
+
     auto state = std::make_shared<SessionState>();
     SeedCaptureFixtureState(*state);
 
@@ -169,4 +182,5 @@ TEST(UiCapture, EmitOverlayAndDashboardScreenshots) {
         const auto dashboardPath = outDir / "dashboard.png";
         EXPECT_TRUE(RmlCapture::SaveBoundRenderTargetRegion(warp.context.Get(), 0, 0, 1920, 1080, 0.0f, dashboardPath.wstring(), err)) << err;
     }
+    Config::Update([&](ConfigData& c) { c = original; }, true);
 }

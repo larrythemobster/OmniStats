@@ -11,20 +11,20 @@
 
 namespace {
     struct BundledFont {
+        const char* resource;
         const char* file;
         const char* family;
         int weight;
-        int resource;
         bool required;
     };
 
     constexpr BundledFont kBundledFonts[] = {
-        {"Inter-Regular.ttf", "Inter", 400, 1001, true},
-        {"Inter-SemiBold.ttf", "Inter", 600, 1002, false},
-        {"Inter-Bold.ttf", "Inter", 700, 1003, false},
-        {"JetBrainsMono-Regular.ttf", "JetBrains Mono", 400, 1004, false},
-        {"JetBrainsMono-Bold.ttf", "JetBrains Mono", 700, 1005, false},
-        {"RussoOne-Regular.ttf", "Russo One", 400, 1006, false},
+        {"FONT_UI_REGULAR", "Inter-Regular.ttf", "Inter", 400, true},
+        {"FONT_UI_SEMIBOLD", "Inter-SemiBold.ttf", "Inter", 600, false},
+        {"FONT_UI_BOLD", "Inter-Bold.ttf", "Inter", 700, false},
+        {"FONT_MONO_REGULAR", "JetBrainsMono-Regular.ttf", "JetBrains Mono", 400, false},
+        {"FONT_MONO_BOLD", "JetBrainsMono-Bold.ttf", "JetBrains Mono", 700, false},
+        {"FONT_DISPLAY_REGULAR", "RussoOne-Regular.ttf", "Russo One", 400, false},
     };
 
     constexpr std::string_view kDefaultUiFont = "Inter";

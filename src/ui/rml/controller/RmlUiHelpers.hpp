@@ -72,9 +72,6 @@ namespace RmlUiDetail {
     const char* PlatformClass(PlatformKind kind);
 
     Rml::Span<const Rml::byte> EmbeddedResource(const char* name);
-    inline Rml::Span<const Rml::byte> EmbeddedResource(int resourceId) {
-        return EmbeddedResource(MAKEINTRESOURCEA(resourceId));
-    }
     std::vector<Rml::byte> ReadFontFile(const char* fileName);
     std::string TrackerUrlForPlayer(const PlayerData& player);
     std::string Attribute(Rml::Element* element, const char* name);
