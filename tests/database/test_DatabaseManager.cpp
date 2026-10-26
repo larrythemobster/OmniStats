@@ -2398,18 +2398,19 @@ TEST_F(DatabaseManagerTest, AsyncQueryMatchesAndAsyncGetMatchDetailIgnoreStaleRe
     }
     ASSERT_EQ(dbManager->GetSetting("async_history_barrier", ""), "done");
 
-    std::lock_guard<std::mutex> lock(sessionState->historyView.mutex);
-    EXPECT_EQ(sessionState->historyView.requestId, 10u);
-    EXPECT_FALSE(sessionState->historyView.loading);
-    EXPECT_EQ(sessionState->historyView.total, 2);
-    ASSERT_EQ(sessionState->historyView.rows.size(), 2u);
-    for (const auto& r : sessionState->historyView.rows) {
+    auto snap = sessionState->historyView.GetSnapshot();
+    ASSERT_NE(snap, nullptr);
+    EXPECT_EQ(snap->requestId, 10u);
+    EXPECT_FALSE(snap->loading);
+    EXPECT_EQ(snap->total, 2);
+    ASSERT_EQ(snap->rows.size(), 2u);
+    for (const auto& r : snap->rows) {
         EXPECT_EQ(r.arena, "Mannfield");
     }
 
-    EXPECT_EQ(sessionState->historyView.detailRequestId, 20u);
-    ASSERT_TRUE(sessionState->historyView.detail.has_value());
-    EXPECT_EQ(sessionState->historyView.detail->matchId, 2);
+    EXPECT_EQ(snap->detailRequestId, 20u);
+    ASSERT_TRUE(snap->detail.has_value());
+    EXPECT_EQ(snap->detail->matchId, 2);
 }
 
 TEST_F(DatabaseManagerTest, MigrationV3ToV4CreatesReplayUploadsTable) {

@@ -283,37 +283,36 @@ namespace database::repository {
     }
 
     int64_t SessionRepository::SaveSession(sqlite::Connection& db, const SessionRecap& recap,
-                                           std::map<std::pair<std::string, uint64_t>, std::pair<int64_t, int64_t>>* sessionIdByGeneration) {
+                                           std::map<std::pair<std::string, uint64_t>, std::pair<int64_t, int64_t>>* sessionIdByGeneration,
+                                           const std::string& liveAccount) {
         if (!db.IsOpen() || !HasSessionsTable(db)) return 0;
         if (recap.totals.wins + recap.totals.losses <= 0 && !recap.valid) return 0;
 
         std::string account = !recap.account.empty() ? recap.account : recap.mmrOwnerPrimaryId;
+        if (account.empty() && !liveAccount.empty()) {
+            account = liveAccount;
+        }
         if (account.empty()) {
             account = Config::Read().last_primary_id;
         }
 
         const std::string source = !recap.source.empty() ? recap.source : "live";
         const auto genKey = std::make_pair(account, recap.sessionGeneration);
-        if (source == "live" && sessionIdByGeneration) {
+        if (source == "live" && recap.id == 0 && sessionIdByGeneration) {
             auto it = sessionIdByGeneration->find(genKey);
-            if (it != sessionIdByGeneration->end()) {
-                SessionRecap updated = recap;
-                updated.id = it->second.first;
-                if (UpdateSession(db, updated, sessionIdByGeneration)) {
-                    return it->second.first;
-                }
+            if (it != sessionIdByGeneration->end() &&
+                it->second.first > 0 &&
+                it->second.second == recap.endedAtUnix) {
+                SessionRecap withId = recap;
+                withId.id = it->second.first;
+                withId.account = account;
+                UpdateSession(db, withId, sessionIdByGeneration, liveAccount);
+                return it->second.first;
             }
         }
 
-        int64_t startedAt = recap.startedAtUnix;
-        int64_t endedAt = recap.endedAtUnix;
-        if (endedAt <= 0) {
-            endedAt = static_cast<int64_t>(std::time(nullptr));
-        }
-        if (startedAt <= 0) {
-            startedAt = endedAt;
-        }
-
+        const int64_t endedAt = recap.endedAtUnix > 0 ? recap.endedAtUnix : static_cast<int64_t>(std::time(nullptr));
+        int64_t startedAt = recap.startedAtUnix > 0 ? (std::min)(recap.startedAtUnix, endedAt) : endedAt;
         const std::string mmrJson = SerializeMmrChangeJson(recap.totals.mmrChangeByPlaylist);
         const std::string totalsJson = SerializeTotalsJson(recap);
 
@@ -363,14 +362,17 @@ namespace database::repository {
     }
 
     bool SessionRepository::UpdateSession(sqlite::Connection& db, const SessionRecap& recap,
-                                          const std::map<std::pair<std::string, uint64_t>, std::pair<int64_t, int64_t>>* sessionIdByGeneration) {
+                                          const std::map<std::pair<std::string, uint64_t>, std::pair<int64_t, int64_t>>* sessionIdByGeneration,
+                                          const std::string& liveAccount) {
         if (!db.IsOpen() || !HasSessionsTable(db)) return false;
 
         std::string account = !recap.account.empty() ? recap.account : recap.mmrOwnerPrimaryId;
+        if (account.empty() && !liveAccount.empty()) {
+            account = liveAccount;
+        }
         if (account.empty()) {
             account = Config::Read().last_primary_id;
         }
-
         int64_t sessionId = recap.id;
         if (sessionId <= 0 && sessionIdByGeneration) {
             const auto it = sessionIdByGeneration->find(std::make_pair(account, recap.sessionGeneration));
@@ -391,7 +393,7 @@ namespace database::repository {
             }
         }
         if (sessionId <= 0) {
-            return SaveSession(db, recap, const_cast<std::map<std::pair<std::string, uint64_t>, std::pair<int64_t, int64_t>>*>(sessionIdByGeneration)) > 0;
+            return SaveSession(db, recap, const_cast<std::map<std::pair<std::string, uint64_t>, std::pair<int64_t, int64_t>>*>(sessionIdByGeneration), liveAccount) > 0;
         }
 
         const std::string mmrJson = SerializeMmrChangeJson(recap.totals.mmrChangeByPlaylist);
@@ -436,29 +438,55 @@ namespace database::repository {
         if (!db.IsOpen() || sessionId <= 0 || !HasSessionsTable(db)) return false;
 
         const bool hasStats = db.TableExists("MatchPlayerStats") && db.TableExists("MatchLocalStats");
-        std::string sql =
-            "SELECT m.id, CAST(strftime('%s', m.timestamp) AS INTEGER), m.win, "
-            "       COALESCE(m.playlist_id, -1), COALESCE(m.gamemode, ''), "
-            "       COALESCE(mp.mmr, 0), COALESCE(mp.mmr_estimated, 0), ";
-        if (hasStats) {
-            sql +=
-                "COALESCE(mps.score, 0), COALESCE(mps.goals, 0), COALESCE(mps.assists, 0), "
-                "COALESCE(mps.saves, 0), COALESCE(mps.shots, 0), COALESCE(mps.demos, 0), "
-                "COALESCE(mps.touches, 0), COALESCE(mps.max_goal_speed, 0.0), COALESCE(mps.fastest_goal_time, 0.0), "
-                "COALESCE(mls.boost_collected, 0), COALESCE(mls.demoed, 0), COALESCE(mls.crossbars, 0), "
-                "COALESCE(mls.hardest_crossbar, 0.0), COALESCE(mls.max_ball_speed, 0.0), COALESCE(mls.own_goals, 0) ";
-        } else {
-            sql +=
-                "0, 0, 0, 0, 0, 0, 0, 0.0, 0.0, "
-                "0, 0, 0, 0.0, 0.0, 0 ";
-        }
-        sql +=
-            "FROM Matches m "
-            "LEFT JOIN MatchPlayers mp ON mp.match_id = m.id AND mp.primary_id = ?1 "
-            "LEFT JOIN MatchPlayerStats mps ON mps.match_id = m.id AND mps.primary_id = ?1 "
-            "LEFT JOIN MatchLocalStats mls ON mls.match_id = m.id "
-            "WHERE m.session_id = ?2 "
-            "ORDER BY m.timestamp ASC, m.id ASC;";
+        const char* sql = hasStats ? R"(
+        SELECT m.id,
+               CAST(strftime('%s', m.timestamp) AS INTEGER),
+               COALESCE(m.win, 0),
+               COALESCE(m.our_score, 0),
+               COALESCE(m.their_score, 0),
+               m.gamemode,
+               COALESCE(m.player_count, 0),
+               m.playlist_id,
+               COALESCE(mp.mmr, 0),
+               COALESCE(mp.mmr_estimated, 0),
+               COALESCE(mps.goals, 0),
+               COALESCE(mps.assists, 0),
+               COALESCE(mps.saves, 0),
+               COALESCE(mps.shots, 0),
+               COALESCE(mps.demos, 0),
+               COALESCE(mps.max_goal_speed, 0.0),
+               COALESCE(mps.fastest_goal_time, 0.0),
+               COALESCE(mls.boost_collected, 0),
+               COALESCE(mls.demoed, 0),
+               COALESCE(mls.crossbars, 0),
+               COALESCE(mls.hardest_crossbar, 0.0),
+               COALESCE(mls.max_ball_speed, 0.0),
+               COALESCE(mls.own_goals, 0)
+        FROM Matches m
+        LEFT JOIN MatchPlayers mp ON mp.match_id = m.id AND mp.primary_id = ?2
+        LEFT JOIN MatchPlayerStats mps ON mps.match_id = m.id AND mps.primary_id = ?2
+        LEFT JOIN MatchLocalStats mls ON mls.match_id = m.id
+        WHERE m.session_id = ?1
+        ORDER BY m.timestamp ASC, m.id ASC;
+    )"
+                                   : R"(
+        SELECT m.id,
+               CAST(strftime('%s', m.timestamp) AS INTEGER),
+               COALESCE(m.win, 0),
+               COALESCE(m.our_score, 0),
+               COALESCE(m.their_score, 0),
+               m.gamemode,
+               COALESCE(m.player_count, 0),
+               m.playlist_id,
+               COALESCE(mp.mmr, 0),
+               COALESCE(mp.mmr_estimated, 0),
+               0, 0, 0, 0, 0, 0.0, 0.0,
+               0, 0, 0, 0.0, 0.0, 0
+        FROM Matches m
+        LEFT JOIN MatchPlayers mp ON mp.match_id = m.id AND mp.primary_id = ?2
+        WHERE m.session_id = ?1
+        ORDER BY m.timestamp ASC, m.id ASC;
+    )";
 
         SessionRecap recap;
         recap.id = sessionId;
@@ -478,65 +506,81 @@ namespace database::repository {
 
         try {
             sqlite::Statement stmt(db, sql);
-            stmt.Bind(1, account);
-            stmt.Bind(2, sessionId);
+            stmt.Bind(1, sessionId);
+            stmt.Bind(2, account);
 
             while (stmt.Step()) {
-                ++rowCount;
                 const int64_t ts = stmt.Get<int64_t>(1);
-                if (recap.startedAtUnix <= 0 || ts < recap.startedAtUnix) recap.startedAtUnix = ts;
-                if (ts > recap.endedAtUnix) recap.endedAtUnix = ts;
-
                 const bool win = stmt.Get<int>(2) != 0;
+                const int ourScore = stmt.Get<int>(3);
+                const std::string rawGamemode = stmt.Get<std::string>(5);
+                const int playerCount = stmt.Get<int>(6);
+                const bool hasPlaylistId = !stmt.IsNull(7);
+                const int playlistId = hasPlaylistId ? stmt.Get<int>(7) : -1;
+                const int mmr = stmt.Get<int>(8);
+                const bool mmrEstimated = stmt.Get<int>(9) != 0;
+                const int goals = stmt.Get<int>(10);
+                const int assists = stmt.Get<int>(11);
+                const int saves = stmt.Get<int>(12);
+                const int shots = stmt.Get<int>(13);
+                const int demos = stmt.Get<int>(14);
+                const float maxGoalSpeed = static_cast<float>(stmt.Get<double>(15));
+                const float fastestGoalTime = static_cast<float>(stmt.Get<double>(16));
+                const int boostCollected = stmt.Get<int>(17);
+                const int demoed = stmt.Get<int>(18);
+                const int crossbars = stmt.Get<int>(19);
+                const float hardestCrossbar = static_cast<float>(stmt.Get<double>(20));
+                const float maxBallSpeed = static_cast<float>(stmt.Get<double>(21));
+                const int ownGoals = stmt.Get<int>(22);
+
+                if (rowCount == 0) {
+                    recap.startedAtUnix = ts;
+                    recap.endedAtUnix = ts;
+                } else {
+                    recap.startedAtUnix = (std::min)(recap.startedAtUnix, ts);
+                    recap.endedAtUnix = (std::max)(recap.endedAtUnix, ts);
+                }
+                ++rowCount;
+
+                auto& t = recap.totals;
                 if (win)
-                    recap.totals.wins++;
+                    t.wins++;
                 else
-                    recap.totals.losses++;
-
-                const int playlistId = stmt.Get<int>(3);
-                const std::string gamemode = stmt.Get<std::string>(4);
-                const int mmr = stmt.Get<int>(5);
-                const bool mmrEstimated = stmt.Get<int>(6) != 0;
-
-                if (hasStats) {
-                    recap.totals.goals += stmt.Get<int>(8);
-                    recap.totals.assists += stmt.Get<int>(9);
-                    recap.totals.saves += stmt.Get<int>(10);
-                    recap.totals.shots += stmt.Get<int>(11);
-                    recap.totals.demos += stmt.Get<int>(12);
-                    const float maxGoalSpeed = static_cast<float>(stmt.Get<double>(14));
-                    const float fastestGoal = static_cast<float>(stmt.Get<double>(15));
-                    recap.totals.maxGoalSpeed = (std::max)(recap.totals.maxGoalSpeed, maxGoalSpeed);
-                    recap.totals.maxGoalSpeedSelf = (std::max)(recap.totals.maxGoalSpeedSelf, maxGoalSpeed);
-                    if (fastestGoal > 0.0f) {
-                        if (recap.totals.fastestGoalTime <= 0.0f || fastestGoal < recap.totals.fastestGoalTime) {
-                            recap.totals.fastestGoalTime = fastestGoal;
-                            recap.totals.fastestGoalTimeSelf = fastestGoal;
-                        }
-                    }
-                    recap.totals.boostPickedUp += stmt.Get<int>(16);
-                    recap.totals.demoed += stmt.Get<int>(17);
-                    recap.totals.crossbars += stmt.Get<int>(18);
-                    const float hardestCrossbar = static_cast<float>(stmt.Get<double>(19));
-                    const float maxBallSpeed = static_cast<float>(stmt.Get<double>(20));
-                    recap.totals.maxImpactForce = (std::max)(recap.totals.maxImpactForce, hardestCrossbar);
-                    recap.totals.maxImpactForceSelf = (std::max)(recap.totals.maxImpactForceSelf, hardestCrossbar);
-                    recap.totals.maxBallSpeed = (std::max)(recap.totals.maxBallSpeed, maxBallSpeed);
-                    recap.totals.maxBallSpeedSelf = (std::max)(recap.totals.maxBallSpeedSelf, maxBallSpeed);
-                    recap.totals.ownGoals += stmt.Get<int>(21);
+                    t.losses++;
+                t.goals += goals;
+                t.assists += assists;
+                t.saves += saves;
+                t.shots += shots;
+                t.demos += demos;
+                t.boostPickedUp += boostCollected;
+                t.demoed += demoed;
+                t.crossbars += crossbars;
+                t.ownGoalsSelf += ownGoals;
+                t.maxGoalSpeedSelf = (std::max)(t.maxGoalSpeedSelf, maxGoalSpeed);
+                t.maxGoalSpeed = (std::max)(t.maxGoalSpeed, maxGoalSpeed);
+                t.maxImpactForceSelf = (std::max)(t.maxImpactForceSelf, hardestCrossbar);
+                t.maxImpactForce = (std::max)(t.maxImpactForce, hardestCrossbar);
+                t.maxBallSpeedSelf = (std::max)(t.maxBallSpeedSelf, maxBallSpeed);
+                t.maxBallSpeed = (std::max)(t.maxBallSpeed, maxBallSpeed);
+                if (fastestGoalTime > 0.0f && (t.fastestGoalTimeSelf == 0.0f || fastestGoalTime < t.fastestGoalTimeSelf)) {
+                    t.fastestGoalTimeSelf = fastestGoalTime;
+                    t.fastestGoalTime = fastestGoalTime;
                 }
 
-                const bool hasPlaylistId = playlistId >= 0;
-                std::string modeKey = gamemode;
-                std::string mmrKey;
-                if (hasPlaylistId) {
-                    const std::string metaKey = PlaylistMetadata::MmrKey(playlistId);
-                    if (!metaKey.empty()) {
-                        modeKey = metaKey;
-                        mmrKey = metaKey;
-                    }
-                } else if (!gamemode.empty()) {
-                    mmrKey = gamemode;
+                std::string modeKey = rawGamemode;
+                std::string mmrKey = rawGamemode;
+                if (hasPlaylistId && PlaylistMetadata::IsKnown(playlistId)) {
+                    modeKey = PlaylistMetadata::StorageMode(playlistId);
+                    mmrKey = PlaylistMetadata::MmrKey(playlistId);
+                } else if (modeKey.empty()) {
+                    modeKey = GamemodeUtils::InferFromSnapshot(playerCount, playerCount, MmrCategory::Best, "");
+                    mmrKey = modeKey;
+                }
+
+                if (modeKey != "1v1") {
+                    const int teamGoalsThisMatch = (std::max)(0, ourScore);
+                    t.teamGoals += teamGoalsThisMatch;
+                    t.goalParticipations += std::clamp(goals + assists, 0, teamGoalsThisMatch);
                 }
 
                 const bool isCasual = (hasPlaylistId && PlaylistMetadata::IsCasual(playlistId)) || modeKey == "casual";

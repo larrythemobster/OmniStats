@@ -27,8 +27,8 @@ namespace database::repository {
         static std::vector<AnalyticsMatchRow> GetAnalyticsMatches(sqlite::Connection& db, const std::string& primaryId, int limit = 100);
         static void GetDetailedStatsSummary(sqlite::Connection& db, int& outMatchCount, std::string& outSinceDate);
         static void QueryMatches(sqlite::Connection& db, const MatchQuery& query, std::vector<MatchRow>& outRows, int& outTotalCount);
-        static bool GetMatchDetail(sqlite::Connection& db, int64_t matchId, MatchDetail& outDetail, const std::string& accountPrimaryId = "");
-        static bool GetMatchDetailByGuid(sqlite::Connection& db, const std::string& matchGuid, MatchDetail& outDetail, const std::string& accountPrimaryId = "");
+        static bool GetMatchDetail(sqlite::Connection& db, int64_t matchId, MatchDetail& outDetail, const std::string& accountPrimaryId = "", const std::string& liveAccount = "");
+        static bool GetMatchDetailByGuid(sqlite::Connection& db, const std::string& matchGuid, MatchDetail& outDetail, const std::string& accountPrimaryId = "", const std::string& liveAccount = "");
         static std::optional<std::vector<PersonRecord>> QueryEncounterRecords(sqlite::Connection& db, const std::string& account, const std::string& onlyPlayer = {}, int64_t excludeMatchId = 0);
 
       private:

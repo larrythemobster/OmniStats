@@ -29,18 +29,17 @@ namespace database::store {
 
         void UpdateSessions(const std::string& pid, std::vector<SessionRecap> inSessions);
 
-        // Fields maintained for backward compatibility and tests
-        mutable std::mutex mutex;
-        std::atomic<uint64_t> version{0};
-        bool loaded = false;
-        std::string primaryId;
-        std::vector<PersonRecord> people;
-        std::vector<MatchOutcome> outcomes;
-        std::vector<MatchMmrContext> mmrContext;
-        std::vector<SessionRecap> sessions;
-        std::vector<AnalyticsMatchRow> analyticsMatches;
-
       private:
+        mutable std::mutex m_mutex;
+        std::atomic<uint64_t> m_version{0};
+        bool m_loaded = false;
+        std::string m_primaryId;
+        std::vector<PersonRecord> m_people;
+        std::vector<MatchOutcome> m_outcomes;
+        std::vector<MatchMmrContext> m_mmrContext;
+        std::vector<SessionRecap> m_sessions;
+        std::vector<AnalyticsMatchRow> m_analyticsMatches;
+
         mutable std::atomic<std::shared_ptr<const InsightsSnapshot>> m_snapshot;
     };
 

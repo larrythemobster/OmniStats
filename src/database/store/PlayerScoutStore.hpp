@@ -23,16 +23,15 @@ namespace database::store {
 
         void PublishScout(uint64_t reqId, const std::string& pid, bool inSuccess, std::optional<PlayerScoutProfile> inProfile);
 
-        // Fields maintained for backward compatibility and tests
-        mutable std::mutex mutex;
-        std::atomic<uint64_t> version{0};
-        uint64_t requestId = 0;
-        std::string playerId;
-        bool loaded = false;
-        bool success = false;
-        PlayerScoutProfile profile;
-
       private:
+        mutable std::mutex m_mutex;
+        std::atomic<uint64_t> m_version{0};
+        uint64_t m_requestId = 0;
+        std::string m_playerId;
+        bool m_loaded = false;
+        bool m_success = false;
+        PlayerScoutProfile m_profile;
+
         mutable std::atomic<std::shared_ptr<const PlayerScoutSnapshot>> m_snapshot;
     };
 

@@ -18,9 +18,11 @@ namespace database::repository {
         static bool HasUnlinkedMatches(sqlite::Connection& db, const std::string& account = "");
 
         static int64_t SaveSession(sqlite::Connection& db, const SessionRecap& recap,
-                                   std::map<std::pair<std::string, uint64_t>, std::pair<int64_t, int64_t>>* sessionIdByGeneration = nullptr);
+                                   std::map<std::pair<std::string, uint64_t>, std::pair<int64_t, int64_t>>* sessionIdByGeneration = nullptr,
+                                   const std::string& liveAccount = "");
         static bool UpdateSession(sqlite::Connection& db, const SessionRecap& recap,
-                                  const std::map<std::pair<std::string, uint64_t>, std::pair<int64_t, int64_t>>* sessionIdByGeneration = nullptr);
+                                  const std::map<std::pair<std::string, uint64_t>, std::pair<int64_t, int64_t>>* sessionIdByGeneration = nullptr,
+                                  const std::string& liveAccount = "");
 
         static std::vector<SessionRecap> ListSessions(sqlite::Connection& db, const std::string& account, int offset = 0, int limit = 50);
         static SessionRecap GetSession(sqlite::Connection& db, int64_t id);

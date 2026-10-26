@@ -38,22 +38,21 @@ namespace database::store {
                                const PlayerNotes::Identity& identity,
                                std::optional<std::vector<std::string>> newTags);
 
-        // Fields maintained for backward compatibility and tests
-        mutable std::mutex mutex;
-        std::atomic<uint64_t> version{0};
-        bool loaded = false;
-        bool loadFailed = false;
-        std::unordered_map<std::string, PlayerNotes::Note> byKey;
-        std::unordered_map<std::string, std::vector<std::string>> tagsByKey;
-        uint64_t completedRequestId = 0;
-        bool lastRequestOk = true;
-        std::string lastRequestError;
-        uint64_t completedTagRequestId = 0;
-        bool lastTagRequestOk = true;
-        std::string lastTagRequestError;
-
       private:
         void PublishCurrentLocked();
+
+        mutable std::mutex m_mutex;
+        std::atomic<uint64_t> m_version{0};
+        bool m_loaded = false;
+        bool m_loadFailed = false;
+        std::unordered_map<std::string, PlayerNotes::Note> m_byKey;
+        std::unordered_map<std::string, std::vector<std::string>> m_tagsByKey;
+        uint64_t m_completedRequestId = 0;
+        bool m_lastRequestOk = true;
+        std::string m_lastRequestError;
+        uint64_t m_completedTagRequestId = 0;
+        bool m_lastTagRequestOk = true;
+        std::string m_lastTagRequestError;
 
         mutable std::atomic<std::shared_ptr<const PlayerNotesSnapshot>> m_snapshot;
     };

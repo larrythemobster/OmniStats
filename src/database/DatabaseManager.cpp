@@ -113,6 +113,10 @@ bool DatabaseManager::Initialize(const std::string& dbPath) {
 
     if (repository::SessionRepository::HasUnlinkedMatches(m_db)) {
         m_backfillPending.store(true, std::memory_order_release);
+        (void)EnqueueDbJob([this]() {
+            BackfillSessions(500);
+        },
+                           DbJobPriority::Coalescable, "sessions_backfill");
     }
 
     if (!DatabaseDetail::IsInMemoryDbPath(dbPath)) {
@@ -236,18 +240,20 @@ void DatabaseManager::AsyncUpdateMatchPlayerMmr(std::string matchGuid, std::stri
 int64_t DatabaseManager::SaveSession(const SessionRecap& recap) {
     std::lock_guard lock(m_writeMutex);
     if (!m_db.IsOpen()) return 0;
-    return repository::SessionRepository::SaveSession(m_db, recap, &m_sessionIdByGeneration);
+    std::string liveAccount;
+    if (m_state && m_state->liveMatch) {
+        auto liveSnap = m_state->liveMatch->GetSnapshot();
+        if (liveSnap) liveAccount = liveSnap->myPrimaryId;
+    }
+    return repository::SessionRepository::SaveSession(m_db, recap, &m_sessionIdByGeneration, liveAccount);
 }
 
 void DatabaseManager::AsyncSaveSession(SessionRecap recap) {
     (void)EnqueueDbJob([this, r = std::move(recap)]() {
         const int64_t id = SaveSession(r);
         if (id > 0 && m_state) {
-            std::string pid = r.account.empty() ? r.mmrOwnerPrimaryId : r.account;
-            if (pid.empty() && m_state->liveMatch) {
-                auto liveSnap = m_state->liveMatch->GetSnapshot();
-                if (liveSnap) pid = liveSnap->myPrimaryId;
-            }
+            auto snap = m_state->insights.GetSnapshot();
+            std::string pid = (snap && snap->loaded) ? snap->primaryId : std::string{};
             if (!pid.empty()) {
                 auto sessions = ListSessions(pid, 0, 200);
                 m_state->insights.UpdateSessions(pid, std::move(sessions));
@@ -260,36 +266,48 @@ void DatabaseManager::AsyncSaveSession(SessionRecap recap) {
 bool DatabaseManager::UpdateSession(const SessionRecap& recap) {
     std::lock_guard lock(m_writeMutex);
     if (!m_db.IsOpen()) return false;
-    return repository::SessionRepository::UpdateSession(m_db, recap, &m_sessionIdByGeneration);
+    std::string liveAccount;
+    if (m_state && m_state->liveMatch) {
+        auto liveSnap = m_state->liveMatch->GetSnapshot();
+        if (liveSnap) liveAccount = liveSnap->myPrimaryId;
+    }
+    return repository::SessionRepository::UpdateSession(m_db, recap, &m_sessionIdByGeneration, liveAccount);
 }
 
 void DatabaseManager::AsyncUpdateSession(SessionRecap recap) {
     (void)EnqueueDbJob([this, r = std::move(recap)]() {
-        (void)UpdateSession(r);
+        if (UpdateSession(r) && m_state) {
+            auto snap = m_state->insights.GetSnapshot();
+            std::string pid = (snap && snap->loaded) ? snap->primaryId : std::string{};
+            if (!pid.empty()) {
+                auto sessions = ListSessions(pid, 0, 200);
+                m_state->insights.UpdateSessions(pid, std::move(sessions));
+            }
+        }
     },
-                       DbJobPriority::Normal);
+                       DbJobPriority::Critical);
 }
 
 int DatabaseManager::BackfillSessions(int chunkSize) {
     int totalCreated = 0;
-    std::string preferredAccount;
-    std::vector<std::string> activeSessionGuids;
-    if (m_state && m_state->liveMatch) {
-        auto liveSnap = m_state->liveMatch->GetSnapshot();
-        if (liveSnap) {
-            preferredAccount = liveSnap->myPrimaryId;
-            if (liveSnap->sessionTotals.wins + liveSnap->sessionTotals.losses > 0) {
-                activeSessionGuids = liveSnap->sessionMatchGuids;
-            }
-        }
-    }
-    if (preferredAccount.empty()) {
-        preferredAccount = Config::Read().last_primary_id;
-    }
-
     while (true) {
         bool moreRemaining = false;
         int linked = 0;
+        std::string preferredAccount;
+        std::vector<std::string> activeSessionGuids;
+        if (m_state && m_state->liveMatch) {
+            auto liveSnap = m_state->liveMatch->GetSnapshot();
+            if (liveSnap) {
+                preferredAccount = liveSnap->myPrimaryId;
+                if (liveSnap->sessionTotals.wins + liveSnap->sessionTotals.losses > 0) {
+                    activeSessionGuids = liveSnap->sessionMatchGuids;
+                }
+            }
+        }
+        if (preferredAccount.empty()) {
+            preferredAccount = Config::Read().last_primary_id;
+        }
+
         {
             std::lock_guard lock(m_writeMutex);
             totalCreated += repository::SessionRepository::BackfillSessionsChunk(
@@ -308,6 +326,32 @@ std::vector<SessionRecap> DatabaseManager::ListSessions(const std::string& accou
         BackfillSessions(500);
     }
     if (account.empty()) return {};
+
+    bool shouldBackfillAccount = false;
+    bool liveOrEndedInMemory = false;
+    if (m_state && m_state->liveMatch) {
+        auto liveSnap = m_state->liveMatch->GetSnapshot();
+        if (liveSnap) {
+            liveOrEndedInMemory =
+                (liveSnap->sessionTotals.wins + liveSnap->sessionTotals.losses > 0) ||
+                liveSnap->lastSessionRecap.valid ||
+                liveSnap->inMatch;
+        }
+    }
+    if (!liveOrEndedInMemory) {
+        if (m_readerPool.HasPool()) {
+            auto lease = m_readerPool.Acquire();
+            if (lease.IsValid()) {
+                shouldBackfillAccount = repository::SessionRepository::HasUnlinkedMatches(lease.Get(), account);
+            }
+        } else {
+            std::lock_guard lock(m_writeMutex);
+            shouldBackfillAccount = repository::SessionRepository::HasUnlinkedMatches(m_db, account);
+        }
+    }
+    if (shouldBackfillAccount) {
+        BackfillSessions(500);
+    }
 
     if (m_readerPool.HasPool()) {
         auto lease = m_readerPool.Acquire();
@@ -657,6 +701,10 @@ void DatabaseManager::AsyncQueryMatches(MatchQuery query, uint64_t requestId, bo
         int total = 0;
         QueryMatches(q, rows, total);
         if (m_state) {
+            auto snap = m_state->historyView.GetSnapshot();
+            if (snap && requestId < snap->requestId) {
+                return;
+            }
             m_state->historyView.PublishQueryResult(requestId, q, std::move(rows), total, append);
         }
     },
@@ -664,25 +712,35 @@ void DatabaseManager::AsyncQueryMatches(MatchQuery query, uint64_t requestId, bo
 }
 
 bool DatabaseManager::GetMatchDetail(int64_t matchId, MatchDetail& outDetail, const std::string& accountPrimaryId) {
+    std::string liveAccount;
+    if (m_state && m_state->liveMatch) {
+        auto liveSnap = m_state->liveMatch->GetSnapshot();
+        if (liveSnap) liveAccount = liveSnap->myPrimaryId;
+    }
     if (m_readerPool.HasPool()) {
         auto lease = m_readerPool.Acquire();
         if (lease.IsValid()) {
-            return repository::HistoryRepository::GetMatchDetail(lease.Get(), matchId, outDetail, accountPrimaryId);
+            return repository::HistoryRepository::GetMatchDetail(lease.Get(), matchId, outDetail, accountPrimaryId, liveAccount);
         }
     }
     std::lock_guard lock(m_writeMutex);
-    return repository::HistoryRepository::GetMatchDetail(m_db, matchId, outDetail, accountPrimaryId);
+    return repository::HistoryRepository::GetMatchDetail(m_db, matchId, outDetail, accountPrimaryId, liveAccount);
 }
 
 bool DatabaseManager::GetMatchDetailByGuid(const std::string& matchGuid, MatchDetail& outDetail, const std::string& accountPrimaryId) {
+    std::string liveAccount;
+    if (m_state && m_state->liveMatch) {
+        auto liveSnap = m_state->liveMatch->GetSnapshot();
+        if (liveSnap) liveAccount = liveSnap->myPrimaryId;
+    }
     if (m_readerPool.HasPool()) {
         auto lease = m_readerPool.Acquire();
         if (lease.IsValid()) {
-            return repository::HistoryRepository::GetMatchDetailByGuid(lease.Get(), matchGuid, outDetail, accountPrimaryId);
+            return repository::HistoryRepository::GetMatchDetailByGuid(lease.Get(), matchGuid, outDetail, accountPrimaryId, liveAccount);
         }
     }
     std::lock_guard lock(m_writeMutex);
-    return repository::HistoryRepository::GetMatchDetailByGuid(m_db, matchGuid, outDetail, accountPrimaryId);
+    return repository::HistoryRepository::GetMatchDetailByGuid(m_db, matchGuid, outDetail, accountPrimaryId, liveAccount);
 }
 
 void DatabaseManager::AsyncGetMatchDetail(int64_t matchId, uint64_t requestId, std::string accountPrimaryId) {
@@ -694,6 +752,10 @@ void DatabaseManager::AsyncGetMatchDetail(int64_t matchId, uint64_t requestId, s
         MatchDetail detail;
         const bool ok = GetMatchDetail(matchId, detail, account);
         if (m_state) {
+            auto snap = m_state->historyView.GetSnapshot();
+            if (snap && requestId < snap->detailRequestId) {
+                return;
+            }
             m_state->historyView.PublishDetailResult(requestId, (ok && detail.found) ? std::optional{std::move(detail)} : std::nullopt);
         }
     },
@@ -709,6 +771,10 @@ void DatabaseManager::AsyncGetMatchDetailByGuid(std::string matchGuid, uint64_t 
         MatchDetail detail;
         const bool ok = GetMatchDetailByGuid(guid, detail, account);
         if (m_state) {
+            auto snap = m_state->historyView.GetSnapshot();
+            if (snap && requestId < snap->detailRequestId) {
+                return;
+            }
             m_state->historyView.PublishDetailResult(requestId, (ok && detail.found) ? std::optional{std::move(detail)} : std::nullopt);
         }
     },

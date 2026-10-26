@@ -1547,10 +1547,7 @@ TEST_F(RmlUiControllerStateTest, FontRolesApplyIndependentlyAndFallBack) {
     EXPECT_EQ(family("fp-mono"), "jetbrains mono");
     EXPECT_EQ(family("fp-header"), "omnistats-system arial");
     EXPECT_EQ(family("fp-title"), "jetbrains mono");
-    {
-        std::lock_guard lock(state->notes.mutex);
-        state->notes.loaded = true;
-    }
+    state->notes.PublishLoaded(false, {}, {});
     OpenNote(controller, "Steam|font-note", "Font Note");
     controller.Render();
     RmlContext(controller)->Update();
@@ -2352,13 +2349,7 @@ TEST_F(RmlUiControllerStateTest, SessionsTabRendersRowsOpensArchivedRecapAndComp
         ms.sessionTotals.losses = 0;
         ms.sessionTotals.mmrChangeByPlaylist["2v2"] = 10;
     });
-    {
-        std::lock_guard lock(state->insights.mutex);
-        state->insights.primaryId = pid;
-        state->insights.sessions = db->ListSessions(pid, 0, 50);
-        state->insights.loaded = true;
-        state->insights.version.fetch_add(1);
-    }
+    state->insights.PublishInsights(pid, {}, {}, {}, db->ListSessions(pid, 0, 50), {});
 
     RmlUiController controller(state, db);
     ASSERT_TRUE(controller.Initialize(nullptr, warp.device.Get(), warp.context.Get(), 1280, 800, 1.0f));
@@ -2505,14 +2496,7 @@ TEST_F(RmlUiControllerStateTest, HistoryViewOpensClosesIgnoresStaleResponsesAndO
     EXPECT_EQ(HistoryModel(controller).TotalCount(), 2);
     EXPECT_EQ(HistoryModel(controller).Rows()[0].arena, "Mannfield");
 
-    {
-        std::lock_guard<std::mutex> lock(state->historyView.mutex);
-        state->historyView.requestId = activeReq - 1;
-        state->historyView.rows = {fakeStaleRow};
-        state->historyView.total = 1;
-        state->historyView.loading = false;
-        state->historyView.version.fetch_add(1, std::memory_order_relaxed);
-    }
+    state->historyView.PublishQueryResult(activeReq - 1, MatchQuery{}, {fakeStaleRow}, 1, false);
     controller.Update(Config::Read(), false);
     EXPECT_EQ(HistoryModel(controller).TotalCount(), 2);
     EXPECT_EQ(HistoryModel(controller).Rows()[0].arena, "Mannfield");
@@ -2719,13 +2703,12 @@ TEST_F(RmlUiControllerStateTest, RosterShowsEscapedNoteBadgeOnlyForStableIdentit
         }
     });
     {
-        std::lock_guard lock(state->notes.mutex);
-        state->notes.loaded = true;
         PlayerNotes::Note note;
         note.identity = *PlayerNotes::IdentityFromPrimaryId(kRivalId);
         note.text = "Toxic <b>{{match_saves}}</b>\nreports";
-        state->notes.byKey[note.identity.Key()] = note;
-        state->notes.version.fetch_add(1);
+        std::unordered_map<std::string, PlayerNotes::Note> notesMap;
+        notesMap[note.identity.Key()] = note;
+        state->notes.PublishLoaded(false, std::move(notesMap), {});
     }
 
     RmlUiController controller(state, nullptr);
@@ -2768,12 +2751,10 @@ TEST_F(RmlUiControllerStateTest, RosterShowsEscapedTagChipsWithOverflow) {
         }
     });
     {
-        std::lock_guard lock(state->notes.mutex);
-        state->notes.loaded = true;
-        const auto key = PlayerNotes::IdentityFromPrimaryId(kRivalId)->Key();
-        state->notes.tagsByKey[key] = {"Fast <b>{{x}}</b>", "Ball chaser", "Tilts"};
-        state->notes.tagsByKey[PlayerNotes::IdentityFromPrimaryId(kSelfId)->Key()] = {"Me tag"};
-        state->notes.version.fetch_add(1);
+        std::unordered_map<std::string, std::vector<std::string>> tagsMap;
+        tagsMap[PlayerNotes::IdentityFromPrimaryId(kRivalId)->Key()] = {"Fast <b>{{x}}</b>", "Ball chaser", "Tilts"};
+        tagsMap[PlayerNotes::IdentityFromPrimaryId(kSelfId)->Key()] = {"Me tag"};
+        state->notes.PublishLoaded(false, {}, std::move(tagsMap));
     }
 
     RmlUiController controller(state, nullptr);
@@ -2816,13 +2797,12 @@ TEST_F(RmlUiControllerStateTest, OverlayNoteBadgeOpensTheEditorInsteadOfMovingTh
         ms.roster[kRivalId] = rival;
     });
     {
-        std::lock_guard lock(state->notes.mutex);
-        state->notes.loaded = true;
         PlayerNotes::Note note;
         note.identity = *PlayerNotes::IdentityFromPrimaryId(kRivalId);
         note.text = "Rotates well";
-        state->notes.byKey[note.identity.Key()] = note;
-        state->notes.version.fetch_add(1);
+        std::unordered_map<std::string, PlayerNotes::Note> notesMap;
+        notesMap[note.identity.Key()] = note;
+        state->notes.PublishLoaded(false, std::move(notesMap), {});
     }
     RmlUiController controller(state, nullptr);
     ASSERT_TRUE(controller.Initialize(hwnd, warp.device.Get(), warp.context.Get(), 1920, 1080, 1.0f));

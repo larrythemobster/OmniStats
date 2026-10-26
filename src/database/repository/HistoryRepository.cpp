@@ -1000,7 +1000,7 @@ namespace database::repository {
         return rows;
     }
 
-    bool HistoryRepository::GetMatchDetail(sqlite::Connection& db, int64_t matchId, MatchDetail& outDetail, const std::string& accountPrimaryId) {
+    bool HistoryRepository::GetMatchDetail(sqlite::Connection& db, int64_t matchId, MatchDetail& outDetail, const std::string& accountPrimaryId, const std::string& liveAccount) {
         outDetail = {};
         if (matchId <= 0 || !db.IsOpen()) return false;
 
@@ -1200,7 +1200,10 @@ namespace database::repository {
         std::string resolvedAccount;
         if (hasPlayerInMatch(accountPrimaryId)) {
             resolvedAccount = accountPrimaryId;
-        } else {
+        } else if (hasPlayerInMatch(liveAccount)) {
+            resolvedAccount = liveAccount;
+        }
+        if (resolvedAccount.empty()) {
             const std::string cfgPid = Config::Read().last_primary_id;
             if (hasPlayerInMatch(cfgPid)) {
                 resolvedAccount = cfgPid;
@@ -1289,7 +1292,7 @@ namespace database::repository {
         return true;
     }
 
-    bool HistoryRepository::GetMatchDetailByGuid(sqlite::Connection& db, const std::string& matchGuid, MatchDetail& outDetail, const std::string& accountPrimaryId) {
+    bool HistoryRepository::GetMatchDetailByGuid(sqlite::Connection& db, const std::string& matchGuid, MatchDetail& outDetail, const std::string& accountPrimaryId, const std::string& liveAccount) {
         outDetail = {};
         if (matchGuid.empty() || !db.IsOpen()) return false;
 
@@ -1306,7 +1309,7 @@ namespace database::repository {
         }
 
         if (matchId <= 0) return false;
-        return GetMatchDetail(db, matchId, outDetail, accountPrimaryId);
+        return GetMatchDetail(db, matchId, outDetail, accountPrimaryId, liveAccount);
     }
 
 } // namespace database::repository

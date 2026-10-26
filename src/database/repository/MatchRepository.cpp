@@ -111,14 +111,13 @@ namespace database::repository {
             else
                 stmtLocalStats.BindNull(6);
             stmtLocalStats.Bind(7, local.ownGoalsSelf);
-            if (snapshot.durationSeconds > 0.0f)
+            if (snapshot.durationSeconds > 0.0f) {
                 stmtLocalStats.Bind(8, snapshot.durationSeconds);
-            else
+                stmtLocalStats.Bind(9, (std::max)(0.0f, snapshot.overtimeSeconds));
+            } else {
                 stmtLocalStats.BindNull(8);
-            if (snapshot.overtimeSeconds > 0.0f)
-                stmtLocalStats.Bind(9, snapshot.overtimeSeconds);
-            else
                 stmtLocalStats.BindNull(9);
+            }
 
             stmtLocalStats.Execute();
             return true;

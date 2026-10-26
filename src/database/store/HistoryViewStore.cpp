@@ -7,88 +7,68 @@ namespace database::store {
     }
 
     std::shared_ptr<const HistoryViewSnapshot> HistoryViewStore::GetSnapshot() const {
-        auto snapshot = m_snapshot.load(std::memory_order_acquire);
-        if (snapshot && snapshot->version == version.load(std::memory_order_relaxed)) return snapshot;
-
-        std::lock_guard lock(mutex);
-        snapshot = m_snapshot.load(std::memory_order_acquire);
-        if (snapshot && snapshot->version == version.load(std::memory_order_relaxed)) return snapshot;
-
-        auto refreshed = std::make_shared<HistoryViewSnapshot>();
-        refreshed->requestId = requestId;
-        refreshed->detailRequestId = detailRequestId;
-        refreshed->loading = loading;
-        refreshed->detailLoading = detailLoading;
-        refreshed->appendMode = appendMode;
-        refreshed->rows = rows;
-        refreshed->total = total;
-        refreshed->detail = detail;
-        refreshed->version = version.load(std::memory_order_relaxed);
-        m_snapshot.store(refreshed, std::memory_order_release);
-        return refreshed;
+        return m_snapshot.load(std::memory_order_acquire);
     }
 
     void HistoryViewStore::PublishCurrentLocked() {
         auto snap = std::make_shared<HistoryViewSnapshot>();
-        snap->requestId = requestId;
-        snap->detailRequestId = detailRequestId;
-        snap->loading = loading;
-        snap->detailLoading = detailLoading;
-        snap->appendMode = appendMode;
-        snap->rows = rows;
-        snap->total = total;
-        snap->detail = detail;
-        snap->version = version.load(std::memory_order_relaxed);
+        snap->requestId = m_requestId;
+        snap->detailRequestId = m_detailRequestId;
+        snap->loading = m_loading;
+        snap->detailLoading = m_detailLoading;
+        snap->appendMode = m_appendMode;
+        snap->rows = m_rows;
+        snap->total = m_total;
+        snap->detail = m_detail;
+        snap->version = m_version.load(std::memory_order_relaxed);
 
         m_snapshot.store(std::move(snap), std::memory_order_release);
     }
 
     void HistoryViewStore::RequestQuery(uint64_t reqId, bool append, const MatchQuery& q) {
-        std::lock_guard lock(mutex);
-        if (reqId >= requestId) {
-            requestId = reqId;
-            loading = true;
-            appendMode = append;
-            query = q;
-            version.fetch_add(1, std::memory_order_relaxed);
+        std::lock_guard lock(m_mutex);
+        if (reqId >= m_requestId) {
+            m_requestId = reqId;
+            m_loading = true;
+            m_appendMode = append;
+            m_query = q;
+            m_version.fetch_add(1, std::memory_order_relaxed);
             PublishCurrentLocked();
         }
     }
 
     void HistoryViewStore::PublishQueryResult(uint64_t reqId, const MatchQuery& q, std::vector<MatchRow> inRows, int totalCount, bool append) {
-        std::lock_guard lock(mutex);
-        if (reqId < requestId) return;
-        requestId = reqId;
-        query = q;
-        loading = false;
-        appendMode = append;
-        total = totalCount;
+        std::lock_guard lock(m_mutex);
+        m_requestId = reqId;
+        m_query = q;
+        m_loading = false;
+        m_appendMode = append;
+        m_total = totalCount;
         if (append) {
-            rows.insert(rows.end(), std::make_move_iterator(inRows.begin()), std::make_move_iterator(inRows.end()));
+            m_rows.insert(m_rows.end(), std::make_move_iterator(inRows.begin()), std::make_move_iterator(inRows.end()));
         } else {
-            rows = std::move(inRows);
+            m_rows = std::move(inRows);
         }
-        version.fetch_add(1, std::memory_order_relaxed);
+        m_version.fetch_add(1, std::memory_order_relaxed);
         PublishCurrentLocked();
     }
 
     void HistoryViewStore::RequestDetail(uint64_t detailReqId) {
-        std::lock_guard lock(mutex);
-        if (detailReqId >= detailRequestId) {
-            detailRequestId = detailReqId;
-            detailLoading = true;
-            version.fetch_add(1, std::memory_order_relaxed);
+        std::lock_guard lock(m_mutex);
+        if (detailReqId >= m_detailRequestId) {
+            m_detailRequestId = detailReqId;
+            m_detailLoading = true;
+            m_version.fetch_add(1, std::memory_order_relaxed);
             PublishCurrentLocked();
         }
     }
 
     void HistoryViewStore::PublishDetailResult(uint64_t detailReqId, std::optional<MatchDetail> detailResult) {
-        std::lock_guard lock(mutex);
-        if (detailReqId < detailRequestId) return;
-        detailRequestId = detailReqId;
-        detailLoading = false;
-        detail = std::move(detailResult);
-        version.fetch_add(1, std::memory_order_relaxed);
+        std::lock_guard lock(m_mutex);
+        m_detailRequestId = detailReqId;
+        m_detailLoading = false;
+        m_detail = std::move(detailResult);
+        m_version.fetch_add(1, std::memory_order_relaxed);
         PublishCurrentLocked();
     }
 

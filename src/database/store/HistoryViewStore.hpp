@@ -25,21 +25,20 @@ namespace database::store {
         void RequestDetail(uint64_t detailReqId);
         void PublishDetailResult(uint64_t detailReqId, std::optional<MatchDetail> detailResult);
 
-        // Fields maintained for backward compatibility and tests
-        mutable std::mutex mutex;
-        std::atomic<uint64_t> version{0};
-        uint64_t requestId = 0;
-        uint64_t detailRequestId = 0;
-        bool loading = false;
-        bool detailLoading = false;
-        bool appendMode = false;
-        MatchQuery query;
-        std::vector<MatchRow> rows;
-        int total = 0;
-        std::optional<MatchDetail> detail;
-
       private:
         void PublishCurrentLocked();
+
+        mutable std::mutex m_mutex;
+        std::atomic<uint64_t> m_version{0};
+        uint64_t m_requestId = 0;
+        uint64_t m_detailRequestId = 0;
+        bool m_loading = false;
+        bool m_detailLoading = false;
+        bool m_appendMode = false;
+        MatchQuery m_query;
+        std::vector<MatchRow> m_rows;
+        int m_total = 0;
+        std::optional<MatchDetail> m_detail;
 
         mutable std::atomic<std::shared_ptr<const HistoryViewSnapshot>> m_snapshot;
     };

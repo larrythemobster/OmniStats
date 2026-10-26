@@ -124,24 +124,27 @@ TEST(PlayerScout, AsyncTagsAndProfilesCompleteOnWorker) {
     db.AsyncLoadPlayerNotes();
     Drain(db, "scout_load_barrier");
     {
-        std::lock_guard lock(state->notes.mutex);
-        EXPECT_TRUE(state->notes.loaded);
+        auto notesSnap = state->notes.GetSnapshot();
+        ASSERT_NE(notesSnap, nullptr);
+        EXPECT_TRUE(notesSnap->loaded);
     }
     db.AsyncSetPlayerTag(Id(rival), "Defensive", true, 42);
     db.AsyncGetPlayerScout(me, rival, 101);
     Drain(db, "scout_profile_barrier");
     {
-        std::lock_guard lock(state->notes.mutex);
-        EXPECT_EQ(state->notes.completedTagRequestId, 42u);
-        EXPECT_TRUE(state->notes.lastTagRequestOk);
-        ASSERT_EQ(state->notes.tagsByKey.at(Id(rival).Key()).size(), 1u);
+        auto notesSnap = state->notes.GetSnapshot();
+        ASSERT_NE(notesSnap, nullptr);
+        EXPECT_EQ(notesSnap->completedTagRequestId, 42u);
+        EXPECT_TRUE(notesSnap->lastTagRequestOk);
+        ASSERT_EQ(notesSnap->tagsByKey.at(Id(rival).Key()).size(), 1u);
     }
     {
-        std::lock_guard lock(state->scout.mutex);
-        EXPECT_EQ(state->scout.requestId, 101u);
-        EXPECT_TRUE(state->scout.loaded);
-        EXPECT_TRUE(state->scout.success);
-        EXPECT_EQ(state->scout.profile.recent.size(), 1u);
+        auto scoutSnap = state->scout.GetSnapshot();
+        ASSERT_NE(scoutSnap, nullptr);
+        EXPECT_EQ(scoutSnap->requestId, 101u);
+        EXPECT_TRUE(scoutSnap->loaded);
+        EXPECT_TRUE(scoutSnap->success);
+        EXPECT_EQ(scoutSnap->profile.recent.size(), 1u);
     }
 }
 

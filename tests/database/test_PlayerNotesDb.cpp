@@ -120,54 +120,60 @@ TEST_F(PlayerNotesDbTest, AsyncOperationsPublishResultsToSessionState) {
     db->AsyncLoadPlayerNotes();
     Drain(*db, "barrier_load");
     {
-        std::lock_guard lock(state->notes.mutex);
-        EXPECT_TRUE(state->notes.loaded);
-        EXPECT_TRUE(state->notes.byKey.empty());
+        auto snap = state->notes.GetSnapshot();
+        ASSERT_NE(snap, nullptr);
+        EXPECT_TRUE(snap->loaded);
+        EXPECT_TRUE(snap->byKey.empty());
     }
 
     db->AsyncSavePlayerNote(Id(kEpicA), "  Rotates well  ", "Mate", 7);
     Drain(*db, "barrier_save");
     {
-        std::lock_guard lock(state->notes.mutex);
-        EXPECT_EQ(state->notes.completedRequestId, 7u);
-        EXPECT_TRUE(state->notes.lastRequestOk);
-        ASSERT_EQ(state->notes.byKey.count(Id(kEpicA).Key()), 1u);
-        EXPECT_EQ(state->notes.byKey.at(Id(kEpicA).Key()).text, "Rotates well");
+        auto snap = state->notes.GetSnapshot();
+        ASSERT_NE(snap, nullptr);
+        EXPECT_EQ(snap->completedRequestId, 7u);
+        EXPECT_TRUE(snap->lastRequestOk);
+        ASSERT_EQ(snap->byKey.count(Id(kEpicA).Key()), 1u);
+        EXPECT_EQ(snap->byKey.at(Id(kEpicA).Key()).text, "Rotates well");
     }
 
     // Saving an emptied editor removes the note rather than storing a blank row.
     db->AsyncSavePlayerNote(Id(kEpicA), "  ", "Mate", 8);
     Drain(*db, "barrier_clear");
     {
-        std::lock_guard lock(state->notes.mutex);
-        EXPECT_EQ(state->notes.completedRequestId, 8u);
-        EXPECT_TRUE(state->notes.lastRequestOk);
-        EXPECT_TRUE(state->notes.byKey.empty());
+        auto snap = state->notes.GetSnapshot();
+        ASSERT_NE(snap, nullptr);
+        EXPECT_EQ(snap->completedRequestId, 8u);
+        EXPECT_TRUE(snap->lastRequestOk);
+        EXPECT_TRUE(snap->byKey.empty());
     }
     EXPECT_FALSE(db->GetPlayerNote(Id(kEpicA)));
 
     ASSERT_TRUE(db->SavePlayerNote(Id(kSteam), "Good mechanics", "Other", 3));
     db->AsyncDeletePlayerNote(Id(kSteam), 9);
     Drain(*db, "barrier_delete");
-    std::lock_guard lock(state->notes.mutex);
-    EXPECT_EQ(state->notes.completedRequestId, 9u);
-    EXPECT_TRUE(state->notes.lastRequestOk);
+    {
+        auto snap = state->notes.GetSnapshot();
+        ASSERT_NE(snap, nullptr);
+        EXPECT_EQ(snap->completedRequestId, 9u);
+        EXPECT_TRUE(snap->lastRequestOk);
+    }
     EXPECT_FALSE(db->GetPlayerNote(Id(kSteam)));
 }
 
 TEST_F(PlayerNotesDbTest, SaveFailureIsReportedWithoutTouchingTheCache) {
-    {
-        std::lock_guard lock(state->notes.mutex);
-        state->notes.loaded = true;
-    }
+    state->notes.PublishLoaded(false, {}, {});
     ASSERT_EQ(sqlite3_exec(db->GetRawDb(), "DROP TABLE PlayerNotes;", nullptr, nullptr, nullptr), SQLITE_OK);
     db->AsyncSavePlayerNote(Id(kEpicA), "Will not persist", "Name", 11);
     Drain(*db, "barrier_fail");
-    std::lock_guard lock(state->notes.mutex);
-    EXPECT_EQ(state->notes.completedRequestId, 11u);
-    EXPECT_FALSE(state->notes.lastRequestOk);
-    EXPECT_FALSE(state->notes.lastRequestError.empty());
-    EXPECT_TRUE(state->notes.byKey.empty());
+    {
+        auto snap = state->notes.GetSnapshot();
+        ASSERT_NE(snap, nullptr);
+        EXPECT_EQ(snap->completedRequestId, 11u);
+        EXPECT_FALSE(snap->lastRequestOk);
+        EXPECT_FALSE(snap->lastRequestError.empty());
+        EXPECT_TRUE(snap->byKey.empty());
+    }
 }
 
 TEST(PlayerNotesPersistenceTest, NotesSurviveARestart) {
