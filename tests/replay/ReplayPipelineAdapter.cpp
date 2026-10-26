@@ -179,7 +179,7 @@ namespace omnistats::replay {
         // Recordings compress idle gaps; age the last match end so inactivity rules see the recorded gap.
         const int64_t elapsedMs = ctx.lastMatchEndedClockMs > 0 ? (ctx.currentClockMs - ctx.lastMatchEndedClockMs) : 0;
         if (eventName == "MatchCreated" && elapsedMs >= 7200 * 1000 && ctx.state) {
-            ctx.state->liveMatch->UpdateMatchStateForTests([elapsedMs](MatchState& match) {
+            ctx.state->liveMatch->Update([elapsedMs](MatchState& match) {
                 if (match.lastMatchEndedAtUnix > 0) match.lastMatchEndedAtUnix -= elapsedMs / 1000;
             });
         }

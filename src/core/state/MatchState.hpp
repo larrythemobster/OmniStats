@@ -56,7 +56,6 @@ struct CapturedMatch {
 };
 
 struct MatchState {
-    // Version incremented on every change published to snapshots
     uint64_t version = 1;
 
     // Match Lifecycle State
@@ -96,7 +95,6 @@ struct MatchState {
     float timeSeconds = 0.0f;
     bool bOvertime = false;
 
-    // Collections
     MatchStats currentMatch;
     SessionTotals sessionTotals;
     float lastGoalSpeed = 0.0f;
@@ -112,7 +110,6 @@ struct MatchState {
     SessionRecap lastSessionRecap;
     uint64_t sessionGeneration = 0;
 
-    // Hidden members from TelemetryReducer
     std::string lastSavedMatchGuid;
     std::vector<MatchJournalEvent> matchEvents;
     std::unordered_set<std::string> eventNativeKeys;
@@ -149,7 +146,6 @@ struct MatchState {
     };
     std::vector<PauseInterval> pauseIntervals;
 
-    // UI state mirror (owned by live match store, surfaced via side effects)
     int64_t lastMatchStartMs = 0;
     int64_t firstCountdownOfMatchMs = 0;
     int64_t lastCountdownMs = 0;

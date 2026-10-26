@@ -71,7 +71,7 @@ TEST(MmrReconcilerTest, TrackerLagCreatesProvisionalThenReplacesWithConfirmed) {
 
 TEST(MmrReconcilerTest, ReconciliationAndPublicationShareOneHistoryMutation) {
     SessionState state;
-    state.liveMatch->UpdateMatchStateForTests([](MatchState& match) {
+    state.liveMatch->Update([](MatchState& match) {
         match.myPrimaryId = "Steam|123";
         match.sessionGeneration = 1;
     });

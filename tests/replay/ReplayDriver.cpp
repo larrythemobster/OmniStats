@@ -85,7 +85,6 @@ namespace omnistats::replay {
         std::unordered_map<int64_t, int64_t> matchIdMap;
         std::unordered_map<int64_t, int64_t> sessionIdMap;
 
-        // 1. Matches
         nlohmann::json jMatches = nlohmann::json::array();
         if (db) {
             sqlite3_stmt* stmt = nullptr;
@@ -129,7 +128,6 @@ namespace omnistats::replay {
             }
         }
 
-        // 2. MatchPlayers
         nlohmann::json jMatchPlayers = nlohmann::json::array();
         if (db) {
             sqlite3_stmt* stmt = nullptr;
@@ -155,7 +153,6 @@ namespace omnistats::replay {
             }
         }
 
-        // 3. MatchPlayerStats
         nlohmann::json jMatchPlayerStats = nlohmann::json::array();
         if (db) {
             sqlite3_stmt* stmt = nullptr;
@@ -204,7 +201,6 @@ namespace omnistats::replay {
             }
         }
 
-        // 4. MatchLocalStats
         nlohmann::json jMatchLocalStats = nlohmann::json::array();
         if (db) {
             sqlite3_stmt* stmt = nullptr;
@@ -239,7 +235,6 @@ namespace omnistats::replay {
             }
         }
 
-        // 5. MatchAnalytics
         nlohmann::json jMatchAnalytics = nlohmann::json::array();
         if (db) {
             sqlite3_stmt* stmt = nullptr;
@@ -267,7 +262,6 @@ namespace omnistats::replay {
             }
         }
 
-        // 6. Sessions
         nlohmann::json jSessions = nlohmann::json::array();
         if (db) {
             sqlite3_stmt* stmt = nullptr;
@@ -314,7 +308,6 @@ namespace omnistats::replay {
             }
         }
 
-        // 7. Emitted Side Effects
         nlohmann::json jEmitted = nlohmann::json::array();
         for (const auto& step : emittedEffects) {
             if (step.hasEffects) {
@@ -322,7 +315,6 @@ namespace omnistats::replay {
             }
         }
 
-        // 8. Final Session Totals
         nlohmann::json jTotals;
         if (state) {
             const auto snapshot = state->liveMatch->GetSnapshot();
@@ -426,7 +418,7 @@ namespace omnistats::replay {
         const auto dbPath = tempDir / "replay.db";
 
         auto state = std::make_shared<SessionState>();
-        state->liveMatch->UpdateMatchStateForTests([this](MatchState& match) {
+        state->liveMatch->Update([this](MatchState& match) {
             match.myPrimaryId = m_options.initialPrimaryId;
             match.roster[m_options.initialPrimaryId] = PlayerData{
                 .primaryId = m_options.initialPrimaryId,
@@ -471,17 +463,14 @@ namespace omnistats::replay {
             }
         }
 
-        // Wait for DB jobs to drain completely:
         if (!DrainDatabase(dbManager, 5000)) {
             std::cerr << "[ReplayDriver] Warning: Database queue drain timed out.\n";
         }
 
-        // Produce canonical golden:
         result.goldenObj = BuildCanonicalGolden(dbManager->GetRawDb(), state, emittedEffects);
         result.goldenJson = result.goldenObj.dump(2);
         result.success = true;
 
-        // Teardown:
         mmrFetcher.reset();
         dbManager.reset();
 

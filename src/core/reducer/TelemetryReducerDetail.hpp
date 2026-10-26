@@ -1,7 +1,5 @@
 #pragma once
 
-// Stateless helpers shared by the TelemetryReducer translation units.
-
 #include <array>
 #include <chrono>
 #include <cstdint>

@@ -1,4 +1,6 @@
 #include "updater/UpdaterCommon.hpp"
+#include "updater/UpdaterPaths.hpp"
+#include "network/http/SigningConfig.hpp"
 #include "updater/AuthenticodeStatus.hpp"
 #include "utils/FileHash.hpp"
 #include "updater/UpdaterEventLog.hpp"

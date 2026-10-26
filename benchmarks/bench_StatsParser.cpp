@@ -57,7 +57,7 @@ static void BM_ParseStatFeed(benchmark::State& state) {
     StatsClient client(session, fetcher, db);
 
     // Preset player in roster
-    session->liveMatch->UpdateMatchStateForTests([](MatchState& ms) {
+    session->liveMatch->Update([](MatchState& ms) {
         ms.roster["steam|123456789"] = PlayerData{
             .primaryId = "steam|123456789",
             .name = "Player1",

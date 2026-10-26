@@ -9,6 +9,7 @@
 #include <thread>
 #include "core/config/AppVersion.hpp"
 #include "updater/UpdaterCommon.hpp"
+#include "updater/UpdaterPaths.hpp"
 #include "utils/FileHash.hpp"
 #include "updater/ReleaseManifest.hpp"
 #include "network/http/SigningConfig.hpp"

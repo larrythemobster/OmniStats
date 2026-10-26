@@ -71,7 +71,6 @@ class OmniStatsPipelineTest : public ::testing::Test {
         ASSERT_TRUE(db->Initialize(":memory:"));
         client = std::make_shared<StatsClient>(session, fetcher, db);
 
-        // Setup Curl mocking for MmrService
         auto& curl = CurlImpersonate::Instance();
         original_perform = curl.easy_perform;
         original_getinfo = curl.easy_getinfo;
@@ -141,7 +140,7 @@ class OmniStatsPipelineTest : public ::testing::Test {
         int localScore,
         int opponentScore,
         int previousMatches = 11) {
-        session->liveMatch->UpdateMatchStateForTests([&](MatchState& ms) {
+        session->liveMatch->Update([&](MatchState& ms) {
             ms.myPrimaryId = "steam|76561198000000001";
             ms.roster["steam|76561198000000001"] = PlayerData{
                 .primaryId = "steam|76561198000000001",
@@ -258,7 +257,7 @@ TEST_F(OmniStatsPipelineTest, FullLifecycleMatchFlow) {
         }
     })");
 
-    session->liveMatch->UpdateMatchStateForTests([](MatchState& ms) {
+    session->liveMatch->Update([](MatchState& ms) {
         ms.myPrimaryId = "steam|76561198000000001";
         ms.myTeam = 0;
     });
@@ -373,7 +372,7 @@ TEST_F(OmniStatsPipelineTest, MatchEndedFollowedByMatchDestroyedDoesNotDoubleSav
         }
     })");
 
-    session->liveMatch->UpdateMatchStateForTests([](MatchState& ms) {
+    session->liveMatch->Update([](MatchState& ms) {
         ms.myPrimaryId = "steam|76561198000000001";
         ms.myTeam = 0;
         ms.localPlayerWasActive = true;

@@ -40,12 +40,10 @@ class TelemetryReducer {
     TelemetryReducer() = default;
     explicit TelemetryReducer(MatchState initialState) : m_state(std::move(initialState)) {}
 
-    // Pure functional API: (MatchState, Event, ReducerContext) -> (MatchState, SideEffects)
     static ReducerResult Reduce(MatchState state,
                                 const TelemetryEvents::TelemetryEvent& event,
                                 const ReducerContext& context);
 
-    // In-place reduction for zero copy
     static SideEffects ReduceInPlace(MatchState& state,
                                      const TelemetryEvents::TelemetryEvent& event,
                                      const ReducerContext& context);
@@ -57,7 +55,6 @@ class TelemetryReducer {
 
     static void OnTelemetryDisconnected(MatchState& state);
 
-    // Instance convenience methods
     SideEffects Reduce(const TelemetryEvents::TelemetryEvent& event, const ReducerContext& context) {
         return ReduceInPlace(m_state, event, context);
     }

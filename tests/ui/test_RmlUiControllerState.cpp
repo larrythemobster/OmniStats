@@ -353,7 +353,7 @@ TEST_F(RmlUiControllerStateTest, HeadlessUpdateHandlesEmptyAndMalformedRoster) {
     state->ui.showOverlay.store(true);
     EXPECT_NO_THROW(controller.Update(config));
 
-    state->liveMatch->UpdateMatchStateForTests([](MatchState& ms) {
+    state->liveMatch->Update([](MatchState& ms) {
         ms.inMatch = true;
         ms.myPrimaryId = "steam|111";
 
@@ -377,7 +377,7 @@ TEST_F(RmlUiControllerStateTest, HeadlessUpdateHandlesEmptyAndMalformedRoster) {
 
 TEST_F(RmlUiControllerStateTest, RosterKeepsLegacyPlatformLabelsAndBotsNonClickable) {
     auto state = std::make_shared<SessionState>();
-    state->liveMatch->UpdateMatchStateForTests([](MatchState& ms) {
+    state->liveMatch->Update([](MatchState& ms) {
         PlayerData bot;
         bot.primaryId = "Unknown|Bot_01";
         bot.name = "Merlin";
@@ -397,7 +397,7 @@ TEST_F(RmlUiControllerStateTest, RosterKeepsLegacyPlatformLabelsAndBotsNonClicka
 
 TEST_F(RmlUiControllerStateTest, RosterSeparatesUnloadedFirstMeetingAndBothEncounterRecords) {
     auto state = std::make_shared<SessionState>();
-    state->liveMatch->UpdateMatchStateForTests([](MatchState& ms) {
+    state->liveMatch->Update([](MatchState& ms) {
         ms.myPrimaryId = "Steam|self";
 
         const auto add = [&](const std::string& id, const std::string& name, bool loaded, int ww, int lw, int wa, int la) {
@@ -450,7 +450,7 @@ TEST_F(RmlUiControllerStateTest, RosterSortFallsBackToBestMmrWhenSelectedPlaylis
     auto state = std::make_shared<SessionState>();
     state->ui.rosterMmrCategory.store(MmrCategory::TwoVTwo);
     {
-        state->liveMatch->UpdateMatchStateForTests([](MatchState& ms) {
+        state->liveMatch->Update([](MatchState& ms) {
             PlayerData fallback;
             fallback.primaryId = "Unknown|Fallback";
             fallback.name = "FallbackHigh";
@@ -508,7 +508,7 @@ TEST_F(RmlUiControllerStateTest, LobbyRanksKeepsEnabledPlaylistColumnHeaders) {
 TEST_F(RmlUiControllerStateTest, RankWidgetsExplainMissingRankSourceUntilOneIsEnabled) {
     auto state = std::make_shared<SessionState>();
     {
-        state->liveMatch->UpdateMatchStateForTests([](MatchState& ms) {
+        state->liveMatch->Update([](MatchState& ms) {
             PlayerData player;
             player.primaryId = "Epic|unranked";
             player.name = "NoSource";
@@ -542,7 +542,7 @@ TEST_F(RmlUiControllerStateTest, RankWidgetsExplainMissingRankSourceUntilOneIsEn
 TEST_F(RmlUiControllerStateTest, RosterBestUsesUnderlyingPlaylistMatchCountWhenSyntheticBestIsMissing) {
     auto state = std::make_shared<SessionState>();
     {
-        state->liveMatch->UpdateMatchStateForTests([](MatchState& ms) {
+        state->liveMatch->Update([](MatchState& ms) {
             PlayerData player;
             player.primaryId = "Epic|test1";
             player.name = "TestPlayer";
@@ -569,7 +569,7 @@ TEST_F(RmlUiControllerStateTest, RosterBestUsesUnderlyingPlaylistMatchCountWhenS
 
 TEST_F(RmlUiControllerStateTest, LobbyRanksCalculatesRanksPerPlaylistForUnrankedPlacementPlayers) {
     auto state = std::make_shared<SessionState>();
-    state->liveMatch->UpdateMatchStateForTests([](MatchState& ms) {
+    state->liveMatch->Update([](MatchState& ms) {
         PlayerData player;
         player.primaryId = "Epic|test1";
         player.name = "TestPlayer";
@@ -616,7 +616,7 @@ TEST_F(RmlUiControllerStateTest, LobbyRanksCalculatesRanksPerPlaylistForUnranked
 
 TEST_F(RmlUiControllerStateTest, PreviousGamesKeepsSessionRecordWhileHistoryIsLoadingOrEmpty) {
     auto state = std::make_shared<SessionState>();
-    state->liveMatch->UpdateMatchStateForTests([](MatchState& ms) {
+    state->liveMatch->Update([](MatchState& ms) {
         ms.sessionTotals.wins = 3;
         ms.sessionTotals.losses = 2;
     });
@@ -638,7 +638,7 @@ TEST_F(RmlUiControllerStateTest, PreviousGamesKeepsSessionRecordWhileHistoryIsLo
 
 TEST_F(RmlUiControllerStateTest, IdentitySelectorExcludesUnknownLobbyIdsButKeepsSavedIdentity) {
     auto state = std::make_shared<SessionState>();
-    state->liveMatch->UpdateMatchStateForTests([](MatchState& ms) {
+    state->liveMatch->Update([](MatchState& ms) {
         PlayerData unknown;
         unknown.primaryId = "Unknown|Bot_01";
         unknown.name = "Bot";
@@ -712,31 +712,46 @@ TEST_F(RmlUiControllerStateTest, DynamicRmlTextEscapesMarkupAndSanitizesInvalidU
 
 TEST_F(RmlUiControllerStateTest, EffectivePrimaryTriggersOneDeduplicatedDbRefresh) {
     auto state = std::make_shared<SessionState>();
-    auto db = std::make_shared<DatabaseManager>(state);
-    DatabaseManager::s_test_async_get_lifetime_calls.store(0);
-    DatabaseManager::s_test_async_refresh_calls.store(0);
+    int lifetimeCalls = 0;
+    int refreshCalls = 0;
+    std::string lifetimePrimary;
+    std::string refreshPrimary;
+    DatabaseHooks hooks;
+    hooks.onAsyncGetLifetimeMmr = [&](const std::string& primary, const std::string&) {
+        ++lifetimeCalls;
+        lifetimePrimary = primary;
+    };
+    hooks.onAsyncRefreshDbStats = [&](const std::string& primary) {
+        ++refreshCalls;
+        refreshPrimary = primary;
+    };
+    auto db = std::make_shared<DatabaseManager>(state, std::move(hooks));
 
     Config::Update([](ConfigData& c) { c.last_primary_id = "Steam|TEST123"; }, true);
     ConfigData config = Config::Read();
     RmlUiController controller(state, db);
 
     controller.Update(config);
-    EXPECT_EQ(DatabaseManager::s_test_async_get_lifetime_calls.load(), 1);
-    EXPECT_EQ(DatabaseManager::s_test_async_refresh_calls.load(), 1);
-    {
-        std::lock_guard lock(DatabaseManager::s_test_mutex);
-        EXPECT_EQ(DatabaseManager::s_test_last_get_lifetime_primary, "Steam|TEST123");
-        EXPECT_EQ(DatabaseManager::s_test_last_refresh_primary, "Steam|TEST123");
-    }
+    EXPECT_EQ(lifetimeCalls, 1);
+    EXPECT_EQ(refreshCalls, 1);
+    EXPECT_EQ(lifetimePrimary, "Steam|TEST123");
+    EXPECT_EQ(refreshPrimary, "Steam|TEST123");
 
     controller.Update(config);
-    EXPECT_EQ(DatabaseManager::s_test_async_get_lifetime_calls.load(), 1);
-    EXPECT_EQ(DatabaseManager::s_test_async_refresh_calls.load(), 1);
+    EXPECT_EQ(lifetimeCalls, 1);
+    EXPECT_EQ(refreshCalls, 1);
 }
 
 TEST_F(RmlUiControllerStateTest, GraphCategoryChangeRefreshesLifetimeHistoryOnce) {
     auto state = std::make_shared<SessionState>();
-    auto db = std::make_shared<DatabaseManager>(state);
+    int lifetimeCalls = 0;
+    std::string lifetimePlaylist;
+    DatabaseHooks hooks;
+    hooks.onAsyncGetLifetimeMmr = [&](const std::string&, const std::string& playlist) {
+        ++lifetimeCalls;
+        lifetimePlaylist = playlist;
+    };
+    auto db = std::make_shared<DatabaseManager>(state, std::move(hooks));
     state->ui.graphMmrCategory.store(MmrCategory::TwoVTwo);
     state->history.Mutate([](auto& history) {
         history.lifetimeMmrX = {1};
@@ -744,19 +759,15 @@ TEST_F(RmlUiControllerStateTest, GraphCategoryChangeRefreshesLifetimeHistoryOnce
     });
     Config::Update([](ConfigData& c) { c.last_primary_id = "Steam|GRAPH"; }, true);
     ConfigData config = Config::Read();
-    DatabaseManager::s_test_async_get_lifetime_calls.store(0);
 
     RmlUiController controller(state, db);
     controller.Update(config);
-    EXPECT_EQ(DatabaseManager::s_test_async_get_lifetime_calls.load(), 1);
+    EXPECT_EQ(lifetimeCalls, 1);
 
     state->ui.graphMmrCategory.store(MmrCategory::OneVOne);
     controller.Update(config);
-    EXPECT_EQ(DatabaseManager::s_test_async_get_lifetime_calls.load(), 2);
-    {
-        std::lock_guard lock(DatabaseManager::s_test_mutex);
-        EXPECT_EQ(DatabaseManager::s_test_last_get_lifetime_playlist, "1v1");
-    }
+    EXPECT_EQ(lifetimeCalls, 2);
+    EXPECT_EQ(lifetimePlaylist, "1v1");
     {
         const auto history = state->history.GetSnapshot();
         EXPECT_TRUE(history->lifetimeMmrX.empty());
@@ -764,7 +775,7 @@ TEST_F(RmlUiControllerStateTest, GraphCategoryChangeRefreshesLifetimeHistoryOnce
     }
 
     controller.Update(config);
-    EXPECT_EQ(DatabaseManager::s_test_async_get_lifetime_calls.load(), 2);
+    EXPECT_EQ(lifetimeCalls, 2);
 }
 
 TEST_F(RmlUiControllerStateTest, InvalidDpiScaleFallsBackSafely) {
@@ -995,7 +1006,7 @@ TEST_F(RmlUiControllerStateTest, LifetimeGraphKeepsLatestTwentyFiveDottedMatches
 
 TEST_F(RmlUiControllerStateTest, DashboardAndOverlaySessionCardsKeepCompactLegacySemantics) {
     auto state = std::make_shared<SessionState>();
-    state->liveMatch->UpdateMatchStateForTests([](MatchState& ms) {
+    state->liveMatch->Update([](MatchState& ms) {
         ms.sessionTotals.wins = 2;
         ms.sessionTotals.losses = 1;
         ms.sessionTotals.shots = 4;
@@ -1076,7 +1087,7 @@ TEST_F(RmlUiControllerStateTest, CompactSessionKeepsLegacySignedZeroMmrChange) {
     auto state = std::make_shared<SessionState>();
     ConfigData config = Config::Read();
     config.show_session_mmr_change = true;
-    state->liveMatch->UpdateMatchStateForTests([](MatchState& ms) {
+    state->liveMatch->Update([](MatchState& ms) {
         ms.sessionTotals.totalMmrChange = 0.0f;
     });
 
@@ -1090,7 +1101,7 @@ TEST_F(RmlUiControllerStateTest, CompactSessionKeepsLegacySignedZeroMmrChange) {
 
 TEST_F(RmlUiControllerStateTest, CompactSessionUsesFinalizedDemoTotalsOnly) {
     auto state = std::make_shared<SessionState>();
-    state->liveMatch->UpdateMatchStateForTests([](MatchState& ms) {
+    state->liveMatch->Update([](MatchState& ms) {
         ms.sessionTotals.demos = 3;
         ms.currentMatch.demosSelf = 2;
         ms.matchFinalized = false;
@@ -1123,7 +1134,7 @@ TEST_F(RmlUiControllerStateTest, TelemetryUpdatesBoundTextWithoutRebuildingWidge
     },
                    true);
     auto state = std::make_shared<SessionState>();
-    state->liveMatch->UpdateMatchStateForTests([](MatchState& ms) {
+    state->liveMatch->Update([](MatchState& ms) {
         ms.currentMatch.demosSelf = 2;
         ms.currentMatch.demoedSelf = 1;
     });
@@ -1142,7 +1153,7 @@ TEST_F(RmlUiControllerStateTest, TelemetryUpdatesBoundTextWithoutRebuildingWidge
     EXPECT_EQ(before->GetInnerRML(), "2.00");
     EXPECT_TRUE(before->IsClassSet("win"));
 
-    state->liveMatch->UpdateMatchStateForTests([](MatchState& ms) {
+    state->liveMatch->Update([](MatchState& ms) {
         ms.currentMatch.demoedSelf = 4;
     });
     controller.Update(Config::Read(), false);
@@ -1159,7 +1170,7 @@ TEST_F(RmlUiControllerStateTest, LiveTelemetryDoesNotInvalidateOpenSettingsDom) 
     ConfigData config = Config::Read();
     state->ui.showMenu.store(true);
 
-    state->liveMatch->UpdateMatchStateForTests([](MatchState& ms) {
+    state->liveMatch->Update([](MatchState& ms) {
         PlayerData local;
         local.primaryId = "Epic|local";
         local.name = "Local Player";
@@ -1181,7 +1192,7 @@ TEST_F(RmlUiControllerStateTest, LiveTelemetryDoesNotInvalidateOpenSettingsDom) 
     // of the identity/rank fields rendered by the General settings page. The
     // Settings DOM should therefore remain stable instead of being recreated
     // under the mouse every telemetry tick.
-    state->liveMatch->UpdateMatchStateForTests([](MatchState& ms) {
+    state->liveMatch->Update([](MatchState& ms) {
         ms.currentMatch.goals += 1;
         ms.currentMatch.shots += 2;
         ms.sessionTotals.goals += 1;
@@ -1300,7 +1311,7 @@ TEST_F(RmlUiControllerStateTest, LobbyRanksContainerWidthGrowsWithEnabledColumns
 TEST_F(RmlUiControllerStateTest, RosterMmrChipShowsOnlyMmrWhenRankIconsEnabled) {
     auto state = std::make_shared<SessionState>();
     state->ui.rosterMmrCategory.store(MmrCategory::TwoVTwo);
-    state->liveMatch->UpdateMatchStateForTests([](MatchState& ms) {
+    state->liveMatch->Update([](MatchState& ms) {
         PlayerData player;
         player.primaryId = "Epic|test1";
         player.name = "TestPlayer";
@@ -1612,7 +1623,7 @@ TEST_F(RmlUiControllerStateTest, OverlayControlsStayClickableWhileTelemetryUpdat
     controller.ProcessWindowMessage(hwnd, WM_LBUTTONDOWN, MK_LBUTTON, position);
 
     // A telemetry tick between press and release must not invalidate the target.
-    state->liveMatch->UpdateMatchStateForTests([](MatchState& ms) {
+    state->liveMatch->Update([](MatchState& ms) {
         ms.currentMatch.goals += 1;
     });
     controller.Update(Config::Read());
@@ -1663,7 +1674,7 @@ TEST_F(RmlUiControllerStateTest, ShortOverlayCardCanBeDraggedToTheBottomOfTheScr
 
     auto state = std::make_shared<SessionState>();
     state->ui.showMenu.store(true);
-    state->liveMatch->UpdateMatchStateForTests([](MatchState& ms) {
+    state->liveMatch->Update([](MatchState& ms) {
         PlayerData player;
         player.primaryId = "Epic|drag";
         player.name = "Dragged Player";
@@ -1849,7 +1860,7 @@ TEST_F(RmlUiControllerStateTest, LongSettingsPagesScrollAndPreservePositionAfter
             const std::string value = "qa-token-with-many-characters";
             for (char ch : value) {
                 controller.ProcessWindowMessage(hwnd, WM_CHAR, static_cast<WPARAM>(ch), 0);
-                state->liveMatch->UpdateMatchStateForTests([](MatchState&) {});
+                state->liveMatch->Update([](MatchState&) {});
                 // Mirror Overlay::RunLoop: the render loop reports the config
                 // revision it observed, so a local edit is not mistaken for an
                 // external change that would rebuild the focused Settings DOM.
@@ -1893,7 +1904,7 @@ TEST_F(RmlUiControllerStateTest, DemoTrackerFormatsKdClassesAndSpacing) {
     EXPECT_NE(RenderDemoTracker(controller).find("style='margin-left:6dp'"), std::string::npos);
 
     // 3. 13-4 formats with two decimals and reads as winning.
-    state->liveMatch->UpdateMatchStateForTests([](MatchState& ms) {
+    state->liveMatch->Update([](MatchState& ms) {
         ms.currentMatch.demosSelf = 13;
         ms.currentMatch.demoedSelf = 4;
     });
@@ -2024,7 +2035,7 @@ TEST_F(RmlUiControllerStateTest, InsightsButtonShowsEndedSessionAfterReset) {
     WarpDevice warp;
     if (!warp.Create(1280, 800)) GTEST_SKIP() << "WARP not available.";
     auto state = std::make_shared<SessionState>();
-    state->liveMatch->UpdateMatchStateForTests([](MatchState& ms) {
+    state->liveMatch->Update([](MatchState& ms) {
         ms.lastSessionRecap.valid = true;
         ms.lastSessionRecap.totals.wins = 4;
         ms.lastSessionRecap.totals.losses = 2;
@@ -2037,7 +2048,7 @@ TEST_F(RmlUiControllerStateTest, InsightsButtonShowsEndedSessionAfterReset) {
 
     // With games in the live session, the button shows the live session.
     controller.Shutdown();
-    state->liveMatch->UpdateMatchStateForTests([](MatchState& ms) {
+    state->liveMatch->Update([](MatchState& ms) {
         ms.sessionTotals.wins = 1;
     });
     RmlUiController live(state, nullptr);
@@ -2051,7 +2062,7 @@ TEST_F(RmlUiControllerStateTest, RecapCardRendersAndCapturesToPng) {
     WarpDevice warp;
     if (!warp.Create(1280, 800)) GTEST_SKIP() << "WARP not available.";
     auto state = std::make_shared<SessionState>();
-    state->liveMatch->UpdateMatchStateForTests([](MatchState& ms) {
+    state->liveMatch->Update([](MatchState& ms) {
         ms.sessionTotals.wins = 3;
         ms.sessionTotals.losses = 1;
         ms.sessionTotals.goals = 5;
@@ -2207,7 +2218,7 @@ TEST_F(RmlUiControllerStateTest, IdleOverlayLayoutRequestsNoWakeDeadlineAndDoesN
     // Trigger FirstCountdown in match: lobby_ranks (AfterEvent FirstCountdown 8s) becomes visible
     // and schedules a wake deadline at firstCountdownMs + 8000 without rendering extra frames in between.
     const int64_t nowMs = RmlUiDetail::SteadyNowMs();
-    state->liveMatch->UpdateMatchStateForTests([](MatchState& ms) {
+    state->liveMatch->Update([](MatchState& ms) {
         ms.inMatch = true;
     });
     state->ui.lastMatchStartMs.store(nowMs - 500);
@@ -2231,7 +2242,7 @@ TEST_F(RmlUiControllerStateTest, IdleOverlayLayoutRequestsNoWakeDeadlineAndDoesN
 
 TEST_F(RmlUiControllerStateTest, OldLayoutPreservesDemoTrackerInMatchWithoutTabAndHonorsReplayHide) {
     auto state = std::make_shared<SessionState>();
-    state->liveMatch->UpdateMatchStateForTests([](MatchState& ms) {
+    state->liveMatch->Update([](MatchState& ms) {
         ms.inMatch = true;
     });
     state->ui.showOverlay.store(false);
@@ -2357,7 +2368,7 @@ TEST_F(RmlUiControllerStateTest, SessionsTabRendersRowsOpensArchivedRecapAndComp
         ASSERT_GT(db->SaveSession(backfilled), 0);
     }
 
-    state->liveMatch->UpdateMatchStateForTests([&](MatchState& ms) {
+    state->liveMatch->Update([&](MatchState& ms) {
         ms.myPrimaryId = pid;
         ms.sessionTotals.wins = 1;
         ms.sessionTotals.losses = 0;
@@ -2448,7 +2459,7 @@ TEST_F(RmlUiControllerStateTest, HistoryViewOpensClosesIgnoresStaleResponsesAndO
     ASSERT_TRUE(db->Initialize(":memory:"));
 
     const std::string me = "Steam|hist_ui_user";
-    state->liveMatch->UpdateMatchStateForTests([&](MatchState& ms) {
+    state->liveMatch->Update([&](MatchState& ms) {
         ms.myPrimaryId = me;
     });
 
@@ -2582,7 +2593,7 @@ TEST_F(RmlUiControllerStateTest, HistoryViewOpensClosesIgnoresStaleResponsesAndO
     EXPECT_NE(prevGamesHtml.find("previous-games-view-all"), std::string::npos);
     EXPECT_NE(prevGamesHtml.find("data-action='history-open' data-match-id='2'"), std::string::npos);
 
-    state->liveMatch->UpdateMatchStateForTests([](MatchState& ms) {
+    state->liveMatch->Update([](MatchState& ms) {
         ms.matchGuid = "ui-hist-guid-2";
         ms.lastMatchWasVoid = false;
         ms.matchSummaryMyTeam = 0;
@@ -2621,7 +2632,7 @@ TEST_F(RmlUiControllerStateTest, DragHoldClearsExpiredVisibilityDeadlineWithoutP
     ASSERT_TRUE(controller.Initialize(nullptr, warp.device.Get(), warp.context.Get(), 1280, 800, 1.0f));
 
     const int64_t nowMs = RmlUiDetail::SteadyNowMs();
-    state->liveMatch->UpdateMatchStateForTests([](MatchState& ms) {
+    state->liveMatch->Update([](MatchState& ms) {
         ms.inMatch = true;
     });
     state->ui.lastMatchStartMs.store(nowMs - 500);
@@ -2702,7 +2713,7 @@ namespace {
 TEST_F(RmlUiControllerStateTest, RosterShowsEscapedNoteBadgeOnlyForStableIdentities) {
     const std::string otherId = "Epic|fedcba9876543210fedcba9876543210|0";
     auto state = std::make_shared<SessionState>();
-    state->liveMatch->UpdateMatchStateForTests([&](MatchState& ms) {
+    state->liveMatch->Update([&](MatchState& ms) {
         ms.myPrimaryId = kSelfId;
         for (const auto& [id, name] : std::vector<std::pair<std::string, std::string>>{
                  {kSelfId, "Me"}, {kRivalId, "Rival"}, {otherId, "Stranger"}, {"Unknown|Bot", "Bot"}}) {
@@ -2751,7 +2762,7 @@ TEST_F(RmlUiControllerStateTest, RosterShowsEscapedNoteBadgeOnlyForStableIdentit
 
 TEST_F(RmlUiControllerStateTest, RosterShowsEscapedTagChipsWithOverflow) {
     auto state = std::make_shared<SessionState>();
-    state->liveMatch->UpdateMatchStateForTests([&](MatchState& ms) {
+    state->liveMatch->Update([&](MatchState& ms) {
         ms.myPrimaryId = kSelfId;
         for (const auto& [id, name] : std::vector<std::pair<std::string, std::string>>{{kSelfId, "Me"}, {kRivalId, "Rival"}}) {
             PlayerData p;
@@ -2799,7 +2810,7 @@ TEST_F(RmlUiControllerStateTest, OverlayNoteBadgeOpensTheEditorInsteadOfMovingTh
         true);
     auto state = std::make_shared<SessionState>();
     state->ui.showMenu.store(true);
-    state->liveMatch->UpdateMatchStateForTests([&](MatchState& ms) {
+    state->liveMatch->Update([&](MatchState& ms) {
         ms.myPrimaryId = kSelfId;
         PlayerData rival;
         rival.primaryId = kRivalId;
@@ -2851,7 +2862,7 @@ TEST_F(RmlUiControllerStateTest, PlayerNoteEditorSavesEditsDeletesAndGuardsUnsav
     auto state = std::make_shared<SessionState>();
     auto db = std::make_shared<DatabaseManager>(state);
     ASSERT_TRUE(db->Initialize(":memory:"));
-    state->liveMatch->UpdateMatchStateForTests([&](MatchState& ms) {
+    state->liveMatch->Update([&](MatchState& ms) {
         ms.myPrimaryId = kSelfId;
         PlayerData rival;
         rival.primaryId = kRivalId;
@@ -2951,7 +2962,7 @@ TEST_F(RmlUiControllerStateTest, LastGoalSpeedSitsBelowMaxAndFollowsUnitSetting)
 
 namespace {
     void SeedGraph(SessionState& state, const std::string& playlist, std::vector<float> points, int rosterMmr, const std::string& rosterTier) {
-        state.liveMatch->UpdateMatchStateForTests([&](MatchState& ms) {
+        state.liveMatch->Update([&](MatchState& ms) {
             ms.myPrimaryId = kSelfId;
             PlayerData self;
             self.primaryId = kSelfId;
@@ -3055,7 +3066,7 @@ TEST_F(RmlUiControllerStateTest, DashboardLobbyRanksFitANarrowColumnWithoutScrol
         },
         true);
     auto state = std::make_shared<SessionState>();
-    state->liveMatch->UpdateMatchStateForTests([&](MatchState& ms) {
+    state->liveMatch->Update([&](MatchState& ms) {
         ms.myPrimaryId = kSelfId;
         for (const auto& [id, name] : std::vector<std::pair<std::string, std::string>>{{kSelfId, "SparePrinter948"}, {kRivalId, "AVeryLongOpponentName"}}) {
             PlayerData p;

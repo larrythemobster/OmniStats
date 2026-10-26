@@ -20,19 +20,8 @@
 namespace repository = database::repository;
 namespace sqlite = database::sqlite;
 
-// Testing instrumentation defaults
-std::atomic<int> DatabaseManager::s_test_async_get_lifetime_calls{0};
-std::atomic<int> DatabaseManager::s_test_async_refresh_calls{0};
-std::mutex DatabaseManager::s_test_mutex;
-std::string DatabaseManager::s_test_last_get_lifetime_primary = "";
-std::string DatabaseManager::s_test_last_get_lifetime_playlist = "";
-std::string DatabaseManager::s_test_last_refresh_primary = "";
-
 DatabaseManager::DatabaseManager(std::shared_ptr<SessionState> state, DatabaseHooks hooks)
     : m_state(std::move(state)), m_hooks(std::move(hooks)) {
-    s_test_async_get_lifetime_calls.store(0);
-    s_test_async_refresh_calls.store(0);
-
     m_worker = std::jthread([this]() {
         while (true) {
             DbJob job;
@@ -97,7 +86,6 @@ bool DatabaseManager::Initialize(const std::string& dbPath) {
     m_db.BusyTimeout(5000);
 
     try {
-        // Startup integrity checks
         m_db.Execute("PRAGMA foreign_key_check;");
         m_db.Execute("PRAGMA foreign_keys = ON;");
         m_db.Execute("PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL;");
@@ -172,7 +160,6 @@ bool DatabaseManager::EnqueueDbJob(std::function<void()> job, DbJobPriority prio
     return true;
 }
 
-// Match persistence
 void DatabaseManager::SaveMatch(const MatchSaveSnapshot& snapshot) {
     std::lock_guard lock(m_writeMutex);
     if (!m_db.IsOpen()) return;
@@ -236,7 +223,6 @@ void DatabaseManager::AsyncUpdateMatchPlayerMmr(std::string matchGuid, std::stri
                        DbJobPriority::Critical);
 }
 
-// Sessions
 int64_t DatabaseManager::SaveSession(const SessionRecap& recap) {
     std::lock_guard lock(m_writeMutex);
     if (!m_db.IsOpen()) return 0;
@@ -379,7 +365,6 @@ SessionRecap DatabaseManager::GetSession(int64_t id) {
     return repository::SessionRepository::GetSession(m_db, id);
 }
 
-// History & Stats
 void DatabaseManager::GetLifetimeMmrHistory(const std::string& primaryId, const std::string& playlist, std::vector<int64_t>& outX, std::vector<float>& outY) {
     if (m_readerPool.HasPool()) {
         auto lease = m_readerPool.Acquire();
@@ -400,12 +385,6 @@ void DatabaseManager::AsyncGetLifetimeMmrHistory(const std::string& primaryId, c
     if (m_hooks.onAsyncGetLifetimeMmr) {
         m_hooks.onAsyncGetLifetimeMmr(pid, pl);
     }
-    {
-        std::lock_guard lk(s_test_mutex);
-        s_test_last_get_lifetime_primary = pid;
-        s_test_last_get_lifetime_playlist = pl;
-    }
-    s_test_async_get_lifetime_calls.fetch_add(1);
 
     (void)EnqueueDbJob([this, pid, pl]() {
         std::vector<int64_t> tempX;
@@ -572,11 +551,6 @@ void DatabaseManager::AsyncRefreshDbStats(const std::string& primaryId) {
     if (m_hooks.onAsyncRefreshDbStats) {
         m_hooks.onAsyncRefreshDbStats(pid);
     }
-    {
-        std::lock_guard lk(s_test_mutex);
-        s_test_last_refresh_primary = pid;
-    }
-    s_test_async_refresh_calls.fetch_add(1);
 
     (void)EnqueueDbJob([this, pid]() {
         RefreshDbStatsSync(pid);
@@ -584,7 +558,6 @@ void DatabaseManager::AsyncRefreshDbStats(const std::string& primaryId) {
                        DbJobPriority::Coalescable, "refresh:" + pid);
 }
 
-// Transfers & export
 bool DatabaseManager::ExportLocalData(std::string& exportPath, std::string& error) {
     std::lock_guard lock(m_writeMutex);
     if (!m_db.IsOpen()) {
@@ -616,7 +589,6 @@ DbMergeResult DatabaseManager::MergeDatabase(const std::string& sourceDbPath) {
     return repository::TransferService::MergeDatabase(m_db, sourceDbPath, m_dbPath);
 }
 
-// Queries
 std::vector<PlayerStatRow> DatabaseManager::GetPlayerStatSeries(const std::string& primaryId,
                                                                 const std::string& playlistFilter,
                                                                 int limit) {
@@ -781,7 +753,6 @@ void DatabaseManager::AsyncGetMatchDetailByGuid(std::string matchGuid, uint64_t 
                        DbJobPriority::Normal);
 }
 
-// Replay uploads
 bool DatabaseManager::RecordDiscoveredReplay(const std::string& filePath, const std::string& fileName, const std::string& matchGuid,
                                              const std::string& initialState, const std::string& error) {
     std::lock_guard lock(m_writeMutex);
@@ -858,7 +829,6 @@ bool DatabaseManager::QueryMatchReplayInfo(const std::string& matchGuid, bool& o
     return repository::ReplayRepository::QueryMatchReplayInfo(m_db, matchGuid, outFound, outRanked, outWin, outResultPending, outPlaylistId);
 }
 
-// Tracked accounts
 TrackedAccountInsertResult DatabaseManager::RegisterTrackedAccount(const TrackedAccounts::AccountRecord& record) {
     std::lock_guard lock(m_writeMutex);
     if (!m_db.IsOpen()) return TrackedAccountInsertResult::Failed;
@@ -965,7 +935,6 @@ int DatabaseManager::ImportTrackedAccounts(const std::vector<TrackedAccounts::Ac
     return repository::TrackedAccountsRepository::ImportTrackedAccounts(m_db, records);
 }
 
-// Player notes & scout
 std::optional<std::vector<PlayerNotes::Note>> DatabaseManager::ListPlayerNotes() {
     if (m_readerPool.HasPool()) {
         auto lease = m_readerPool.Acquire();

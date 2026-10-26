@@ -1,5 +1,6 @@
 #include "updater/ReleaseManifest.hpp"
 #include "updater/UpdaterCommon.hpp"
+#include "updater/UpdaterDownload.hpp"
 #include "network/http/SigningConfig.hpp"
 #include <nlohmann/json.hpp>
 #include <sodium.h>

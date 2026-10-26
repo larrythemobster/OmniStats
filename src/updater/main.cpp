@@ -7,6 +7,10 @@
 #include <vector>
 #include <windows.h>
 #include "updater/UpdaterCommon.hpp"
+#include "updater/UpdaterDownload.hpp"
+#include "updater/UpdaterPaths.hpp"
+#include "updater/UpdaterProcess.hpp"
+#include "updater/ReleaseManifest.hpp"
 #include "updater/ShortcutUtils.hpp"
 #include "updater/StatsApiRepair.hpp"
 #include <shellapi.h>

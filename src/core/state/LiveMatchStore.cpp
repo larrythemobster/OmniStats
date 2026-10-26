@@ -152,9 +152,3 @@ void LiveMatchStore::ClearActiveMatchOnDisconnect() {
     m_state.ClearActiveMatchOnDisconnect();
     PublishSnapshotLocked();
 }
-
-void LiveMatchStore::UpdateMatchStateForTests(std::function<void(MatchState&)> fn) {
-    std::lock_guard lock(m_stateMutex);
-    if (fn) fn(m_state);
-    PublishSnapshotLocked();
-}

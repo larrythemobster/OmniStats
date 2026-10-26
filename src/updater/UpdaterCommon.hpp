@@ -34,11 +34,3 @@ namespace UpdaterCommon {
     std::string GetInstalledAppVersion();
 
 } // namespace UpdaterCommon
-
-// Include split headers for backward compatibility
-#include "updater/UpdaterPaths.hpp"
-#include "updater/UpdaterDownload.hpp"
-#include "updater/UpdaterProcess.hpp"
-#include "updater/ShortcutUtils.hpp"
-#include "network/http/SigningConfig.hpp"
-#include "updater/ReleaseManifest.hpp"

@@ -44,7 +44,7 @@ TEST(StatsClientTest, MatchEndNonBlockingAndDiscordPush) {
     client.SetDiscordManager(discord);
 
     // Setup state
-    state->liveMatch->UpdateMatchStateForTests([](MatchState& ms) {
+    state->liveMatch->Update([](MatchState& ms) {
         ms.myPrimaryId = "Steam|123";
         ms.myTeam = 0;
         ms.arenaName = "Stadium";
@@ -85,7 +85,7 @@ TEST(StatsClientTest, DisconnectClearsDiscordPresence) {
     client.SetDiscordManager(discord);
 
     // Seed active-match state that must not leak across a socket reconnect.
-    state->liveMatch->UpdateMatchStateForTests([](MatchState& ms) {
+    state->liveMatch->Update([](MatchState& ms) {
         ms.inMatch = true;
         ms.matchGuid = "stale-disconnect-guid";
         ms.playlistId = 11;
@@ -126,7 +126,7 @@ namespace {
             history.playlistHistoryY["2v2"] = {1200.0f, 1210.0f, 1220.0f};
             history.lifetimeMmrY = {1100.0f, 1200.0f, 1220.0f};
         });
-        state.liveMatch->UpdateMatchStateForTests([](MatchState& ms) {
+        state.liveMatch->Update([](MatchState& ms) {
             ms.myPrimaryId = "Steam|1";
             ms.sessionTotals.wins = 2;
             ms.sessionGamemodes["2v2"] = {2, 0, 2};

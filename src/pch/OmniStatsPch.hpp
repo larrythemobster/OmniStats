@@ -21,7 +21,6 @@
 
 #include <nlohmann/json.hpp>
 
-// Common standard library headers
 #include <algorithm>
 #include <array>
 #include <atomic>

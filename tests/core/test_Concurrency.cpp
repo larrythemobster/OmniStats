@@ -128,7 +128,7 @@ TEST(ConcurrencyTest, SessionStateConcurrentRoster) {
         int i = 0;
         while (running) {
             std::string id = "steam|" + std::to_string(i % 10);
-            session->liveMatch->UpdateMatchStateForTests([&](MatchState& ms) {
+            session->liveMatch->Update([&](MatchState& ms) {
                 ms.roster[id] = PlayerData{
                     .primaryId = id,
                     .name = "Player" + std::to_string(i % 10),

@@ -186,13 +186,10 @@ namespace TelemetryEvents {
         bool hasBallSpeed = false;
         std::optional<FieldPoint> ballLocation;
 
-        // Camera target identity signal
         std::string cameraTargetPlayerId;
 
-        // Forfeit / early exit flags
         std::vector<ForfeitScope> forfeitScopes;
 
-        // Legacy context fallback
         bool explicitNonRecordable = false;
         std::string fallbackNonRecordableReason;
         bool explicitCasual = false;

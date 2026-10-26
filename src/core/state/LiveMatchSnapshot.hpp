@@ -54,7 +54,6 @@ struct LiveMatchSnapshot {
     float timeSeconds = 0.0f;
     bool bOvertime = false;
 
-    // Collections
     MatchStats currentMatch;
     SessionTotals sessionTotals;
     float lastGoalSpeed = 0.0f;
@@ -70,7 +69,6 @@ struct LiveMatchSnapshot {
     SessionRecap lastSessionRecap;
     uint64_t sessionGeneration = 0;
 
-    // UI mirrors
     int64_t lastMatchStartMs = 0;
     int64_t firstCountdownOfMatchMs = 0;
     int64_t lastCountdownMs = 0;

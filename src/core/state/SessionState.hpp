@@ -233,7 +233,6 @@ class SessionState : public std::enable_shared_from_this<SessionState> {
 
     void clearActiveMatchOnDisconnect();
 
-    // Session management methods.
     // Returns whether a recap was captured.
     bool startNewSessionLocked(int64_t endedAtUnix, database::store::HistoryData& data);
     bool closeSessionIfInactiveLocked(int64_t nowUnix, database::store::HistoryData& data);

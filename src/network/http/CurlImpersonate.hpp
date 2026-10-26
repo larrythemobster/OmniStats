@@ -26,7 +26,6 @@ static_assert(CURLOPT_HEADERFUNCTION == 20079);
 static_assert(CURLOPT_HEADERDATA == 10029);
 static_assert(CURLOPT_ACCEPT_ENCODING == 10102);
 
-// Standard curl function signatures using real curl.h types
 using pfn_curl_easy_init = CURL* (*)();
 using pfn_curl_easy_cleanup = void (*)(CURL*);
 using pfn_curl_easy_setopt = CURLcode (*)(CURL*, CURLoption, ...);
@@ -51,7 +50,6 @@ class CurlImpersonate {
     // Verifies that the required runtime DLLs are present and compatible.
     [[nodiscard]] bool EnsureAvailable();
 
-    // Function pointers bound with real types
     pfn_curl_easy_init easy_init = nullptr;
     pfn_curl_easy_cleanup easy_cleanup = nullptr;
     pfn_curl_easy_setopt easy_setopt = nullptr;

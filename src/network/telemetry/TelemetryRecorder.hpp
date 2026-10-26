@@ -16,7 +16,6 @@ struct TelemetryRecord {
     std::string line;
 };
 
-// Helpers to parse and read back recording streams and lines.
 std::optional<TelemetryRecord> ParseLine(std::string_view line);
 std::vector<TelemetryRecord> ParseRecordingStream(std::istream& is);
 std::vector<TelemetryRecord> ReadRecording(const std::filesystem::path& path);
@@ -39,7 +38,6 @@ class TelemetryRecorder {
     // Returns std::nullopt if the variable is unset, empty, "0", or "false".
     static std::optional<std::filesystem::path> PathFromEnvironment();
 
-    // Static helper aliases:
     static std::optional<TelemetryRecord> ParseLine(std::string_view line) {
         return ::ParseLine(line);
     }

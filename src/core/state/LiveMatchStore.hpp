@@ -24,7 +24,6 @@ class LiveMatchStore {
     explicit LiveMatchStore(MatchState initialState);
     ~LiveMatchStore() = default;
 
-    // Atomically load immutable snapshot
     std::shared_ptr<const LiveMatchSnapshot> GetSnapshot() const;
 
     template <class F>
@@ -44,7 +43,6 @@ class LiveMatchStore {
     SideEffects ConfirmDestroyedMatch(const std::string& matchGuid, bool won, const ReducerContext& context);
     void OnTelemetryDisconnected();
 
-    // Thread-safe writers.
     void SetLocalPrimaryId(const std::string& primaryId);
     void UpdateRosterMmr(const std::string& primaryId,
                          const std::map<std::string, int>& playlists,
@@ -58,8 +56,6 @@ class LiveMatchStore {
     bool StartNewSession(int64_t endedAtUnix, database::store::HistoryData& history);
     bool CloseSessionIfInactive(int64_t nowUnix, database::store::HistoryData& history);
     void ClearActiveMatchOnDisconnect();
-
-    void UpdateMatchStateForTests(std::function<void(MatchState&)> fn);
 
   private:
     void PublishSnapshotLocked();

@@ -40,13 +40,11 @@ class DatabaseManager {
     DatabaseManager& operator=(const DatabaseManager&) = delete;
     [[nodiscard]] bool Initialize(const std::string& dbPath);
 
-    // Match persistence
     void SaveMatch(const MatchSaveSnapshot& snapshot);
     void AsyncSaveMatch(MatchSaveSnapshot snapshot);
     bool UpdateMatchPlayerMmr(const std::string& matchGuid, const std::string& primaryId, int mmr, bool estimated = false);
     void AsyncUpdateMatchPlayerMmr(std::string matchGuid, std::string primaryId, int mmr, bool estimated = false);
 
-    // Sessions
     int64_t SaveSession(const SessionRecap& recap);
     void AsyncSaveSession(SessionRecap recap);
     bool UpdateSession(const SessionRecap& recap);
@@ -55,7 +53,6 @@ class DatabaseManager {
     std::vector<SessionRecap> ListSessions(const std::string& account, int offset = 0, int limit = 50);
     SessionRecap GetSession(int64_t id);
 
-    // History & Stats
     void GetLifetimeMmrHistory(const std::string& primaryId, const std::string& playlist, std::vector<int64_t>& outX, std::vector<float>& outY);
     void AsyncGetLifetimeMmrHistory(const std::string& primaryId, const std::string& playlist);
     void GetRecentMatchHistory(const std::string& primaryId, std::vector<SessionMatchSummary>& outMatches, int limit = kPreviousGamesDefaultLimit);
@@ -71,12 +68,10 @@ class DatabaseManager {
     void RefreshDbStatsSync(const std::string& primaryId);
     void AsyncRefreshDbStats(const std::string& primaryId);
 
-    // Transfers & export
     bool ExportLocalData(std::string& exportPath, std::string& error);
     bool DeleteLocalMatchHistory(std::string& error);
     DbMergeResult MergeDatabase(const std::string& sourceDbPath);
 
-    // Queries
     std::vector<PlayerStatRow> GetPlayerStatSeries(const std::string& primaryId,
                                                    const std::string& playlistFilter = "",
                                                    int limit = 100);
@@ -91,7 +86,6 @@ class DatabaseManager {
     void AsyncGetMatchDetail(int64_t matchId, uint64_t requestId = 0, std::string accountPrimaryId = "");
     void AsyncGetMatchDetailByGuid(std::string matchGuid, uint64_t requestId = 0, std::string accountPrimaryId = "");
 
-    // Replay uploads
     bool RecordDiscoveredReplay(const std::string& filePath, const std::string& fileName, const std::string& matchGuid = "",
                                 const std::string& initialState = "pending", const std::string& error = "");
     bool UpdateReplayUploadState(int64_t id, const std::string& state, int attempts, int64_t nextAttemptAt, int lastHttpStatus,
@@ -104,7 +98,6 @@ class DatabaseManager {
     bool RetryFailedReplayUploads();
     bool QueryMatchReplayInfo(const std::string& matchGuid, bool& outFound, bool& outRanked, bool& outWin, bool& outResultPending, int& outPlaylistId);
 
-    // Tracked accounts
     TrackedAccountInsertResult RegisterTrackedAccount(const TrackedAccounts::AccountRecord& record);
     std::vector<TrackedAccounts::AccountRecord> ListTrackedAccounts();
     std::optional<TrackedAccounts::AccountRecord> GetTrackedAccount(const std::string& primaryId);
@@ -122,7 +115,6 @@ class DatabaseManager {
     bool DeleteTrackedAccount(const std::string& primaryId);
     int ImportTrackedAccounts(const std::vector<TrackedAccounts::AccountRecord>& records);
 
-    // Player notes & scout
     std::optional<std::vector<PlayerNotes::Note>> ListPlayerNotes();
     std::optional<std::vector<PlayerNotes::Tag>> ListPlayerTags();
     std::optional<std::vector<std::string>> GetPlayerTags(const PlayerNotes::Identity& identity);
@@ -156,14 +148,6 @@ class DatabaseManager {
     database::ReaderPool& GetReaderPool() {
         return m_readerPool;
     }
-
-    // Testing bridge (for backward compatibility with tests asserting async calls)
-    static std::atomic<int> s_test_async_get_lifetime_calls;
-    static std::atomic<int> s_test_async_refresh_calls;
-    static std::mutex s_test_mutex;
-    static std::string s_test_last_get_lifetime_primary;
-    static std::string s_test_last_get_lifetime_playlist;
-    static std::string s_test_last_refresh_primary;
 
   private:
     enum class DbJobPriority {

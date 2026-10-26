@@ -670,7 +670,7 @@ TEST_F(TrackedAccountRefreshTest, TrackerHandleFillsMissingInGameNameOnly) {
 
 TEST_F(TrackedAccountRefreshTest, TrackedRefreshNeverTouchesLiveGameState) {
     const std::string liveId = kSteam;
-    state->liveMatch->UpdateMatchStateForTests([&](MatchState& ms) {
+    state->liveMatch->Update([&](MatchState& ms) {
         ms.myPrimaryId = liveId;
         ms.inMatch = true;
         ms.matchGuid = "live-match";

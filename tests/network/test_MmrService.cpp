@@ -1260,7 +1260,7 @@ TEST_F(MmrServiceTest, ConfirmationDuringNextMatchRefreshesItsPreMatchBaseline) 
             confirmations.emplace_back(matchGuid, won);
         });
     EnqueueDestroyedMatch("previous-loss", 1015, 46, "2v2", {1, 2});
-    sessionState->liveMatch->UpdateMatchStateForTests([](MatchState& ms) {
+    sessionState->liveMatch->Update([](MatchState& ms) {
         ms.inMatch = true;
         ms.matchGuid = "next-win";
         ms.preMatchMmrByGuid["next-win"] =
@@ -1277,7 +1277,7 @@ TEST_F(MmrServiceTest, ConfirmationDuringNextMatchRefreshesItsPreMatchBaseline) 
     EXPECT_EQ(snapshot.playlistMmrs.at("2v2"), 1005);
     EXPECT_EQ(snapshot.playlistMatches.at("2v2"), 47);
 
-    sessionState->liveMatch->UpdateMatchStateForTests([](MatchState& ms) { ms.inMatch = false; });
+    sessionState->liveMatch->Update([](MatchState& ms) { ms.inMatch = false; });
     PendingDestroyedMatchMmrRefresh next;
     next.matchGuid = "next-win";
     next.primaryId = "Steam|123";
@@ -1365,7 +1365,7 @@ TEST_F(MmrServiceTest, ConfiguredLegacyKeyAloneCannotAuthorizeRankLookups) {
     EXPECT_EQ(MmrService::ActiveRankProvider(), RankProvider::Tracker);
     EXPECT_FALSE(fetcher->IsCustomApiActiveSource());
 
-    sessionState->liveMatch->UpdateMatchStateForTests([](MatchState& ms) {
+    sessionState->liveMatch->Update([](MatchState& ms) {
         ms.myPrimaryId = "Epic|test_epic_id|0";
         ms.roster["Epic|test_epic_id|0"] =
             PlayerData{.primaryId = "Epic|test_epic_id|0", .name = "TestPlayer"};
@@ -1399,7 +1399,7 @@ TEST_F(MmrServiceTest, CustomApiMultipleSkillsParsesAllAndSetsBest) {
         }]
     })";
 
-    sessionState->liveMatch->UpdateMatchStateForTests([](MatchState& ms) {
+    sessionState->liveMatch->Update([](MatchState& ms) {
         ms.roster["Epic|test_epic_id"] = PlayerData{.primaryId = "Epic|test_epic_id", .name = "TestPlayer"};
     });
     fetcher->FetchRosterProfile("Epic|test_epic_id", "TestPlayer");
@@ -1435,7 +1435,7 @@ TEST_F(MmrServiceTest, CustomApiSingleSkillParsesCorrectly) {
         }]
     })";
 
-    sessionState->liveMatch->UpdateMatchStateForTests([](MatchState& ms) {
+    sessionState->liveMatch->Update([](MatchState& ms) {
         ms.roster["Steam|76561198000000000|0"] = PlayerData{.primaryId = "Steam|76561198000000000|0", .name = "SteamPlayer"};
     });
     MMRRequest req;
@@ -1588,7 +1588,7 @@ TEST_F(MmrServiceTest, CustomApiXboxPlayerResponseHandledCorrectly) {
         }]
     })";
 
-    sessionState->liveMatch->UpdateMatchStateForTests([](MatchState& ms) {
+    sessionState->liveMatch->Update([](MatchState& ms) {
         ms.roster["XboxOne|2535421607154237|0"] = PlayerData{.primaryId = "XboxOne|2535421607154237|0", .name = "RollrTraks2x"};
     });
     MMRRequest req;
@@ -1632,7 +1632,7 @@ TEST_F(MmrServiceTest, CustomApiPlatformMappingsSupported) {
             }]
         })";
 
-        sessionState->liveMatch->UpdateMatchStateForTests([&](MatchState& ms) { ms.roster[primaryId] = PlayerData{.primaryId = primaryId, .name = "PlatformTestPlayer"}; });
+        sessionState->liveMatch->Update([&](MatchState& ms) { ms.roster[primaryId] = PlayerData{.primaryId = primaryId, .name = "PlatformTestPlayer"}; });
         MMRRequest req;
         req.primaryId = primaryId;
         req.name = "PlatformTestPlayer";
@@ -1758,7 +1758,7 @@ TEST_F(MmrServiceTest, SignedInUsesBearerHeadersAndIsPrimaryForAllPlayers) {
         }]
     })";
 
-    sessionState->liveMatch->UpdateMatchStateForTests([](MatchState& ms) {
+    sessionState->liveMatch->Update([](MatchState& ms) {
         ms.myPrimaryId = "Epic|local_id";
         ms.roster["Epic|opp_id"] = PlayerData{.primaryId = "Epic|opp_id", .name = "Opponent"};
     });
@@ -1883,7 +1883,7 @@ TEST_F(MmrServiceTest, SignedInCustomApiFailureOnlyFallsBackToTrackerWhenMmrTrac
         }
     })";
 
-    sessionState->liveMatch->UpdateMatchStateForTests([](MatchState& ms) {
+    sessionState->liveMatch->Update([](MatchState& ms) {
         ms.roster["Steam|76561198000000099"] =
             PlayerData{.primaryId = "Steam|76561198000000099", .name = "TestTarget"};
     });
@@ -2081,7 +2081,7 @@ TEST_F(MmrServiceTest, WholeBatchHttpFailureYieldsPerPlayerFailures) {
     AssembledBatch batch;
     for (int i = 1; i <= 3; ++i) {
         const std::string id = "Epic|fail_player_" + std::to_string(i) + "|0";
-        sessionState->liveMatch->UpdateMatchStateForTests([&](MatchState& ms) { ms.roster[id] = PlayerData{.primaryId = id, .name = "FailPlayer" + std::to_string(i)}; });
+        sessionState->liveMatch->Update([&](MatchState& ms) { ms.roster[id] = PlayerData{.primaryId = id, .name = "FailPlayer" + std::to_string(i)}; });
         MMRRequest req;
         req.primaryId = id;
         req.name = "FailPlayer" + std::to_string(i);
@@ -2119,7 +2119,7 @@ TEST_F(MmrServiceTest, EndToEndCoalescesQueuedRosterRequestsIntoSingleHttpCall) 
 
     for (int i = 1; i <= 6; ++i) {
         const std::string id = "Epic|batch_player_" + std::to_string(i) + "|0";
-        sessionState->liveMatch->UpdateMatchStateForTests([&](MatchState& ms) { ms.roster[id] = PlayerData{.primaryId = id, .name = "LobbyPlayer" + std::to_string(i)}; });
+        sessionState->liveMatch->Update([&](MatchState& ms) { ms.roster[id] = PlayerData{.primaryId = id, .name = "LobbyPlayer" + std::to_string(i)}; });
         fetcher->Enqueue(id, "LobbyPlayer" + std::to_string(i));
     }
 
@@ -2185,7 +2185,7 @@ TEST_F(MmrServiceTest, UpdateRequiredOnRanksDoesNotSignOutAndFallsBackToTracker)
         return res;
     });
 
-    sessionState->liveMatch->UpdateMatchStateForTests([](MatchState& ms) {
+    sessionState->liveMatch->Update([](MatchState& ms) {
         ms.roster["Epic|test_epic_id|0"] = PlayerData{.primaryId = "Epic|test_epic_id|0", .name = "TrackerPlayer"};
     });
     fetcher->FetchRosterProfile("Epic|test_epic_id|0", "TrackerPlayer");
@@ -2215,7 +2215,7 @@ TEST_F(MmrServiceTest, UpdateRequiredOnRanksWithoutTrackerFailsWithUpdateMessage
         return res;
     });
 
-    sessionState->liveMatch->UpdateMatchStateForTests([](MatchState& ms) {
+    sessionState->liveMatch->Update([](MatchState& ms) {
         ms.roster["Epic|test_epic_id|0"] = PlayerData{.primaryId = "Epic|test_epic_id|0", .name = "TestPlayer"};
     });
     fetcher->FetchRosterProfile("Epic|test_epic_id|0", "TestPlayer");

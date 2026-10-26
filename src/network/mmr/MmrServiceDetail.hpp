@@ -1,7 +1,5 @@
 #pragma once
 
-// Tuning constants and stateless helpers shared by the MmrService translation units.
-
 #include <chrono>
 #include <initializer_list>
 #include <map>

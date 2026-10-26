@@ -400,7 +400,6 @@ namespace TelemetryEvents {
                     ev.ballLocation = Point(*ball, "Location");
                 }
 
-                // Context flags
                 ev.explicitNonRecordable =
                     ReadTrueBoolean(*game, {"bPrivateMatch", "bTraining", "bExhibition", "bTournamentSpectator"}) ||
                     MatchTypeContains(*game, {"private", "training", "exhibition", "freeplay"});

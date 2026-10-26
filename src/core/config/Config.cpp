@@ -710,7 +710,6 @@ namespace Config {
                 desc.load(j, Current, s_secretStore, needsSave, needsLegacyMigration);
             }
 
-            // Gamepad overlay default back button migration
             if (j.contains("gamepad_overlay")) {
                 bool migrated = false;
                 if (j.contains("controller_default_back_migrated") && j["controller_default_back_migrated"].is_boolean()) {
@@ -726,7 +725,6 @@ namespace Config {
                 needsSave = true;
             }
 
-            // Pro account legacy key migrations
             if ((!j.contains("custom_api_key") || !j["custom_api_key"].is_string()) &&
                 j.contains("pro_api_key") && j["pro_api_key"].is_string()) {
                 s_secretStore.LoadSecretField("custom_api_key", j["pro_api_key"].get<std::string>(), Current.custom_api_key, needsLegacyMigration, Current.credentials_decryption_failed);
@@ -737,7 +735,6 @@ namespace Config {
                 Current.custom_api_enabled = j["pro_account_enabled"].get<bool>();
             }
 
-            // Onboarding migration
             if (!j.contains("onboarding_completed") || !j["onboarding_completed"].is_boolean()) {
                 Current.onboarding_completed = !Current.privacy_policy_accepted_version.empty();
             }
@@ -759,7 +756,6 @@ namespace Config {
                 Current.match_summary_seconds = existingInstall ? 30 : 20;
             }
 
-            // MMR category fallbacks
             if (!j.contains("graph_mmr_category") || !j["graph_mmr_category"].is_string() ||
                 !IsGraphMmrCategory(j["graph_mmr_category"].get<std::string>())) {
                 Current.graph_mmr_category = IsGraphMmrCategory(Current.mmr_category) ? Current.mmr_category : "2v2";
@@ -789,17 +785,14 @@ namespace Config {
                 }
             }
 
-            // Tournament reminder fallbacks
             if (!IsValidTournamentReminderMinutes(Current.tournament_reminder_minutes)) {
                 Current.tournament_reminder_minutes = 10;
             }
 
-            // Check for updates migration
             if (!j.contains("check_for_updates") || !j["check_for_updates"].is_boolean() || !j["check_for_updates"].get<bool>()) {
                 needsSave = true;
             }
 
-            // Layout fallback for old install missing overlay_layout
             if (!j.contains("overlay_layout")) {
                 Current.overlay_layout = OverlayLayout::DefaultOverlayLayout();
                 if (existingInstall) {
@@ -809,7 +802,6 @@ namespace Config {
                 }
             }
 
-            // Lobby rank fallback
             if (!Current.show_lobby_rank_1v1 && !Current.show_lobby_rank_2v2 &&
                 !Current.show_lobby_rank_3v3 && !Current.show_lobby_rank_casual && !Current.show_lobby_rank_tourny &&
                 !Current.show_lobby_rank_hoops && !Current.show_lobby_rank_rumble && !Current.show_lobby_rank_dropshot &&
@@ -817,7 +809,6 @@ namespace Config {
                 Current.show_lobby_rank_2v2 = true;
             }
 
-            // Theme background minimum opacity safety
             if (Current.themeBg.a < 0.01f) {
                 Current.themeBg.a = 0.85f;
                 SaveInternal();

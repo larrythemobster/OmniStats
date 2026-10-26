@@ -294,7 +294,6 @@ namespace TelemetryReducerDetail {
 
         if (gameReplayActive) return;
 
-        // Process players
         std::array<int, 2> teamCounts{0, 0};
         for (const auto& p : ev.players) {
             if (p.team == 0 || p.team == 1) {
@@ -315,7 +314,6 @@ namespace TelemetryReducerDetail {
             const int team = p.team;
             if (pid.empty()) continue;
 
-            // Boost delta tracking for currentMatch
             if (p.boost.has_value()) {
                 const int currentBoost = *p.boost;
                 if (state.roundActive) {
@@ -367,7 +365,6 @@ namespace TelemetryReducerDetail {
             }
         }
 
-        // Identity detection
         if (!isSpectator) {
             bool hasLocalPlayerFeeds = false;
             bool seenMyIdInLobby = false;
@@ -494,7 +491,6 @@ namespace TelemetryReducerDetail {
                 }
             }
 
-            // Playlist category follow updates
             const MmrCategory inferredPlaylistCat = CategoryFromMatchContext(state);
             const bool inferredCategoryIsHiddenExtra =
                 IsExtraMmrCategory(inferredPlaylistCat) &&
@@ -559,7 +555,6 @@ namespace TelemetryReducerDetail {
             }
         }
 
-        // Player pruning (players not seen in 5 seconds)
         for (const auto& p : ev.players) {
             if (!p.primaryId.empty()) {
                 state.lastPlayerSeenMs[p.primaryId] = nowMs;

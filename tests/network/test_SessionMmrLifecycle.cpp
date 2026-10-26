@@ -98,7 +98,7 @@ namespace {
         }
 
         void RecordCountedGames(int wins) {
-            state->liveMatch->UpdateMatchStateForTests([wins](MatchState& ms) {
+            state->liveMatch->Update([wins](MatchState& ms) {
                 ms.sessionTotals.wins += wins;
             });
         }
@@ -311,7 +311,7 @@ TEST_F(SessionMmrLifecycleTest, MissingPreMatchRatingNeverBecomesTheBaseline) {
 }
 
 TEST_F(SessionMmrLifecycleTest, BestPlaylistMmrIsNeverUsedAsAPlaylistBaseline) {
-    state->liveMatch->UpdateMatchStateForTests([](MatchState& ms) {
+    state->liveMatch->Update([](MatchState& ms) {
         ms.roster[kMe] = PlayerData{.primaryId = kMe, .name = "Player", .mmr = 1500};
     });
     EnqueueMatch("unknown-twos", "2v2", true, {0, -1});
@@ -352,7 +352,7 @@ TEST_F(SessionMmrLifecycleTest, UntrackedMatchesInvalidateTheReconstructedBaseli
 }
 
 TEST_F(SessionMmrLifecycleTest, NewSessionFetchesAFreshProfileInsteadOfTheCachedOne) {
-    state->liveMatch->UpdateMatchStateForTests([](MatchState& ms) {
+    state->liveMatch->Update([](MatchState& ms) {
         ms.roster[kMe] = PlayerData{.primaryId = kMe, .name = "Player"};
     });
     PublishRoster({{"2v2", {1220, 52}}});
@@ -464,7 +464,7 @@ TEST_F(SessionMmrLifecycleTest, ThreeMatchesThenSimulatedClosePersistsSessionAnd
         db->SaveMatch(snap);
 
         PlayMatch(guid, "2v2", won, pre, post);
-        state->liveMatch->UpdateMatchStateForTests([won, goals, saves, tsSec, guid](MatchState& ms) {
+        state->liveMatch->Update([won, goals, saves, tsSec, guid](MatchState& ms) {
             if (won)
                 ms.sessionTotals.wins++;
             else
@@ -522,7 +522,7 @@ TEST_F(SessionMmrLifecycleTest, InactivityCloseAfterTwoHoursSavesSessionWithoutR
     auto db = std::make_shared<DatabaseManager>(state);
     ASSERT_TRUE(db->Initialize(":memory:"));
 
-    state->liveMatch->UpdateMatchStateForTests([](MatchState& ms) {
+    state->liveMatch->Update([](MatchState& ms) {
         ms.sessionTotals.wins = 3;
         ms.sessionTotals.losses = 1;
         ms.sessionStartedAtUnix = 1700000000;
@@ -548,7 +548,7 @@ TEST_F(SessionMmrLifecycleTest, InactivityCloseAfterTwoHoursSavesSessionWithoutR
 TEST_F(SessionMmrLifecycleTest, LateProfileForDepartedPlayerDoesNotRecreateRosterEntry) {
     const std::string departed = "Epic|departed";
     const std::string present = "Epic|present";
-    state->liveMatch->UpdateMatchStateForTests([&](MatchState& ms) {
+    state->liveMatch->Update([&](MatchState& ms) {
         ms.roster[present] = PlayerData{.primaryId = present, .name = "Present", .team = 1};
     });
     const uint64_t oldGeneration = state->liveMatch->GetSnapshot()->sessionGeneration;
