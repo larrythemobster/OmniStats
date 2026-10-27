@@ -427,7 +427,7 @@ if(BUILD_TESTING)
         list(REMOVE_ITEM TEST_SOURCES ${FUZZ_SOURCES})
     endif()
 
-    add_executable(OmniStatsTests ${TEST_SOURCES})
+    add_executable(OmniStatsTests ${TEST_SOURCES} "${OMNISTATS_APP_RESOURCE_FILE}")
     omnistats_copy_discord_sdk(OmniStatsTests)
     target_include_directories(OmniStatsTests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
     omnistats_enable_shared_pch(OmniStatsTests)

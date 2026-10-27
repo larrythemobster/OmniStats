@@ -476,19 +476,12 @@ bool RmlRenderInterfaceD3D11::LoadEmbeddedPng(const std::string& source, Rml::Te
     HMODULE module = GetModuleHandleW(nullptr);
     HRSRC resource = FindResourceA(module, resourceName.c_str(), RT_RCDATA);
     if (!resource) {
-        // Fallback to disk for tests or unpacked runs without Windows RC resources
+        // Unpacked runs read from the working directory when no RC resource is linked.
         std::string subPath = source;
         constexpr const char* prefix = "res://images/";
         if (subPath.rfind(prefix, 0) == 0) subPath.erase(0, std::strlen(prefix));
         const std::string relPath = (subPath == "Logo.png") ? "resources/Logo.png" : ("resources/images/" + subPath);
-        std::vector<std::string> candidates = {relPath};
-#ifdef OMNISTATS_SOURCE_DIR
-        candidates.push_back(std::string(OMNISTATS_SOURCE_DIR) + "/" + relPath);
-#endif
-        for (const auto& candidate : candidates) {
-            if (LoadDiskPng(candidate, handle, dimensions)) return true;
-        }
-        return false;
+        return LoadDiskPng(relPath, handle, dimensions);
     }
     HGLOBAL loaded = LoadResource(module, resource);
     const void* bytes = loaded ? LockResource(loaded) : nullptr;

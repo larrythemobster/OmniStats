@@ -76,16 +76,9 @@ Rml::FileHandle RmlFileInterface::Open(const Rml::String& rmlPath) {
             }
         }
 
-        // Fallback to disk for tests or unpacked runs
-        const std::string relPath = "resources/rml/" + NormalizeResourcePath(path);
-        std::vector<std::string> candidates = {relPath};
-#ifdef OMNISTATS_SOURCE_DIR
-        candidates.push_back(std::string(OMNISTATS_SOURCE_DIR) + "/" + relPath);
-#endif
-        for (const auto& candidate : candidates) {
-            if (Handle* handle = OpenDisk(candidate)) return reinterpret_cast<Rml::FileHandle>(handle);
-        }
-        return 0;
+        // Unpacked runs read from the working directory when no RC resource is linked.
+        Handle* handle = OpenDisk("resources/rml/" + NormalizeResourcePath(path));
+        return reinterpret_cast<Rml::FileHandle>(handle);
     }
 
     Handle* handle = OpenDisk(path);

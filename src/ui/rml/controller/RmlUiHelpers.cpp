@@ -231,23 +231,16 @@ namespace RmlUiDetail {
     }
 
     std::vector<Rml::byte> ReadFontFile(const char* fileName) {
-        const std::string relative = std::string("resources/fonts/") + fileName;
-        std::vector<std::string> candidates = {relative};
-#ifdef OMNISTATS_SOURCE_DIR
-        candidates.push_back(std::string(OMNISTATS_SOURCE_DIR) + "/" + relative);
-#endif
-        for (const auto& candidate : candidates) {
-            std::error_code ec;
-            const auto size = std::filesystem::file_size(candidate, ec);
-            if (ec || size == 0) continue;
-            std::ifstream file(candidate, std::ios::binary);
-            if (!file) continue;
-            std::vector<Rml::byte> bytes(static_cast<size_t>(size));
-            file.read(reinterpret_cast<char*>(bytes.data()), static_cast<std::streamsize>(size));
-            if (file.gcount() != static_cast<std::streamsize>(size)) continue;
-            return bytes;
-        }
-        return {};
+        const std::string path = std::string("resources/fonts/") + fileName;
+        std::error_code ec;
+        const auto size = std::filesystem::file_size(path, ec);
+        if (ec || size == 0) return {};
+        std::ifstream file(path, std::ios::binary);
+        if (!file) return {};
+        std::vector<Rml::byte> bytes(static_cast<size_t>(size));
+        file.read(reinterpret_cast<char*>(bytes.data()), static_cast<std::streamsize>(size));
+        if (file.gcount() != static_cast<std::streamsize>(size)) return {};
+        return bytes;
     }
 
     std::string TrackerUrlForPlayer(const PlayerData& player) {
