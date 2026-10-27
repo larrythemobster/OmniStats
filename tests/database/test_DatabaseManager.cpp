@@ -1188,6 +1188,38 @@ TEST_F(DatabaseManagerTest, MigrationV2FailureRollsBackAndKeepsRunningOnV1Tables
     std::filesystem::remove(backupPath);
 }
 
+TEST_F(DatabaseManagerTest, ExistingForeignKeyViolationsLeaveTheDatabaseUnchanged) {
+    const std::string path = "test_fk_violation.db";
+    RemoveTestDbFiles(path);
+
+    sqlite3* raw = nullptr;
+    ASSERT_EQ(sqlite3_open(path.c_str(), &raw), SQLITE_OK);
+    ASSERT_EQ(sqlite3_exec(raw, R"(
+        CREATE TABLE Matches (id INTEGER PRIMARY KEY AUTOINCREMENT, match_guid TEXT);
+        CREATE TABLE MatchPlayerStats (
+            match_id INTEGER NOT NULL REFERENCES Matches(id) ON DELETE CASCADE,
+            primary_id TEXT NOT NULL,
+            PRIMARY KEY(match_id, primary_id)
+        );
+        INSERT INTO MatchPlayerStats (match_id, primary_id) VALUES (42, 'Steam|orphan');
+        PRAGMA user_version = 3;
+    )",
+                           nullptr, nullptr, nullptr),
+              SQLITE_OK);
+    sqlite3_close(raw);
+
+    {
+        auto db = std::make_shared<DatabaseManager>(sessionState);
+        EXPECT_FALSE(db->Initialize(path));
+    }
+
+    ASSERT_EQ(sqlite3_open(path.c_str(), &raw), SQLITE_OK);
+    EXPECT_EQ(QueryIntScalar(raw, "PRAGMA user_version;"), 3);
+    EXPECT_EQ(QueryIntScalar(raw, "SELECT COUNT(*) FROM MatchPlayerStats;"), 1);
+    sqlite3_close(raw);
+    RemoveTestDbFiles(path);
+}
+
 TEST_F(DatabaseManagerTest, GetRecentMatchHistoryExcludesMatchesAccountDidNotPlay) {
     const std::string accountA = "Steam|account-a";
     const std::string accountB = "Steam|account-b";

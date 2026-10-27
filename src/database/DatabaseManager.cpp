@@ -85,12 +85,37 @@ bool DatabaseManager::Initialize(const std::string& dbPath) {
 
     m_db.BusyTimeout(5000);
 
+    std::string foreignKeyFailure;
     try {
-        m_db.Execute("PRAGMA foreign_key_check;");
-        m_db.Execute("PRAGMA foreign_keys = ON;");
+        std::string violatingTable;
+        {
+            database::sqlite::Statement integrity(m_db, "PRAGMA foreign_key_check;");
+            if (integrity.Step()) violatingTable = integrity.Get<std::string>(0);
+        }
+        if (!violatingTable.empty()) {
+            foreignKeyFailure = "Existing foreign-key violations in " + violatingTable + "; database left unchanged.";
+        } else {
+            m_db.Execute("PRAGMA foreign_keys = ON;");
+            bool enforced = false;
+            {
+                database::sqlite::Statement enabled(m_db, "PRAGMA foreign_keys;");
+                enforced = enabled.Step() && enabled.Get<int>(0) == 1;
+            }
+            if (!enforced) foreignKeyFailure = "Cannot enable foreign-key enforcement.";
+        }
+    } catch (const std::exception& e) {
+        foreignKeyFailure = std::string("Foreign-key check failed: ") + e.what();
+    }
+    if (!foreignKeyFailure.empty()) {
+        std::cerr << "[Database] " << foreignKeyFailure << "\n";
+        m_db.Close();
+        return false;
+    }
+
+    try {
         m_db.Execute("PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL;");
     } catch (const std::exception& e) {
-        std::cerr << "[Database] Startup PRAGMA failed: " << e.what() << "\n";
+        std::cerr << "[Database] Failed to enable WAL mode: " << e.what() << "\n";
     }
 
     if (!repository::Migrations::Migrate(m_db, dbPath)) {
