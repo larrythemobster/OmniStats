@@ -876,8 +876,8 @@ namespace database::repository {
                     tmStmt.Bind(1, query.account);
                     std::unordered_map<int64_t, std::vector<std::string>> teammatesByMatch;
                     while (tmStmt.Step()) {
-                        int64_t mid = tmStmt.Get<int64_t>(0);
-                        teammatesByMatch[mid].push_back(tmStmt.Get<std::string>(1));
+                        std::string name = tmStmt.Get<std::string>(1);
+                        if (!name.empty()) teammatesByMatch[tmStmt.Get<int64_t>(0)].push_back(std::move(name));
                     }
                     for (auto& row : outRows) {
                         if (auto it = teammatesByMatch.find(row.matchId); it != teammatesByMatch.end()) {
