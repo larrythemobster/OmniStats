@@ -199,7 +199,7 @@ namespace TelemetryReducerDetail {
                            ev.assister.has_value() ? ev.assister->name : std::string{},
                            "goal",
                            ev.roundSeconds,
-                           ev.goalSpeed,
+                           ev.goalSpeed && *ev.goalSpeed > 0.0 ? ev.goalSpeed : std::nullopt,
                            std::nullopt,
                            ev.eventId);
 
@@ -209,7 +209,7 @@ namespace TelemetryReducerDetail {
         }
 
         if (ev.goalSpeed.has_value()) {
-            const float currentSpeed = *ev.goalSpeed;
+            const float currentSpeed = static_cast<float>(*ev.goalSpeed);
             if (std::isfinite(currentSpeed) && currentSpeed > 0.0f) {
                 state.currentMatch.maxGoalSpeed = (std::max)(state.currentMatch.maxGoalSpeed, currentSpeed);
                 if (isScorerSelf) {
@@ -273,11 +273,10 @@ namespace TelemetryReducerDetail {
         state.currentMatch.crossbars++;
         if (isToucherSelf) state.currentMatch.crossbarsSelf++;
         if (ev.impactForce.has_value()) {
-            state.currentMatch.maxImpactForce =
-                (std::max)(state.currentMatch.maxImpactForce, *ev.impactForce);
+            const float impactForce = static_cast<float>(*ev.impactForce);
+            state.currentMatch.maxImpactForce = (std::max)(state.currentMatch.maxImpactForce, impactForce);
             if (isToucherSelf) {
-                state.currentMatch.maxImpactForceSelf =
-                    (std::max)(state.currentMatch.maxImpactForceSelf, *ev.impactForce);
+                state.currentMatch.maxImpactForceSelf = (std::max)(state.currentMatch.maxImpactForceSelf, impactForce);
             }
         }
         RecordJournalEvent(state,

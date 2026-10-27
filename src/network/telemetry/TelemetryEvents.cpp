@@ -23,6 +23,13 @@ namespace TelemetryEvents {
             return std::isfinite(f) ? std::optional<float>(f) : std::nullopt;
         }
 
+        std::optional<double> Double(const nlohmann::json& j, const char* key) {
+            const auto* v = Child(j, key);
+            if (!v || !v->is_number()) return std::nullopt;
+            const double d = v->get<double>();
+            return std::isfinite(d) ? std::optional<double>(d) : std::nullopt;
+        }
+
         std::optional<int> Integer(const nlohmann::json& j, const char* key) {
             const auto* v = Child(j, key);
             if (!v || !v->is_number()) return std::nullopt;
@@ -279,7 +286,7 @@ namespace TelemetryEvents {
             if (const auto* touch = Child(data, "BallLastTouch"); touch && touch->is_object()) {
                 if (const auto* player = Child(*touch, "Player")) ev.lastTouch = ParsePlayerRef(*player);
             }
-            ev.impactForce = Number(data, "ImpactForce");
+            ev.impactForce = Double(data, "ImpactForce");
             ev.eventId = EventId(data);
             return ev;
         }
@@ -326,7 +333,7 @@ namespace TelemetryEvents {
             if (const auto* assister = Child(data, "Assister")) {
                 ev.assister = ParsePlayerRef(*assister);
             }
-            ev.goalSpeed = Number(data, "GoalSpeed");
+            ev.goalSpeed = Double(data, "GoalSpeed");
             if (const auto* touch = Child(data, "BallLastTouch")) {
                 ev.lastTouchSpeed = Number(*touch, "Speed");
             }

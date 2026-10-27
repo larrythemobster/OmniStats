@@ -78,7 +78,7 @@ namespace TelemetryEvents {
     struct CrossbarHitEvent {
         std::string matchGuid;
         PlayerRef lastTouch;
-        std::optional<float> impactForce;
+        std::optional<double> impactForce;
         std::string eventId;
     };
 
@@ -111,7 +111,7 @@ namespace TelemetryEvents {
         PlayerRef scorer;
         bool hasScorer = false;
         std::optional<PlayerRef> assister;
-        std::optional<float> goalSpeed;
+        std::optional<double> goalSpeed;
         std::optional<float> lastTouchSpeed;
         std::optional<float> roundSeconds;
         std::optional<FieldPoint> impactLocation;

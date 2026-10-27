@@ -304,7 +304,7 @@ void MatchAnalyticsTracker::OnGoalScored(const TelemetryEvents::GoalScoredEvent&
         g.assisterId = ResolvePlayer(*ev.assister);
         g.assisterName = ev.assister->name;
     }
-    g.goalSpeed = Positive(ev.goalSpeed);
+    if (ev.goalSpeed) g.goalSpeed = Positive(static_cast<float>(*ev.goalSpeed));
     g.lastTouchSpeed = Positive(ev.lastTouchSpeed);
     g.roundSeconds = Positive(ev.roundSeconds);
     if (g.team == 0 || g.team == 1) {
