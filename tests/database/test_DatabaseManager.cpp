@@ -2412,13 +2412,12 @@ TEST_F(DatabaseManagerTest, AsyncQueryMatchesAndAsyncGetMatchDetailIgnoreStaleRe
     dbManager->AsyncGetMatchDetail(2, 20, me);
     dbManager->AsyncGetMatchDetail(1, 15, me); // Stale detailRequestId < 20 must be ignored
 
-    dbManager->AsyncSetSetting("async_history_barrier", "done");
-    for (int i = 0; i < 200 && dbManager->GetSetting("async_history_barrier", "") != "done"; ++i) {
-        std::this_thread::sleep_for(std::chrono::milliseconds(5));
-    }
-    ASSERT_EQ(dbManager->GetSetting("async_history_barrier", ""), "done");
-
     auto snap = sessionState->historyView.GetSnapshot();
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+    while ((snap->loading || snap->detailLoading) && std::chrono::steady_clock::now() < deadline) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(5));
+        snap = sessionState->historyView.GetSnapshot();
+    }
     ASSERT_NE(snap, nullptr);
     EXPECT_EQ(snap->requestId, 10u);
     EXPECT_FALSE(snap->loading);
@@ -2429,6 +2428,7 @@ TEST_F(DatabaseManagerTest, AsyncQueryMatchesAndAsyncGetMatchDetailIgnoreStaleRe
     }
 
     EXPECT_EQ(snap->detailRequestId, 20u);
+    EXPECT_FALSE(snap->detailLoading);
     ASSERT_TRUE(snap->detail.has_value());
     EXPECT_EQ(snap->detail->matchId, 2);
 }

@@ -44,6 +44,8 @@ flowchart LR
 6. **Baselines.** A playlist's session baseline rating (`playlistInitialMmr`) is captured from the first rating observed before any session match in that playlist. It is never seeded from post-match ratings.
 
 Boost collected estimates positive changes in sampled `Boost` values during active play. Countdown and demolition state exclude refill baselines; a pickup ending at 33 still counts. Boost picked up and spent between samples cannot be recovered from this feed.
+Journal events use an explicit remaining-clock field when valid, otherwise the last sampled game clock if it is at most five seconds old. `GoalTime` measures round duration, not remaining time. Goal speeds and crossbar impact values retain double precision in the journal; match statistics and analytics store floats.
+
 
 `MatchAnalyticsTracker` (`src/core/game/MatchAnalytics.*`) builds per-match analytics alongside the reducer from `UpdateState`, `BallHit`, `BoostPickup`, `GoalScored`, `StatfeedEvent`, `PlayerLeft`, kickoff, and pause events. It counts only active play: the round is live from `RoundStarted` (or once the game clock moves, for mid-round joins) until a goal, countdown, or match end, and paused or replay time is excluded. It records per-player hits (speed, height, field third, kickoff first touches), every stat-feed event name, demos inflicted and taken, goals with clock, assister and impact location, kickoff outcomes, possession from `Game.Ball.TeamNum` in 15-second windows, and players leaving. Car state (speed, boost, ground/air/wall, powerslide, supersonic) are captured on every touch.
 
@@ -98,12 +100,14 @@ The Settings and onboarding Stats API repair runs on a background thread. The re
 - **RmlUi DOM.** RmlUi templates (`resources/rml/*.rml`) are compiled into persistent DOM trees rather than being reconstructed every frame.
 - **Granular invalidation.** `RmlUiController` checks version counters across session state, history, and layout configuration to redraw only the affected widgets or views.
 - **Dual surfaces.**
-  - *Overlay:* Borderless transparent DirectComposition window (`WS_EX_NOREDIRECTIONBITMAP | WS_EX_TRANSPARENT`) with flip-model presentation and configurable visibility triggers (scoreboard hold, kickoff countdown, goal, podium).
+  - *Overlay:* Borderless transparent DirectComposition window (`WS_EX_NOREDIRECTIONBITMAP | WS_EX_LAYERED | WS_EX_TRANSPARENT`) with flip-model presentation and configurable visibility triggers (scoreboard hold, kickoff countdown, goal, podium). Layered style is required for cross-process click-through; opening Settings removes the transparent style.
   - *Dashboard:* Second-monitor window with draggable, dockable cards managed through `DashboardLayoutConfig`.
 - **Hardware rendering.** `RmlRenderInterfaceD3D11` issues batched, hardware-accelerated draw calls with premultiplied alpha blending directly to the flip-model swap chain.
 - **Foreground hook.** `ForegroundDetector` tracks Rocket League focus using a WinEvent hook (`EVENT_SYSTEM_FOREGROUND`) instead of per-frame polling.
 - **Surface presenters.** UI markup generation is divided among `OverlayPresenter`, `DashboardPresenter`, and `SettingsPresenter`. Common interaction, font loading, and background tasks are managed by `InputCaptureService`, `FontService`, and `BackgroundTaskService`.
 - **Data models.** Fast counters update through the `live` data model. Enriched widget models (`OverlayWidgetModel`) provide data-bound collections for roster, lobby ranks, graph series, and previous games.
+
+The app and UI test executable embed the same named RCDATA resources for fonts, templates, and images. Tests do not depend on the launch directory to load the UI.
 
 ## External network boundaries
 

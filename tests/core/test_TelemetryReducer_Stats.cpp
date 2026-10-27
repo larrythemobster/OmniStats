@@ -950,7 +950,7 @@ TEST(TelemetryReducerStats, JournalClockUsesRemainingTimeNotGoalTimeAndIgnoresSt
     const nlohmann::json scorer = {{"PrimaryId", "Steam|1"}, {"Name", "Me"}};
     now += std::chrono::seconds(2);
     reducer.Reduce(std::string(Constants::EVT_GOAL_SCORED),
-                   nlohmann::json{{"MatchGuid", "journal-clock-1"}, {"EventId", "g1"}, {"GoalTime", 60.0}, {"Scorer", scorer}});
+                   nlohmann::json{{"MatchGuid", "journal-clock-1"}, {"EventId", "g1"}, {"GoalTime", 60.0}, {"GoalSpeed", 95.53}, {"Scorer", scorer}});
     reducer.Reduce(std::string(Constants::EVT_GOAL_SCORED),
                    nlohmann::json{{"MatchGuid", "journal-clock-1"}, {"EventId", "g2"}, {"GoalTime", 60.0}, {"SecondsRemaining", 150.0}, {"Scorer", scorer}});
     now += std::chrono::seconds(10);
@@ -963,6 +963,8 @@ TEST(TelemetryReducerStats, JournalClockUsesRemainingTimeNotGoalTimeAndIgnoresSt
     ASSERT_EQ(end.saveSnapshot.events.size(), 3u);
     ASSERT_TRUE(end.saveSnapshot.events[0].matchClockSeconds);
     EXPECT_DOUBLE_EQ(*end.saveSnapshot.events[0].matchClockSeconds, 217.0);
+    ASSERT_TRUE(end.saveSnapshot.events[0].ballSpeed);
+    EXPECT_DOUBLE_EQ(*end.saveSnapshot.events[0].ballSpeed, 95.53);
     ASSERT_TRUE(end.saveSnapshot.events[1].matchClockSeconds);
     EXPECT_DOUBLE_EQ(*end.saveSnapshot.events[1].matchClockSeconds, 150.0);
     EXPECT_FALSE(end.saveSnapshot.events[2].matchClockSeconds.has_value());
