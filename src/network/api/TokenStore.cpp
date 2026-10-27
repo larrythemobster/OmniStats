@@ -41,6 +41,18 @@ namespace {
         return static_cast<int64_t>(std::time(nullptr));
     }
 
+    std::string ServerErrorCode(const std::string& body) {
+        try {
+            const auto j = nlohmann::json::parse(body);
+            if (j.contains("error") && j["error"].is_object()) {
+                const std::string code = j["error"].value("code", "");
+                if (!code.empty()) return " (" + code + ")";
+            }
+        } catch (...) {
+        }
+        return {};
+    }
+
 } // namespace
 
 TokenStore::TokenStore() {
@@ -191,6 +203,8 @@ bool TokenStore::Refresh(DeviceIdentity& identity,
         return finish(false);
     }
     if (resp.status == 401 || resp.status == 403) {
+        std::cout << "[TokenStore] Refresh rejected with HTTP " << resp.status << ServerErrorCode(resp.body)
+                  << "; the saved credentials are discarded.\n";
         if (onRejected)
             onRejected();
         else
@@ -198,6 +212,8 @@ bool TokenStore::Refresh(DeviceIdentity& identity,
         return finish(false);
     }
     if (resp.status != 200) {
+        std::cout << "[TokenStore] Refresh failed with HTTP " << resp.status << ServerErrorCode(resp.body)
+                  << "; the saved credentials are kept.\n";
         return finish(false);
     }
 
