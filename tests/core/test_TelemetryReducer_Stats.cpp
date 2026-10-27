@@ -938,6 +938,36 @@ TEST(TelemetryReducerStats, JournalCapturesVerifiedEventsAndExcludesStaleAndFree
     EXPECT_EQ(end.saveSnapshot.events[1].actorId, "Steam|1");
 }
 
+TEST(TelemetryReducerStats, JournalClockUsesRemainingTimeNotGoalTimeAndIgnoresStaleSamples) {
+    Storage::InitializeEnvironment();
+    auto state = std::make_shared<SessionState>();
+    TelemetryReducer reducer(state);
+    auto now = std::chrono::steady_clock::time_point{std::chrono::seconds(3000)};
+    reducer.SetClockForTests([&]() { return now; });
+    StartTimedMatch(reducer, *state, "journal-clock-1");
+    SendClock(reducer, 217.0f, false);
+
+    const nlohmann::json scorer = {{"PrimaryId", "Steam|1"}, {"Name", "Me"}};
+    now += std::chrono::seconds(2);
+    reducer.Reduce(std::string(Constants::EVT_GOAL_SCORED),
+                   nlohmann::json{{"MatchGuid", "journal-clock-1"}, {"EventId", "g1"}, {"GoalTime", 60.0}, {"Scorer", scorer}});
+    reducer.Reduce(std::string(Constants::EVT_GOAL_SCORED),
+                   nlohmann::json{{"MatchGuid", "journal-clock-1"}, {"EventId", "g2"}, {"GoalTime", 60.0}, {"SecondsRemaining", 150.0}, {"Scorer", scorer}});
+    now += std::chrono::seconds(10);
+    reducer.Reduce(std::string(Constants::EVT_STATFEED),
+                   nlohmann::json{{"MatchGuid", "journal-clock-1"}, {"EventName", "Shot"}, {"EventId", "s1"}, {"MainTarget", scorer}});
+
+    const auto end = reducer.Reduce(std::string(Constants::EVT_MATCH_ENDED),
+                                    nlohmann::json{{"MatchGuid", "journal-clock-1"}, {"WinnerTeamNum", 0}});
+    ASSERT_TRUE(end.saveMatch);
+    ASSERT_EQ(end.saveSnapshot.events.size(), 3u);
+    ASSERT_TRUE(end.saveSnapshot.events[0].matchClockSeconds);
+    EXPECT_DOUBLE_EQ(*end.saveSnapshot.events[0].matchClockSeconds, 217.0);
+    ASSERT_TRUE(end.saveSnapshot.events[1].matchClockSeconds);
+    EXPECT_DOUBLE_EQ(*end.saveSnapshot.events[1].matchClockSeconds, 150.0);
+    EXPECT_FALSE(end.saveSnapshot.events[2].matchClockSeconds.has_value());
+}
+
 TEST(TelemetryReducerStats, SavedMatchCarriesAnalyticsScopedToThatMatch) {
     Storage::InitializeEnvironment();
     auto state = std::make_shared<SessionState>();

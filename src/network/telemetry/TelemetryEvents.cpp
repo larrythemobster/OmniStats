@@ -30,6 +30,15 @@ namespace TelemetryEvents {
             return std::isfinite(d) ? std::optional<double>(d) : std::nullopt;
         }
 
+        // Only explicitly named remaining-clock fields represent game time; the first numeric one wins.
+        std::optional<float> SecondsRemaining(const nlohmann::json& j) {
+            for (const char* key : {"SecondsRemaining", "TimeRemaining"}) {
+                const auto* v = Child(j, key);
+                if (v && v->is_number()) return Number(j, key);
+            }
+            return std::nullopt;
+        }
+
         std::optional<int> Integer(const nlohmann::json& j, const char* key) {
             const auto* v = Child(j, key);
             if (!v || !v->is_number()) return std::nullopt;
@@ -288,6 +297,7 @@ namespace TelemetryEvents {
             }
             ev.impactForce = Double(data, "ImpactForce");
             ev.eventId = EventId(data);
+            ev.secondsRemaining = SecondsRemaining(data);
             return ev;
         }
         if (eventName == Constants::EVT_MATCH_ENDED) {
@@ -319,6 +329,7 @@ namespace TelemetryEvents {
             }
             ev.eventId = EventId(data);
             ev.matchGuid = ExtractGuid(data);
+            ev.secondsRemaining = SecondsRemaining(data);
             return ev;
         }
         if (eventName == Constants::EVT_GOAL_SCORED) {
@@ -340,6 +351,7 @@ namespace TelemetryEvents {
             ev.roundSeconds = Number(data, "GoalTime");
             ev.impactLocation = Point(data, "ImpactLocation");
             ev.eventId = EventId(data);
+            ev.secondsRemaining = SecondsRemaining(data);
             return ev;
         }
         if (eventName == Constants::EVT_BALL_HIT) {

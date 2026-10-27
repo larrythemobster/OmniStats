@@ -80,6 +80,7 @@ namespace TelemetryEvents {
         PlayerRef lastTouch;
         std::optional<double> impactForce;
         std::string eventId;
+        std::optional<float> secondsRemaining;
     };
 
     struct MatchEndedEvent {
@@ -104,6 +105,7 @@ namespace TelemetryEvents {
         std::optional<PlayerRef> secondaryTarget;
         std::string eventId;
         std::string matchGuid;
+        std::optional<float> secondsRemaining;
     };
 
     struct GoalScoredEvent {
@@ -117,6 +119,7 @@ namespace TelemetryEvents {
         std::optional<FieldPoint> impactLocation;
         bool isEcho = false;
         std::string eventId;
+        std::optional<float> secondsRemaining;
     };
 
     struct BallHitEvent {

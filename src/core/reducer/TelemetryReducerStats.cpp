@@ -51,7 +51,8 @@ namespace TelemetryReducerDetail {
                                 const std::string& secondaryId,
                                 const std::string& secondaryName,
                                 const char* source,
-                                std::optional<double> matchClockSeconds = std::nullopt,
+                                int64_t nowMs,
+                                std::optional<float> secondsRemaining = std::nullopt,
                                 std::optional<double> speed = std::nullopt,
                                 std::optional<double> value = std::nullopt,
                                 const std::string& eventId = "") {
@@ -77,9 +78,10 @@ namespace TelemetryReducerDetail {
             if (rosterIt != state.roster.end() && (rosterIt->second.team == 0 || rosterIt->second.team == 1)) {
                 event.team = rosterIt->second.team;
             }
-            if (matchClockSeconds.has_value()) {
-                event.matchClockSeconds = *matchClockSeconds;
-            } else if (state.hasObservedMatchClock) {
+            if (secondsRemaining && *secondsRemaining >= 0.0f && *secondsRemaining <= 3600.0f) {
+                event.matchClockSeconds = static_cast<double>(*secondsRemaining);
+            } else if (state.hasObservedMatchClock && nowMs >= state.lastMatchClockSampleAtMs &&
+                       nowMs - state.lastMatchClockSampleAtMs <= 5000) {
                 event.matchClockSeconds = static_cast<double>(state.timeSeconds);
             }
             event.ballSpeed = speed;
@@ -97,7 +99,7 @@ namespace TelemetryReducerDetail {
     void HandleStatfeed(MatchState& state,
                         const TelemetryEvents::StatfeedEvent& ev,
                         const ReducerContext& ctx) {
-        (void)ctx;
+        const int64_t nowMs = ctx.nowMs > 0 ? ctx.nowMs : SteadyNowMs();
         if (state.inReplay) return;
         const std::string& feedEvent = ev.eventName;
         if (feedEvent.empty()) return;
@@ -130,7 +132,8 @@ namespace TelemetryReducerDetail {
                                secId,
                                secName,
                                "statfeed",
-                               std::nullopt,
+                               nowMs,
+                               ev.secondsRemaining,
                                std::nullopt,
                                std::nullopt,
                                ev.eventId);
@@ -198,7 +201,8 @@ namespace TelemetryReducerDetail {
                            ev.assister.has_value() ? ResolveRosterPlayerId(state, *ev.assister) : std::string{},
                            ev.assister.has_value() ? ev.assister->name : std::string{},
                            "goal",
-                           ev.roundSeconds,
+                           nowMs,
+                           ev.secondsRemaining,
                            ev.goalSpeed && *ev.goalSpeed > 0.0 ? ev.goalSpeed : std::nullopt,
                            std::nullopt,
                            ev.eventId);
@@ -266,7 +270,7 @@ namespace TelemetryReducerDetail {
     void HandleCrossbarHit(MatchState& state,
                            const TelemetryEvents::CrossbarHitEvent& ev,
                            const ReducerContext& ctx) {
-        (void)ctx;
+        const int64_t nowMs = ctx.nowMs > 0 ? ctx.nowMs : SteadyNowMs();
         const std::string toucherId = ResolveRosterPlayerId(state, ev.lastTouch);
         const bool isToucherSelf =
             !toucherId.empty() ? IsSelfById(state, toucherId) : IsSelf(state, ev.lastTouch.name);
@@ -287,7 +291,8 @@ namespace TelemetryReducerDetail {
                            "",
                            "",
                            "crossbar",
-                           std::nullopt,
+                           nowMs,
+                           ev.secondsRemaining,
                            std::nullopt,
                            ev.impactForce,
                            ev.eventId);
