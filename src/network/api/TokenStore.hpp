@@ -40,7 +40,6 @@ class TokenStore {
                  std::function<void()> onRejected = nullptr,
                  std::function<void()> onSuccess = nullptr);
 
-    void SetCachedAccessToken(std::string token, int64_t expiresAtUnix);
     void SetCachedAccessTokenForTests(std::string token, int64_t expiresAtUnix);
     void ResetForTests();
     void SetClockForTests(ClockFn clockFn);

@@ -258,10 +258,6 @@ bool TokenStore::Refresh(DeviceIdentity& identity,
     }
 }
 
-void TokenStore::SetCachedAccessToken(std::string token, int64_t expiresAtUnix) {
-    SetCachedAccessTokenForTests(std::move(token), expiresAtUnix);
-}
-
 void TokenStore::SetCachedAccessTokenForTests(std::string token, int64_t expiresAtUnix) {
     std::lock_guard<std::mutex> lock(m_mutex);
     m_accessToken = std::move(token);

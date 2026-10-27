@@ -748,7 +748,7 @@ TEST_F(AccountClientTest, KeyGenerationAndPersistence) {
 
 TEST_F(AccountClientTest, TokenPersistenceAndMemoryCaching) {
     TokenStore store;
-    store.SetCachedAccessToken("expired_access_token", 1);
+    store.SetCachedAccessTokenForTests("expired_access_token", 1);
     EXPECT_TRUE(store.AccessToken().empty());
     EXPECT_FALSE(store.IsSignedIn());
 
@@ -763,7 +763,7 @@ TEST_F(AccountClientTest, TokenPersistenceAndMemoryCaching) {
 
     int64_t now = 1700000000;
     store.SetClockForTests([&]() { return now; });
-    store.SetCachedAccessToken("memory_access_token", 1700000900);
+    store.SetCachedAccessTokenForTests("memory_access_token", 1700000900);
     EXPECT_EQ(store.AccessToken(), "memory_access_token");
     now = 1700000840;
     EXPECT_TRUE(store.AccessToken().empty());
