@@ -235,6 +235,7 @@ bool Overlay::Initialize() {
 
     m_d3d11 = std::make_unique<D3D11Device>();
     if (!m_d3d11->Create(m_hwnd)) return false;
+    UpdateWindowStyle();
 
     RECT client{};
     GetClientRect(m_hwnd, &client);
@@ -258,12 +259,13 @@ bool Overlay::Initialize() {
 
 void Overlay::UpdateWindowStyle() {
     if (!m_window) return;
+    const bool compositionEnabled = !m_d3d11 || m_d3d11->DCompDevice() != nullptr;
     if (m_setupWindow) {
-        m_window->ApplySetupFrame(SetupWindowPixels(680.0f), SetupWindowPixels(540.0f));
+        m_window->ApplySetupFrame(SetupWindowPixels(680.0f), SetupWindowPixels(540.0f), compositionEnabled);
         return;
     }
     const bool interactiveOverlay = m_rmlUi && m_rmlUi->WantsInteraction();
-    m_window->UpdateStyle(m_frameConfig.second_monitor_mode, m_state->ui.showMenu.load() || interactiveOverlay);
+    m_window->UpdateStyle(m_frameConfig.second_monitor_mode, m_state->ui.showMenu.load() || interactiveOverlay, compositionEnabled);
 }
 
 int Overlay::SetupWindowPixels(float dp) const {
@@ -592,6 +594,7 @@ bool Overlay::RecreateD3DDevice() {
         std::cout << "[D3D11] Failed to recreate D3D device.\n";
         return false;
     }
+    UpdateWindowStyle();
 
     RECT client{};
     GetClientRect(m_hwnd, &client);

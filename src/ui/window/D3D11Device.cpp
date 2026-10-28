@@ -75,13 +75,24 @@ bool D3D11Device::Create(HWND hwnd) {
         &sd1,
         nullptr,
         m_swapChain.ReleaseAndGetAddressOf());
+    bool useComposition = true;
+    if (hr == E_NOTIMPL && hwnd) {
+        useComposition = false;
+        sd1.AlphaMode = DXGI_ALPHA_MODE_IGNORE;
+        hr = dxgiFactory->CreateSwapChainForHwnd(
+            m_device.Get(), hwnd, &sd1, nullptr, nullptr, m_swapChain.ReleaseAndGetAddressOf());
+        if (SUCCEEDED(hr)) {
+            std::cout << "[D3D11] Composition swap chains are unavailable; using opaque window presentation.\n";
+        }
+    }
     if (FAILED(hr)) {
-        std::cout << "[D3D11] Failed to create composition swap chain: 0x" << std::hex << hr << std::dec << "\n";
+        std::cout << "[D3D11] Failed to create " << (useComposition ? "composition" : "window")
+                  << " swap chain: 0x" << std::hex << hr << std::dec << "\n";
         Shutdown();
         return false;
     }
 
-    if (hwnd) {
+    if (hwnd && useComposition) {
         hr = DCompositionCreateDevice(
             dxgiDevice.Get(),
             IID_PPV_ARGS(m_dcompDevice.ReleaseAndGetAddressOf()));

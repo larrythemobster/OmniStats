@@ -103,6 +103,9 @@ The Settings and onboarding Stats API repair runs on a background thread. The re
   - *Overlay:* Borderless transparent DirectComposition window (`WS_EX_NOREDIRECTIONBITMAP | WS_EX_LAYERED | WS_EX_TRANSPARENT`) with flip-model presentation and configurable visibility triggers (scoreboard hold, kickoff countdown, goal, podium). Layered style is required for cross-process click-through; opening Settings removes the transparent style.
   - *Dashboard:* Second-monitor window with draggable, dockable cards managed through `DashboardLayoutConfig`.
 - **Hardware rendering.** `RmlRenderInterfaceD3D11` issues batched, hardware-accelerated draw calls with premultiplied alpha blending directly to the flip-model swap chain.
+
+  If composition swap-chain creation returns `E_NOTIMPL`, rendering uses an opaque HWND swap chain instead. Window styles then omit `WS_EX_NOREDIRECTIONBITMAP` and `WS_EX_LAYERED`, including during setup and device recreation. Other swap-chain creation errors remain fatal.
+
 - **Foreground hook.** `ForegroundDetector` tracks Rocket League focus using a WinEvent hook (`EVENT_SYSTEM_FOREGROUND`) instead of per-frame polling.
 - **Surface presenters.** UI markup generation is divided among `OverlayPresenter`, `DashboardPresenter`, and `SettingsPresenter`. Common interaction, font loading, and background tasks are managed by `InputCaptureService`, `FontService`, and `BackgroundTaskService`.
 - **Data models.** Fast counters update through the `live` data model. Enriched widget models (`OverlayWidgetModel`) provide data-bound collections for roster, lobby ranks, graph series, and previous games.

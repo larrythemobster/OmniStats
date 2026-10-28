@@ -14,10 +14,10 @@ class OverlayWindow {
     bool Create(HICON appIconBig, HICON appIconSmall, WNDPROC wndProc);
     void Destroy();
 
-    void UpdateStyle(bool secondMonitorMode, bool showMenu);
+    void UpdateStyle(bool secondMonitorMode, bool showMenu, bool compositionEnabled);
     void UpdatePosition(bool resetSecondMonitorPlacement = true);
     // Compact, centered, rounded app window used while first-run setup is open.
-    void ApplySetupFrame(int width, int height);
+    void ApplySetupFrame(int width, int height, bool compositionEnabled);
     RECT GetSecondaryMonitorRect() const;
     void SetDpiScale(float dpiScale) {
         m_dpiScale = dpiScale;

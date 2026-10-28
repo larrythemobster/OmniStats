@@ -32,7 +32,7 @@ bool OverlayWindow::Create(HICON appIconBig, HICON appIconSmall, WNDPROC wndProc
 
     if (!m_hwnd) return false;
 
-    UpdateStyle(false, false);
+    UpdateStyle(false, false, true);
     SetWindowTextW(m_hwnd, L"OmniStats");
     SetWindowTextA(m_hwnd, "OmniStats");
 
@@ -73,13 +73,14 @@ void OverlayWindow::Destroy() {
     }
 }
 
-void OverlayWindow::UpdateStyle(bool secondMonitorMode, bool showMenu) {
+void OverlayWindow::UpdateStyle(bool secondMonitorMode, bool showMenu, bool compositionEnabled) {
     if (!m_hwnd) return;
 
     LONG style = GetWindowLongW(m_hwnd, GWL_STYLE);
     LONG exStyle = GetWindowLongW(m_hwnd, GWL_EXSTYLE);
 
     ComputeWindowStyles(secondMonitorMode, showMenu, style, exStyle);
+    if (!compositionEnabled) exStyle &= ~(WS_EX_NOREDIRECTIONBITMAP | WS_EX_LAYERED);
     if (secondMonitorMode) {
         BOOL useDarkMode = TRUE;
         DwmSetWindowAttribute(m_hwnd, 20, &useDarkMode, sizeof(useDarkMode));
@@ -112,7 +113,7 @@ void OverlayWindow::UpdateStyle(bool secondMonitorMode, bool showMenu) {
     }
 }
 
-void OverlayWindow::ApplySetupFrame(int width, int height) {
+void OverlayWindow::ApplySetupFrame(int width, int height, bool compositionEnabled) {
     if (!m_hwnd) return;
 
     LONG style = GetWindowLongW(m_hwnd, GWL_STYLE);
@@ -121,6 +122,7 @@ void OverlayWindow::ApplySetupFrame(int width, int height) {
     style |= WS_POPUP;
     exStyle &= ~(WS_EX_TOPMOST | WS_EX_TRANSPARENT | WS_EX_TOOLWINDOW | WS_EX_LAYERED);
     exStyle |= WS_EX_NOREDIRECTIONBITMAP | WS_EX_APPWINDOW;
+    if (!compositionEnabled) exStyle &= ~WS_EX_NOREDIRECTIONBITMAP;
     SetWindowLongW(m_hwnd, GWL_STYLE, style);
     SetWindowLongW(m_hwnd, GWL_EXSTYLE, exStyle);
 
