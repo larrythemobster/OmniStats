@@ -1,4 +1,5 @@
 #include "network/ExternalUpdaterLauncher.hpp"
+#include <asio.hpp>
 #include <windows.h>
 #include <chrono>
 #include <filesystem>
@@ -7,6 +8,8 @@
 #include <stop_token>
 #include <string>
 #include <thread>
+#include <memory>
+#include <vector>
 #include "core/config/AppVersion.hpp"
 #include "updater/UpdaterCommon.hpp"
 #include "updater/UpdaterPaths.hpp"
@@ -234,6 +237,19 @@ namespace {
             return kp;
         }
 
+        static TestKeypair Deterministic() {
+            EXPECT_GE(sodium_init(), 0);
+            TestKeypair kp;
+            kp.secretKey.resize(crypto_sign_SECRETKEYBYTES);
+            unsigned char seed[crypto_sign_SEEDBYTES] = {};
+            unsigned char pk[crypto_sign_PUBLICKEYBYTES];
+            EXPECT_EQ(crypto_sign_seed_keypair(pk, kp.secretKey.data(), seed), 0);
+            char hex[crypto_sign_PUBLICKEYBYTES * 2 + 1];
+            sodium_bin2hex(hex, sizeof(hex), pk, sizeof(pk));
+            kp.publicKeyHex = hex;
+            return kp;
+        }
+
         std::string Sign(const std::string& message) const {
             std::vector<unsigned char> sig(crypto_sign_BYTES);
             unsigned long long sigLen = 0;
@@ -245,7 +261,185 @@ namespace {
         }
     };
 
+    class ManifestServer {
+      public:
+        ManifestServer(std::string manifest, std::string signature)
+            : acceptor_(io_, {asio::ip::address_v4::loopback(), 0}),
+              port_(acceptor_.local_endpoint().port()), manifest_(std::move(manifest)), signature_(std::move(signature)) {
+            Accept();
+            thread_ = std::thread([this] { io_.run(); });
+        }
+
+        ~ManifestServer() {
+            io_.stop();
+            thread_.join();
+        }
+
+        std::string Url() const {
+            return "http://127.0.0.1:" + std::to_string(port_);
+        }
+
+      private:
+        struct Session {
+            explicit Session(asio::io_context& io) : socket(io) {}
+            asio::ip::tcp::socket socket;
+            asio::streambuf request;
+            std::string response;
+        };
+
+        void Accept() {
+            auto session = std::make_shared<Session>(io_);
+            acceptor_.async_accept(session->socket, [this, session](const asio::error_code& error) {
+                if (error) return;
+                Accept();
+                asio::async_read_until(session->socket, session->request, "\r\n\r\n",
+                                       [this, session](const asio::error_code& readError, std::size_t) {
+                                           if (readError) return;
+                                           std::istream request(&session->request);
+                                           std::string method, path;
+                                           request >> method >> path;
+                                           const bool isManifest = method == "GET" && path.find("/release-manifest.json?") == 0;
+                                           const bool isSignature = method == "GET" && path.find("/release-manifest.json.sig?") == 0;
+                                           const std::string& body = isManifest ? manifest_ : signature_;
+                                           if (!isManifest && !isSignature) {
+                                               session->response = "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
+                                           } else {
+                                               session->response = "HTTP/1.1 200 OK\r\nContent-Length: " +
+                                                                   std::to_string(body.size()) + "\r\nConnection: close\r\n\r\n" + body;
+                                           }
+                                           asio::async_write(session->socket, asio::buffer(session->response),
+                                                             [session](const asio::error_code&, std::size_t) {});
+                                       });
+            });
+        }
+
+        asio::io_context io_;
+        asio::ip::tcp::acceptor acceptor_;
+        unsigned short port_;
+        std::string manifest_;
+        std::string signature_;
+        std::thread thread_;
+    };
+
+    const std::string kFetchManifest =
+        R"({"version":"2.5.0","msi_sha256":"4a7b48325a7d7efb991b5c469b8fe1ad15694c9f13e711be8bb698d28cf8efea","msi_url":"OmniStats.msi"})";
+
+    void ExpectFetched(const std::string& json, const std::string& signature,
+                       const std::string& publicKey, ManifestVerifyResult expected) {
+        ManifestServer server(json, signature);
+        ReleaseManifest manifest;
+        ManifestVerifyResult result = ManifestVerifyResult::ManifestMissing;
+        const bool ok = ReleaseManifestVerifier::FetchAndVerify(
+            server.Url(), "2.4.0", manifest, result, publicKey);
+        EXPECT_EQ(ok, expected == ManifestVerifyResult::Ok);
+        EXPECT_EQ(result, expected);
+        if (expected == ManifestVerifyResult::Ok) {
+            EXPECT_EQ(manifest.version, "2.5.0");
+            EXPECT_EQ(manifest.msi_sha256, "4a7b48325a7d7efb991b5c469b8fe1ad15694c9f13e711be8bb698d28cf8efea");
+        }
+    }
+
+    class ReleaseSignerTest : public ::testing::Test {
+      protected:
+        void SetUp() override {
+            root_ = std::filesystem::temp_directory_path() /
+                    ("OmniStatsSigner-" + std::to_string(GetCurrentProcessId()) + "-" +
+                     std::to_string(GetTickCount64()) + "-" +
+                     ::testing::UnitTest::GetInstance()->current_test_info()->name());
+            ASSERT_TRUE(std::filesystem::create_directory(root_));
+            keypair_ = TestKeypair::Deterministic();
+            std::ofstream key(root_ / "key", std::ios::binary);
+            key.write(reinterpret_cast<const char*>(keypair_.secretKey.data()), keypair_.secretKey.size());
+            ASSERT_TRUE(key.good());
+        }
+
+        void TearDown() override {
+            std::error_code error;
+            std::filesystem::remove_all(root_, error);
+        }
+
+        DWORD Sign(const std::string& manifest) {
+            {
+                std::ofstream file(root_ / "manifest.json", std::ios::binary);
+                file << manifest;
+                EXPECT_TRUE(file.good());
+            }
+            wchar_t executable[MAX_PATH] = {};
+            GetModuleFileNameW(nullptr, executable, MAX_PATH);
+            const auto signer = std::filesystem::path(executable).parent_path() / "OmniStatsReleaseSigner.exe";
+            auto child = StartChild(L"\"" + signer.wstring() + L"\" sign \"" +
+                                    (root_ / "manifest.json").wstring() + L"\" \"" +
+                                    (root_ / "key").wstring() + L"\" \"" +
+                                    (root_ / "manifest.sig").wstring() + L"\"");
+            EXPECT_NE(child.hProcess, nullptr);
+            if (!child.hProcess) return 1;
+            const DWORD wait = WaitForSingleObject(child.hProcess, 10'000);
+            if (wait != WAIT_OBJECT_0) {
+                TerminateProcess(child.hProcess, 1);
+                WaitForSingleObject(child.hProcess, 1'000);
+            }
+            DWORD exitCode = 1;
+            EXPECT_TRUE(GetExitCodeProcess(child.hProcess, &exitCode));
+            CloseHandle(child.hProcess);
+            EXPECT_EQ(wait, WAIT_OBJECT_0);
+            return exitCode;
+        }
+
+        std::string ReadSignature() const {
+            std::ifstream file(root_ / "manifest.sig", std::ios::binary);
+            return std::string(std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>());
+        }
+
+        std::filesystem::path root_;
+        TestKeypair keypair_;
+    };
+
 } // namespace
+
+TEST(ReleaseManifestTest, FetchPreservesSignedManifestWhitespace) {
+    const auto kp = TestKeypair::Deterministic();
+    const std::string json = " \t\r\n" + kFetchManifest + "\r\n \t";
+    ExpectFetched(json, kp.Sign(json), kp.publicKeyHex, ManifestVerifyResult::Ok);
+}
+
+TEST(ReleaseManifestTest, FetchPreservesBinarySignatureEdgeWhitespace) {
+    const auto kp = TestKeypair::Deterministic();
+    std::string json = kFetchManifest;
+    json.insert(json.size() - 1, 2, ' ');
+    const std::string signature = kp.Sign(json);
+    ASSERT_EQ(signature.back(), '\r');
+    ExpectFetched(json, signature, kp.publicKeyHex, ManifestVerifyResult::Ok);
+}
+
+TEST(ReleaseManifestTest, FetchAcceptsHexSignature) {
+    const auto kp = TestKeypair::Deterministic();
+    const std::string signature = kp.Sign(kFetchManifest);
+    char hex[crypto_sign_BYTES * 2 + 1];
+    sodium_bin2hex(hex, sizeof(hex),
+                   reinterpret_cast<const unsigned char*>(signature.data()), signature.size());
+    ExpectFetched(kFetchManifest, hex, kp.publicKeyHex, ManifestVerifyResult::Ok);
+}
+
+TEST(ReleaseManifestTest, FetchRejectsTamperedMetadata) {
+    const auto kp = TestKeypair::Deterministic();
+    const std::string signature = kp.Sign(kFetchManifest);
+    std::string tampered = kFetchManifest;
+    tampered.replace(tampered.find("2.5.0"), 5, "2.9.9");
+    ExpectFetched(tampered, signature, kp.publicKeyHex, ManifestVerifyResult::SignatureInvalid);
+}
+
+TEST_F(ReleaseSignerTest, PublishedSignatureSurvivesLegacyResponseTrimming) {
+    std::string json = kFetchManifest;
+    json.insert(json.size() - 1, 2, ' ');
+    ASSERT_EQ(Sign(json), 0u);
+    ExpectFetched(UpdaterCommon::Trim(json), UpdaterCommon::Trim(ReadSignature()),
+                  keypair_.publicKeyHex, ManifestVerifyResult::Ok);
+}
+
+TEST_F(ReleaseSignerTest, RejectsManifestThatLegacyClientsWouldAlter) {
+    EXPECT_NE(Sign(kFetchManifest + "\n"), 0u);
+    EXPECT_FALSE(std::filesystem::exists(root_ / "manifest.sig"));
+}
 
 TEST(ReleaseManifestTest, ParseValidManifest) {
     const std::string json = R"({

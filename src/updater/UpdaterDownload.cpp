@@ -21,15 +21,6 @@ namespace UpdaterCommon {
         return total;
     }
 
-    static std::string TrimInternal(const std::string& str) {
-        size_t first = str.find_first_not_of(" \t\r\n");
-        if (first == std::string::npos) {
-            return "";
-        }
-        size_t last = str.find_last_not_of(" \t\r\n");
-        return str.substr(first, (last - first + 1));
-    }
-
     bool DownloadFile(const std::string& url, const std::string& outputPath, long timeoutSecs, long* outHttpCode, CURLcode* outCurlCode) {
         if (outHttpCode) *outHttpCode = 0;
         if (outCurlCode) *outCurlCode = CURLE_OK;
@@ -101,7 +92,7 @@ namespace UpdaterCommon {
         if (res != CURLE_OK || http_code != 200) {
             return "";
         }
-        return TrimInternal(response);
+        return response;
     }
 
 } // namespace UpdaterCommon

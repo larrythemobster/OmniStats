@@ -34,6 +34,9 @@ flowchart LR
 | **Rendering** | `src/ui/rml/backend/RmlRenderInterfaceD3D11.*` | Translates RmlUi 6 geometry, textures, scissor rects, and transforms to D3D11 draw calls. |
 | **Auto-updater** | `src/updater/` | Standalone process. Verifies Ed25519 signed release manifest, checks version downgrades, and validates Authenticode signatures. |
 
+Release manifests must be UTF-8 without a BOM or leading or trailing whitespace. Publish the Ed25519 signature as 128 lowercase ASCII hex characters without a BOM or newline. Updaters in 2.4.2 and 2.4.3 trim downloaded text before verification, so a signed trailing newline or a raw binary signature can prevent those clients from updating.
+The release signer rejects manifests with a BOM or whitespace at either edge and writes hexadecimal signatures. Manifest downloads preserve exact response bytes; no trimming or normalization occurs before verification.
+
 ## Data pipeline and session lifecycle
 
 1. **Ingestion.** `TelemetryParser` receives JSON packets from Rocket League's loopback interface and emits typed event structs.

@@ -428,6 +428,7 @@ if(BUILD_TESTING)
     endif()
 
     add_executable(OmniStatsTests ${TEST_SOURCES} "${OMNISTATS_APP_RESOURCE_FILE}")
+    add_dependencies(OmniStatsTests OmniStatsReleaseSigner)
     omnistats_copy_discord_sdk(OmniStatsTests)
     target_include_directories(OmniStatsTests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
     omnistats_enable_shared_pch(OmniStatsTests)

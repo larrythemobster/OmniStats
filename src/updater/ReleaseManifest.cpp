@@ -64,7 +64,7 @@ std::string ReleaseManifestVerifier::SerializeManifest(const ReleaseManifest& ma
     j["msi_url"] = manifest.msi_url;
     j["min_version"] = manifest.min_version;
     j["published_at"] = manifest.published_at;
-    return j.dump(2) + "\n";
+    return j.dump();
 }
 
 bool ReleaseManifestVerifier::VerifySignature(const std::string& manifestData,

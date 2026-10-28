@@ -85,6 +85,7 @@ namespace {
         std::cout << "OmniStatsReleaseSigner - Ed25519 Release Manifest Signing Tool\n\n"
                   << "Usage:\n"
                   << "  OmniStatsReleaseSigner sign <manifest_path> <secret_key_path> <sig_output_path>\n"
+                  << "    Requires whitespace-free manifest edges; writes a hexadecimal signature.\n"
                   << "  OmniStatsReleaseSigner verify <manifest_path> <sig_path> <public_key_hex>\n"
                   << "  OmniStatsReleaseSigner generate-key <secret_key_path>\n";
     }
@@ -118,6 +119,15 @@ int main(int argc, char* argv[]) {
             std::cerr << "Error: Manifest file is empty or cannot be opened: " << manifestPath << "\n";
             return 1;
         }
+        const auto isWhitespace = [](unsigned char c) {
+            return c == ' ' || c == '\t' || c == '\r' || c == '\n';
+        };
+        const bool hasBom = manifestBytes.size() >= 3 &&
+                            manifestBytes[0] == 0xef && manifestBytes[1] == 0xbb && manifestBytes[2] == 0xbf;
+        if (hasBom || isWhitespace(manifestBytes.front()) || isWhitespace(manifestBytes.back())) {
+            std::cerr << "Error: Manifest must omit BOM and leading or trailing whitespace for installed updater compatibility.\n";
+            return 1;
+        }
 
         std::vector<unsigned char> sk;
         if (!LoadSecretKey(keyPath, sk)) {
@@ -134,7 +144,9 @@ int main(int argc, char* argv[]) {
         }
         sodium_memzero(sk.data(), sk.size());
 
-        if (!WriteFileBytes(sigPath, sig.data(), sig.size())) {
+        char sigHex[crypto_sign_BYTES * 2 + 1];
+        sodium_bin2hex(sigHex, sizeof(sigHex), sig.data(), sig.size());
+        if (!WriteFileBytes(sigPath, reinterpret_cast<const unsigned char*>(sigHex), sizeof(sigHex) - 1)) {
             std::cerr << "Error: Failed to write signature to: " << sigPath << "\n";
             return 1;
         }
