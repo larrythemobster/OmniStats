@@ -136,6 +136,7 @@ void RmlUiController::Shutdown() {
         m_context = nullptr;
         m_document = nullptr;
         m_insightsVisible = false;
+        m_sessionRecapDismissAtMs.reset();
         m_onboardingVisible = false;
         m_historyVisible = false;
         m_accountsVisible = false;
@@ -438,6 +439,7 @@ void RmlUiController::Update(const ConfigData& config, bool configChanged, uint6
     }
     RebuildVisibleUi(false, (configChanged && !localConfigEcho) || m_deferredSelectRebuild);
     if (m_state && m_state->ui.showSessionRecap.exchange(false)) ShowInsights(InsightsView::Tab::Recap, true);
+    if (m_sessionRecapDismissAtMs && nowMs >= *m_sessionRecapDismissAtMs) HideInsights();
     if (m_insightsVisible) RefreshInsights(false);
     if (m_historyVisible) RefreshHistory(false);
     if (m_accountsVisible) RefreshAccounts(false);

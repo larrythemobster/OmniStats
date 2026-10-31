@@ -310,6 +310,12 @@ class RmlUiControllerStateTest : public ::testing::Test {
     bool InsightsShowEndedSession(const RmlUiController& controller) const {
         return controller.m_insightsShowsEndedSession;
     }
+    std::optional<int64_t> RecapDismissAt(const RmlUiController& controller) const {
+        return controller.m_sessionRecapDismissAtMs;
+    }
+    void SetRecapDismissAt(RmlUiController& controller, int64_t deadline) {
+        controller.m_sessionRecapDismissAtMs = deadline;
+    }
     void RunStatsApiCheck(RmlUiController& controller, bool repair) {
         controller.CheckStatsApi(repair, false);
     }
@@ -2029,6 +2035,121 @@ TEST_F(RmlUiControllerStateTest, PendingSessionRecapKeepsOverlayDrawn) {
     EXPECT_FALSE(controller.WantsAttention());
     state->ui.showSessionRecap.store(true);
     EXPECT_TRUE(controller.WantsAttention());
+}
+
+TEST_F(RmlUiControllerStateTest, AutomaticSessionRecapExpiresWithoutDiscardingSavedRecap) {
+    for (bool dashboard : {false, true}) {
+        SCOPED_TRACE(dashboard);
+        Config::Update([&](ConfigData& c) { c.second_monitor_mode = dashboard; }, true);
+        WarpDevice warp;
+        if (!warp.Create(1280, 800)) GTEST_SKIP() << "WARP not available.";
+        auto state = std::make_shared<SessionState>();
+        state->liveMatch->Update([](MatchState& ms) {
+            ms.lastSessionRecap.valid = true;
+            ms.lastSessionRecap.totals.wins = 4;
+            ms.lastSessionRecap.totals.losses = 2;
+        });
+        RmlUiController controller(state, nullptr);
+        ASSERT_TRUE(controller.Initialize(nullptr, warp.device.Get(), warp.context.Get(), 1280, 800, 1.0f));
+        state->ui.showSessionRecap.store(true);
+        const int64_t openedAt = RmlUiDetail::SteadyNowMs();
+        controller.Update(Config::Read(), false);
+        controller.Render();
+        ASSERT_TRUE(InsightsDocument(controller)->IsVisible());
+        ASSERT_TRUE(RecapDismissAt(controller).has_value());
+        EXPECT_GE(*RecapDismissAt(controller), openedAt + 300'000);
+
+        const int64_t beforeExpiry = RmlUiDetail::SteadyNowMs() + 60'000;
+        SetRecapDismissAt(controller, beforeExpiry);
+        state->liveMatch->Update([](MatchState& ms) { ms.currentMatch.goals += 1; });
+        controller.Update(Config::Read(), false);
+        controller.Render();
+        EXPECT_TRUE(InsightsDocument(controller)->IsVisible());
+        EXPECT_EQ(RecapDismissAt(controller), beforeExpiry);
+
+        SetRecapDismissAt(controller, RmlUiDetail::SteadyNowMs() - 1);
+        controller.Update(Config::Read(), false);
+        controller.Render();
+        EXPECT_FALSE(InsightsDocument(controller)->IsVisible());
+        EXPECT_FALSE(controller.WantsAttention());
+        EXPECT_FALSE(RecapDismissAt(controller).has_value());
+        EXPECT_TRUE(state->liveMatch->GetSnapshot()->lastSessionRecap.valid);
+        EXPECT_EQ(state->liveMatch->GetSnapshot()->lastSessionRecap.totals.wins, 4);
+
+        controller.OpenInsights();
+        controller.Update(Config::Read(), false);
+        controller.Render();
+        EXPECT_TRUE(InsightsDocument(controller)->IsVisible());
+        EXPECT_TRUE(InsightsShowEndedSession(controller));
+        EXPECT_FALSE(RecapDismissAt(controller).has_value());
+    }
+}
+
+TEST_F(RmlUiControllerStateTest, LayoutClicksRestartAutomaticRecapTimeoutButHoverDoesNot) {
+    WarpDevice warp;
+    if (!warp.Create(1280, 800)) GTEST_SKIP() << "WARP not available.";
+    auto state = std::make_shared<SessionState>();
+    RmlUiController controller(state, nullptr);
+    ASSERT_TRUE(controller.Initialize(nullptr, warp.device.Get(), warp.context.Get(), 1280, 800, 1.0f));
+    state->ui.showSessionRecap.store(true);
+    controller.Update(Config::Read(), false);
+    controller.Render();
+
+    auto* card = InsightsDocument(controller)->GetElementById("recap-card");
+    ASSERT_NE(card, nullptr);
+    const auto offset = card->GetAbsoluteOffset(Rml::BoxArea::Border);
+    const int64_t originalDeadline = RmlUiDetail::SteadyNowMs() + 60'000;
+    SetRecapDismissAt(controller, originalDeadline);
+    RmlContext(controller)->ProcessMouseMove(static_cast<int>(offset.x + 20), static_cast<int>(offset.y + 20), 0);
+    EXPECT_EQ(RecapDismissAt(controller), originalDeadline);
+
+    const int64_t pressedAt = RmlUiDetail::SteadyNowMs();
+    RmlContext(controller)->ProcessMouseButtonDown(0, 0);
+    ASSERT_TRUE(RecapDismissAt(controller).has_value());
+    EXPECT_GE(*RecapDismissAt(controller), pressedAt + 300'000);
+    SetRecapDismissAt(controller, originalDeadline);
+    const int64_t clickedAt = RmlUiDetail::SteadyNowMs();
+    RmlContext(controller)->ProcessMouseButtonUp(0, 0);
+    ASSERT_TRUE(RecapDismissAt(controller).has_value());
+    EXPECT_GE(*RecapDismissAt(controller), clickedAt + 300'000);
+    controller.Update(Config::Read(), false);
+    controller.Render();
+    EXPECT_TRUE(InsightsDocument(controller)->IsVisible());
+
+    auto* backdrop = InsightsDocument(controller)->QuerySelector(".view-backdrop");
+    ASSERT_NE(backdrop, nullptr);
+    SetRecapDismissAt(controller, originalDeadline);
+    const int64_t layoutClickedAt = RmlUiDetail::SteadyNowMs();
+    backdrop->DispatchEvent("click", Rml::Dictionary{});
+    EXPECT_GE(*RecapDismissAt(controller), layoutClickedAt + 300'000);
+}
+
+TEST_F(RmlUiControllerStateTest, ClosingAutomaticRecapClearsTimeoutBeforeManualReopen) {
+    WarpDevice warp;
+    if (!warp.Create(1280, 800)) GTEST_SKIP() << "WARP not available.";
+    auto state = std::make_shared<SessionState>();
+    RmlUiController controller(state, nullptr);
+    ASSERT_TRUE(controller.Initialize(nullptr, warp.device.Get(), warp.context.Get(), 1280, 800, 1.0f));
+    state->ui.showSessionRecap.store(true);
+    controller.Update(Config::Read(), false);
+    controller.Render();
+    auto* close = InsightsDocument(controller)->QuerySelector("[data-action='insights-close']");
+    ASSERT_NE(close, nullptr);
+    close->DispatchEvent("click", Rml::Dictionary{});
+    EXPECT_FALSE(InsightsDocument(controller)->IsVisible());
+    EXPECT_FALSE(RecapDismissAt(controller).has_value());
+
+    controller.OpenInsights();
+    controller.Update(Config::Read(), false);
+    controller.Render();
+    EXPECT_TRUE(InsightsDocument(controller)->IsVisible());
+    EXPECT_FALSE(RecapDismissAt(controller).has_value());
+
+    state->ui.showSessionRecap.store(true);
+    const int64_t reopenedAt = RmlUiDetail::SteadyNowMs();
+    controller.Update(Config::Read(), false);
+    ASSERT_TRUE(RecapDismissAt(controller).has_value());
+    EXPECT_GE(*RecapDismissAt(controller), reopenedAt + 300'000);
 }
 
 TEST_F(RmlUiControllerStateTest, InsightsButtonShowsEndedSessionAfterReset) {

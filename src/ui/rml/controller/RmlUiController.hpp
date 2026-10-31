@@ -333,6 +333,8 @@ class RmlUiController final : public Rml::EventListener {
     std::chrono::steady_clock::time_point m_lastAccountsRelativeRender{};
     std::string m_lastAccountsActive;
     bool m_insightsVisible = false;
+    static constexpr int64_t kSessionRecapIdleTimeoutMs = 5 * 60 * 1000;
+    std::optional<int64_t> m_sessionRecapDismissAtMs;
     bool m_onboardingVisible = false;
     bool m_historyVisible = false;
     // True while the recap tab shows a session captured when it ended rather

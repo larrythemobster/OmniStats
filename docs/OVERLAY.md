@@ -18,6 +18,12 @@ Docked cards keep their own rules. **Show card options** adds goal-replay hiding
 
 Existing placements and visibility rules are preserved. New standalone cards enabled from settings start with **Always** visibility.
 
+## End-of-session recap
+
+The automatic end-of-session recap closes after five minutes without a click. Clicking anywhere in the layout restarts the full five-minute timeout; hovering does not. This applies in both overlay and second-monitor dashboard mode.
+
+Closing the card does not discard the recap. Open **Insights** to view it again. Insights opened manually stays open until you close it.
+
 ## Rank progress and MMR graph
 
 Under **Settings > Accounts & services > Show rank options**, **Rank progress** has its own **Follow current playlist** switch. It does not change the player-rank or MMR-graph playlist selections. Turn it off to choose a **Default rank playlist**. Existing configurations retain their previous rank-progress playlist and follow preference.

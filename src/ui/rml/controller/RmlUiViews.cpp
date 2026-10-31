@@ -94,6 +94,7 @@ void RmlUiController::ShowInsights(InsightsView::Tab tab, bool endedSession) {
         }
     }
     m_insightsShowsEndedSession = showEnded;
+    m_sessionRecapDismissAtMs = endedSession ? std::optional<int64_t>(SteadyNowMs() + kSessionRecapIdleTimeoutMs) : std::nullopt;
     m_insights.ClearArchivedSelection();
     m_insights.SetTab(tab);
     RefreshInsights(true);
@@ -110,6 +111,7 @@ void RmlUiController::ShowInsights(InsightsView::Tab tab, bool endedSession) {
 void RmlUiController::HideInsights() {
     if (m_insightsDoc) m_insightsDoc->Hide();
     m_insightsVisible = false;
+    m_sessionRecapDismissAtMs.reset();
     m_insightsShowsEndedSession = false;
     m_recapCapturePending = false;
     m_renderDirty = true;
