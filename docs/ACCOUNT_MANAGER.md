@@ -85,6 +85,8 @@ Separation from live tracking:
 
 Batched rank responses are matched on platform and account ID. A player whose `platform` differs from the request is ignored. An unlabeled player is ignored when two requests in the batch share that account ID.
 
+Rank-provider authentication failures retain the actual HTTP status through refresh and retry, including a second HTTP 401.
+
 Service rules (`src/core/accounts/AccountManager.*`):
 
 - A success upserts only the playlists the provider reported. Other playlists keep their saved values.

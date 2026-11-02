@@ -415,6 +415,41 @@ TEST_F(TrackedAccountRefreshTest, AuthenticationFailuresReportSignInRequired) {
     }
 }
 
+TEST_F(TrackedAccountRefreshTest, RankProviderReportsUnauthorizedStatusWhenRefreshFailsOrRetryIsRejected) {
+    AssembledBatch batch;
+    MMRRequest request;
+    request.primaryId = kEpic;
+    batch.requests.push_back(request);
+
+    g_apiStatus = 401;
+    g_refreshStatus = 503;
+    auto result = fetcher->CustomProvider()->FetchBatch(batch);
+    EXPECT_EQ(result.httpCode, 401);
+    EXPECT_EQ(result.httpResult, CustomApiFetchResult::TransientError);
+
+    accountClient->ResetForTests();
+    UseCustomApi();
+    g_refreshStatus = 401;
+    g_refreshBody = R"({"error":{"code":"invalid_grant","message":"Expired"}})";
+    result = fetcher->CustomProvider()->FetchBatch(batch);
+    EXPECT_EQ(result.httpCode, 401);
+    EXPECT_EQ(result.httpResult, CustomApiFetchResult::AuthFailure);
+
+    accountClient->ResetForTests();
+    UseCustomApi();
+    g_refreshStatus = 200;
+    g_refreshBody = nlohmann::json{
+        {"access_token", "fresh_token"},
+        {"expires_in", 900},
+        {"refresh_token", "rotated_token"},
+        {"refresh_expires_in", 2592000},
+        {"account", {{"display_name", "SignedInPlayer"}}},
+        {"device", {{"public_id", accountClient->DevicePublicId()}, {"status", "active"}}}}.dump();
+    result = fetcher->CustomProvider()->FetchBatch(batch);
+    EXPECT_EQ(result.httpCode, 401);
+    EXPECT_EQ(result.httpResult, CustomApiFetchResult::AuthFailure);
+}
+
 TEST_F(TrackedAccountRefreshTest, CancelledBatchEntryIsNotDispatchedOrPublished) {
     ASSERT_EQ(fetcher->EnqueueTrackedAccount(kEpic, "old"), TrackedEnqueueResult::Queued);
     ASSERT_EQ(fetcher->EnqueueTrackedAccount(kSteam, ""), TrackedEnqueueResult::Queued);

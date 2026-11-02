@@ -68,6 +68,7 @@ CustomApiBatchResult OmniNetRankProvider::FetchBatch(const AssembledBatch& batch
     }
 
     OmniNet::Response resp = performRequest(accessToken, deviceId);
+    result.httpCode = resp.status;
     if (resp.updateRequired) {
         result.updateRequired = true;
         result.httpCode = resp.status;
@@ -92,6 +93,7 @@ CustomApiBatchResult OmniNetRankProvider::FetchBatch(const AssembledBatch& batch
             return result;
         }
         resp = performRequest(accessToken, deviceId);
+        result.httpCode = resp.status;
         if (resp.updateRequired) {
             result.updateRequired = true;
             result.httpCode = resp.status;
