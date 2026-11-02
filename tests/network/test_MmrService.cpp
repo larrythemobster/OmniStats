@@ -44,6 +44,52 @@ TEST(MmrTimingsTest, QueueUsesInjectedForbiddenLockouts) {
     EXPECT_EQ(third->second, std::chrono::milliseconds(150));
 }
 
+TEST(MmrRequestQueueTest, CancelledCompletionAndRetriesCannotAffectReplacement) {
+    MmrRequestQueue queue(FastMmrTimings());
+    int retryNotices = 0;
+    queue.SetTrackedRetryCallback([&](const MMRRequest&, std::chrono::milliseconds, bool) { ++retryNotices; });
+    ASSERT_EQ(queue.EnqueueTrackedAccount("Steam|1", "old"), TrackedEnqueueResult::Queued);
+    auto old = queue.PopNext(std::chrono::steady_clock::now());
+    ASSERT_TRUE(old);
+    queue.CancelTrackedAccount("Steam|1");
+    ASSERT_EQ(queue.EnqueueTrackedAccount("Steam|1", "new"), TrackedEnqueueResult::Queued);
+    queue.Finish(*old);
+    EXPECT_EQ(queue.EnqueueTrackedAccount("Steam|1", "duplicate"), TrackedEnqueueResult::AlreadyQueued);
+    EXPECT_FALSE(queue.ScheduleRetry(*old, std::chrono::milliseconds(0), "stale"));
+    EXPECT_FALSE(queue.RequeueForbidden(*old));
+    EXPECT_EQ(retryNotices, 0);
+    EXPECT_EQ(queue.PendingCount(), 1u);
+    auto replacement = queue.PopNext(std::chrono::steady_clock::now());
+    ASSERT_TRUE(replacement);
+    EXPECT_NE(old->trackedGeneration, replacement->trackedGeneration);
+    EXPECT_EQ(replacement->name, "new");
+    ASSERT_TRUE(queue.ScheduleRetry(*replacement, std::chrono::milliseconds(0), "current"));
+    EXPECT_EQ(retryNotices, 1);
+    auto retry = queue.PopNext(std::chrono::steady_clock::now());
+    ASSERT_TRUE(retry);
+    EXPECT_EQ(retry->trackedGeneration, replacement->trackedGeneration);
+    queue.Finish(*retry);
+    EXPECT_EQ(queue.EnqueueTrackedAccount("Steam|1", "next"), TrackedEnqueueResult::Queued);
+}
+
+TEST(MmrRequestQueueTest, CancellationDuringRetryCallbackDoesNotRequeueOldRequest) {
+    MmrRequestQueue queue(FastMmrTimings());
+    ASSERT_EQ(queue.EnqueueTrackedAccount("Steam|1", "old"), TrackedEnqueueResult::Queued);
+    auto old = queue.PopNext(std::chrono::steady_clock::now());
+    ASSERT_TRUE(old);
+    queue.SetTrackedRetryCallback([&](const MMRRequest&, std::chrono::milliseconds, bool) {
+        queue.CancelTrackedAccount("Steam|1");
+        EXPECT_EQ(queue.EnqueueTrackedAccount("Steam|1", "new"), TrackedEnqueueResult::Queued);
+    });
+    EXPECT_FALSE(queue.ScheduleRetry(*old, std::chrono::milliseconds(0), "stale"));
+    ASSERT_EQ(queue.PendingCount(), 1u);
+    auto replacement = queue.PopNext(std::chrono::steady_clock::now());
+    ASSERT_TRUE(replacement);
+    EXPECT_EQ(replacement->name, "new");
+    queue.Finish(*old);
+    EXPECT_EQ(queue.EnqueueTrackedAccount("Steam|1", "duplicate"), TrackedEnqueueResult::AlreadyQueued);
+}
+
 typedef size_t (*WriteCallbackType)(void*, size_t, size_t, void*);
 typedef size_t (*HeaderCallbackType)(char*, size_t, size_t, void*);
 static WriteCallbackType g_write_callback = nullptr;

@@ -30,6 +30,7 @@ struct MMRRequest {
     std::chrono::steady_clock::time_point notBefore{};
     // Stamped at dequeue.
     uint64_t sessionGeneration = 0;
+    uint64_t trackedGeneration = 0;
 };
 
 struct MMRProfileTotals {
@@ -72,6 +73,7 @@ enum class TrackedAccountFetchStatus {
 
 struct TrackedAccountFetchEvent {
     std::string primaryId;
+    uint64_t trackedGeneration = 0;
     TrackedAccountFetchStatus status = TrackedAccountFetchStatus::Failed;
     NormalizedProfileResult profile;
     std::chrono::system_clock::time_point retryAt{};

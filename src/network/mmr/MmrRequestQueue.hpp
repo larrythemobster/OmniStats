@@ -6,6 +6,7 @@
 #include <mutex>
 #include <optional>
 #include <string>
+#include <unordered_map>
 #include <unordered_set>
 #include <utility>
 #include <vector>
@@ -30,8 +31,11 @@ class MmrRequestQueue {
 
     bool EnqueueRoster(const std::string& primaryId, const std::string& name, uint64_t sessionGen);
     bool EnqueuePostMatch(MMRRequest req);
-    TrackedEnqueueResult EnqueueTrackedAccount(const std::string& primaryId, const std::string& name);
+    TrackedEnqueueResult EnqueueTrackedAccount(const std::string& primaryId, const std::string& name, uint64_t* generation = nullptr);
     void CancelTrackedAccount(const std::string& primaryId);
+    bool IsCurrent(const MMRRequest& req) const;
+    bool IsTrackedCurrent(const std::string& primaryId, uint64_t generation) const;
+    std::optional<MMRRequest> TakeTrackedAccount(const std::string& primaryId, uint64_t generation);
 
     void SetRateLimitedUntil(std::chrono::steady_clock::time_point until);
     bool IsRateLimited(std::chrono::steady_clock::time_point now) const;
@@ -69,7 +73,8 @@ class MmrRequestQueue {
     mutable std::mutex m_mutex;
     std::deque<MMRRequest> m_queue;
     std::unordered_set<std::string> m_rosterQueuedOrInFlight;
-    std::unordered_set<std::string> m_trackedQueuedOrInFlight;
+    std::unordered_map<std::string, uint64_t> m_trackedQueuedOrInFlight;
+    uint64_t m_nextTrackedGeneration = 0;
     std::unordered_set<std::string> m_pendingPostMatchGuids;
     size_t m_forbiddenStrikeCount = 0;
     std::chrono::steady_clock::time_point m_rateLimitedUntil{};

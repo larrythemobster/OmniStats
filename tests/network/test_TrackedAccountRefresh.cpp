@@ -415,6 +415,28 @@ TEST_F(TrackedAccountRefreshTest, AuthenticationFailuresReportSignInRequired) {
     }
 }
 
+TEST_F(TrackedAccountRefreshTest, CancelledBatchEntryIsNotDispatchedOrPublished) {
+    ASSERT_EQ(fetcher->EnqueueTrackedAccount(kEpic, "old"), TrackedEnqueueResult::Queued);
+    ASSERT_EQ(fetcher->EnqueueTrackedAccount(kSteam, ""), TrackedEnqueueResult::Queued);
+    const auto batch = fetcher->TakeNextCustomApiBatch();
+    ASSERT_EQ(batch.requests.size(), 2u);
+    fetcher->CancelTrackedAccount(kEpic);
+    ASSERT_EQ(fetcher->EnqueueTrackedAccount(kEpic, "new"), TrackedEnqueueResult::Queued);
+    g_apiBody = Players({Player("Epic", "0123456789abcdef0123456789abcdef", {Skill(11, 1000)}),
+                         Player("Steam", "76561198000000001", {Skill(11, 1500)})});
+    fetcher->ProcessCustomApiBatch(batch);
+    const auto posted = nlohmann::json::parse(g_postFields);
+    ASSERT_EQ(posted["players"].size(), 1u);
+    EXPECT_EQ(posted["players"][0]["platform"], "Steam");
+    EXPECT_FALSE(LastTerminal(kEpic));
+    ASSERT_TRUE(LastTerminal(kSteam));
+    EXPECT_EQ(LastTerminal(kSteam)->profile.playlistMMRs.at("2v2"), 1500);
+    EXPECT_EQ(fetcher->EnqueueTrackedAccount(kEpic, "duplicate"), TrackedEnqueueResult::AlreadyQueued);
+    ProcessNextBatch();
+    ASSERT_TRUE(LastTerminal(kEpic));
+    EXPECT_EQ(LastTerminal(kEpic)->profile.playlistMMRs.at("2v2"), 1000);
+}
+
 TEST_F(TrackedAccountRefreshTest, NotFoundAndExhaustedTransientFailuresAreTerminal) {
     g_apiStatus = 404;
     fetcher->EnqueueTrackedAccount(kEpic, "");
@@ -845,6 +867,50 @@ TEST_F(TrackedAccountRefreshTest, RemovingDuringInFlightRefreshDoesNotRecreateAc
     ASSERT_TRUE(stored.has_value());
     EXPECT_EQ(stored->nickname, "Alt again");
     EXPECT_EQ(stored->ranks.at("2v2").mmr, 1500);
+}
+
+TEST_F(TrackedAccountRefreshTest, RemovedAndReaddedAccountIgnoresInFlightBatchResult) {
+    StartService();
+    ASSERT_EQ(service->AddManual(TrackedAccounts::Platform::Epic, kEpic, "Old").status,
+              AccountManagerService::AddResult::Status::Added);
+    worker->Drain();
+    const auto batch = fetcher->TakeNextCustomApiBatch();
+    ASSERT_EQ(batch.requests.size(), 1u);
+
+    OmniNet::SetTransportForTesting([&](const OmniNet::Request& request) {
+        EXPECT_EQ(request.op, OmniNet::Op::Ranks);
+        EXPECT_TRUE(service->Remove(kEpic));
+        EXPECT_EQ(service->AddManual(TrackedAccounts::Platform::Epic, kEpic, "New").status,
+                  AccountManagerService::AddResult::Status::Added);
+        worker->Drain();
+        OmniNet::Response response;
+        response.status = 200;
+        response.body = Players({Player("Epic", "0123456789abcdef0123456789abcdef", {Skill(11, 1000)})});
+        return response;
+    });
+    fetcher->ProcessCustomApiBatch(batch);
+    worker->Drain();
+    const auto snapshot = service->GetSnapshot();
+    const auto* account = FindView(snapshot, kEpic);
+    ASSERT_NE(account, nullptr);
+    EXPECT_EQ(account->record.nickname, "New");
+    EXPECT_TRUE(account->record.ranks.empty());
+    EXPECT_EQ(account->refreshState, AccountManagerService::RefreshState::Queued);
+    EXPECT_EQ(fetcher->EnqueueTrackedAccount(kEpic, "duplicate"), TrackedEnqueueResult::AlreadyQueued);
+    ASSERT_TRUE(db->GetTrackedAccount(kEpic));
+    EXPECT_TRUE(db->GetTrackedAccountRanks(kEpic).empty());
+
+    OmniNet::SetTransportForTesting([&](const OmniNet::Request&) {
+        OmniNet::Response response;
+        response.status = 200;
+        response.body = Players({Player("Epic", "0123456789abcdef0123456789abcdef", {Skill(11, 1600)})});
+        return response;
+    });
+    ProcessNextBatch();
+    worker->Drain();
+    const auto stored = db->GetTrackedAccount(kEpic);
+    ASSERT_TRUE(stored);
+    EXPECT_EQ(stored->ranks.at("2v2").mmr, 1600);
 }
 
 TEST_F(TrackedAccountRefreshTest, FiveManualAccountsRefreshInOneBatchAndSurviveRestart) {

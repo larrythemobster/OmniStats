@@ -524,6 +524,7 @@ void AccountManagerService::ApplyFetchEvent(const TrackedAccountFetchEvent& even
     using Status = TrackedAccountFetchStatus;
     {
         std::lock_guard<std::mutex> lock(m_mutex);
+        if (!m_fetcher || !m_fetcher->Queue().IsTrackedCurrent(event.primaryId, event.trackedGeneration)) return;
         AccountView* account = FindLocked(event.primaryId);
         if (!account) return;
         const int64_t now = NowUnix();

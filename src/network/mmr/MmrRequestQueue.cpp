@@ -31,17 +31,20 @@ bool MmrRequestQueue::EnqueuePostMatch(MMRRequest req) {
     return true;
 }
 
-TrackedEnqueueResult MmrRequestQueue::EnqueueTrackedAccount(const std::string& primaryId, const std::string& name) {
+TrackedEnqueueResult MmrRequestQueue::EnqueueTrackedAccount(const std::string& primaryId, const std::string& name, uint64_t* generationOut) {
     if (primaryId.empty()) return TrackedEnqueueResult::InvalidIdentity;
     std::lock_guard<std::mutex> lock(m_mutex);
     if (m_trackedQueuedOrInFlight.count(primaryId) > 0) {
         return TrackedEnqueueResult::AlreadyQueued;
     }
-    m_trackedQueuedOrInFlight.insert(primaryId);
+    const uint64_t generation = ++m_nextTrackedGeneration;
+    m_trackedQueuedOrInFlight.emplace(primaryId, generation);
     MMRRequest req;
     req.primaryId = primaryId;
     req.name = name;
     req.reason = MMRRequestReason::TrackedAccount;
+    req.trackedGeneration = generation;
+    if (generationOut) *generationOut = generation;
     req.notBefore = std::chrono::steady_clock::now();
     m_queue.push_back(std::move(req));
     return TrackedEnqueueResult::Queued;
@@ -53,6 +56,28 @@ void MmrRequestQueue::CancelTrackedAccount(const std::string& primaryId) {
         return r.reason == MMRRequestReason::TrackedAccount && r.primaryId == primaryId;
     });
     m_trackedQueuedOrInFlight.erase(primaryId);
+}
+
+bool MmrRequestQueue::IsTrackedCurrent(const std::string& primaryId, uint64_t generation) const {
+    std::lock_guard<std::mutex> lock(m_mutex);
+    const auto it = m_trackedQueuedOrInFlight.find(primaryId);
+    return it != m_trackedQueuedOrInFlight.end() && it->second == generation;
+}
+
+bool MmrRequestQueue::IsCurrent(const MMRRequest& req) const {
+    return req.reason != MMRRequestReason::TrackedAccount || IsTrackedCurrent(req.primaryId, req.trackedGeneration);
+}
+
+std::optional<MMRRequest> MmrRequestQueue::TakeTrackedAccount(const std::string& primaryId, uint64_t generation) {
+    std::lock_guard<std::mutex> lock(m_mutex);
+    auto it = std::find_if(m_queue.begin(), m_queue.end(), [&](const MMRRequest& req) {
+        return req.reason == MMRRequestReason::TrackedAccount && req.primaryId == primaryId &&
+               req.trackedGeneration == generation;
+    });
+    if (it == m_queue.end()) return std::nullopt;
+    MMRRequest req = std::move(*it);
+    m_queue.erase(it);
+    return req;
 }
 
 void MmrRequestQueue::SetRateLimitedUntil(std::chrono::steady_clock::time_point until) {
@@ -206,6 +231,10 @@ bool MmrRequestQueue::ScheduleRetry(MMRRequest req, std::chrono::milliseconds de
     bool rateLimited = false;
     {
         std::lock_guard<std::mutex> lock(m_mutex);
+        if (req.reason == MMRRequestReason::TrackedAccount) {
+            const auto it = m_trackedQueuedOrInFlight.find(req.primaryId);
+            if (it == m_trackedQueuedOrInFlight.end() || it->second != req.trackedGeneration) return false;
+        }
         rateLimited = m_rateLimitedUntil > now;
     }
     if (m_trackedRetryCallback && req.reason == MMRRequestReason::TrackedAccount) {
@@ -213,6 +242,10 @@ bool MmrRequestQueue::ScheduleRetry(MMRRequest req, std::chrono::milliseconds de
     }
     {
         std::lock_guard<std::mutex> lock(m_mutex);
+        if (req.reason == MMRRequestReason::TrackedAccount) {
+            const auto it = m_trackedQueuedOrInFlight.find(req.primaryId);
+            if (it == m_trackedQueuedOrInFlight.end() || it->second != req.trackedGeneration) return false;
+        }
         m_queue.push_back(std::move(req));
     }
     if (reason && reason[0] != '\0') {
@@ -229,6 +262,10 @@ std::optional<std::pair<size_t, std::chrono::steady_clock::duration>> MmrRequest
     std::optional<MMRRequest> trackedReq;
     {
         std::lock_guard<std::mutex> lock(m_mutex);
+        if (req.reason == MMRRequestReason::TrackedAccount) {
+            const auto it = m_trackedQueuedOrInFlight.find(req.primaryId);
+            if (it == m_trackedQueuedOrInFlight.end() || it->second != req.trackedGeneration) return std::nullopt;
+        }
         strike = ++m_forbiddenStrikeCount;
         lockout = MmrServiceDetail::ForbiddenLockoutForStrike(strike, m_timings);
         m_rateLimitedUntil = std::chrono::steady_clock::now() + lockout;
@@ -255,7 +292,10 @@ void MmrRequestQueue::Finish(const MMRRequest& req) {
     if (req.reason == MMRRequestReason::PostMatch) {
         m_pendingPostMatchGuids.erase(req.matchGuid);
     } else if (req.reason == MMRRequestReason::TrackedAccount) {
-        m_trackedQueuedOrInFlight.erase(req.primaryId);
+        const auto it = m_trackedQueuedOrInFlight.find(req.primaryId);
+        if (it != m_trackedQueuedOrInFlight.end() && it->second == req.trackedGeneration) {
+            m_trackedQueuedOrInFlight.erase(it);
+        }
     } else {
         m_rosterQueuedOrInFlight.erase(req.primaryId);
     }

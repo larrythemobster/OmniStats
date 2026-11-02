@@ -64,7 +64,7 @@ MmrService::MmrService(std::shared_ptr<SessionState> state,
         event.status = rateLimited ? TrackedAccountFetchStatus::RateLimited : TrackedAccountFetchStatus::Retrying;
         event.retryAt = std::chrono::system_clock::now() +
                         std::chrono::duration_cast<std::chrono::system_clock::duration>(delay);
-        NotifyTracked(event);
+        NotifyTracked(req, std::move(event));
     });
 }
 
@@ -316,7 +316,9 @@ void MmrService::SetTrackedAccountSink(TrackedAccountSink sink) {
     m_trackedSink = std::move(sink);
 }
 
-void MmrService::NotifyTracked(const TrackedAccountFetchEvent& event) {
+void MmrService::NotifyTracked(const MMRRequest& req, TrackedAccountFetchEvent event) {
+    if (!m_queue.IsCurrent(req)) return;
+    event.trackedGeneration = req.trackedGeneration;
     TrackedAccountSink sink;
     {
         std::lock_guard<std::mutex> lock(m_sinkMutex);
@@ -502,7 +504,7 @@ bool MmrService::PublishProfileResult(const MMRRequest& req, const NormalizedPro
         event.primaryId = req.primaryId;
         event.status = hasPlaylist ? TrackedAccountFetchStatus::Success : TrackedAccountFetchStatus::NoRankedData;
         event.profile = profile;
-        NotifyTracked(event);
+        NotifyTracked(req, std::move(event));
         return false;
     }
 
@@ -559,7 +561,8 @@ CustomApiFetchResult MmrService::FetchProfileFromCustomApi(const MMRRequest& req
     auto res = m_customProvider->FetchBatch(batch);
     if (res.httpResult == CustomApiFetchResult::SuccessFinished) {
         for (const auto& pr : res.playerResults) {
-            if (pr.request.primaryId == req.primaryId) {
+            if (pr.request.primaryId == req.primaryId &&
+                (req.reason != MMRRequestReason::TrackedAccount || pr.request.trackedGeneration == req.trackedGeneration)) {
                 if (pr.status == BatchPlayerStatus::Success) {
                     return PublishProfileResult(req, pr.profile) ? CustomApiFetchResult::SuccessRequeued
                                                                  : CustomApiFetchResult::SuccessFinished;
@@ -572,7 +575,8 @@ CustomApiFetchResult MmrService::FetchProfileFromCustomApi(const MMRRequest& req
     return res.httpResult;
 }
 
-void MmrService::ProcessCustomApiBatch(const MmrServiceDetail::AssembledBatch& batch) {
+void MmrService::ProcessCustomApiBatch(MmrServiceDetail::AssembledBatch batch) {
+    std::erase_if(batch.requests, [this](const MMRRequest& req) { return !m_queue.IsCurrent(req); });
     if (batch.requests.empty()) return;
     if (!m_customProvider) {
         for (const auto& req : batch.requests) {
@@ -583,6 +587,8 @@ void MmrService::ProcessCustomApiBatch(const MmrServiceDetail::AssembledBatch& b
 
     auto res = m_customProvider->FetchBatch(batch);
     const auto now = std::chrono::steady_clock::now();
+    std::erase_if(batch.requests, [this](const MMRRequest& req) { return !m_queue.IsCurrent(req); });
+    if (batch.requests.empty()) return;
     const auto config = Config::Read();
 
     if (res.updateRequired) {
@@ -598,7 +604,7 @@ void MmrService::ProcessCustomApiBatch(const MmrServiceDetail::AssembledBatch& b
                     event.primaryId = req.primaryId;
                     event.status = TrackedAccountFetchStatus::ProviderUnavailable;
                     event.detail = "Update OmniStats to keep live ranks.";
-                    NotifyTracked(event);
+                    NotifyTracked(req, std::move(event));
                 }
                 m_queue.Finish(req);
             }
@@ -619,7 +625,7 @@ void MmrService::ProcessCustomApiBatch(const MmrServiceDetail::AssembledBatch& b
                     event.primaryId = req.primaryId;
                     event.status = TrackedAccountFetchStatus::AuthRequired;
                     event.detail = "The rank API rejected the request. Sign in again in Settings > Accounts & services.";
-                    NotifyTracked(event);
+                    NotifyTracked(req, std::move(event));
                 }
                 m_queue.Finish(req);
             }
@@ -645,7 +651,7 @@ void MmrService::ProcessCustomApiBatch(const MmrServiceDetail::AssembledBatch& b
                     event.primaryId = req.primaryId;
                     event.status = (res.httpCode == 429) ? TrackedAccountFetchStatus::RateLimited : TrackedAccountFetchStatus::Failed;
                     event.detail = (res.httpCode == 429) ? "The rank API is rate limiting requests." : "The rank API is temporarily unavailable.";
-                    NotifyTracked(event);
+                    NotifyTracked(req, std::move(event));
                 }
                 m_queue.Finish(req);
             }
@@ -667,7 +673,7 @@ void MmrService::ProcessCustomApiBatch(const MmrServiceDetail::AssembledBatch& b
                     event.status = res.httpCode == 404                                          ? TrackedAccountFetchStatus::NotFound
                                    : res.httpResult == CustomApiFetchResult::DisabledOrNotReady ? TrackedAccountFetchStatus::ProviderUnavailable
                                                                                                 : TrackedAccountFetchStatus::Failed;
-                    NotifyTracked(event);
+                    NotifyTracked(req, std::move(event));
                 }
                 m_queue.Finish(req);
             }
@@ -677,9 +683,11 @@ void MmrService::ProcessCustomApiBatch(const MmrServiceDetail::AssembledBatch& b
 
     for (const auto& pRes : res.playerResults) {
         auto reqIt = std::find_if(batch.requests.begin(), batch.requests.end(), [&](const MMRRequest& r) {
-            return r.primaryId == pRes.request.primaryId;
+            return r.primaryId == pRes.request.primaryId &&
+                   (r.reason != MMRRequestReason::TrackedAccount || r.trackedGeneration == pRes.request.trackedGeneration);
         });
         if (reqIt != batch.requests.end()) {
+            if (!m_queue.IsCurrent(*reqIt)) continue;
             if (pRes.status == BatchPlayerStatus::Success) {
                 PublishProfileResult(*reqIt, pRes.profile);
             } else {
@@ -705,7 +713,7 @@ void MmrService::ProcessCustomApiBatch(const MmrServiceDetail::AssembledBatch& b
                         event.primaryId = reqIt->primaryId;
                         event.status = status;
                         event.detail = msg;
-                        NotifyTracked(event);
+                        NotifyTracked(*reqIt, std::move(event));
                     }
                 }
             }
@@ -716,6 +724,7 @@ void MmrService::ProcessCustomApiBatch(const MmrServiceDetail::AssembledBatch& b
 }
 
 bool MmrService::FetchProfile(MMRRequest req) {
+    if (!m_queue.IsCurrent(req)) return false;
     if (req.reason == MMRRequestReason::PostMatch) {
         if (const auto record = m_reconciler.GetRecord(req.matchGuid)) {
             if (record->reconciliationState == PostMatchReconciliationState::Confirmed) {
@@ -730,6 +739,7 @@ bool MmrService::FetchProfile(MMRRequest req) {
 
     if (signedInPrimary) {
         const auto customResult = FetchProfileFromCustomApi(req);
+        if (!m_queue.IsCurrent(req)) return false;
         if (customResult == CustomApiFetchResult::SuccessFinished) {
             return false;
         }
@@ -742,7 +752,7 @@ bool MmrService::FetchProfile(MMRRequest req) {
                 event.primaryId = req.primaryId;
                 event.status = TrackedAccountFetchStatus::AuthRequired;
                 event.detail = "The rank API rejected the request. Sign in again in Settings > Accounts & services.";
-                NotifyTracked(event);
+                NotifyTracked(req, std::move(event));
                 return false;
             }
         } else if (!config.enable_mmr_tracking) {
@@ -755,7 +765,7 @@ bool MmrService::FetchProfile(MMRRequest req) {
                     event.primaryId = req.primaryId;
                     event.status = TrackedAccountFetchStatus::Failed;
                     event.detail = "The rank API is temporarily unavailable.";
-                    NotifyTracked(event);
+                    NotifyTracked(req, std::move(event));
                 } else if (req.reason == MMRRequestReason::Roster && m_state) {
                     MmrPublisher::PublishRosterFetchFailure(*m_state, req.primaryId);
                 }
@@ -768,7 +778,7 @@ bool MmrService::FetchProfile(MMRRequest req) {
                         event.primaryId = req.primaryId;
                         event.status = TrackedAccountFetchStatus::Failed;
                         event.detail = "The rank API returned no usable data.";
-                        NotifyTracked(event);
+                        NotifyTracked(req, std::move(event));
                     } else if (req.reason == MMRRequestReason::Roster && m_state) {
                         MmrPublisher::PublishRosterFetchFailure(*m_state, req.primaryId);
                     }
@@ -787,7 +797,7 @@ bool MmrService::FetchProfile(MMRRequest req) {
                     event.primaryId = req.primaryId;
                     event.status = TrackedAccountFetchStatus::RateLimited;
                     event.detail = "Rank lookups are paused by a rate limit.";
-                    NotifyTracked(event);
+                    NotifyTracked(req, std::move(event));
                 } else if (req.reason == MMRRequestReason::Roster && m_state) {
                     MmrPublisher::PublishRosterFetchFailure(*m_state, req.primaryId);
                 }
@@ -799,6 +809,7 @@ bool MmrService::FetchProfile(MMRRequest req) {
 }
 
 bool MmrService::FetchProfileTracker(MMRRequest req) {
+    if (!m_queue.IsCurrent(req)) return false;
     const ConfigData config = Config::Read();
 
     if (!config.enable_mmr_tracking) {
@@ -809,7 +820,7 @@ bool MmrService::FetchProfileTracker(MMRRequest req) {
             event.primaryId = req.primaryId;
             event.status = TrackedAccountFetchStatus::ProviderUnavailable;
             event.detail = "Rank lookups are disabled.";
-            NotifyTracked(event);
+            NotifyTracked(req, std::move(event));
         } else if (req.reason == MMRRequestReason::Roster && m_state) {
             MmrPublisher::PublishRosterFetchFailure(*m_state, req.primaryId);
         }
@@ -824,6 +835,7 @@ bool MmrService::FetchProfileTracker(MMRRequest req) {
     } else {
         detail = "The rank lookup component is not available.";
     }
+    if (!m_queue.IsCurrent(req)) return false;
     const auto trn = std::dynamic_pointer_cast<TrnRankProvider>(m_trackerProvider);
     const auto result = trn ? trn->LastResult() : TrnRankProvider::Result{};
     if ((ok || (trn && result.transportError == 0 && result.statusCode == 200)) &&
@@ -883,7 +895,7 @@ bool MmrService::FetchProfileTracker(MMRRequest req) {
                 event.status = TrackedAccountFetchStatus::Failed;
             }
             event.detail = detail;
-            NotifyTracked(event);
+            NotifyTracked(req, std::move(event));
         } else if (req.reason == MMRRequestReason::Roster && m_state) {
             MmrPublisher::PublishRosterFetchFailure(*m_state, req.primaryId);
         }
@@ -901,12 +913,12 @@ void MmrService::FetchRosterProfile(const std::string& primaryId, const std::str
 }
 
 void MmrService::FetchTrackedAccount(const std::string& primaryId, const std::string& name) {
-    MMRRequest req;
-    req.primaryId = primaryId;
-    req.name = name;
-    req.reason = MMRRequestReason::TrackedAccount;
-    req.sessionGeneration = m_state && m_state->liveMatch ? m_state->liveMatch->GetSnapshot()->sessionGeneration : 0;
-    (void)FetchProfile(std::move(req));
+    uint64_t generation = 0;
+    if (m_queue.EnqueueTrackedAccount(primaryId, name, &generation) != TrackedEnqueueResult::Queued) return;
+    auto req = m_queue.TakeTrackedAccount(primaryId, generation);
+    if (!req) return;
+    req->sessionGeneration = m_state && m_state->liveMatch ? m_state->liveMatch->GetSnapshot()->sessionGeneration : 0;
+    if (!FetchProfile(*req)) m_queue.Finish(*req);
 }
 
 bool MmrService::IsCustomApiActiveSource() const {
@@ -1009,9 +1021,9 @@ void MmrService::DispatchBatch(RankProvider provider) {
         TrackedAccountFetchEvent event;
         event.primaryId = req.primaryId;
         event.status = TrackedAccountFetchStatus::Fetching;
-        NotifyTracked(event);
+        NotifyTracked(req, std::move(event));
     }
-    if (!batch.requests.empty()) ProcessCustomApiBatch(batch);
+    if (!batch.requests.empty()) ProcessCustomApiBatch(std::move(batch));
 }
 
 void MmrService::DispatchSingle(RankProvider /*provider*/) {
@@ -1032,7 +1044,7 @@ void MmrService::DispatchSingle(RankProvider /*provider*/) {
         TrackedAccountFetchEvent event;
         event.primaryId = req.primaryId;
         event.status = TrackedAccountFetchStatus::Fetching;
-        NotifyTracked(event);
+        NotifyTracked(req, std::move(event));
     }
     const bool requeued = FetchProfile(req);
     if (!requeued) {

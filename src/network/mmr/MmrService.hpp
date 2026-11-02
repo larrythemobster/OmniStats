@@ -87,7 +87,7 @@ class MmrService {
     void FetchRosterProfile(const std::string& primaryId, const std::string& name);
     void FetchTrackedAccount(const std::string& primaryId, const std::string& name);
     CustomApiFetchResult FetchProfileFromCustomApi(const MMRRequest& req);
-    void ProcessCustomApiBatch(const MmrServiceDetail::AssembledBatch& batch);
+    void ProcessCustomApiBatch(MmrServiceDetail::AssembledBatch batch);
 
     bool IsCustomApiActiveSource() const;
     bool IsRateLimited() const;
@@ -130,7 +130,7 @@ class MmrService {
     void WorkerLoop();
     void DispatchBatch(RankProvider provider);
     void DispatchSingle(RankProvider provider);
-    void NotifyTracked(const TrackedAccountFetchEvent& event);
+    void NotifyTracked(const MMRRequest& req, TrackedAccountFetchEvent event);
     bool FetchProfileTracker(MMRRequest req);
     bool TrySatisfyLocalRosterRequest(const std::string& primaryId);
     void StoreLocalProfileCache(const MMRRequest& req,
