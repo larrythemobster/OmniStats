@@ -85,7 +85,7 @@ Separation from live tracking:
 
 Batched rank responses are matched on platform and account ID. A player whose `platform` differs from the request is ignored. An unlabeled player is ignored when two requests in the batch share that account ID.
 
-Rank-provider authentication failures retain the actual HTTP status through refresh and retry, including a second HTTP 401.
+Rank-provider authentication failures retain the actual HTTP status through refresh and retry, including a second HTTP 401. A server's HTTP 429 backoff remains active even when every request in the completed batch was canceled. Incomplete Tracker responses emit a terminal failure when retries are exhausted, leaving the account available for a later refresh.
 
 Service rules (`src/core/accounts/AccountManager.*`):
 

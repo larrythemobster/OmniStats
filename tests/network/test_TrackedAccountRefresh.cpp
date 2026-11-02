@@ -472,6 +472,32 @@ TEST_F(TrackedAccountRefreshTest, CancelledBatchEntryIsNotDispatchedOrPublished)
     EXPECT_EQ(LastTerminal(kEpic)->profile.playlistMMRs.at("2v2"), 1000);
 }
 
+TEST_F(TrackedAccountRefreshTest, CancelledInFlightRateLimitDoesNotRetryOrNotifyReplacement) {
+    ASSERT_EQ(fetcher->EnqueueTrackedAccount(kEpic, "old"), TrackedEnqueueResult::Queued);
+    const auto batch = fetcher->TakeNextCustomApiBatch();
+    ASSERT_EQ(batch.requests.size(), 1u);
+    OmniNet::SetTransportForTesting([&](const OmniNet::Request&) {
+        fetcher->CancelTrackedAccount(kEpic);
+        EXPECT_EQ(fetcher->EnqueueTrackedAccount(kEpic, "new"), TrackedEnqueueResult::Queued);
+        OmniNet::Response response;
+        response.status = 429;
+        response.retryAfterSeconds = 60;
+        return response;
+    });
+    fetcher->ProcessCustomApiBatch(batch);
+    EXPECT_TRUE(fetcher->IsRateLimited());
+    EXPECT_TRUE(Events().empty());
+    EXPECT_EQ(fetcher->PendingRequestCount(), 1u);
+    EXPECT_EQ(fetcher->EnqueueTrackedAccount(kEpic, "duplicate"), TrackedEnqueueResult::AlreadyQueued);
+    EXPECT_FALSE(fetcher->TakeNextTrackerRequest());
+    fetcher->Queue().SetRateLimitedUntil({});
+    const auto replacement = fetcher->TakeNextTrackerRequest();
+    ASSERT_TRUE(replacement);
+    EXPECT_EQ(replacement->name, "new");
+    EXPECT_EQ(replacement->retriesRemaining, 2);
+    EXPECT_EQ(fetcher->PendingRequestCount(), 0u);
+}
+
 TEST_F(TrackedAccountRefreshTest, NotFoundAndExhaustedTransientFailuresAreTerminal) {
     g_apiStatus = 404;
     fetcher->EnqueueTrackedAccount(kEpic, "");
@@ -670,6 +696,37 @@ TEST_F(TrackedAccountRefreshTest, TrackerIncompleteResponseRetriesAndRecovers) {
     EXPECT_EQ(outcome->status, TrackedAccountFetchStatus::Success);
     EXPECT_EQ(outcome->profile.playlistMMRs.at("2v2"), 1400);
     EXPECT_EQ(g_performs.load(), 2);
+}
+
+TEST_F(TrackedAccountRefreshTest, TrackerIncompleteExhaustionClearsPendingAndPreservesRanks) {
+    UseTrackerOnly();
+    RegisterInDb(kSteam);
+    ASSERT_TRUE(db->SaveTrackedAccountRanks(kSteam,
+        {TrackedAccounts::PlaylistRank{"2v2", 1500, "Champion II", 100, "Tracker", 0}}, 1'700'000'000));
+    StartService();
+    g_trackerBody = R"({"data":{}})";
+    fetcher->Queue().SetRunningCheck([] { return true; });
+    ASSERT_EQ(service->Refresh(kSteam), AccountManagerService::RefreshRequest::Queued);
+
+    for (int attempt = 0; attempt < 3; ++attempt) {
+        auto request = fetcher->Queue().PopNext(std::chrono::steady_clock::time_point::max());
+        ASSERT_TRUE(request);
+        const bool requeued = fetcher->FetchProfile(*request);
+        EXPECT_EQ(requeued, attempt < 2);
+        if (!requeued) fetcher->FinishRequest(*request);
+    }
+    worker->Drain();
+    const auto snapshot = service->GetSnapshot();
+    const auto* account = FindView(snapshot, kSteam);
+    ASSERT_NE(account, nullptr);
+    EXPECT_EQ(account->refreshState, AccountManagerService::RefreshState::Failed);
+    EXPECT_EQ(account->refreshDetail, "Tracker returned an incomplete response.");
+    EXPECT_EQ(account->record.ranks.at("2v2").mmr, 1500);
+    const auto stored = db->GetTrackedAccount(kSteam);
+    ASSERT_TRUE(stored);
+    EXPECT_EQ(stored->ranks.at("2v2").mmr, 1500);
+    clock += AccountManagerService::kManualRefreshCooldownSeconds;
+    EXPECT_EQ(service->Refresh(kSteam), AccountManagerService::RefreshRequest::Queued);
 }
 
 TEST_F(TrackedAccountRefreshTest, TrackerTransientAndNotFoundHaveTypedTerminalStatuses) {

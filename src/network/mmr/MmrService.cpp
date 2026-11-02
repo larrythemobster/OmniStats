@@ -587,6 +587,10 @@ void MmrService::ProcessCustomApiBatch(MmrServiceDetail::AssembledBatch batch) {
 
     auto res = m_customProvider->FetchBatch(batch);
     const auto now = std::chrono::steady_clock::now();
+    if (res.httpResult == CustomApiFetchResult::TransientError && res.httpCode == 429) {
+        m_queue.SetRateLimitedUntil(now + (res.rateLimitLockout > std::chrono::steady_clock::duration::zero()
+                                             ? res.rateLimitLockout : m_timings.rateLimitLockoutMinimum));
+    }
     std::erase_if(batch.requests, [this](const MMRRequest& req) { return !m_queue.IsCurrent(req); });
     if (batch.requests.empty()) return;
     const auto config = Config::Read();
@@ -638,9 +642,6 @@ void MmrService::ProcessCustomApiBatch(MmrServiceDetail::AssembledBatch batch) {
                                ? std::chrono::duration_cast<std::chrono::milliseconds>(res.rateLimitLockout)
                                : m_timings.transientRetryDelay;
         const char* reason = (res.httpCode == 429) ? "custom API rate limited" : "transient custom API failure";
-        if (res.httpCode == 429) {
-            m_queue.SetRateLimitedUntil(now + (res.rateLimitLockout > std::chrono::steady_clock::duration::zero() ? res.rateLimitLockout : m_timings.rateLimitLockoutMinimum));
-        }
         for (const auto& req : batch.requests) {
             if (!m_queue.ScheduleRetry(req, delay, reason)) {
                 if (req.reason == MMRRequestReason::Roster && m_state) {
@@ -871,7 +872,7 @@ bool MmrService::FetchProfileTracker(MMRRequest req) {
         detail = "Tracker returned HTTP " + std::to_string(result.statusCode) + ".";
     } else if (trn && result.failure == TrnRankProvider::Failure::Incomplete) {
         if (m_queue.ScheduleRetry(req, m_timings.transientRetryDelay, "incomplete Tracker response")) return true;
-        return false;
+        detail = "Tracker returned an incomplete response.";
     } else if (trn && result.failure == TrnRankProvider::Failure::Invalid) {
         if (m_queue.ScheduleRetry(req, m_timings.transientRetryDelay, "invalid Tracker response")) return true;
         detail = "Tracker returned an invalid response.";
