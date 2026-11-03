@@ -17,10 +17,12 @@
 #include <cstdio>
 #include <chrono>
 #include <cstdarg>
+#include <functional>
 #include <future>
 #include <mutex>
 #include <shared_mutex>
 #include <thread>
+#include <utility>
 #include <vector>
 
 using namespace MmrServiceDetail;
@@ -48,6 +50,7 @@ namespace {
     std::string g_headers;
     long g_lastCode = 0;
     std::atomic<int> g_performs{0};
+    std::function<void()> g_onTrackerPerform;
 
     bool IsApiUrl() {
         return g_url.find("/v1/ranks") != std::string::npos;
@@ -85,6 +88,7 @@ namespace {
         } else {
             g_lastCode = g_trackerStatuses.empty() ? g_trackerStatus : g_trackerStatuses.front();
             if (!g_trackerStatuses.empty()) g_trackerStatuses.erase(g_trackerStatuses.begin());
+            if (auto hook = std::exchange(g_onTrackerPerform, {})) hook();
         }
         std::string body = api ? g_apiBody : (g_trackerBodies.empty() ? g_trackerBody : g_trackerBodies.front());
         if (!api && !g_trackerBodies.empty()) g_trackerBodies.erase(g_trackerBodies.begin());
@@ -181,6 +185,7 @@ class TrackedAccountRefreshTest : public ::testing::Test {
         g_trackerBody.clear();
         g_headers.clear();
         g_performs.store(0);
+        g_onTrackerPerform = {};
         g_refreshStatus = 200;
         g_refreshBody.clear();
         OmniNet::SetTransportForTesting([](const OmniNet::Request& req) {
@@ -444,7 +449,8 @@ TEST_F(TrackedAccountRefreshTest, RankProviderReportsUnauthorizedStatusWhenRefre
         {"refresh_token", "rotated_token"},
         {"refresh_expires_in", 2592000},
         {"account", {{"display_name", "SignedInPlayer"}}},
-        {"device", {{"public_id", accountClient->DevicePublicId()}, {"status", "active"}}}}.dump();
+        {"device", {{"public_id", accountClient->DevicePublicId()}, {"status", "active"}}}}
+                        .dump();
     result = fetcher->CustomProvider()->FetchBatch(batch);
     EXPECT_EQ(result.httpCode, 401);
     EXPECT_EQ(result.httpResult, CustomApiFetchResult::AuthFailure);
@@ -680,6 +686,43 @@ TEST_F(TrackedAccountRefreshTest, TrackerRateLimitUsesRetryAfter) {
     EXPECT_EQ(g_performs.load(), 1);
 }
 
+TEST_F(TrackedAccountRefreshTest, CancelledInFlightTrackerThrottleStillPausesLookups) {
+    UseTrackerOnly();
+    fetcher->Queue().SetRunningCheck([] { return true; });
+    for (const long status : {429L, 403L}) {
+        SCOPED_TRACE(status);
+        g_trackerStatus = status;
+        g_headers = status == 429 ? "Retry-After: 60\r\n" : "";
+        {
+            std::lock_guard<std::mutex> lock(eventsMutex);
+            events.clear();
+        }
+        ASSERT_EQ(fetcher->EnqueueTrackedAccount(kSteam, "old"), TrackedEnqueueResult::Queued);
+        const auto old = fetcher->TakeNextTrackerRequest();
+        ASSERT_TRUE(old);
+        g_onTrackerPerform = [&] {
+            fetcher->CancelTrackedAccount(kSteam);
+            EXPECT_EQ(fetcher->EnqueueTrackedAccount(kSteam, "new"), TrackedEnqueueResult::Queued);
+        };
+        EXPECT_FALSE(fetcher->FetchProfile(*old));
+        fetcher->FinishRequest(*old);
+        EXPECT_TRUE(Events().empty());
+        EXPECT_EQ(fetcher->PendingRequestCount(), 1u);
+        EXPECT_EQ(fetcher->EnqueueTrackedAccount(kSteam, "duplicate"), TrackedEnqueueResult::AlreadyQueued);
+        if (status == 429) {
+            EXPECT_TRUE(fetcher->IsRateLimited());
+            EXPECT_FALSE(fetcher->TakeNextTrackerRequest());
+        } else {
+            EXPECT_TRUE(fetcher->Queue().ResetForbidden());
+        }
+        fetcher->Queue().SetRateLimitedUntil({});
+        const auto replacement = fetcher->TakeNextTrackerRequest();
+        ASSERT_TRUE(replacement);
+        EXPECT_EQ(replacement->name, "new");
+        fetcher->FinishRequest(*replacement);
+    }
+}
+
 TEST_F(TrackedAccountRefreshTest, TrackerIncompleteResponseRetriesAndRecovers) {
     UseTrackerOnly();
     g_trackerBodies = {R"({"data":{}})",
@@ -702,7 +745,7 @@ TEST_F(TrackedAccountRefreshTest, TrackerIncompleteExhaustionClearsPendingAndPre
     UseTrackerOnly();
     RegisterInDb(kSteam);
     ASSERT_TRUE(db->SaveTrackedAccountRanks(kSteam,
-        {TrackedAccounts::PlaylistRank{"2v2", 1500, "Champion II", 100, "Tracker", 0}}, 1'700'000'000));
+                                            {TrackedAccounts::PlaylistRank{"2v2", 1500, "Champion II", 100, "Tracker", 0}}, 1'700'000'000));
     StartService();
     g_trackerBody = R"({"data":{}})";
     fetcher->Queue().SetRunningCheck([] { return true; });

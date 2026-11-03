@@ -59,6 +59,9 @@ TEST(MmrRequestQueueTest, CancelledCompletionAndRetriesCannotAffectReplacement) 
     EXPECT_FALSE(queue.RequeueForbidden(*old));
     EXPECT_EQ(retryNotices, 0);
     EXPECT_EQ(queue.PendingCount(), 1u);
+    EXPECT_TRUE(queue.IsRateLimited(std::chrono::steady_clock::now()));
+    EXPECT_TRUE(queue.ResetForbidden());
+    queue.SetRateLimitedUntil({});
     auto replacement = queue.PopNext(std::chrono::steady_clock::now());
     ASSERT_TRUE(replacement);
     EXPECT_NE(old->trackedGeneration, replacement->trackedGeneration);

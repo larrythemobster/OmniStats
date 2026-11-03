@@ -589,7 +589,8 @@ void MmrService::ProcessCustomApiBatch(MmrServiceDetail::AssembledBatch batch) {
     const auto now = std::chrono::steady_clock::now();
     if (res.httpResult == CustomApiFetchResult::TransientError && res.httpCode == 429) {
         m_queue.SetRateLimitedUntil(now + (res.rateLimitLockout > std::chrono::steady_clock::duration::zero()
-                                             ? res.rateLimitLockout : m_timings.rateLimitLockoutMinimum));
+                                               ? res.rateLimitLockout
+                                               : m_timings.rateLimitLockoutMinimum));
     }
     std::erase_if(batch.requests, [this](const MMRRequest& req) { return !m_queue.IsCurrent(req); });
     if (batch.requests.empty()) return;
@@ -836,7 +837,6 @@ bool MmrService::FetchProfileTracker(MMRRequest req) {
     } else {
         detail = "The rank lookup component is not available.";
     }
-    if (!m_queue.IsCurrent(req)) return false;
     const auto trn = std::dynamic_pointer_cast<TrnRankProvider>(m_trackerProvider);
     const auto result = trn ? trn->LastResult() : TrnRankProvider::Result{};
     if ((ok || (trn && result.transportError == 0 && result.statusCode == 200)) &&

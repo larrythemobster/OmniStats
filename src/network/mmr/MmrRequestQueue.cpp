@@ -262,13 +262,13 @@ std::optional<std::pair<size_t, std::chrono::steady_clock::duration>> MmrRequest
     std::optional<MMRRequest> trackedReq;
     {
         std::lock_guard<std::mutex> lock(m_mutex);
+        strike = ++m_forbiddenStrikeCount;
+        lockout = MmrServiceDetail::ForbiddenLockoutForStrike(strike, m_timings);
+        m_rateLimitedUntil = std::chrono::steady_clock::now() + lockout;
         if (req.reason == MMRRequestReason::TrackedAccount) {
             const auto it = m_trackedQueuedOrInFlight.find(req.primaryId);
             if (it == m_trackedQueuedOrInFlight.end() || it->second != req.trackedGeneration) return std::nullopt;
         }
-        strike = ++m_forbiddenStrikeCount;
-        lockout = MmrServiceDetail::ForbiddenLockoutForStrike(strike, m_timings);
-        m_rateLimitedUntil = std::chrono::steady_clock::now() + lockout;
         req.notBefore = m_rateLimitedUntil;
         if (req.reason == MMRRequestReason::TrackedAccount) trackedReq = req;
         m_queue.push_front(std::move(req));
