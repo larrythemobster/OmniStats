@@ -2,8 +2,12 @@
 #include "core/game/ArenaNames.hpp"
 #include "database/sqlite/Statement.hpp"
 #include "database/sqlite/Transaction.hpp"
+#include <chrono>
 #include <filesystem>
 #include <iostream>
+#include <map>
+#include <optional>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -48,6 +52,72 @@ namespace database::repository {
                 std::cerr << "[Database] Warning: Failed to create pre-migration backup " << backupPath.string()
                           << ": " << ec.message() << "\n";
             }
+        }
+
+        std::string QuoteIdentifier(std::string_view name) {
+            std::string quoted = "\"";
+            for (const char c : name) {
+                if (c == '"') quoted += '"';
+                quoted += c;
+            }
+            quoted += '"';
+            return quoted;
+        }
+
+        struct ForeignKeyViolation {
+            std::string table;
+            std::optional<int64_t> rowId;
+            int foreignKeyId = 0;
+        };
+
+        std::vector<ForeignKeyViolation> ListForeignKeyViolations(sqlite::Connection& db) {
+            std::vector<ForeignKeyViolation> violations;
+            sqlite::Statement stmt(db, "SELECT \"table\", rowid, fkid FROM pragma_foreign_key_check;");
+            while (stmt.Step()) {
+                violations.push_back({stmt.Get<std::string>(0), stmt.Get<std::optional<int64_t>>(1), stmt.Get<int>(2)});
+            }
+            return violations;
+        }
+
+        // A nullable reference is cleared; a row that cannot exist without its parent is deleted.
+        bool RepairForeignKeyViolation(sqlite::Connection& db, const ForeignKeyViolation& violation) {
+            if (!violation.rowId) return false;
+            std::vector<std::string> columns;
+            {
+                sqlite::Statement fk(db, "SELECT \"from\" FROM pragma_foreign_key_list(?1) WHERE id = ?2;");
+                fk.Bind(1, violation.table);
+                fk.Bind(2, violation.foreignKeyId);
+                while (fk.Step())
+                    columns.push_back(fk.Get<std::string>(0));
+            }
+            if (columns.empty()) return false;
+
+            bool nullable = true;
+            {
+                sqlite::Statement info(db, "SELECT \"notnull\", pk FROM pragma_table_info(?1) WHERE name = ?2;");
+                for (const auto& column : columns) {
+                    info.Reset();
+                    info.Bind(1, violation.table);
+                    info.Bind(2, column);
+                    if (!info.Step() || info.Get<int>(0) != 0 || info.Get<int>(1) != 0) nullable = false;
+                }
+            }
+
+            std::string sql;
+            if (nullable) {
+                sql = "UPDATE " + QuoteIdentifier(violation.table) + " SET ";
+                for (size_t i = 0; i < columns.size(); ++i) {
+                    if (i > 0) sql += ", ";
+                    sql += QuoteIdentifier(columns[i]) + " = NULL";
+                }
+                sql += " WHERE rowid = ?1;";
+            } else {
+                sql = "DELETE FROM " + QuoteIdentifier(violation.table) + " WHERE rowid = ?1;";
+            }
+            sqlite::Statement fix(db, sql);
+            fix.Bind(1, *violation.rowId);
+            fix.Execute();
+            return true;
         }
 
         struct MigrationStep {
@@ -303,6 +373,60 @@ namespace database::repository {
         };
 
     } // namespace
+
+    bool Migrations::RepairForeignKeyViolations(sqlite::Connection& db, const std::string& dbPath, std::string& error) {
+        try {
+            std::vector<ForeignKeyViolation> violations = ListForeignKeyViolations(db);
+            if (violations.empty()) return true;
+
+            std::string backupName;
+            if (!IsInMemoryPath(dbPath)) {
+                try {
+                    db.Execute("PRAGMA wal_checkpoint(TRUNCATE);");
+                } catch (...) {
+                }
+                const int64_t now = std::chrono::duration_cast<std::chrono::seconds>(
+                                        std::chrono::system_clock::now().time_since_epoch())
+                                        .count();
+                const fs::path backupPath(dbPath + ".bak-fk-" + std::to_string(now));
+                std::error_code ec;
+                fs::copy_file(fs::path(dbPath), backupPath, fs::copy_options::overwrite_existing, ec);
+                if (ec) {
+                    error = "Could not back up the database before repairing it: " + ec.message();
+                    return false;
+                }
+                backupName = backupPath.filename().string();
+            }
+
+            std::map<std::string, int> repairedByTable;
+            sqlite::Transaction tx(db, sqlite::TransactionType::Immediate);
+            // Enforcement is off here, so removing an orphan can orphan its own children.
+            for (int pass = 0; pass < 8 && !violations.empty(); ++pass) {
+                for (const auto& violation : violations) {
+                    if (!RepairForeignKeyViolation(db, violation)) {
+                        error = "Foreign-key violations in " + violation.table + " cannot be repaired automatically.";
+                        return false;
+                    }
+                    ++repairedByTable[violation.table];
+                }
+                violations = ListForeignKeyViolations(db);
+            }
+            if (!violations.empty()) {
+                error = "Foreign-key violations in " + violations.front().table + " remain after repair.";
+                return false;
+            }
+            tx.Commit();
+
+            for (const auto& [table, count] : repairedByTable) {
+                std::cout << "[Database] Repaired " << count << " orphaned row(s) in " << table << ".\n";
+            }
+            if (!backupName.empty()) std::cout << "[Database] The unrepaired database was saved as " << backupName << ".\n";
+            return true;
+        } catch (const std::exception& e) {
+            error = std::string("Foreign-key repair failed: ") + e.what();
+            return false;
+        }
+    }
 
     bool Migrations::HasAnyUserTable(sqlite::Connection& db) {
         if (!db.IsOpen()) return false;

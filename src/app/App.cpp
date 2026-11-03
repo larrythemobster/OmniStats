@@ -18,9 +18,21 @@
 #include "ui/Overlay.hpp"
 #include "utils/Storage.hpp"
 
+#include <algorithm>
 #include <iostream>
 #include <mutex>
+#include <string>
 #include <windows.h>
+
+namespace {
+    std::wstring WideFromUtf8(const std::string& utf8) {
+        if (utf8.empty()) return {};
+        const int count = MultiByteToWideChar(CP_UTF8, 0, utf8.data(), static_cast<int>(utf8.size()), nullptr, 0);
+        std::wstring result(static_cast<size_t>(std::max(count, 0)), L'\0');
+        if (count > 0) MultiByteToWideChar(CP_UTF8, 0, utf8.data(), static_cast<int>(utf8.size()), result.data(), count);
+        return result;
+    }
+}
 
 App::App() = default;
 
@@ -91,12 +103,15 @@ int App::Run() {
     }
 
     m_dbManager = std::make_shared<DatabaseManager>(m_state);
-    if (!m_dbManager->Initialize(Storage::GetDataDirectory() + Storage::APP_NAME + ".db")) {
+    const std::string dbPath = Storage::GetDataDirectory() + Storage::APP_NAME + ".db";
+    if (!m_dbManager->Initialize(dbPath)) {
         std::cerr << "[Database] Initialization failed. Match recording is unavailable.\n";
-        MessageBoxW(nullptr,
-                    L"OmniStats could not open or upgrade your local database and cannot save matches.\n\n"
-                    L"Check disk space and access to your OmniStats data folder, then restart the app.",
-                    L"OmniStats database error", MB_OK | MB_ICONERROR);
+        const std::wstring message =
+            L"OmniStats could not open your match database, so it cannot record matches.\n\n" +
+            WideFromUtf8(m_dbManager->InitializationError()) + L"\n\nDatabase file:\n" + WideFromUtf8(dbPath) +
+            L"\n\nIf the file is damaged, rename it and restart OmniStats to begin a new database. "
+            L"The renamed file keeps your existing history.";
+        MessageBoxW(nullptr, message.c_str(), L"OmniStats database error", MB_OK | MB_ICONERROR);
         return 1;
     }
 

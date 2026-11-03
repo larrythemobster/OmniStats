@@ -39,6 +39,9 @@ class DatabaseManager {
     DatabaseManager(const DatabaseManager&) = delete;
     DatabaseManager& operator=(const DatabaseManager&) = delete;
     [[nodiscard]] bool Initialize(const std::string& dbPath);
+    const std::string& InitializationError() const noexcept {
+        return m_initializationError;
+    }
 
     void SaveMatch(const MatchSaveSnapshot& snapshot);
     void AsyncSaveMatch(MatchSaveSnapshot snapshot);
@@ -171,6 +174,7 @@ class DatabaseManager {
     database::sqlite::Connection m_db; // writer connection
     database::ReaderPool m_readerPool; // 2-4 read-only connections
     std::string m_dbPath;
+    std::string m_initializationError;
     std::mutex m_writeMutex;
 
     std::atomic<bool> m_backfillPending{false};

@@ -75,38 +75,40 @@ DatabaseManager::~DatabaseManager() {
 bool DatabaseManager::Initialize(const std::string& dbPath) {
     std::lock_guard lock(m_writeMutex);
     m_dbPath = dbPath;
+    m_initializationError.clear();
 
     try {
         m_db = database::sqlite::Connection::Open(dbPath);
     } catch (const std::exception& e) {
+        m_initializationError = std::string("The database file could not be opened: ") + e.what();
         std::cerr << "[Database] Failed to open SQLite database: " << e.what() << "\n";
         return false;
     }
 
     m_db.BusyTimeout(5000);
 
-    std::string foreignKeyFailure;
     try {
-        std::string violatingTable;
-        {
-            database::sqlite::Statement integrity(m_db, "PRAGMA foreign_key_check;");
-            if (integrity.Step()) violatingTable = integrity.Get<std::string>(0);
-        }
-        if (!violatingTable.empty()) {
-            foreignKeyFailure = "Existing foreign-key violations in " + violatingTable + "; database left unchanged.";
-        } else {
-            m_db.Execute("PRAGMA foreign_keys = ON;");
-            bool enforced = false;
-            {
-                database::sqlite::Statement enabled(m_db, "PRAGMA foreign_keys;");
-                enforced = enabled.Step() && enabled.Get<int>(0) == 1;
-            }
-            if (!enforced) foreignKeyFailure = "Cannot enable foreign-key enforcement.";
-        }
+        database::sqlite::Statement probe(m_db, "SELECT COUNT(*) FROM sqlite_master;");
+        (void)probe.Step();
     } catch (const std::exception& e) {
-        foreignKeyFailure = std::string("Foreign-key check failed: ") + e.what();
+        m_initializationError = "The database file is damaged or is not an OmniStats database.";
+        std::cerr << "[Database] Database file is unreadable: " << e.what() << "\n";
+        m_db.Close();
+        return false;
+    }
+
+    std::string foreignKeyFailure;
+    if (repository::Migrations::RepairForeignKeyViolations(m_db, dbPath, foreignKeyFailure)) {
+        try {
+            m_db.Execute("PRAGMA foreign_keys = ON;");
+            database::sqlite::Statement enabled(m_db, "PRAGMA foreign_keys;");
+            if (!enabled.Step() || enabled.Get<int>(0) != 1) foreignKeyFailure = "Cannot enable foreign-key enforcement.";
+        } catch (const std::exception& e) {
+            foreignKeyFailure = std::string("Cannot enable foreign-key enforcement: ") + e.what();
+        }
     }
     if (!foreignKeyFailure.empty()) {
+        m_initializationError = foreignKeyFailure;
         std::cerr << "[Database] " << foreignKeyFailure << "\n";
         m_db.Close();
         return false;
@@ -119,6 +121,7 @@ bool DatabaseManager::Initialize(const std::string& dbPath) {
     }
 
     if (!repository::Migrations::Migrate(m_db, dbPath)) {
+        m_initializationError = "The database could not be upgraded to this version of OmniStats.";
         m_db.Close();
         return false;
     }

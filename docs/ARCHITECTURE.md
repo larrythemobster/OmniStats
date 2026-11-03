@@ -78,7 +78,7 @@ CSV exports prefix formula-like text cells with an apostrophe before applying CS
 
 Provisional `result_pending` matches are excluded from W/L records, streaks, and Insights outcomes/MMR context until confirmation. Merge preserves the flag. Longest streaks scan all confirmed history with constant application memory. The internal recent-match cache still retains provisional rows for confirmation and MMR reconciliation.
 
-Database startup checks existing foreign-key integrity before enabling enforcement on the connection. Declared cascading deletes remove dependent stats and tracked ranks. An integrity violation stops startup and names the affected table in the application log; existing rows are not deleted or rewritten.
+Database startup repairs existing foreign-key violations before enabling enforcement on the connection. It first copies the database to `omnistats.db.bak-fk-<unix time>`, then clears nullable references to missing parents (such as `Matches.session_id`) and deletes rows that require a missing parent (such as stats for a deleted match). The repair runs in one transaction and repeats until no violations remain. If the backup or repair fails, or the file is unreadable, startup stops and the error dialog names the cause and the database path. Declared cascading deletes remove dependent stats and tracked ranks.
 
 Schema v7 indexes `Matches.match_guid` for duplicate checks, post-match MMR updates, replay lookups, and session linking. The index is not unique; duplicate prevention stays in `SaveMatch` so upgrades never fail on older duplicate rows. Date-range filters still convert stored timestamps, because older rows use more than one text format.
 

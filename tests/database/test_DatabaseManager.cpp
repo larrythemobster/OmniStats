@@ -1188,21 +1188,39 @@ TEST_F(DatabaseManagerTest, MigrationV2FailureRollsBackAndKeepsRunningOnV1Tables
     std::filesystem::remove(backupPath);
 }
 
-TEST_F(DatabaseManagerTest, ExistingForeignKeyViolationsLeaveTheDatabaseUnchanged) {
+TEST_F(DatabaseManagerTest, ExistingForeignKeyViolationsAreRepairedAfterBackup) {
     const std::string path = "test_fk_violation.db";
     RemoveTestDbFiles(path);
+    const auto removeBackups = [&]() {
+        for (const auto& entry : std::filesystem::directory_iterator(".")) {
+            if (entry.path().filename().string().rfind(path + ".bak-fk-", 0) == 0) std::filesystem::remove(entry.path());
+        }
+    };
+    removeBackups();
+
+    {
+        auto db = std::make_shared<DatabaseManager>(sessionState);
+        ASSERT_TRUE(db->Initialize(path));
+        MatchSaveSnapshot snap;
+        snap.arenaName = "DFH Stadium";
+        snap.matchGuid = "fk-kept-match";
+        snap.playlistId = 11;
+        snap.myTeam = 0;
+        snap.winnerTeam = 0;
+        snap.validResult = true;
+        snap.score[0] = 3;
+        snap.score[1] = 1;
+        snap.myPrimaryId = "Steam|fk-user";
+        snap.roster["Steam|fk-user"] = PlayerData{.primaryId = "Steam|fk-user", .name = "Player", .team = 0, .mmr = 1000, .goals = 2};
+        db->SaveMatch(snap);
+    }
 
     sqlite3* raw = nullptr;
     ASSERT_EQ(sqlite3_open(path.c_str(), &raw), SQLITE_OK);
     ASSERT_EQ(sqlite3_exec(raw, R"(
-        CREATE TABLE Matches (id INTEGER PRIMARY KEY AUTOINCREMENT, match_guid TEXT);
-        CREATE TABLE MatchPlayerStats (
-            match_id INTEGER NOT NULL REFERENCES Matches(id) ON DELETE CASCADE,
-            primary_id TEXT NOT NULL,
-            PRIMARY KEY(match_id, primary_id)
-        );
-        INSERT INTO MatchPlayerStats (match_id, primary_id) VALUES (42, 'Steam|orphan');
-        PRAGMA user_version = 3;
+        PRAGMA foreign_keys = OFF;
+        INSERT INTO MatchPlayerStats (match_id, primary_id) VALUES (999, 'Steam|orphan');
+        UPDATE Matches SET session_id = 4242 WHERE match_guid = 'fk-kept-match';
     )",
                            nullptr, nullptr, nullptr),
               SQLITE_OK);
@@ -1210,14 +1228,27 @@ TEST_F(DatabaseManagerTest, ExistingForeignKeyViolationsLeaveTheDatabaseUnchange
 
     {
         auto db = std::make_shared<DatabaseManager>(sessionState);
-        EXPECT_FALSE(db->Initialize(path));
+        ASSERT_TRUE(db->Initialize(path)) << db->InitializationError();
+        sqlite3* repaired = db->GetRawDb();
+        EXPECT_EQ(QueryIntScalar(repaired, "SELECT COUNT(*) FROM MatchPlayerStats WHERE match_id = 999;"), 0);
+        EXPECT_EQ(QueryIntScalar(repaired, "SELECT COUNT(*) FROM MatchPlayerStats WHERE primary_id = 'Steam|fk-user';"), 1);
+        EXPECT_EQ(QueryIntScalar(repaired, "SELECT COUNT(*) FROM Matches WHERE match_guid = 'fk-kept-match';"), 1);
+        EXPECT_EQ(QueryIntScalar(repaired, "SELECT COUNT(*) FROM Matches WHERE session_id = 4242;"), 0);
+        EXPECT_EQ(QueryIntScalar(repaired, "PRAGMA foreign_keys;"), 1);
     }
 
-    ASSERT_EQ(sqlite3_open(path.c_str(), &raw), SQLITE_OK);
-    EXPECT_EQ(QueryIntScalar(raw, "PRAGMA user_version;"), 3);
-    EXPECT_EQ(QueryIntScalar(raw, "SELECT COUNT(*) FROM MatchPlayerStats;"), 1);
+    std::string backup;
+    for (const auto& entry : std::filesystem::directory_iterator(".")) {
+        if (entry.path().filename().string().rfind(path + ".bak-fk-", 0) == 0) backup = entry.path().string();
+    }
+    ASSERT_FALSE(backup.empty());
+    ASSERT_EQ(sqlite3_open(backup.c_str(), &raw), SQLITE_OK);
+    EXPECT_EQ(QueryIntScalar(raw, "SELECT COUNT(*) FROM MatchPlayerStats WHERE match_id = 999;"), 1);
+    EXPECT_EQ(QueryIntScalar(raw, "SELECT COUNT(*) FROM Matches WHERE session_id = 4242;"), 1);
     sqlite3_close(raw);
+
     RemoveTestDbFiles(path);
+    removeBackups();
 }
 
 TEST_F(DatabaseManagerTest, GetRecentMatchHistoryExcludesMatchesAccountDidNotPlay) {
