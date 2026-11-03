@@ -1,6 +1,7 @@
 #include "network/telemetry/TelemetryParser.hpp"
 #include "core/config/Config.hpp"
 #include "network/telemetry/TelemetryManager.hpp"
+#include <cctype>
 #include <nlohmann/json.hpp>
 #include <iostream>
 #include <stdexcept>
@@ -146,7 +147,7 @@ void TelemetryParser::ConnectAndRead(MessageCallback onMessage) {
 
         size_t searchPos = 0;
         while (searchPos < dataBuffer.size()) {
-            if (std::isspace(dataBuffer[searchPos])) {
+            if (std::isspace(static_cast<unsigned char>(dataBuffer[searchPos]))) {
                 searchPos++;
                 continue;
             }
