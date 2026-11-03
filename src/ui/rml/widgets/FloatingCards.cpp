@@ -27,12 +27,17 @@ namespace {
     std::string FloatingCardClassHelper(bool interactive) {
         return interactive ? " floating-card floating-card-movable" : " floating-card";
     }
-    std::string FloatingCardStyleHelper(float x, float y, float widthDp, float dpiScale, float uiScale) {
+    // Positions are stored in pixels, so a smaller display or larger scale can
+    // leave a saved position off screen. Keep the full width and the top of the card visible.
+    std::string FloatingCardStyleHelper(float x, float y, float widthDp, float minVisibleHeightDp, float viewportWidth,
+                                        float viewportHeight, float dpiScale, float uiScale) {
         std::ostringstream style;
         style << " style='width:" << widthDp << "dp;";
         if (x >= 0.0f && y >= 0.0f) {
-            const float rmlScale = SanitizedScale(dpiScale) * SanitizedUiScale(uiScale);
-            style << "left:" << x / std::max(rmlScale, 0.01f) << "dp;top:" << y / std::max(rmlScale, 0.01f) << "dp;margin-left:0;";
+            const float rmlScale = std::max(SanitizedScale(dpiScale) * SanitizedUiScale(uiScale), 0.01f);
+            if (viewportWidth > 0.0f) x = std::min(x, std::max(0.0f, viewportWidth - widthDp * rmlScale));
+            if (viewportHeight > 0.0f) y = std::min(y, std::max(0.0f, viewportHeight - minVisibleHeightDp * rmlScale));
+            style << "left:" << x / rmlScale << "dp;top:" << y / rmlScale << "dp;margin-left:0;";
         } else {
             style << "margin-left:" << -widthDp * 0.5f << "dp;";
         }
@@ -41,7 +46,7 @@ namespace {
     }
 }
 
-std::string OverlayPresenter::RenderMatchSummary(const RmlRenderSnapshot& snap, const ConfigData& config, const std::shared_ptr<SessionState>& state, bool interactive, float dpiScale) {
+std::string OverlayPresenter::RenderMatchSummary(const RmlRenderSnapshot& snap, const ConfigData& config, const std::shared_ptr<SessionState>& state, bool interactive, float dpiScale, float viewportWidth, float viewportHeight) {
     const int myTeam = snap.matchSummaryMyTeam;
     const int score0 = snap.matchSummaryScore[0];
     const int score1 = snap.matchSummaryScore[1];
@@ -100,7 +105,7 @@ std::string OverlayPresenter::RenderMatchSummary(const RmlRenderSnapshot& snap, 
 
     std::ostringstream out;
     out << "<div class='card match-summary" << FloatingCardClassHelper(interactive) << "' data-action='floating-card-drag' data-card='match-summary'"
-        << FloatingCardStyleHelper(config.match_summary_x, config.match_summary_y, 420.0f, dpiScale, config.ui_scale)
+        << FloatingCardStyleHelper(config.match_summary_x, config.match_summary_y, 420.0f, 240.0f, viewportWidth, viewportHeight, dpiScale, config.ui_scale)
         << "><div class='row'><div class='grow value " << resultClass << "' style='font-size:20dp'>" << result << otTag << "</div>"
         << "<div class='value mono' style='font-size:20dp'>" << myScore << '-' << theirScore << "</div></div>";
     out << StatGrid("PLAY", play) << StatGrid("FUN", fun);
@@ -126,16 +131,16 @@ std::string OverlayPresenter::RenderMatchSummary(const RmlRenderSnapshot& snap, 
 }
 
 std::string RmlUiController::RenderMatchSummary() {
-    return m_overlayPresenter->RenderMatchSummary(m_snap, m_config, m_state, WantsInteraction(), m_dpiScale);
+    return m_overlayPresenter->RenderMatchSummary(m_snap, m_config, m_state, WantsInteraction(), m_dpiScale, static_cast<float>(m_width), static_cast<float>(m_height));
 }
 
-std::string OverlayPresenter::RenderSessionView(const RmlRenderSnapshot& snap, const ConfigData& config, const std::shared_ptr<SessionState>& state, bool interactive, float dpiScale) {
+std::string OverlayPresenter::RenderSessionView(const RmlRenderSnapshot& snap, const ConfigData& config, const std::shared_ptr<SessionState>& state, bool interactive, float dpiScale, float viewportWidth, float viewportHeight) {
     const auto category = state ? state->ui.graphMmrCategory.load() : MmrCategory::TwoVTwo;
     const bool graph = state && state->ui.showGraphView.load();
     const bool lifetime = graph && snap.showLifetimeGraph;
     std::ostringstream out;
     out << "<div class='card match-summary" << FloatingCardClassHelper(interactive) << "' data-action='floating-card-drag' data-card='session-view'"
-        << FloatingCardStyleHelper(config.session_view_x, config.session_view_y, 450.0f, dpiScale, config.ui_scale)
+        << FloatingCardStyleHelper(config.session_view_x, config.session_view_y, 450.0f, 200.0f, viewportWidth, viewportHeight, dpiScale, config.ui_scale)
         << "><div class='row session-view-head'><div class='card-title grow'>"
         << (lifetime ? "LIFETIME MMR · " : graph ? "SESSION MMR · "
                                                  : "SESSION · ")
@@ -150,5 +155,5 @@ std::string RmlUiController::RenderSessionView() {
     if (m_telemetry && m_state && m_state->ui.showGraphView.load()) {
         m_telemetry->RecordMilestone(TelemetryManager::Milestone::MmrGraphView);
     }
-    return m_overlayPresenter->RenderSessionView(m_snap, m_config, m_state, WantsInteraction(), m_dpiScale);
+    return m_overlayPresenter->RenderSessionView(m_snap, m_config, m_state, WantsInteraction(), m_dpiScale, static_cast<float>(m_width), static_cast<float>(m_height));
 }

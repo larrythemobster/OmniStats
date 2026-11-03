@@ -2415,6 +2415,40 @@ TEST_F(RmlUiControllerStateTest, MatchSummaryPrefersPodiumStartTimestampForCurre
     EXPECT_EQ(controller.NextVisibilityWakeMs(), std::optional<int64_t>(nowMs - 5000 + 20000));
 }
 
+TEST_F(RmlUiControllerStateTest, FloatingCardsSavedForLargerDisplayStayOnScreen) {
+    WarpDevice warp;
+    if (!warp.Create(1280, 720)) GTEST_SKIP() << "WARP not available.";
+
+    auto state = std::make_shared<SessionState>();
+    const int64_t nowMs = RmlUiDetail::SteadyNowMs();
+    state->ui.showMatchSummary.store(true);
+    state->ui.matchSummaryStartMs.store(nowMs);
+    state->ui.showSessionView.store(true);
+
+    ConfigData config = Config::Read();
+    config.second_monitor_mode = false;
+    config.show_match_summary = true;
+    config.match_summary_seconds = 60;
+    config.match_summary_x = 1496.0f;
+    config.match_summary_y = 1000.0f;
+    config.session_view_x = 2400.0f;
+    config.session_view_y = 2.0f;
+
+    RmlUiController controller(state, nullptr);
+    ASSERT_TRUE(controller.Initialize(nullptr, warp.device.Get(), warp.context.Get(), 1280, 720, 1.0f));
+    controller.Update(config, true);
+    controller.Render();
+
+    for (const char* card : {"match-summary", "session-view"}) {
+        SCOPED_TRACE(card);
+        Rml::Element* element = OverlayRoot(controller)->QuerySelector(std::string("[data-card='") + card + "']");
+        ASSERT_NE(element, nullptr);
+        EXPECT_GE(element->GetAbsoluteLeft(), 0.0f);
+        EXPECT_LE(element->GetAbsoluteLeft() + element->GetOffsetWidth(), 1280.5f);
+        EXPECT_LT(element->GetAbsoluteTop(), 720.0f - 100.0f);
+    }
+}
+
 TEST_F(RmlUiControllerStateTest, DisplaySettingsPersistsReplayVisibilityWithoutEditMode) {
     WarpDevice warp;
     if (!warp.Create(1280, 800)) GTEST_SKIP() << "WARP not available.";
