@@ -33,8 +33,13 @@ inline bool IsRocketLeagueWindow(HWND hwnd) {
     return queried && IsRocketLeagueImagePath(std::wstring_view(imagePath, length));
 }
 
-inline void SimulateSaveReplayKeyPress(int virtualKey, int holdMs = 50) {
-    if (!IsRocketLeagueWindow(GetForegroundWindow())) return;
+inline bool IsValidSaveReplayKey(int virtualKey) {
+    return virtualKey > 0 && virtualKey < 0xFF;
+}
+
+// Returns false without sending input unless Rocket League owns the foreground.
+inline bool SimulateSaveReplayKeyPress(int virtualKey, int holdMs = 50) {
+    if (!IsValidSaveReplayKey(virtualKey) || !IsRocketLeagueWindow(GetForegroundWindow())) return false;
 
     INPUT ip{};
     ip.type = INPUT_KEYBOARD;
@@ -48,4 +53,5 @@ inline void SimulateSaveReplayKeyPress(int virtualKey, int holdMs = 50) {
     std::this_thread::sleep_for(std::chrono::milliseconds(holdMs));
     ip.ki.dwFlags = KEYEVENTF_KEYUP;
     SendInput(1, &ip, sizeof(INPUT));
+    return true;
 }

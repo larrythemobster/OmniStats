@@ -11,6 +11,7 @@
 #include "network/mmr/MmrService.hpp"
 #include "network/api/AccountClient.hpp"
 #include "network/omninet/OmniNet.hpp"
+#include "platform/KeyPressSimulator.hpp"
 #include "ui/Formatting.hpp"
 #include "ui/window/KeyNames.hpp"
 #include "ui/rml/backend/RmlInputWin32.hpp"
@@ -139,6 +140,9 @@ std::string SettingsPresenter::RenderIntegrations(
             << (active ? "Press a key..." : Escape(GetKeyDisplayName(config.key_save_replay))) << "</button>"
             << "<button class='ghost' data-action='" << (active ? "cancel-bind" : "clear-bind")
             << "' data-bind='" << bindTarget << "'>" << (active ? "Cancel" : "Clear") << "</button></div></div>";
+        if (!active && !IsValidSaveReplayKey(config.key_save_replay)) {
+            out << "<div class='setting-help loss'>Set your save-replay key to start saving replays.</div>";
+        }
     }
     out << SectionEnd();
     out << SectionStart("Discord")

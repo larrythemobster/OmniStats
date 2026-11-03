@@ -159,11 +159,8 @@ int App::Run() {
     m_inputManager = std::make_unique<InputManager>(m_state, m_telemetryManager);
     m_inputManager->Start();
 
-    ConfigData mainConf = Config::Read();
-    if (mainConf.auto_upload_replays || mainConf.auto_save_replays) {
-        m_uploader = std::make_unique<ReplayUploader>(m_state, m_dbManager, m_telemetryManager);
-        m_uploader->Start();
-    }
+    m_uploader = std::make_unique<ReplayUploader>(m_state, m_dbManager, m_telemetryManager);
+    m_uploader->Start();
 
     m_overlay = std::make_unique<Overlay>(m_state, m_dbManager, m_accountManager, m_remoteConfig, m_tournamentService, m_telemetryManager, m_accountClient);
     if (!m_overlay->Initialize()) {

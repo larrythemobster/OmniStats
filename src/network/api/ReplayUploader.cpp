@@ -236,7 +236,8 @@ void ReplayUploader::CheckAndSaveReplay() {
         m_expectingReplayUntil = now + std::chrono::seconds(60);
     }
 
-    if (!conf.auto_save_replays || !inMatch || guid.empty() || myTeam == -1 || guid == m_lastSavedGuid) {
+    if (!conf.auto_save_replays || !IsValidSaveReplayKey(conf.key_save_replay) || !inMatch || guid.empty() || myTeam == -1 ||
+        guid == m_lastSavedGuid) {
         m_pendingSaveGuid.clear();
         return;
     }
@@ -249,10 +250,14 @@ void ReplayUploader::CheckAndSaveReplay() {
         return;
     }
 
+    // RL's in-match save replay requires holding the bind. A focused-away player gets
+    // another attempt each tick until the match ends.
+    if (!::SimulateSaveReplayKeyPress(conf.key_save_replay, 1500)) {
+        m_saveImminent = true;
+        return;
+    }
     m_lastSavedGuid = guid;
     m_pendingSaveGuid.clear();
-    // RL's in-match save replay requires holding the bind.
-    ::SimulateSaveReplayKeyPress(conf.key_save_replay, 1500);
     m_expectingReplayGuid = guid;
     m_expectingReplayUntil.reset();
     std::cout << "[ReplayUploader] Executed Save Replay keystroke (VK: " << conf.key_save_replay
@@ -473,28 +478,40 @@ void ReplayUploader::WorkerLoop() {
         target_dirs.push_back(base_tagame + "DemosEpic\\");
     }
 
-    try {
-        ScanReplayDirectories(target_dirs, true);
-    } catch (const std::exception& e) {
-        std::cout << "[ReplayUploader] Initial scan failed: " << e.what() << "\n";
-    }
-
+    bool active = false;
     while (m_running.load()) {
-        CheckAndSaveReplay();
-
-        const auto now = std::chrono::steady_clock::now();
-        if (!m_expectingReplayGuid.empty() && m_expectingReplayUntil && now > *m_expectingReplayUntil) {
+        const ConfigData conf = Config::Read();
+        if (!conf.auto_upload_replays && !conf.auto_save_replays) {
+            active = false;
+            m_pendingSaveGuid.clear();
             m_expectingReplayGuid.clear();
             m_expectingReplayUntil.reset();
-        }
+        } else {
+            if (!active) {
+                active = true;
+                try {
+                    ScanReplayDirectories(target_dirs, true);
+                } catch (const std::exception& e) {
+                    std::cout << "[ReplayUploader] Initial scan failed: " << e.what() << "\n";
+                }
+            }
 
-        try {
-            ScanReplayDirectories(target_dirs, false);
-            // A long upload here would delay the save keystroke.
-            if (!m_saveImminent) ProcessPendingUploads();
-            PublishUploadState();
-        } catch (const std::exception& e) {
-            std::cout << "[ReplayUploader] Worker loop error: " << e.what() << "\n";
+            CheckAndSaveReplay();
+
+            const auto now = std::chrono::steady_clock::now();
+            if (!m_expectingReplayGuid.empty() && m_expectingReplayUntil && now > *m_expectingReplayUntil) {
+                m_expectingReplayGuid.clear();
+                m_expectingReplayUntil.reset();
+            }
+
+            try {
+                ScanReplayDirectories(target_dirs, false);
+                // A long upload here would delay the save keystroke.
+                if (!m_saveImminent) ProcessPendingUploads();
+                PublishUploadState();
+            } catch (const std::exception& e) {
+                std::cout << "[ReplayUploader] Worker loop error: " << e.what() << "\n";
+            }
         }
 
         {
