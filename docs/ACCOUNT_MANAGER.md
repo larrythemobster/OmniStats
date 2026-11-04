@@ -18,7 +18,7 @@ Migration 5 adds two tables. Earlier migrations are unchanged.
 | `sort_order` | Insertion order, used as the default table order. |
 | `discovery_source` | `manual`, `auto` or `import`. |
 
-`TrackedAccountRanks` keeps the latest successful rating per playlist, keyed by `(primary_id, playlist_key)`. `mmr`, `rank_tier` and `matches_played` are nullable so "not reported" never turns into zero. There is no history table. Graphs stay out of scope.
+`TrackedAccountRanks` keeps the latest successful rating per playlist, keyed by `(primary_id, playlist_key)`. `mmr`, `rank_tier` and `matches_played` are nullable so "not reported" never turns into zero. `TrackedAccountRankObservations` keeps historical observations.
 
 Removing an account deletes its row and its rank rows in one transaction. `Matches`, `MatchPlayers`, `Sessions` and the stats tables are never touched, so re-adding the account later starts from the same match history.
 
@@ -84,6 +84,7 @@ Separation from live tracking:
 - `CancelTrackedAccount` drops queued requests and invalidates the in-flight generation. Re-adding the same account creates a new generation, so an older completion cannot clear its dedupe state, retry, publish a result, or overwrite its saved ranks.
 
 Batched rank responses are matched on platform and account ID. A player whose `platform` differs from the request is ignored. An unlabeled player is ignored when two requests in the batch share that account ID.
+Tracked batches request season reward progress from the OmniStats API. When available, the account manager saves the reward level and wins for the current season. Roster and post-match rank requests do not request reward progress.
 
 Rank-provider authentication failures retain the actual HTTP status through refresh and retry, including a second HTTP 401. A rank API HTTP 429 backoff remains active even when every request in the completed batch was canceled. Tracker HTTP 429 backoff and HTTP 403 circuit-breaker strikes also apply when the in-flight request was canceled; the canceled request is not retried. Incomplete Tracker responses emit a terminal failure when retries are exhausted, leaving the account available for a later refresh.
 
@@ -116,4 +117,4 @@ Known limits:
 
 - New playlists appear automatically when `PlaylistMetadata` gains a ranked or tournament entry with a Tracker key (`TrackedAccounts::SupportedPlaylists`).
 - New fetch outcomes go in `TrackedAccountFetchStatus` and map to `AccountManagerService::RefreshState` in `ApplyFetchEvent`.
-- Rank history could be added as a new table fed from the same `Success` event without changing the fetcher.
+- `TrackedAccountRankObservations` supplies rank history and can indicate a season rollover when a local account's ranked match count decreases.

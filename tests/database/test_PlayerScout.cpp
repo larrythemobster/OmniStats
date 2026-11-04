@@ -49,7 +49,7 @@ TEST(PlayerScout, TagsAreLocalUniqueNormalizedAndIndependentOfNotes) {
     auto state = std::make_shared<SessionState>();
     DatabaseManager db(state);
     ASSERT_TRUE(db.Initialize(":memory:"));
-    EXPECT_EQ(db.GetSchemaVersion(), 11);
+    EXPECT_EQ(db.GetSchemaVersion(), 12);
     EXPECT_EQ(PlayerNotes::NormalizeTag("   Fast   aerials\n\t "), "Fast aerials");
     EXPECT_EQ(PlayerNotes::CodePointCount(PlayerNotes::NormalizeTag(std::string(100, 'a'))), PlayerNotes::kMaxTagCodePoints);
 
@@ -164,7 +164,7 @@ TEST(PlayerScout, VersionNineMigrationPreservesNotesAndMatches) {
     {
         DatabaseManager db(state);
         ASSERT_TRUE(db.Initialize(file.string()));
-        EXPECT_EQ(db.GetSchemaVersion(), 11);
+        EXPECT_EQ(db.GetSchemaVersion(), 12);
         EXPECT_EQ(db.GetPlayerNote(Id(rival))->text, "Known player");
         EXPECT_EQ(Count(db.GetRawDb(), "SELECT COUNT(*) FROM Matches;"), 1);
         EXPECT_TRUE(db.GetPlayerTags(Id(rival))->empty());

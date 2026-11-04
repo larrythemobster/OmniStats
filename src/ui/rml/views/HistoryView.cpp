@@ -346,6 +346,7 @@ bool HistoryView::Create(Rml::Context* context) {
     constructor.Bind("playlist_options", &m_playlistOptions);
     constructor.Bind("result_filter", &m_resultFilter);
     constructor.Bind("date_filter", &m_dateFilter);
+    constructor.Bind("show_season_filters", &m_showSeasonFilters);
     constructor.Bind("sort_filter", &m_sortFilter);
     constructor.Bind("with_player", &m_withPlayer);
     constructor.Bind("against_player", &m_againstPlayer);
@@ -474,6 +475,8 @@ void HistoryView::Reset() {
     };
     m_resultFilter = "all";
     m_dateFilter = "all";
+    m_showSeasonFilters = false;
+    m_seasons.clear();
     m_sortFilter = "newest";
     m_withPlayer.clear();
     m_againstPlayer.clear();
@@ -524,6 +527,17 @@ void HistoryView::SetPlaylistFilter(const std::string& playlist) {
 void HistoryView::SetResultFilter(const std::string& result) {
     m_resultFilter = result;
     Dirty("result_filter");
+}
+
+bool HistoryView::SetSeasonOptions(bool enabled, std::vector<SeasonRecord> seasons) {
+    m_showSeasonFilters = enabled;
+    m_seasons = std::move(seasons);
+    Dirty("show_season_filters");
+    if (!enabled && (m_dateFilter == "this_season" || m_dateFilter == "last_season")) {
+        SetDateFilter("all");
+        return true;
+    }
+    return false;
 }
 
 void HistoryView::SetDateFilter(const std::string& dateRange) {
@@ -603,6 +617,21 @@ MatchQuery HistoryView::BuildQuery(int offset, int limit, int64_t nowUnix) const
         q.fromUnix = nowUnix - 30 * 86400;
     } else if (m_dateFilter == "90d") {
         q.fromUnix = nowUnix - 90 * 86400;
+    } else if (m_showSeasonFilters && (m_dateFilter == "this_season" || m_dateFilter == "last_season")) {
+        const SeasonCalendar calendar(m_seasons);
+        const auto current = calendar.Current(nowUnix);
+        q.fromUnix = 1;
+        q.toUnix = 1;
+        if (current) {
+            const int season = current->season.season - (m_dateFilter == "last_season" ? 1 : 0);
+            const auto& seasons = calendar.Seasons();
+            for (size_t i = 0; i < seasons.size(); ++i) {
+                if (seasons[i].season != season) continue;
+                q.fromUnix = seasons[i].startsAt;
+                q.toUnix = i > 0 ? seasons[i - 1].startsAt - 1 : seasons[i].endsAt;
+                break;
+            }
+        }
     }
 
     if (m_sortFilter == "oldest") {

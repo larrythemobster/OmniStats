@@ -170,6 +170,14 @@ struct ConfigData {
     bool tournament_reminder_standard_only = false;
     bool tournament_sound_cue = false;
 
+    bool show_season_countdown = true;
+    int season_reminder_days = 7;
+    bool season_reward_reminders = true;
+    bool show_season_recap = true;
+    bool group_history_by_season = false;
+    std::string season_reminder_last_day;
+    int season_recap_last_seen = 0;
+
     // Overlay Component Visibility Toggles
     bool show_streaks_stats = true;
     bool show_longest_loss_streak = false;

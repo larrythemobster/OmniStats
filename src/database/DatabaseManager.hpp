@@ -4,6 +4,7 @@ class TelemetryManager;
 #include "DatabaseTypes.hpp"
 #include "ReaderPool.hpp"
 #include "core/accounts/TrackedAccounts.hpp"
+#include "core/game/SeasonCalendar.hpp"
 #include "core/state/MatchSaveSnapshot.hpp"
 #include "core/state/SessionState.hpp"
 #include "database/sqlite/Connection.hpp"
@@ -117,6 +118,14 @@ class DatabaseManager {
         const std::vector<std::string>& primaryIds, const std::string& playlistKey, int64_t sinceUnix = 0);
     bool DeleteTrackedAccount(const std::string& primaryId);
     int ImportTrackedAccounts(const std::vector<TrackedAccounts::AccountRecord>& records);
+
+    bool UpsertSeasons(const std::vector<SeasonRecord>& seasons);
+    std::vector<SeasonRecord> GetSeasons();
+    bool ObserveRankedSeason(const std::string& primaryId, const std::string& playlistKey, int matchesPlayed, int64_t observedAt);
+    bool SaveTrackedAccountRewards(const std::string& primaryId, int season, int level, int wins, int64_t observedAt);
+    std::optional<TrackedAccountReward> GetTrackedAccountRewards(const std::string& primaryId, int season);
+    std::vector<SeasonSummary> GetSeasonSummaries(const std::string& primaryId);
+    void AsyncGetSeasonSummaries(std::string primaryId, uint64_t requestId);
 
     std::optional<std::vector<PlayerNotes::Note>> ListPlayerNotes();
     std::optional<std::vector<PlayerNotes::Tag>> ListPlayerTags();

@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <cmath>
 #include <ctime>
+#include <iterator>
 #include <set>
 
 #include "ui/rml/controller/RmlUiHelpers.hpp"
@@ -241,6 +242,45 @@ bool InsightsView::Create(Rml::Context* context) {
         mrow.RegisterMember("category", &PlaystyleMetricRow::category);
     }
     constructor.RegisterArray<std::vector<PlaystyleMetricRow>>();
+    if (auto row = constructor.RegisterStruct<SeasonPlaylistRow>()) {
+        row.RegisterMember("name", &SeasonPlaylistRow::name);
+        row.RegisterMember("record", &SeasonPlaylistRow::record);
+        row.RegisterMember("mmr", &SeasonPlaylistRow::mmr);
+        row.RegisterMember("win_width", &SeasonPlaylistRow::win_width);
+    }
+    constructor.RegisterArray<std::vector<SeasonPlaylistRow>>();
+    if (auto row = constructor.RegisterStruct<SeasonPreviousRow>()) {
+        row.RegisterMember("name", &SeasonPreviousRow::name);
+        row.RegisterMember("dates", &SeasonPreviousRow::dates);
+        row.RegisterMember("games", &SeasonPreviousRow::games);
+        row.RegisterMember("rate", &SeasonPreviousRow::rate);
+        row.RegisterMember("peak", &SeasonPreviousRow::peak);
+    }
+    constructor.RegisterArray<std::vector<SeasonPreviousRow>>();
+    constructor.Bind("season_available", &m_seasonAvailable);
+    constructor.Bind("season_reward_available", &m_seasonRewardAvailable);
+    constructor.Bind("season_reward_earned_available", &m_seasonRewardEarnedAvailable);
+    constructor.Bind("season_has_games", &m_seasonHasGames);
+    constructor.Bind("season_title", &m_seasonTitle);
+    constructor.Bind("season_dates", &m_seasonDates);
+    constructor.Bind("season_countdown", &m_seasonCountdown);
+    constructor.Bind("season_source", &m_seasonSource);
+    constructor.Bind("season_start", &m_seasonStart);
+    constructor.Bind("season_end", &m_seasonEnd);
+    constructor.Bind("season_peak_label", &m_seasonPeakLabel);
+    constructor.Bind("season_progress", &m_seasonProgress);
+    constructor.Bind("season_wins", &m_seasonWins);
+    constructor.Bind("season_losses", &m_seasonLosses);
+    constructor.Bind("season_games", &m_seasonGames);
+    constructor.Bind("season_rate", &m_seasonRate);
+    constructor.Bind("season_mmr", &m_seasonMmr);
+    constructor.Bind("season_peak", &m_seasonPeak);
+    constructor.Bind("season_reward_next", &m_seasonRewardNext);
+    constructor.Bind("season_reward_wins", &m_seasonRewardWins);
+    constructor.Bind("season_reward_earned", &m_seasonRewardEarned);
+    constructor.Bind("season_reward_width", &m_seasonRewardWidth);
+    constructor.Bind("season_playlists", &m_seasonPlaylists);
+    constructor.Bind("season_previous", &m_seasonPrevious);
     constructor.Bind("tab", &m_tabName);
     constructor.Bind("subtitle", &m_subtitle);
     constructor.Bind("recap_title", &m_recapTitle);
@@ -294,6 +334,76 @@ bool InsightsView::Create(Rml::Context* context) {
     return true;
 }
 
+void InsightsView::SetSeason(const std::vector<SeasonSummary>& summaries,
+                             const std::optional<TrackedAccounts::SeasonReward>& reward, int64_t now, int selectedSeason) {
+    m_seasonAvailable = false;
+    m_seasonHasGames = false;
+    m_seasonRewardAvailable = false;
+    m_seasonRewardEarnedAvailable = false;
+    m_seasonPlaylists.clear();
+    m_seasonPrevious.clear();
+    auto selected = std::find_if(summaries.begin(), summaries.end(), [now, selectedSeason](const auto& summary) {
+        return selectedSeason > 0 ? summary.season.season == selectedSeason : summary.season.startsAt <= now;
+    });
+    if (selected != summaries.end()) {
+        const auto& season = *selected;
+        m_seasonHasGames = season.wins + season.losses > 0;
+        m_seasonAvailable = true;
+        m_seasonTitle = "SEASON " + std::to_string(season.season.season);
+        m_seasonStart = ShortDate(season.season.startsAt);
+        m_seasonEnd = LocalDate(season.season.endsAt);
+        const int64_t duration = std::max<int64_t>(1, season.season.endsAt - season.season.startsAt);
+        const int64_t elapsed = std::clamp<int64_t>(now - season.season.startsAt, 0, duration);
+        m_seasonDates = "Started " + ShortDate(season.season.startsAt) + " · day " +
+                        std::to_string(elapsed / 86400 + 1) + " of " + std::to_string((duration + 86399) / 86400);
+        const int64_t left = std::max<int64_t>(0, season.season.endsAt - now);
+        m_seasonCountdown = left ? std::to_string(left / 86400) + "d " + std::to_string((left % 86400) / 3600) + "h" : "Season ended";
+        m_seasonSource = season.season.source == "rocket_league" ? "Rocket League" : season.season.source == "observed" ? "Observed"
+                                                                                                                        : "Estimated";
+        m_seasonProgress = std::to_string(elapsed * 100 / duration) + "%";
+        m_seasonWins = std::to_string(season.wins);
+        m_seasonLosses = std::to_string(season.losses);
+        m_seasonGames = std::to_string(season.wins + season.losses) + " ranked games this season";
+        m_seasonRate = Percent(static_cast<float>(season.winRate));
+        m_seasonMmr = SignedNumber(season.totalMmrChange);
+        m_seasonPeak = season.peakMmr > 0 ? std::to_string(season.peakMmr) : "-";
+        m_seasonPeakLabel = "Peak" + (season.peakRank.empty() ? std::string{} : " · " + season.peakRank);
+        for (const auto& [name, row] : season.playlists) {
+            const int games = row.wins + row.losses;
+            const std::string display = name == "1v1" ? "Duel" : name == "2v2" ? "Doubles"
+                                                             : name == "3v3"   ? "Standard"
+                                                                               : name;
+            m_seasonPlaylists.push_back({display, std::to_string(row.wins) + "-" + std::to_string(row.losses),
+                                         SignedNumber(row.mmrChange), std::to_string(games ? row.wins * 100 / games : 0) + "%", games});
+        }
+        std::stable_sort(m_seasonPlaylists.begin(), m_seasonPlaylists.end(),
+                         [](const auto& a, const auto& b) { return a.games > b.games; });
+        static constexpr const char* levels[] = {"None", "Bronze", "Silver", "Gold", "Platinum", "Diamond", "Champion", "Grand Champion", "Supersonic Legend"};
+        if (reward && reward->season == season.season.season && reward->level >= 0 && reward->level <= 8) {
+            m_seasonRewardAvailable = true;
+            m_seasonRewardEarnedAvailable = reward->level > 0;
+            const int wins = std::clamp(reward->wins, 0, 10);
+            m_seasonRewardNext = reward->level < 8 ? levels[reward->level + 1] : levels[8];
+            m_seasonRewardWins = reward->level < 8 ? std::to_string(wins) + " / 10" : "Complete";
+            m_seasonRewardEarned = reward->level == 0 ? "No rewards earned" : std::string(levels[reward->level]) + " rewards";
+            m_seasonRewardWidth = std::to_string(reward->level == 8 ? 100 : wins * 10) + "%";
+        }
+        for (auto it = std::next(selected); it != summaries.end(); ++it) {
+            const int games = it->wins + it->losses;
+            m_seasonPrevious.push_back({"Season " + std::to_string(it->season.season),
+                                        ShortDate(it->season.startsAt) + " - " + ShortDate(it->season.endsAt),
+                                        std::to_string(games), Percent(static_cast<float>(it->winRate)),
+                                        it->peakMmr > 0 ? it->peakRank + " · " + std::to_string(it->peakMmr) : "-"});
+        }
+    }
+    for (const char* name : {"season_available", "season_has_games", "season_reward_available", "season_reward_earned_available", "season_title", "season_dates", "season_start", "season_end",
+                             "season_countdown", "season_source", "season_progress", "season_wins", "season_losses",
+                             "season_games", "season_rate", "season_mmr", "season_peak", "season_peak_label", "season_reward_next",
+                             "season_reward_wins", "season_reward_earned", "season_reward_width", "season_playlists",
+                             "season_previous"})
+        Dirty(name);
+}
+
 void InsightsView::Reset() {
     m_handle = {};
     m_bound = false;
@@ -316,11 +426,12 @@ void InsightsView::Dirty(const char* name) {
 
 void InsightsView::SetTab(Tab tab) {
     m_tab = tab;
-    m_tabName = tab == Tab::Recap      ? "recap"
-                : tab == Tab::Sessions ? "sessions"
-                : tab == Tab::People   ? "people"
-                : tab == Tab::Trends   ? "trends"
-                                       : "playstyle";
+    m_tabName = tab == Tab::Recap       ? "recap"
+                : tab == Tab::Sessions  ? "sessions"
+                : tab == Tab::People    ? "people"
+                : tab == Tab::Trends    ? "trends"
+                : tab == Tab::Playstyle ? "playstyle"
+                                        : "season";
     Dirty("tab");
 }
 

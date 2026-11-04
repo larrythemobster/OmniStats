@@ -9,6 +9,7 @@
 #include <unordered_set>
 #include <vector>
 
+#include "core/game/SeasonCalendar.hpp"
 #include "core/state/SessionState.hpp"
 
 namespace Rml {
@@ -153,6 +154,7 @@ class HistoryView {
         return m_resultFilter;
     }
 
+    bool SetSeasonOptions(bool enabled, std::vector<SeasonRecord> seasons);
     void SetDateFilter(const std::string& dateRange);
     const Rml::String& DateFilter() const {
         return m_dateFilter;
@@ -252,6 +254,8 @@ class HistoryView {
     Rml::String m_playlistFilter = "All";
     std::vector<HistoryFilterOption> m_playlistOptions;
     Rml::String m_resultFilter = "all";
+    bool m_showSeasonFilters = false;
+    std::vector<SeasonRecord> m_seasons;
     Rml::String m_dateFilter = "all";
     Rml::String m_sortFilter = "newest";
     Rml::String m_withPlayer;

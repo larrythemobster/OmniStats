@@ -2088,6 +2088,74 @@ TEST(MmrServiceBatchTest, ResponseParsingMapsEachPlayerIncludingMissingAndErrore
     EXPECT_EQ(results[2].errorCode, "not_found");
 }
 
+TEST(MmrServiceBatchTest, TrackedAccountBatchSetsIncludeRewardsWhileRosterAndPostMatchOmit) {
+    AssembledBatch trackedBatch;
+    MMRRequest t1;
+    t1.primaryId = "Epic|tracked_player_1|0";
+    t1.name = "TrackedPlayer1";
+    t1.reason = MMRRequestReason::TrackedAccount;
+    trackedBatch.requests.push_back(t1);
+
+    MMRRequest t2;
+    t2.primaryId = "Steam|76561198000000001|0";
+    t2.name = "TrackedPlayer2";
+    t2.reason = MMRRequestReason::TrackedAccount;
+    trackedBatch.requests.push_back(t2);
+
+    const nlohmann::json trackedBody = BuildCustomApiBatchJson(trackedBatch);
+    ASSERT_TRUE(trackedBody.contains("include_rewards"));
+    EXPECT_TRUE(trackedBody["include_rewards"].get<bool>());
+
+    AssembledBatch rosterBatch;
+    MMRRequest r1;
+    r1.primaryId = "Epic|roster_player_1|0";
+    r1.name = "RosterPlayer1";
+    r1.reason = MMRRequestReason::Roster;
+    rosterBatch.requests.push_back(r1);
+
+    const nlohmann::json rosterBody = BuildCustomApiBatchJson(rosterBatch);
+    EXPECT_FALSE(rosterBody.contains("include_rewards"));
+
+    AssembledBatch postMatchBatch;
+    MMRRequest p1;
+    p1.primaryId = "Epic|postmatch_player_1|0";
+    p1.name = "PostMatchPlayer1";
+    p1.reason = MMRRequestReason::PostMatch;
+    postMatchBatch.requests.push_back(p1);
+
+    const nlohmann::json postMatchBody = BuildCustomApiBatchJson(postMatchBatch);
+    EXPECT_FALSE(postMatchBody.contains("include_rewards"));
+
+    AssembledBatch mixedBatch;
+    mixedBatch.requests.push_back(t1);
+    mixedBatch.requests.push_back(r1);
+
+    const nlohmann::json mixedBody = BuildCustomApiBatchJson(mixedBatch);
+    EXPECT_FALSE(mixedBody.contains("include_rewards"));
+}
+
+TEST(MmrServiceBatchTest, ResponseParsingExtractsSeasonRewards) {
+    std::vector<MMRRequest> requests;
+    MMRRequest req;
+    req.primaryId = "Epic|player_rewards|0";
+    req.name = "RewardsPlayer";
+    req.reason = MMRRequestReason::TrackedAccount;
+    requests.push_back(req);
+
+    const nlohmann::json jsonResp = {
+        {"players", nlohmann::json::array({{{"platform", "Epic"},
+                                            {"account_id", "player_rewards"},
+                                            {"skills", nlohmann::json::array({{{"playlist", 11}, {"mmr", 1250.4}, {"tier", 14}, {"division", 2}, {"matches_played", 80}}})},
+                                            {"season_rewards", {{"level", 6}, {"wins", 3}}}}})}};
+
+    const auto results = ParseCustomApiBatchResponse(requests, jsonResp);
+    ASSERT_EQ(results.size(), 1u);
+    EXPECT_EQ(results[0].status, BatchPlayerStatus::Success);
+    ASSERT_TRUE(results[0].profile.seasonRewards.has_value());
+    EXPECT_EQ(results[0].profile.seasonRewards->level, 6);
+    EXPECT_EQ(results[0].profile.seasonRewards->wins, 3);
+}
+
 TEST_F(MmrServiceTest, WholeBatchHttpFailureYieldsPerPlayerFailures) {
     SetUpSignedInDeviceAuth(false);
 

@@ -1,8 +1,11 @@
 #pragma once
 
+#include "core/game/SeasonCalendar.hpp"
 #include <cstdint>
 #include <optional>
+#include <map>
 #include <string>
+#include <vector>
 
 struct DbMergeResult {
     int matchesImported = 0;
@@ -16,6 +19,38 @@ enum class TrackedAccountInsertResult {
     Inserted,
     AlreadyExists,
     Failed
+};
+
+struct TrackedAccountReward {
+    int season = 0;
+    int level = 0;
+    int wins = 0;
+    int64_t observedAt = 0;
+};
+struct SeasonPlaylistSummary {
+    int wins = 0;
+    int losses = 0;
+    int mmrChange = 0;
+};
+
+struct SeasonSummary {
+    SeasonRecord season;
+    int wins = 0;
+    int losses = 0;
+    double winRate = 0;
+    std::map<std::string, int> mmrChangeByPlaylist;
+    std::map<std::string, SeasonPlaylistSummary> playlists;
+    int totalMmrChange = 0;
+    int peakMmr = 0;
+    std::string peakRank;
+    std::string peakPlaylist;
+};
+
+struct SeasonSummarySnapshot {
+    bool loaded = false;
+    std::string primaryId;
+    uint64_t requestId = 0;
+    std::vector<SeasonSummary> seasons;
 };
 
 struct ReplayUploadRecord {

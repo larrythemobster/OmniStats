@@ -18,6 +18,7 @@
 #include "core/accounts/PlayerScout.hpp"
 #include "core/config/StatsApiConfig.hpp"
 #include "core/state/SessionTypes.hpp"
+#include "database/DatabaseTypes.hpp"
 
 // Data for individual players in the current lobby
 struct PlayerData {
@@ -230,6 +231,7 @@ class SessionState : public std::enable_shared_from_this<SessionState> {
     HistoryViewState historyView;
     PlayerNotesState notes;
     PlayerScoutState scout;
+    std::atomic<std::shared_ptr<const SeasonSummarySnapshot>> seasonSummaries;
 
     void clearActiveMatchOnDisconnect();
 

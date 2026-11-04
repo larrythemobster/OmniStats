@@ -93,7 +93,8 @@ std::string RmlUiController::RenderWidget(DashboardLayout::WidgetId id, bool das
         // The overlay keeps the bare bar so it reads as part of the card it is docked to.
         return RenderSelfRankProgress(dashboard);
     case DashboardLayout::WidgetId::Tournaments:
-        return TournamentUi::RenderWidget(m_tournamentService ? *m_tournamentService->Snapshot() : Tournaments::ScheduleSnapshot{}, static_cast<int64_t>(std::time(nullptr)), m_telemetry.get());
+        return TournamentUi::RenderWidget(m_tournamentService ? *m_tournamentService->Snapshot() : Tournaments::ScheduleSnapshot{}, static_cast<int64_t>(std::time(nullptr)), m_telemetry.get()) +
+               (m_config.show_season_countdown && m_currentSeason ? TournamentUi::RenderSeasonChip(*m_currentSeason, static_cast<int64_t>(std::time(nullptr))) : "");
     }
     return {};
 }
@@ -406,6 +407,7 @@ void RmlUiController::RebuildDashboard() {
         << "<div id='tournament-topbar-root'>"
         << (m_config.show_tournaments && m_accountClient && m_accountClient->IsSignedIn() && m_tournamentService ? TournamentUi::RenderTopbar(*m_tournamentService->Snapshot(), static_cast<int64_t>(std::time(nullptr)), m_config.tournament_reminder_standard_only, m_config.tournament_reminder_minutes, m_telemetry.get()) : "")
         << "</div>"
+        << "<div id='season-topbar-root'></div>"
         << "<div class='topbar-actions'>"
         << Button("history-open", "History", "ghost compact")
         << Button("accounts-open", "Accounts", "ghost compact")

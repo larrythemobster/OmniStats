@@ -754,6 +754,13 @@ TEST_F(ConfigTest, FullRealShapedConfigRoundTrip) {
         {"tournament_reminder_minutes", 15},
         {"tournament_reminder_standard_only", true},
         {"tournament_sound_cue", true},
+        {"show_season_countdown", false},
+        {"season_reminder_days", 14},
+        {"season_reward_reminders", false},
+        {"show_season_recap", false},
+        {"group_history_by_season", true},
+        {"season_reminder_last_day", "2026-11-04"},
+        {"season_recap_last_seen", 19},
         {"show_streaks_stats", true},
         {"show_longest_loss_streak", true},
         {"show_gamemode_breakdown", true},
@@ -862,6 +869,13 @@ TEST_F(ConfigTest, FullRealShapedConfigRoundTrip) {
     EXPECT_EQ(loaded.tournament_reminder_minutes, 15);
     EXPECT_TRUE(loaded.tournament_reminder_standard_only);
     EXPECT_TRUE(loaded.tournament_sound_cue);
+    EXPECT_FALSE(loaded.show_season_countdown);
+    EXPECT_EQ(loaded.season_reminder_days, 14);
+    EXPECT_FALSE(loaded.season_reward_reminders);
+    EXPECT_FALSE(loaded.show_season_recap);
+    EXPECT_TRUE(loaded.group_history_by_season);
+    EXPECT_EQ(loaded.season_reminder_last_day, "2026-11-04");
+    EXPECT_EQ(loaded.season_recap_last_seen, 19);
     EXPECT_TRUE(loaded.show_longest_loss_streak);
     EXPECT_EQ(loaded.gamemode_breakdown_scope, "lifetime");
     EXPECT_EQ(loaded.crossbar_display_mode, "speed");
@@ -897,6 +911,13 @@ TEST_F(ConfigTest, FullRealShapedConfigRoundTrip) {
     EXPECT_EQ(roundTripJson["gamepad_overlay_raw_button"], 6);
     EXPECT_EQ(roundTripJson["tournament_region"], "EU");
     EXPECT_EQ(roundTripJson["tournament_reminder_minutes"], 15);
+    EXPECT_EQ(roundTripJson["show_season_countdown"], false);
+    EXPECT_EQ(roundTripJson["season_reminder_days"], 14);
+    EXPECT_EQ(roundTripJson["season_reward_reminders"], false);
+    EXPECT_EQ(roundTripJson["show_season_recap"], false);
+    EXPECT_EQ(roundTripJson["group_history_by_season"], true);
+    EXPECT_EQ(roundTripJson["season_reminder_last_day"], "2026-11-04");
+    EXPECT_EQ(roundTripJson["season_recap_last_seen"], 19);
     EXPECT_EQ(roundTripJson["position"], "top-left");
     EXPECT_EQ(roundTripJson["client_uuid"], "11111111-2222-4333-8444-555555555555");
     EXPECT_EQ(roundTripJson["font_ui"], "Inter");
@@ -912,6 +933,13 @@ TEST_F(ConfigTest, FullRealShapedConfigRoundTrip) {
     EXPECT_EQ(reloaded.port, 49123);
     EXPECT_EQ(reloaded.key_overlay, 9);
     EXPECT_EQ(reloaded.tournament_region, "EU");
+    EXPECT_FALSE(reloaded.show_season_countdown);
+    EXPECT_EQ(reloaded.season_reminder_days, 14);
+    EXPECT_FALSE(reloaded.season_reward_reminders);
+    EXPECT_FALSE(reloaded.show_season_recap);
+    EXPECT_TRUE(reloaded.group_history_by_season);
+    EXPECT_EQ(reloaded.season_reminder_last_day, "2026-11-04");
+    EXPECT_EQ(reloaded.season_recap_last_seen, 19);
     EXPECT_EQ(reloaded.client_uuid, "11111111-2222-4333-8444-555555555555");
     EXPECT_EQ(reloaded.font_ui, "Inter");
     EXPECT_FLOAT_EQ(reloaded.ui_scale, 1.25f);

@@ -20,6 +20,7 @@
 - **Player scouting.** Head-to-head records (with and vs) computed from local history, plus private player notes.
 - **Match analytics.** Each saved match records hits, kickoffs, possession, goal locations, stat-feed mechanics, and your boost and movement profile, shown in match history with a match story, timeline and field map.
 - **Session insights.** Win rates by teammate, time-of-day trends, clutch and arena records, playstyle averages, what separates your wins from losses, and session recap cards exportable as PNG.
+- **Season insights.** Review ranked records, MMR changes and rewards by season, with a countdown and optional reminders.
 - **Account tracking.** Track MMR across all playlists for your main and alts without Rocket League running.
 - **Tournament reminders.** Signed-in users get a compact next-tournament countdown in either display mode, brief in-match reminders, and an optional dashboard sound cue. Card visibility and reminders are configured separately.
 - **Modular layout.** Draggable, dockable cards with per-card visibility rules, or a separate second-monitor window.

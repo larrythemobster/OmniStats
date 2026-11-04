@@ -13,6 +13,8 @@
 
 #include "core/game/Insights.hpp"
 #include "core/game/PlaystyleInsights.hpp"
+#include "core/accounts/TrackedAccounts.hpp"
+#include "database/DatabaseTypes.hpp"
 #include "core/state/SessionState.hpp"
 
 namespace Rml {
@@ -118,13 +120,23 @@ struct PlaystyleMetricRow {
     Rml::String value;
     Rml::String category;
 };
+struct SeasonPlaylistRow {
+    Rml::String name, record, mmr, win_width;
+    int games = 0;
+};
+
+struct SeasonPreviousRow {
+    Rml::String name, dates, games, rate, peak;
+};
+
 class InsightsView {
   public:
     enum class Tab { Recap,
                      Sessions,
                      People,
                      Trends,
-                     Playstyle };
+                     Playstyle,
+                     Season };
 
     // Must run before insights.rml is loaded.
     bool Create(Rml::Context* context);
@@ -151,6 +163,7 @@ class InsightsView {
                     const std::vector<MatchOutcome>& outcomes, const std::vector<MatchMmrContext>& mmrContext = {},
                     const std::vector<SessionRecap>& sessions = {},
                     const std::vector<AnalyticsMatchRow>& analyticsMatches = {});
+    void SetSeason(const std::vector<SeasonSummary>& summaries, const std::optional<TrackedAccounts::SeasonReward>& reward, int64_t now, int selectedSeason = 0);
     void SetSessions(const std::vector<SessionRecap>& sessions);
     bool OpenSession(size_t index);
     bool OpenSessionById(int64_t id);
@@ -275,5 +288,15 @@ class InsightsView {
     std::vector<PlaystyleRecentRow> m_playstyleRecentForm;
     std::vector<PlaystyleMetricRow> m_playstyleMetrics;
     Rml::String m_playstyleSplitsEmpty;
+    bool m_seasonAvailable = false;
+    bool m_seasonHasGames = false;
+    bool m_seasonRewardAvailable = false;
+    bool m_seasonRewardEarnedAvailable = false;
+    Rml::String m_seasonTitle, m_seasonDates, m_seasonCountdown, m_seasonSource, m_seasonProgress;
+    Rml::String m_seasonStart, m_seasonEnd, m_seasonPeakLabel;
+    Rml::String m_seasonWins, m_seasonLosses, m_seasonGames, m_seasonRate, m_seasonMmr, m_seasonPeak;
+    Rml::String m_seasonRewardNext, m_seasonRewardWins, m_seasonRewardEarned, m_seasonRewardWidth;
+    std::vector<SeasonPlaylistRow> m_seasonPlaylists;
+    std::vector<SeasonPreviousRow> m_seasonPrevious;
     std::vector<PlaystyleSplitRow> m_playstyleSplits;
 };

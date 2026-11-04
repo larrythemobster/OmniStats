@@ -32,6 +32,10 @@
                     <button class="tab-button pill" data-action="history-filter" data-date="7d" data-class-active="date_filter == '7d'">7d</button>
                     <button class="tab-button pill" data-action="history-filter" data-date="30d" data-class-active="date_filter == '30d'">30d</button>
                     <button class="tab-button pill" data-action="history-filter" data-date="90d" data-class-active="date_filter == '90d'">90d</button>
+                    <button class="tab-button pill" data-if="show_season_filters" data-action="history-filter" data-date="this_season" data-class-active="date_filter == 'this_season'">This season</button>
+                    <button class="tab-button pill" data-if="show_season_filters" data-action="history-filter" data-date="last_season" data-class-active="date_filter == 'last_season'">Last season</button>
+                </div>
+                <div class="row gap-sm history-filter-row">
                     <span class="label history-filter-label">Sort</span>
                     <button class="tab-button pill" data-action="history-filter" data-sort="newest" data-class-active="sort_filter == 'newest'">Newest</button>
                     <button class="tab-button pill" data-action="history-filter" data-sort="oldest" data-class-active="sort_filter == 'oldest'">Oldest</button>

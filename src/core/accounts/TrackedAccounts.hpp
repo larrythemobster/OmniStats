@@ -95,6 +95,12 @@ namespace TrackedAccounts {
         std::optional<int> highestObservedMmr;
         int64_t totalObservations = 0;
     };
+    struct SeasonReward {
+        int season = 0;
+        int level = 0;
+        int wins = 0;
+        int64_t observedAtUnix = 0;
+    };
 
     struct AccountRecord {
         std::string primaryId;
@@ -109,6 +115,7 @@ namespace TrackedAccounts {
         int64_t sortOrder = 0;
         DiscoverySource discoverySource = DiscoverySource::Manual;
         std::map<std::string, PlaylistRank> ranks;
+        std::optional<SeasonReward> seasonRewards;
     };
 
     AccountRecord MakeRecord(const Identity& identity,

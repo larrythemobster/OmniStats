@@ -54,6 +54,50 @@ namespace {
         return j.is_number_integer() && !j.is_boolean();
     }
 
+    bool ParseSeasonNumber(const nlohmann::json& value, int& out) {
+        if (!IsStrictInt(value) || value < 1 || value > 1000) return false;
+        out = value.get<int>();
+        return true;
+    }
+
+    bool ParseSeasonEntry(const nlohmann::json& value, RemoteSeasonEntry& out, bool requireSource = true) {
+        if (!value.is_object() || !value.contains("season") || !ParseSeasonNumber(value["season"], out.season) ||
+            !value.contains("starts_at") || !value["starts_at"].is_string() ||
+            !value.contains("ends_at") || !value["ends_at"].is_string() ||
+            (requireSource && (!value.contains("source") || !value["source"].is_string())) ||
+            (value.contains("source") && !value["source"].is_string())) return false;
+        out.starts_at = value["starts_at"].get<std::string>();
+        out.ends_at = value["ends_at"].get<std::string>();
+        out.source = value.value("source", std::string("rocket_league"));
+        int64_t start = 0, end = 0;
+        return (out.source == "rocket_league" || out.source == "admin") &&
+               RemoteConfig::ParseRfc3339Unix(out.starts_at, start) &&
+               RemoteConfig::ParseRfc3339Unix(out.ends_at, end) && start < end;
+    }
+
+    std::optional<RemoteSeasonConfig> ParseSeasonConfig(const nlohmann::json& value) {
+        if (!value.is_object() || !value.contains("current") || !value.contains("seasons") ||
+            !value["seasons"].is_array() || value["seasons"].size() > 8) return std::nullopt;
+        RemoteSeasonConfig result;
+        if (!ParseSeasonNumber(value["current"], result.current)) return std::nullopt;
+        std::unordered_set<int> seen;
+        for (const auto& item : value["seasons"]) {
+            RemoteSeasonEntry entry;
+            if (!ParseSeasonEntry(item, entry) || !seen.insert(entry.season).second) return std::nullopt;
+            result.seasons.push_back(std::move(entry));
+        }
+        if (value.contains("next")) {
+            RemoteSeasonEntry entry;
+            if (!ParseSeasonEntry(value["next"], entry, false) || !seen.insert(entry.season).second) return std::nullopt;
+            result.next = std::move(entry);
+        }
+        return result;
+    }
+
+    nlohmann::json SerializeSeasonEntry(const RemoteSeasonEntry& entry) {
+        return {{"season", entry.season}, {"starts_at", entry.starts_at}, {"ends_at", entry.ends_at}, {"source", entry.source}};
+    }
+
 } // namespace
 
 RemoteConfig::RemoteConfig(bool enableWorker) : m_enableWorker(enableWorker) {}
@@ -311,6 +355,8 @@ bool RemoteConfig::ParseConfigJson(std::string_view jsonText, RemoteConfigData& 
         if (parsed.min_version_message.size() > 300) return fail("min_version_message too long");
     }
 
+    if (j.contains("season")) parsed.season = ParseSeasonConfig(j["season"]);
+
     outConfig = std::move(parsed);
     return true;
 }
@@ -326,12 +372,25 @@ nlohmann::json RemoteConfig::SerializeConfigJson(const RemoteConfigData& config)
                           {"dismissible", ann.dismissible},
                           {"ends_at", ann.ends_at}});
     }
-    return {
+    nlohmann::json result = {
         {"schema", config.schema},
         {"ttl_seconds", ClampTtlSeconds(config.ttl_seconds)},
         {"announcements", std::move(annArr)},
         {"min_supported_version", config.min_supported_version},
         {"min_version_message", config.min_version_message}};
+    if (config.season) {
+        nlohmann::json seasons = nlohmann::json::array();
+        for (const auto& entry : config.season->seasons)
+            seasons.push_back(SerializeSeasonEntry(entry));
+        nlohmann::json season = {{"current", config.season->current}, {"seasons", std::move(seasons)}};
+        if (config.season->next) {
+            auto next = SerializeSeasonEntry(*config.season->next);
+            next.erase("source");
+            season["next"] = std::move(next);
+        }
+        result["season"] = std::move(season);
+    }
+    return result;
 }
 
 std::vector<RemoteAnnouncement> RemoteConfig::FilterActiveAnnouncements(
@@ -358,7 +417,14 @@ std::vector<RemoteAnnouncement> RemoteConfig::FilterActiveAnnouncements(
     return result;
 }
 
+void RemoteConfig::SetSnapshotCallback(std::function<void(const RemoteConfigData&)> callback) {
+    std::lock_guard<std::mutex> lock(m_mutex);
+    m_snapshotCallback = std::move(callback);
+}
+
 void RemoteConfig::Start() {
+    RemoteConfigData snapshot;
+    std::function<void(const RemoteConfigData&)> callback;
     {
         std::lock_guard<std::mutex> lock(m_mutex);
         LoadDismissedLocked();
@@ -371,8 +437,11 @@ void RemoteConfig::Start() {
             m_lastFetchedAt = fetchedAt;
             m_hasCachedSnapshot = true;
             m_version.fetch_add(1, std::memory_order_release);
+            snapshot = m_snapshot;
+            callback = m_snapshotCallback;
         }
     }
+    if (callback) callback(snapshot);
 
     if (!m_enableWorker) return;
 
@@ -424,15 +493,18 @@ bool RemoteConfig::FetchOnce() {
 
     RemoteConfigData parsed;
     if (resp.transportError == 0 && resp.status == 200 && ParseConfigJson(resp.body, parsed)) {
-        std::lock_guard<std::mutex> lock(m_mutex);
-        const bool changed = !(m_snapshot == parsed);
-        m_snapshot = parsed;
-        m_lastFetchedAt = now;
-        m_hasCachedSnapshot = true;
-        SaveCachedConfigLocked(m_snapshot, now);
-        if (changed) {
-            m_version.fetch_add(1, std::memory_order_release);
+        std::function<void(const RemoteConfigData&)> callback;
+        {
+            std::lock_guard<std::mutex> lock(m_mutex);
+            const bool changed = !(m_snapshot == parsed);
+            m_snapshot = parsed;
+            m_lastFetchedAt = now;
+            m_hasCachedSnapshot = true;
+            SaveCachedConfigLocked(m_snapshot, now);
+            if (changed) m_version.fetch_add(1, std::memory_order_release);
+            callback = m_snapshotCallback;
         }
+        if (callback) callback(parsed);
         return true;
     }
 

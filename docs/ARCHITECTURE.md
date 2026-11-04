@@ -65,6 +65,8 @@ Persisted under `%APPDATA%\omnistats\omnistats.db` using versioned migrations (`
 - `MatchAnalytics`: One versioned JSON document per match (`MatchAnalyticsToJson`) holding the tracker output above. Matches saved before analytics capture have no row.
 - `Sessions`: Session start and end timestamps, outcomes, and playlist MMR deltas.
 - `TrackedAccounts`: Main and alt accounts with nicknames and current playlist ranks.
+- `Seasons`: Cached season start and end times and their source, retained for offline history.
+- `TrackedAccountRewards`: Reward level and wins by tracked account and season.
 - `PlayerNotes`: User-authored scouting notes keyed by normalized platform account identity.
 - `ReplayUploads`: Replay file paths, upload queue state, and Ballchasing URLs.
 
@@ -77,6 +79,8 @@ File-backed databases open a pool of three read-only connections (`database::Rea
 CSV exports prefix formula-like text cells with an apostrophe before applying CSV quoting, including formulas preceded by whitespace. JSON exports preserve the original text.
 
 Provisional `result_pending` matches are excluded from W/L records, streaks, and Insights outcomes/MMR context until confirmation. Merge preserves the flag. Longest streaks scan all confirmed history with constant application memory. The internal recent-match cache still retains provisional rows for confirmation and MMR reconciliation.
+Season dates arrive in the client configuration and are retained locally for offline history. Season ranges start at the recorded start time and end at the next season's start when available; otherwise they end at the recorded end time. Season summaries exclude provisional matches.
+Schema v12 adds season dates and tracked-account rewards. When a local account's ranked match count falls between observations and no newer season is known, the client records an observed rollover. Server dates replace observed dates when they become available. Season summaries are loaded on the database worker and published to the UI as snapshots.
 
 Database startup repairs existing foreign-key violations before enabling enforcement on the connection. It first copies the database to `omnistats.db.bak-fk-<unix time>`, then clears nullable references to missing parents (such as `Matches.session_id`) and deletes rows that require a missing parent (such as stats for a deleted match). The repair runs in one transaction and repeats until no violations remain. If the backup or repair fails, or the file is unreadable, startup stops and the error dialog names the cause and the database path. Declared cascading deletes remove dependent stats and tracked ranks.
 

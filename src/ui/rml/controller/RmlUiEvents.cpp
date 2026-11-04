@@ -597,6 +597,16 @@ void RmlUiController::HandleChange(Rml::Element* target, Rml::Event& event) {
             c.tournament_reminder_standard_only = checked;
         else if (key == "tournament_sound_cue")
             c.tournament_sound_cue = checked;
+        else if (key == "show_season_countdown")
+            c.show_season_countdown = checked;
+        else if (key == "season_reminder_days")
+            c.season_reminder_days = std::clamp(std::atoi(value.c_str()), 0, 30);
+        else if (key == "season_reward_reminders")
+            c.season_reward_reminders = checked;
+        else if (key == "show_season_recap")
+            c.show_season_recap = checked;
+        else if (key == "group_history_by_season")
+            c.group_history_by_season = checked;
         else if (key == "show_match_summary")
             c.show_match_summary = checked;
         else if (key == "show_running_indicator")

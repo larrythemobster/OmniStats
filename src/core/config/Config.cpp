@@ -418,6 +418,14 @@ namespace {
             MakeBoolField("tournament_reminder_standard_only", &ConfigData::tournament_reminder_standard_only, def.tournament_reminder_standard_only),
             MakeBoolField("tournament_sound_cue", &ConfigData::tournament_sound_cue, def.tournament_sound_cue),
 
+            MakeBoolField("show_season_countdown", &ConfigData::show_season_countdown, def.show_season_countdown),
+            MakeIntField("season_reminder_days", &ConfigData::season_reminder_days, def.season_reminder_days, 0, 30, false),
+            MakeBoolField("season_reward_reminders", &ConfigData::season_reward_reminders, def.season_reward_reminders),
+            MakeBoolField("show_season_recap", &ConfigData::show_season_recap, def.show_season_recap),
+            MakeBoolField("group_history_by_season", &ConfigData::group_history_by_season, def.group_history_by_season),
+            MakeStringField("season_reminder_last_day", &ConfigData::season_reminder_last_day, def.season_reminder_last_day),
+            MakeIntField("season_recap_last_seen", &ConfigData::season_recap_last_seen, def.season_recap_last_seen, 0, 1000, false),
+
             MakeBoolField("show_streaks_stats", &ConfigData::show_streaks_stats, def.show_streaks_stats),
             MakeBoolField("show_longest_loss_streak", &ConfigData::show_longest_loss_streak, def.show_longest_loss_streak),
             MakeBoolField("show_gamemode_breakdown", &ConfigData::show_gamemode_breakdown, def.show_gamemode_breakdown),

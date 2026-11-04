@@ -33,6 +33,14 @@ std::string SettingsPresenter::RenderGeneral(const ConfigData& config) {
         << ToggleControl("show_match_summary", "Show post-match summary", summaryHelp, config.show_match_summary)
         << ToggleControl("show_running_indicator", "Show running indicator", "A small badge that shows the overlay is running.", config.show_running_indicator)
         << SectionEnd();
+    out << SectionStart("Seasons")
+        << ToggleControl("show_season_countdown", "Season countdown", "Shows time left on the dashboard and tournament card.", config.show_season_countdown)
+        << SelectRow("season_reminder_days", "End-of-season reminder", "A short note between matches when the season is almost over.",
+                     {{"0", "Off"}, {"3", "3 days before"}, {"7", "7 days before"}, {"14", "14 days before"}}, std::to_string(config.season_reminder_days))
+        << ToggleControl("season_reward_reminders", "Remind me about rewards", "Only when you still need wins for your season rewards.", config.season_reward_reminders)
+        << ToggleControl("show_season_recap", "Season recap", "Opens your final season card when the new season starts.", config.show_season_recap)
+        << ToggleControl("group_history_by_season", "Group history by season", "Adds season filters to match history.", config.group_history_by_season)
+        << SectionEnd();
     return out.str();
 }
 

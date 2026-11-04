@@ -1,6 +1,7 @@
 #include "core/accounts/AccountManager.hpp"
 
 #include "core/config/Config.hpp"
+#include "core/game/SeasonCalendar.hpp"
 #include "utils/PrivacyLog.hpp"
 #include "database/DatabaseManager.hpp"
 
@@ -84,7 +85,18 @@ void AccountManagerService::Start() {
     }
     m_worker->Enqueue([this]() {
         std::vector<AccountRecord> records;
-        if (m_db) records = m_db->ListTrackedAccounts();
+        if (m_db) {
+            records = m_db->ListTrackedAccounts();
+            const auto season = SeasonCalendar(m_db->GetSeasons()).Current(NowUnix());
+            if (season) {
+                for (auto& record : records) {
+                    if (const auto reward = m_db->GetTrackedAccountRewards(record.primaryId, season->season.season)) {
+                        record.seasonRewards = TrackedAccounts::SeasonReward{
+                            reward->season, reward->level, reward->wins, reward->observedAt};
+                    }
+                }
+            }
+        }
         {
             std::lock_guard<std::mutex> lock(m_mutex);
             m_accounts.clear();
@@ -579,6 +591,30 @@ void AccountManagerService::ApplyFetchEvent(const TrackedAccountFetchEvent& even
             account->refreshDetail.clear();
             account->retryAtUnix = 0;
             m_pending.erase(event.primaryId);
+            if (account->record.lastSeenAtUnix > 0) {
+                PostDb([id = event.primaryId, observations = event.profile.playlistMatches, now](DatabaseManager& db) {
+                    for (const auto& [key, matches] : observations) {
+                        if (matches >= 0 && key != "casual" && key != "t" &&
+                            TrackedAccounts::IsSupportedPlaylistKey(key)) {
+                            (void)db.ObserveRankedSeason(id, key, matches, now);
+                        }
+                    }
+                });
+            }
+            if (event.profile.seasonRewards) {
+                PostDb([this, id = event.primaryId, rewards = *event.profile.seasonRewards, now](DatabaseManager& db) {
+                    const auto season = SeasonCalendar(db.GetSeasons()).Current(now);
+                    if (!season || !db.SaveTrackedAccountRewards(id, season->season.season, rewards.level, rewards.wins, now)) return;
+                    {
+                        std::lock_guard<std::mutex> lock(m_mutex);
+                        if (auto* account = FindLocked(id)) {
+                            account->record.seasonRewards = TrackedAccounts::SeasonReward{
+                                season->season.season, rewards.level, rewards.wins, now};
+                        }
+                    }
+                    Publish();
+                });
+            }
             PostDb([this, id = event.primaryId, ranks = std::move(ranks), now](DatabaseManager& db) {
                 if (db.SaveTrackedAccountRanks(id, ranks, now)) {
                     {

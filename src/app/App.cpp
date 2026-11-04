@@ -2,6 +2,7 @@
 #include "core/accounts/AccountManager.hpp"
 #include "core/config/Config.hpp"
 #include "core/config/StatsApiConfig.hpp"
+#include "core/game/SeasonCalendar.hpp"
 #include "core/state/SessionState.hpp"
 #include "core/tournaments/TournamentSchedule.hpp"
 #include "database/DatabaseManager.hpp"
@@ -116,6 +117,12 @@ int App::Run() {
     }
 
     m_remoteConfig = std::make_shared<RemoteConfig>();
+    m_remoteConfig->SetSnapshotCallback([db = std::weak_ptr<DatabaseManager>(m_dbManager)](const RemoteConfigData& config) {
+        if (!config.season) return;
+        if (const auto manager = db.lock()) {
+            (void)manager->UpsertSeasons(SeasonCalendar::Merge({}, *config.season));
+        }
+    });
     m_tournamentService = std::make_shared<Tournaments::TournamentScheduleService>();
 
     m_dbManager->SetTelemetryManager(m_telemetryManager);

@@ -54,6 +54,37 @@ TEST(TournamentCountdown, RoundsUpWithoutShowingZeroBeforeStart) {
     EXPECT_EQ(TournamentUi::Countdown(3600), "1h 0m");
 }
 
+TEST(SeasonDisplay, FormatsCountdownAndMarksOnlyFinalWeek) {
+    constexpr int64_t day = 86400;
+    SeasonRecord season{20, 1, 20 * day, "official"};
+    const auto normal = TournamentUi::RenderSeasonChip(season, 10 * day);
+    EXPECT_NE(normal.find("10d left"), std::string::npos);
+    EXPECT_EQ(normal.find("ending-soon"), std::string::npos);
+    const auto soon = TournamentUi::RenderSeasonChip(season, 13 * day);
+    EXPECT_NE(soon.find("7d left"), std::string::npos);
+    EXPECT_NE(soon.find("ending-soon"), std::string::npos);
+    EXPECT_NE(TournamentUi::RenderSeasonChip(season, 20 * day - 1).find("1h left"), std::string::npos);
+    EXPECT_NE(TournamentUi::RenderSeasonChip(season, 20 * day).find("ended"), std::string::npos);
+    EXPECT_NE(TournamentUi::RenderSeasonChip({21, 20 * day, 20 * day, "observed"}, 21 * day).find("end date unknown"), std::string::npos);
+}
+
+TEST(SeasonDisplay, ReminderRespectsDayMatchAndRewardProgress) {
+    constexpr int64_t day = 86400;
+    const SeasonRecord season{20, 1, 10 * day, "official"};
+    EXPECT_FALSE(TournamentUi::ShouldRemindSeason(season.endsAt, 2 * day, 7, false, "today", ""));
+    EXPECT_FALSE(TournamentUi::ShouldRemindSeason(season.endsAt, 4 * day, 7, true, "today", ""));
+    EXPECT_FALSE(TournamentUi::ShouldRemindSeason(season.endsAt, 4 * day, 7, false, "today", "today"));
+    EXPECT_TRUE(TournamentUi::ShouldRemindSeason(season.endsAt, 4 * day, 7, false, "today", "yesterday"));
+    EXPECT_FALSE(TournamentUi::ShouldRemindSeason(season.endsAt, 10 * day, 7, false, "today", ""));
+    EXPECT_NE(TournamentUi::SeasonReminderText(season, 4 * day, 3, 9, true).find("1 win left"), std::string::npos);
+    EXPECT_EQ(TournamentUi::SeasonReminderText(season, 4 * day, 8, 9, true).find("win left"), std::string::npos);
+    EXPECT_EQ(TournamentUi::SeasonReminderText(season, 4 * day, 3, 9, false).find("win left"), std::string::npos);
+    EXPECT_FALSE(TournamentUi::ShouldShowSeasonRecap(0, 20, true, false));
+    EXPECT_FALSE(TournamentUi::ShouldShowSeasonRecap(19, 20, true, true));
+    EXPECT_FALSE(TournamentUi::ShouldShowSeasonRecap(19, 20, false, false));
+    EXPECT_TRUE(TournamentUi::ShouldShowSeasonRecap(19, 20, true, false));
+}
+
 TEST(TournamentSchedule, FetchUsesOmniNetAndParsesSchedule) {
     auto account = std::make_shared<AccountClient>();
     Tournaments::TournamentScheduleService tourneyService{false};

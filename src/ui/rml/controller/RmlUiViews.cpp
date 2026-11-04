@@ -29,6 +29,7 @@ namespace {
         if (name == "people") return InsightsView::Tab::People;
         if (name == "trends") return InsightsView::Tab::Trends;
         if (name == "playstyle") return InsightsView::Tab::Playstyle;
+        if (name == "season") return InsightsView::Tab::Season;
         return InsightsView::Tab::Recap;
     }
 }
@@ -105,12 +106,17 @@ void RmlUiController::ShowInsights(InsightsView::Tab tab, bool endedSession) {
     // Onboarding stays on top if both are open.
     if (m_onboardingVisible && m_onboardingDoc) m_onboardingDoc->PullToFront();
     if (m_dbManager && !m_snap.myPrimaryId.empty()) m_dbManager->AsyncLoadInsights(m_snap.myPrimaryId);
+    if (m_dbManager) {
+        const std::string account = m_snap.myPrimaryId.empty() ? m_config.last_primary_id : m_snap.myPrimaryId;
+        m_dbManager->AsyncGetSeasonSummaries(account, ++m_seasonSummaryRequestId);
+    }
     m_renderDirty = true;
 }
 
 void RmlUiController::HideInsights() {
     if (m_insightsDoc) m_insightsDoc->Hide();
     m_insightsVisible = false;
+    m_seasonRecapSelection = 0;
     m_sessionRecapDismissAtMs.reset();
     m_insightsShowsEndedSession = false;
     m_recapCapturePending = false;
@@ -119,6 +125,24 @@ void RmlUiController::HideInsights() {
 
 void RmlUiController::RefreshInsights(bool force) {
     if (!m_state) return;
+    const std::string account = m_snap.myPrimaryId.empty() ? m_config.last_primary_id : m_snap.myPrimaryId;
+    const auto seasonSnap = m_state->seasonSummaries.load();
+    if (seasonSnap && seasonSnap->loaded && seasonSnap->primaryId == account &&
+        (force || seasonSnap->requestId != m_lastSeasonSummaryRequestId)) {
+        m_lastSeasonSummaryRequestId = seasonSnap->requestId;
+        std::optional<TrackedAccounts::SeasonReward> reward;
+        if (m_accountsService) {
+            const auto accounts = m_accountsService->GetSnapshot();
+            for (const auto& entry : accounts.accounts) {
+                if (entry.record.primaryId == account) {
+                    reward = entry.record.seasonRewards;
+                    break;
+                }
+            }
+        }
+        m_insights.SetSeason(seasonSnap->seasons, reward, static_cast<int64_t>(std::time(nullptr)), m_seasonRecapSelection);
+        m_renderDirty = true;
+    }
     if (force || m_lastRecapGameVersion != m_lastGameVersion) {
         m_lastRecapGameVersion = m_lastGameVersion;
         SessionRecap endedRecap;
@@ -151,6 +175,7 @@ void RmlUiController::ShowHistory(int64_t detailMatchId, const std::string& deta
     if (!m_historyDoc) return;
     const std::string effectivePrimary = m_snap.myPrimaryId.empty() ? m_config.last_primary_id : m_snap.myPrimaryId;
     m_history.SetAccount(effectivePrimary);
+    if (m_dbManager) m_dbManager->AsyncGetSeasonSummaries(effectivePrimary, ++m_seasonSummaryRequestId);
     if (!m_historyVisible) {
         m_historyDoc->Show();
         m_historyVisible = true;
@@ -422,6 +447,18 @@ void RmlUiController::OpenHistoryDetail(int64_t matchId, const std::string& matc
 void RmlUiController::RefreshHistory(bool force) {
     if (!m_state) return;
     const std::string effectivePrimary = m_snap.myPrimaryId.empty() ? m_config.last_primary_id : m_snap.myPrimaryId;
+    const auto seasonSnap = m_state->seasonSummaries.load();
+    if (seasonSnap && seasonSnap->loaded && seasonSnap->primaryId == effectivePrimary &&
+        (force || seasonSnap->requestId != m_lastHistorySeasonRequestId)) {
+        m_lastHistorySeasonRequestId = seasonSnap->requestId;
+        std::vector<SeasonRecord> seasons;
+        for (const auto& summary : seasonSnap->seasons)
+            seasons.push_back(summary.season);
+        const bool seasonFiltered = m_history.DateFilter() == "this_season" || m_history.DateFilter() == "last_season";
+        const bool changed = m_history.SetSeasonOptions(m_config.group_history_by_season || seasonFiltered, std::move(seasons));
+        if (changed || seasonFiltered) TriggerHistoryQuery(false);
+        m_renderDirty = true;
+    }
     if (m_history.Account() != effectivePrimary) {
         m_history.SetAccount(effectivePrimary);
     }
@@ -443,11 +480,12 @@ void RmlUiController::RefreshHistory(bool force) {
 // holds the recap card is still bound.
 void RmlUiController::ExportRecapPng() {
     m_recapCapturePending = false;
-    Rml::Element* card = m_insightsDoc && m_insightsVisible ? m_insightsDoc->GetElementById("recap-card") : nullptr;
+    const bool season = m_insights.CurrentTab() == InsightsView::Tab::Season;
+    Rml::Element* card = m_insightsDoc && m_insightsVisible ? m_insightsDoc->GetElementById(season ? "season-card" : "recap-card") : nullptr;
     if (!card || !m_d3dContext) return;
     const Rml::Vector2f offset = card->GetAbsoluteOffset(Rml::BoxArea::Border);
     const Rml::Vector2f size = card->GetBox().GetSize(Rml::BoxArea::Border);
-    const std::wstring path = RmlCapture::NewPicturePath(L"OmniStats-recap");
+    const std::wstring path = RmlCapture::NewPicturePath(season ? L"OmniStats-season" : L"OmniStats-recap");
     std::string error;
     if (!RmlCapture::SaveBoundRenderTargetRegion(m_d3dContext, static_cast<int>(std::floor(offset.x)), static_cast<int>(std::floor(offset.y)),
                                                  static_cast<int>(std::ceil(size.x)), static_cast<int>(std::ceil(size.y)),
@@ -673,7 +711,9 @@ bool RmlUiController::HandleViewAction(const std::string& action, Rml::Element* 
     } else if (action == "insights-close") {
         HideInsights();
     } else if (action == "insights-tab") {
+        m_seasonRecapSelection = 0;
         m_insights.SetTab(TabFromName(Attribute(target, "data-tab")));
+        if (m_insights.CurrentTab() == InsightsView::Tab::Season) RefreshInsights(true);
         m_renderDirty = true;
     } else if (action == "people-filter") {
         m_insights.SetPeopleFilter(Attribute(target, "data-filter") == "rivals" ? Insights::PeopleFilter::Rivals
@@ -687,6 +727,16 @@ bool RmlUiController::HandleViewAction(const std::string& action, Rml::Element* 
     } else if (action == "recap-export") {
         m_recapCapturePending = true;
         m_renderDirty = true;
+    } else if (action == "season-export") {
+        m_recapCapturePending = true;
+        m_renderDirty = true;
+    } else if (action == "season-history") {
+        const bool previousSeason = m_seasonRecapSelection > 0;
+        HideInsights();
+        ShowHistory();
+        m_history.SetSeasonOptions(true, {});
+        m_history.SetDateFilter(previousSeason ? "last_season" : "this_season");
+        TriggerHistoryQuery(false);
     } else if (action == "session-open") {
         const int idx = std::atoi(Attribute(target, "data-session-index").c_str());
         if (idx >= 0 && m_insights.OpenSession(static_cast<size_t>(idx))) {

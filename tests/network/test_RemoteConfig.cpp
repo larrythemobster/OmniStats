@@ -7,6 +7,7 @@
 #include "network/omninet/OmniNet.hpp"
 #include <filesystem>
 #include <string>
+#include <nlohmann/json.hpp>
 
 namespace fs = std::filesystem;
 
@@ -210,4 +211,153 @@ TEST_F(RemoteConfigTestFixture, CacheFallbackUnder24hAndDefaultResetAfter24h) {
     currentTime += 23 * 3600;
     EXPECT_FALSE(remoteConfig.FetchOnce());
     EXPECT_TRUE(remoteConfig.GetSnapshot().min_supported_version.empty());
+}
+
+TEST_F(RemoteConfigTestFixture, SeasonConfigParseAndSerializeRoundTripContract) {
+    const std::string contractJson = R"({
+        "schema": 1,
+        "ttl_seconds": 900,
+        "season": {
+            "current": 24,
+            "seasons": [
+                {
+                    "season": 24,
+                    "starts_at": "2026-03-10T15:00:00Z",
+                    "ends_at": "2026-06-16T15:00:00Z",
+                    "source": "rocket_league"
+                }
+            ],
+            "next": {
+                "season": 25,
+                "starts_at": "2026-06-16T15:00:00Z",
+                "ends_at": "2026-09-15T15:00:00Z"
+            }
+        }
+    })";
+
+    RemoteConfigData parsed;
+    std::string err;
+    ASSERT_TRUE(RemoteConfig::ParseConfigJson(contractJson, parsed, &err)) << err;
+    EXPECT_EQ(parsed.schema, 1);
+    EXPECT_EQ(parsed.ttl_seconds, 900);
+    ASSERT_TRUE(parsed.season.has_value());
+    EXPECT_EQ(parsed.season->current, 24);
+
+    ASSERT_EQ(parsed.season->seasons.size(), 1u);
+    EXPECT_EQ(parsed.season->seasons[0].season, 24);
+    EXPECT_EQ(parsed.season->seasons[0].starts_at, "2026-03-10T15:00:00Z");
+    EXPECT_EQ(parsed.season->seasons[0].ends_at, "2026-06-16T15:00:00Z");
+    EXPECT_EQ(parsed.season->seasons[0].source, "rocket_league");
+
+    ASSERT_TRUE(parsed.season->next.has_value());
+    EXPECT_EQ(parsed.season->next->season, 25);
+    EXPECT_EQ(parsed.season->next->starts_at, "2026-06-16T15:00:00Z");
+    EXPECT_EQ(parsed.season->next->ends_at, "2026-09-15T15:00:00Z");
+    EXPECT_EQ(parsed.season->next->source, "rocket_league");
+
+    const nlohmann::json serialized = RemoteConfig::SerializeConfigJson(parsed);
+    ASSERT_TRUE(serialized.contains("season"));
+    EXPECT_EQ(serialized["season"]["current"], 24);
+    ASSERT_TRUE(serialized["season"]["seasons"].is_array());
+    ASSERT_EQ(serialized["season"]["seasons"].size(), 1u);
+    EXPECT_EQ(serialized["season"]["seasons"][0]["season"], 24);
+    EXPECT_EQ(serialized["season"]["seasons"][0]["source"], "rocket_league");
+
+    ASSERT_TRUE(serialized["season"].contains("next"));
+    EXPECT_EQ(serialized["season"]["next"]["season"], 25);
+    EXPECT_FALSE(serialized["season"]["next"].contains("source"));
+
+    RemoteConfigData roundTrip;
+    std::string roundTripErr;
+    ASSERT_TRUE(RemoteConfig::ParseConfigJson(serialized.dump(), roundTrip, &roundTripErr)) << roundTripErr;
+    EXPECT_EQ(roundTrip, parsed);
+    EXPECT_EQ(RemoteConfig::SerializeConfigJson(roundTrip), serialized);
+}
+
+TEST_F(RemoteConfigTestFixture, InvalidSeasonObjectIgnoredWhileRestValid) {
+    auto assertSeasonIgnored = [](const nlohmann::json& invalidSeason) {
+        const nlohmann::json payload = {
+            {"schema", 1},
+            {"ttl_seconds", 1200},
+            {"min_supported_version", "2.2.0"},
+            {"min_version_message", "Please update to continue."},
+            {"season", invalidSeason}};
+        RemoteConfigData parsed;
+        std::string err;
+        ASSERT_TRUE(RemoteConfig::ParseConfigJson(payload.dump(), parsed, &err)) << err;
+        EXPECT_EQ(parsed.schema, 1);
+        EXPECT_EQ(parsed.ttl_seconds, 1200);
+        EXPECT_EQ(parsed.min_supported_version, "2.2.0");
+        EXPECT_EQ(parsed.min_version_message, "Please update to continue.");
+        EXPECT_FALSE(parsed.season.has_value());
+    };
+
+    auto makeSeasonsArray = [](std::initializer_list<nlohmann::json> entries) {
+        nlohmann::json arr = nlohmann::json::array();
+        for (const auto& entry : entries) {
+            arr.push_back(entry);
+        }
+        return arr;
+    };
+
+    // 1. Invalid timestamps in seasons array or next object
+    assertSeasonIgnored({{"current", 24},
+                         {"seasons", makeSeasonsArray({{{"season", 24}, {"starts_at", "not-a-timestamp"}, {"ends_at", "2026-06-16T15:00:00Z"}, {"source", "rocket_league"}}})}});
+    assertSeasonIgnored({{"current", 24},
+                         {"seasons", makeSeasonsArray({{{"season", 24}, {"starts_at", "2026-03-10T15:00:00Z"}, {"ends_at", "2026-02-31T15:00:00Z"}, {"source", "rocket_league"}}})}});
+    assertSeasonIgnored({{"current", 24},
+                         {"seasons", makeSeasonsArray({{{"season", 24}, {"starts_at", "2026-03-10T15:00:00Z"}, {"ends_at", "2026-06-16T15:00:00Z"}, {"source", "rocket_league"}}})},
+                         {"next", {{"season", 25}, {"starts_at", "invalid-rfc3339"}, {"ends_at", "2026-09-15T15:00:00Z"}}}});
+    assertSeasonIgnored({{"current", 24},
+                         {"seasons", makeSeasonsArray({{{"season", 24}, {"starts_at", "2026-03-10T15:00:00Z"}, {"ends_at", "2026-06-16T15:00:00Z"}, {"source", "rocket_league"}}})},
+                         {"next", {{"season", 25}, {"starts_at", "2026-06-16T15:00:00Z"}, {"ends_at", "bad-date-format"}}}});
+
+    // 2. start >= end
+    assertSeasonIgnored({{"current", 24},
+                         {"seasons", makeSeasonsArray({{{"season", 24}, {"starts_at", "2026-03-10T15:00:00Z"}, {"ends_at", "2026-03-10T15:00:00Z"}, {"source", "rocket_league"}}})}});
+    assertSeasonIgnored({{"current", 24},
+                         {"seasons", makeSeasonsArray({{{"season", 24}, {"starts_at", "2026-06-16T15:00:00Z"}, {"ends_at", "2026-03-10T15:00:00Z"}, {"source", "rocket_league"}}})}});
+    assertSeasonIgnored({{"current", 24},
+                         {"seasons", makeSeasonsArray({{{"season", 24}, {"starts_at", "2026-03-10T15:00:00Z"}, {"ends_at", "2026-06-16T15:00:00Z"}, {"source", "rocket_league"}}})},
+                         {"next", {{"season", 25}, {"starts_at", "2026-09-15T15:00:00Z"}, {"ends_at", "2026-06-16T15:00:00Z"}}}});
+
+    // 3. Season numbers outside 1..1000
+    assertSeasonIgnored({{"current", 0},
+                         {"seasons", makeSeasonsArray({{{"season", 24}, {"starts_at", "2026-03-10T15:00:00Z"}, {"ends_at", "2026-06-16T15:00:00Z"}, {"source", "rocket_league"}}})}});
+    assertSeasonIgnored({{"current", 1001},
+                         {"seasons", makeSeasonsArray({{{"season", 24}, {"starts_at", "2026-03-10T15:00:00Z"}, {"ends_at", "2026-06-16T15:00:00Z"}, {"source", "rocket_league"}}})}});
+    assertSeasonIgnored({{"current", 24},
+                         {"seasons", makeSeasonsArray({{{"season", 0}, {"starts_at", "2026-03-10T15:00:00Z"}, {"ends_at", "2026-06-16T15:00:00Z"}, {"source", "rocket_league"}}})}});
+    assertSeasonIgnored({{"current", 24},
+                         {"seasons", makeSeasonsArray({{{"season", 1001}, {"starts_at", "2026-03-10T15:00:00Z"}, {"ends_at", "2026-06-16T15:00:00Z"}, {"source", "rocket_league"}}})}});
+    assertSeasonIgnored({{"current", 24},
+                         {"seasons", makeSeasonsArray({{{"season", 24}, {"starts_at", "2026-03-10T15:00:00Z"}, {"ends_at", "2026-06-16T15:00:00Z"}, {"source", "rocket_league"}}})},
+                         {"next", {{"season", 0}, {"starts_at", "2026-06-16T15:00:00Z"}, {"ends_at", "2026-09-15T15:00:00Z"}}}});
+    assertSeasonIgnored({{"current", 24},
+                         {"seasons", makeSeasonsArray({{{"season", 24}, {"starts_at", "2026-03-10T15:00:00Z"}, {"ends_at", "2026-06-16T15:00:00Z"}, {"source", "rocket_league"}}})},
+                         {"next", {{"season", 1001}, {"starts_at", "2026-06-16T15:00:00Z"}, {"ends_at", "2026-09-15T15:00:00Z"}}}});
+
+    // 4. Too many entries (> 8 in seasons array)
+    {
+        nlohmann::json nineSeasons = nlohmann::json::array();
+        for (int s = 1; s <= 9; ++s) {
+            nineSeasons.push_back({{"season", s},
+                                   {"starts_at", "2026-01-01T00:00:00Z"},
+                                   {"ends_at", "2026-02-01T00:00:00Z"},
+                                   {"source", "rocket_league"}});
+        }
+        assertSeasonIgnored({{"current", 1},
+                             {"seasons", nineSeasons}});
+    }
+
+    // 5. Invalid source
+    assertSeasonIgnored({{"current", 24},
+                         {"seasons", makeSeasonsArray({{{"season", 24}, {"starts_at", "2026-03-10T15:00:00Z"}, {"ends_at", "2026-06-16T15:00:00Z"}, {"source", "unsupported_source"}}})}});
+    assertSeasonIgnored({{"current", 24},
+                         {"seasons", makeSeasonsArray({{{"season", 24}, {"starts_at", "2026-03-10T15:00:00Z"}, {"ends_at", "2026-06-16T15:00:00Z"}}})}});
+    assertSeasonIgnored({{"current", 24},
+                         {"seasons", makeSeasonsArray({{{"season", 24}, {"starts_at", "2026-03-10T15:00:00Z"}, {"ends_at", "2026-06-16T15:00:00Z"}, {"source", "rocket_league"}}})},
+                         {"next", {{"season", 25}, {"starts_at", "2026-06-16T15:00:00Z"}, {"ends_at", "2026-09-15T15:00:00Z"}, {"source", "invalid_source"}}}});
+    assertSeasonIgnored({{"current", 24},
+                         {"seasons", makeSeasonsArray({{{"season", 24}, {"starts_at", "2026-03-10T15:00:00Z"}, {"ends_at", "2026-06-16T15:00:00Z"}, {"source", 42}}})}});
 }

@@ -307,6 +307,11 @@ class RmlUiControllerStateTest : public ::testing::Test {
     void ShowRecap(RmlUiController& controller) {
         controller.ShowInsights(InsightsView::Tab::Recap, false);
     }
+    void ShowSeason(RmlUiController& controller, const std::vector<SeasonSummary>& summaries,
+                    const TrackedAccounts::SeasonReward& reward, int64_t now, int selectedSeason = 0) {
+        controller.ShowInsights(InsightsView::Tab::Season, false);
+        controller.m_insights.SetSeason(summaries, reward, now, selectedSeason);
+    }
     bool InsightsShowEndedSession(const RmlUiController& controller) const {
         return controller.m_insightsShowsEndedSession;
     }
@@ -2485,6 +2490,67 @@ TEST_F(RmlUiControllerStateTest, DisplaySettingsPersistsReplayVisibilityWithoutE
     EXPECT_FALSE(state->ui.dashboardLayoutEditMode.load());
 }
 
+TEST_F(RmlUiControllerStateTest, SeasonTabRendersSummaryRewardAndPreviousSeason) {
+    WarpDevice warp;
+    if (!warp.Create(1280, 800)) GTEST_SKIP() << "WARP not available.";
+    auto state = std::make_shared<SessionState>();
+    RmlUiController controller(state, nullptr);
+    ASSERT_TRUE(controller.Initialize(nullptr, warp.device.Get(), warp.context.Get(), 1280, 800, 1.0f));
+
+    SeasonSummary current;
+    current.season = {20, 1'700'000'000, 1'710'000'000, "rocket_league"};
+    current.wins = 12;
+    current.losses = 8;
+    current.winRate = 0.6;
+    current.totalMmrChange = 45;
+    current.peakMmr = 1250;
+    current.peakRank = "Champion II";
+    current.playlists["2v2"] = {9, 6, 35};
+    current.playlists["1v1"] = {3, 2, 10};
+    SeasonSummary previous;
+    previous.season = {19, 1'690'000'000, 1'700'000'000, "rocket_league"};
+    previous.wins = 4;
+    previous.losses = 6;
+    previous.winRate = 0.4;
+    previous.peakMmr = 1180;
+    previous.peakRank = "Champion I";
+    const std::vector<SeasonSummary> summaries{current, previous};
+    const TrackedAccounts::SeasonReward reward{20, 4, 7, 1'705'000'000};
+
+    ShowSeason(controller, summaries, reward, 1'705'000'000);
+    controller.Render();
+    RmlContext(controller)->Update();
+    auto* doc = InsightsDocument(controller);
+    ASSERT_NE(doc, nullptr);
+    ASSERT_TRUE(doc->IsVisible());
+    auto* card = doc->GetElementById("season-card");
+    ASSERT_NE(card, nullptr);
+    EXPECT_NE(card->GetInnerRML().find("SEASON 20"), std::string::npos);
+    EXPECT_NE(card->GetInnerRML().find("20 ranked games"), std::string::npos);
+    EXPECT_NE(card->GetInnerRML().find("60%"), std::string::npos);
+    EXPECT_NE(card->GetInnerRML().find("1250"), std::string::npos);
+    ASSERT_NE(card->QuerySelector(".reward-row"), nullptr);
+    auto* rewardCount = card->QuerySelector(".reward-count");
+    auto* rewardTier = card->QuerySelector(".reward-tier");
+    ASSERT_NE(rewardCount, nullptr);
+    ASSERT_NE(rewardTier, nullptr);
+    EXPECT_NE(rewardCount->GetInnerRML().find("7 / 10"), std::string::npos);
+    EXPECT_NE(rewardTier->GetInnerRML().find("Diamond"), std::string::npos);
+    Rml::ElementList rows;
+    card->QuerySelectorAll(rows, ".recap-mode-row");
+    EXPECT_EQ(std::count_if(rows.begin(), rows.end(), [](Rml::Element* row) { return row->IsVisible(); }), 2);
+    EXPECT_NE(card->GetInnerRML().find("Season 19"), std::string::npos);
+
+    ShowSeason(controller, summaries, reward, 1'705'000'000, 19);
+    controller.Render();
+    RmlContext(controller)->Update();
+    card = doc->GetElementById("season-card");
+    ASSERT_NE(card, nullptr);
+    EXPECT_NE(card->GetInnerRML().find("SEASON 19"), std::string::npos);
+    auto* previousReward = card->QuerySelector(".reward-row");
+    EXPECT_TRUE(!previousReward || !previousReward->IsVisible());
+}
+
 TEST_F(RmlUiControllerStateTest, SessionsTabRendersRowsOpensArchivedRecapAndComparesWithPrevious) {
     WarpDevice warp;
     if (!warp.Create(1280, 800)) GTEST_SKIP() << "WARP not available.";
@@ -2776,6 +2842,50 @@ TEST_F(RmlUiControllerStateTest, HistoryViewOpensClosesIgnoresStaleResponsesAndO
     controller.OpenHistory();
     EXPECT_TRUE(controller.ProcessWindowMessage(nullptr, WM_KEYDOWN, VK_ESCAPE, 0));
     EXPECT_TRUE(controller.ProcessWindowMessage(nullptr, WM_KEYDOWN, VK_ESCAPE, 0));
+}
+
+TEST_F(RmlUiControllerStateTest, HistoryViewSetSeasonOptionsAndBuildQueryBoundaries) {
+    HistoryView view;
+
+    const std::vector<SeasonRecord> seasons = {
+        {22, 1'000'000LL, 1'900'000LL, "rocket_league"},
+        {23, 2'000'000LL, 2'800'000LL, "rocket_league"},
+        {24, 3'000'000LL, 4'000'000LL, "rocket_league"},
+    };
+
+    EXPECT_FALSE(view.SetSeasonOptions(true, seasons));
+
+    const int64_t nowUnix = 3'500'000LL; // inside season 24
+
+    view.SetDateFilter("this_season");
+    EXPECT_EQ(view.DateFilter(), "this_season");
+    const auto qThis = view.BuildQuery(0, 50, nowUnix);
+    EXPECT_EQ(qThis.fromUnix, 3'000'000LL);
+    EXPECT_EQ(qThis.toUnix, 4'000'000LL);
+
+    view.SetDateFilter("last_season");
+    EXPECT_EQ(view.DateFilter(), "last_season");
+    const auto qLast = view.BuildQuery(0, 50, nowUnix);
+    EXPECT_EQ(qLast.fromUnix, 2'000'000LL);
+    EXPECT_EQ(qLast.toUnix, 2'999'999LL);
+
+    const auto qUnknown = view.BuildQuery(0, 50, 500'000LL);
+    EXPECT_EQ(qUnknown.fromUnix, 1);
+    EXPECT_EQ(qUnknown.toUnix, 1);
+
+    view.SetDateFilter("this_season");
+    EXPECT_TRUE(view.SetSeasonOptions(false, {}));
+    EXPECT_EQ(view.DateFilter(), "all");
+
+    EXPECT_FALSE(view.SetSeasonOptions(true, seasons));
+    view.SetDateFilter("last_season");
+    EXPECT_TRUE(view.SetSeasonOptions(false, {}));
+    EXPECT_EQ(view.DateFilter(), "all");
+
+    EXPECT_FALSE(view.SetSeasonOptions(true, seasons));
+    view.SetDateFilter("7d");
+    EXPECT_FALSE(view.SetSeasonOptions(false, {}));
+    EXPECT_EQ(view.DateFilter(), "7d");
 }
 
 TEST_F(RmlUiControllerStateTest, DragHoldClearsExpiredVisibilityDeadlineWithoutPinningShouldRender) {

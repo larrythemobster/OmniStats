@@ -2,6 +2,7 @@
 #include "ui/rml/widgets/TournamentWidget.hpp"
 #include "ui/rml/controller/RmlUiController.hpp"
 #include "core/state/LiveMatchStore.hpp"
+#include "core/accounts/AccountManager.hpp"
 #include <mmsystem.h>
 #include <shobjidl.h>
 #include <commdlg.h>
@@ -752,6 +753,7 @@ void RmlUiController::RebuildVisibleUi(bool force, bool configChanged) {
            << m_config.show_previous_games_summary << '|' << m_config.previous_games_limit << '|'
            << m_config.show_tournaments << '|' << m_config.tournament_region << '|'
            << m_config.tournament_reminder_minutes << '|' << m_config.tournament_reminder_standard_only << '|'
+           << m_config.show_season_countdown << '|'
            << m_config.show_streaks_stats << '|' << m_config.show_longest_loss_streak << '|'
            << m_config.show_gamemode_breakdown << '|' << m_config.show_gamemode_record_1v1 << '|'
            << m_config.show_gamemode_record_2v2 << '|' << m_config.show_gamemode_record_3v3 << '|'
@@ -1314,6 +1316,60 @@ std::string RmlUiController::PlaylistImageForName(const std::string& playlist) {
 
 void RmlUiController::RefreshTournaments(bool force) {
     const int64_t now = static_cast<int64_t>(std::time(nullptr));
+    const auto summaries = m_state ? m_state->seasonSummaries.load() : nullptr;
+    if (summaries && summaries->loaded) {
+        const auto current = TournamentUi::CurrentSeason(summaries, now);
+        if (current != m_currentSeason) {
+            m_currentSeason = current;
+            force = true;
+        }
+    }
+    if (m_dbManager && m_tournamentMinute != now / 60) {
+        const std::string primary = m_snap.myPrimaryId.empty() ? m_config.last_primary_id : m_snap.myPrimaryId;
+        m_dbManager->AsyncGetSeasonSummaries(primary, ++m_seasonSummaryRequestId);
+    }
+    if (m_currentSeason && !m_onboardingVisible) {
+        const auto& season = *m_currentSeason;
+        const int previous = m_config.season_recap_last_seen;
+        if (previous == 0 || (!m_config.show_season_recap && season.season > previous)) {
+            m_config.season_recap_last_seen = season.season;
+            Config::Update([number = season.season](ConfigData& c) { c.season_recap_last_seen = number; }, false);
+            Config::RequestSave();
+        } else if (TournamentUi::ShouldShowSeasonRecap(previous, season.season, m_config.show_season_recap, m_snap.inMatch) &&
+                   !m_insightsVisible && !m_historyVisible && !m_accountsVisible) {
+            m_seasonRecapSelection = previous;
+            m_config.season_recap_last_seen = season.season;
+            Config::Update([number = season.season](ConfigData& c) { c.season_recap_last_seen = number; }, false);
+            Config::RequestSave();
+            ShowInsights(InsightsView::Tab::Season, false);
+        }
+        const time_t clock = static_cast<time_t>(now);
+        tm local{};
+        char date[16]{};
+        if (localtime_s(&local, &clock) == 0) std::strftime(date, sizeof(date), "%Y-%m-%d", &local);
+        if (season.endsAt > season.startsAt &&
+            TournamentUi::ShouldRemindSeason(season.endsAt, now, m_config.season_reminder_days, m_snap.inMatch,
+                                             date, m_config.season_reminder_last_day)) {
+            int rewardLevel = -1;
+            int rewardWins = -1;
+            const std::string primary = m_snap.myPrimaryId.empty() ? m_config.last_primary_id : m_snap.myPrimaryId;
+            if (m_accountsService && m_config.season_reward_reminders && !primary.empty()) {
+                const auto accounts = m_accountsService->GetSnapshot();
+                for (const auto& account : accounts.accounts) {
+                    const auto& reward = account.record.seasonRewards;
+                    if (account.record.primaryId == primary && reward && reward->season == season.season) {
+                        rewardLevel = reward->level;
+                        rewardWins = reward->wins;
+                        break;
+                    }
+                }
+            }
+            ShowToast(TournamentUi::SeasonReminderText(season, now, rewardLevel, rewardWins, m_config.season_reward_reminders));
+            m_config.season_reminder_last_day = date;
+            Config::Update([day = std::string(date)](ConfigData& c) { c.season_reminder_last_day = day; }, false);
+            Config::RequestSave();
+        }
+    }
     const auto snapshot = m_tournamentService ? m_tournamentService->Snapshot() : std::make_shared<Tournaments::ScheduleSnapshot>();
     const bool enabled = m_accountClient && m_accountClient->IsSignedIn();
     if (enabled && !m_onboardingVisible) {
@@ -1326,7 +1382,7 @@ void RmlUiController::RefreshTournaments(bool force) {
             }
         }
     }
-    if (enabled) {
+    if (enabled || (m_dbManager && (m_config.show_season_countdown || m_config.season_reminder_days > 0 || m_config.show_season_recap))) {
         const int64_t wake = SteadyNowMs() + (60 - now % 60) * 1000;
         if (!m_nextVisibilityWakeMs || wake < *m_nextVisibilityWakeMs) m_nextVisibilityWakeMs = wake;
     }
@@ -1335,12 +1391,16 @@ void RmlUiController::RefreshTournaments(bool force) {
     m_tournamentMinute = now / 60;
     if (auto* root = Root("tournament-topbar-root"))
         SetElementRml(root, enabled && m_config.show_tournaments ? TournamentUi::RenderTopbar(*snapshot, now, m_config.tournament_reminder_standard_only, m_config.tournament_reminder_minutes) : "", false);
+    if (auto* root = Root("season-topbar-root"))
+        SetElementRml(root, m_config.show_season_countdown && m_currentSeason ? TournamentUi::RenderSeasonChip(*m_currentSeason, now) : "", false);
     if (auto* app = Root("app")) {
         Rml::ElementList widgets;
         app->GetElementsByClassName(widgets, "live-widget");
         for (auto* widget : widgets) {
-            if (Attribute(widget, "data-live-widget") == "tournaments")
-                SetElementRml(widget, enabled ? TournamentUi::RenderWidget(*snapshot, now) : "", false);
+            if (Attribute(widget, "data-live-widget") == "tournaments") {
+                const std::string tournament = enabled ? TournamentUi::RenderWidget(*snapshot, now) : "";
+                SetElementRml(widget, tournament + (m_config.show_season_countdown && m_currentSeason ? TournamentUi::RenderSeasonChip(*m_currentSeason, now) : ""), false);
+            }
         }
     }
 }

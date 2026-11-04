@@ -502,7 +502,7 @@ bool MmrService::PublishProfileResult(const MMRRequest& req, const NormalizedPro
                                              [](const auto& entry) { return entry.first != "best" && entry.second > 0; });
         TrackedAccountFetchEvent event;
         event.primaryId = req.primaryId;
-        event.status = hasPlaylist ? TrackedAccountFetchStatus::Success : TrackedAccountFetchStatus::NoRankedData;
+        event.status = hasPlaylist || profile.seasonRewards ? TrackedAccountFetchStatus::Success : TrackedAccountFetchStatus::NoRankedData;
         event.profile = profile;
         NotifyTracked(req, std::move(event));
         return false;

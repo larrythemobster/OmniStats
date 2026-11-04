@@ -8,7 +8,7 @@ OmniStats is a local-first Windows companion application for Rocket League. Tele
 |---|---|---|---|
 | **Startup diagnostics** | OmniStats service | App version, pseudonymous installation ID, and integration toggle states. Official builds only. No match data or player names. | Required in official builds (startup); absent in source builds |
 | **Update checks** | `omnistats.org` | App version. Receives version metadata and announcements. The MSI is checked against its SHA-256 checksum and pinned Authenticode signature before installation. | Always on |
-| **OmniStats rank lookup** | OmniStats service | Up to 8 player platform and account IDs per batch, sent with the signed-in access token. Official builds only. | Opt-in |
+| **OmniStats rank lookup** | OmniStats service | Up to 8 player platform and account IDs per batch, sent with the signed-in access token. Tracked-account batches also request season reward progress. Official builds only. | Opt-in |
 | **Tournament schedules** | OmniStats service | Region code, device ID, and signed-in access token. Local ping-cache and match-log contents are not uploaded. Official builds only. | Enabled while signed in; can be disabled |
 | **Tracker rank lookup** | Tracker Network | Lobby player public display names and platform identifiers. | Opt-in |
 | **Replay uploads** | `ballchasing.com` | Rocket League `.replay` files containing match participant identities and gameplay data. | Opt-in |
@@ -26,7 +26,8 @@ All match and user data is stored locally in `%APPDATA%\omnistats\omnistats.db` 
 - **Match history:** Timestamps, arenas, scores, match outcomes, player platform IDs, names, MMR, and scoreboard statistics.
 - **Match analytics:** Per-match gameplay data from the Stats API: ball-hit locations and speeds, goal locations, kickoff and possession summaries, stat-feed events per player, and boost and movement aggregates for you and your teammates.
 - **Player notes:** Private scouting notes keyed by normalized platform account identity.
-- **Tracked accounts:** Curated list of local and alt accounts with nicknames and cached playlist ranks.
+- **Tracked accounts:** Curated list of local and alt accounts with nicknames, cached playlist ranks and available season reward progress.
+- **Season dates:** Cached season boundaries and their source for offline history.
 - **Replay queue:** Local replay paths, upload status, and Ballchasing URLs.
 - **Configuration:** Stored in `config.json`. Account signing keys and tokens are encrypted using Windows DPAPI (`CryptProtectData`).
 

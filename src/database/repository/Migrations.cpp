@@ -358,6 +358,31 @@ namespace database::repository {
     );
 )";
 
+        constexpr const char* kMigrationV12Sql = R"(
+    CREATE TABLE IF NOT EXISTS Seasons (
+        season INTEGER PRIMARY KEY,
+        starts_at INTEGER NOT NULL,
+        ends_at INTEGER NOT NULL,
+        source TEXT NOT NULL,
+        updated_at INTEGER NOT NULL DEFAULT (unixepoch())
+    );
+    CREATE TABLE IF NOT EXISTS TrackedAccountRewards (
+        primary_id TEXT NOT NULL REFERENCES TrackedAccounts(primary_id) ON DELETE CASCADE,
+        season INTEGER NOT NULL,
+        level INTEGER NOT NULL,
+        wins INTEGER NOT NULL,
+        observed_at INTEGER NOT NULL,
+        PRIMARY KEY(primary_id, season)
+    );
+    CREATE TABLE IF NOT EXISTS RankedSeasonObservation (
+        primary_id TEXT NOT NULL REFERENCES TrackedAccounts(primary_id) ON DELETE CASCADE,
+        playlist_key TEXT NOT NULL,
+        matches_played INTEGER NOT NULL,
+        observed_at INTEGER NOT NULL,
+        PRIMARY KEY(primary_id, playlist_key)
+    );
+)";
+
         const std::vector<MigrationStep> kMigrations = {
             {1, kMigrationV1Sql, ApplyMigrationV1},
             {2, kMigrationV2Sql},
@@ -370,6 +395,7 @@ namespace database::repository {
             {9, kMigrationV9Sql},
             {10, kMigrationV10Sql},
             {11, kMigrationV11Sql},
+            {12, kMigrationV12Sql},
         };
 
     } // namespace

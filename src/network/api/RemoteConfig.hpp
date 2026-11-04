@@ -5,6 +5,7 @@
 #include <cstdint>
 #include <functional>
 #include <mutex>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <thread>
@@ -24,12 +25,30 @@ struct RemoteAnnouncement {
     bool operator==(const RemoteAnnouncement& other) const noexcept = default;
 };
 
+struct RemoteSeasonEntry {
+    int season = 0;
+    std::string starts_at;
+    std::string ends_at;
+    std::string source;
+
+    bool operator==(const RemoteSeasonEntry& other) const noexcept = default;
+};
+
+struct RemoteSeasonConfig {
+    int current = 0;
+    std::vector<RemoteSeasonEntry> seasons;
+    std::optional<RemoteSeasonEntry> next;
+
+    bool operator==(const RemoteSeasonConfig& other) const noexcept = default;
+};
+
 struct RemoteConfigData {
     int schema = 1;
     int ttl_seconds = 900;
     std::vector<RemoteAnnouncement> announcements;
     std::string min_supported_version;
     std::string min_version_message;
+    std::optional<RemoteSeasonConfig> season;
 
     bool operator==(const RemoteConfigData& other) const noexcept = default;
 };
@@ -47,6 +66,7 @@ class RemoteConfig {
     using ClockFn = std::function<int64_t()>;
     explicit RemoteConfig(bool enableWorker = true);
     ~RemoteConfig();
+    void SetSnapshotCallback(std::function<void(const RemoteConfigData&)> callback);
 
     RemoteConfig(const RemoteConfig&) = delete;
     RemoteConfig& operator=(const RemoteConfig&) = delete;
@@ -97,6 +117,7 @@ class RemoteConfig {
     void SaveDismissedLocked() const;
 
     mutable std::mutex m_mutex;
+    std::function<void(const RemoteConfigData&)> m_snapshotCallback;
     RemoteConfigData m_snapshot;
     int64_t m_lastFetchedAt = 0;
     bool m_hasCachedSnapshot = false;

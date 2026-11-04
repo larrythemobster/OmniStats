@@ -3,6 +3,7 @@
 #include <chrono>
 #include <cstdint>
 #include <map>
+#include <optional>
 #include <string>
 #include <vector>
 #include <array>
@@ -46,6 +47,11 @@ enum class CustomApiFetchResult {
     DisabledOrNotReady
 };
 
+struct SeasonRewards {
+    int level = 0;
+    int wins = 0;
+};
+
 struct NormalizedProfileResult {
     int bestMmr = 0;
     std::string bestTier = "Unranked";
@@ -56,6 +62,7 @@ struct NormalizedProfileResult {
     int totalWins = -1;
     std::string rankVerificationSource = "Tracker";
     std::string displayName;
+    std::optional<SeasonRewards> seasonRewards;
 };
 
 enum class TrackedAccountFetchStatus {

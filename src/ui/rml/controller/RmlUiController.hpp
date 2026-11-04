@@ -429,6 +429,11 @@ class RmlUiController final : public Rml::EventListener {
     uint64_t m_tournamentVersion = 0;
     int64_t m_tournamentMinute = -1;
     Tournaments::ReminderTracker m_tournamentReminder;
+    uint64_t m_seasonSummaryRequestId = 0;
+    uint64_t m_lastSeasonSummaryRequestId = 0;
+    uint64_t m_lastHistorySeasonRequestId = 0;
+    int m_seasonRecapSelection = 0;
+    std::optional<SeasonRecord> m_currentSeason;
     bool m_rebuildingUi = false;
     bool m_renderDirty = true;
     bool m_interactionUpdatePending = false;

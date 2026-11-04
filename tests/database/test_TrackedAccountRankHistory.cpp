@@ -52,7 +52,7 @@ namespace {
 TEST(TrackedAccountRankHistory, RecordsOnlyValidSuccessfulSnapshotsWithoutPollingDuplicates) {
     auto db = DatabaseManager(std::make_shared<SessionState>());
     ASSERT_TRUE(db.Initialize(":memory:"));
-    EXPECT_EQ(db.GetSchemaVersion(), 11);
+    EXPECT_EQ(db.GetSchemaVersion(), 12);
     ASSERT_TRUE(Add(db, kIdA));
 
     const auto base = Rank("2v2", 1210, 1710000000);
@@ -150,7 +150,7 @@ TEST(TrackedAccountRankHistory, VersionEightUpgradeSeedsOnlyActualFetchedSnapsho
     {
         DatabaseManager db(state);
         ASSERT_TRUE(db.Initialize(path));
-        EXPECT_EQ(db.GetSchemaVersion(), 11);
+        EXPECT_EQ(db.GetSchemaVersion(), 12);
         auto history = db.GetTrackedAccountRankHistory({kIdA}, "2v2");
         ASSERT_EQ(history.size(), 1u);
         ASSERT_EQ(history[0].observations.size(), 1u);
@@ -199,4 +199,103 @@ TEST(TrackedAccountRankHistory, AsyncAccountHistoryQueryKeepsDataOffTheRenderPat
     ASSERT_EQ(snap.history.series.size(), 1u);
     EXPECT_TRUE(snap.history.series[0].observations.empty());
     service->Stop();
+}
+
+TEST(SeasonDatabase, UpgradesVersionElevenWithoutLosingAccounts) {
+    const std::string path = "test_season_upgrade.db";
+    Cleanup(path);
+    std::error_code ec;
+    std::filesystem::remove(path + ".bak-v11", ec);
+    {
+        DatabaseManager db(std::make_shared<SessionState>());
+        ASSERT_TRUE(db.Initialize(path));
+        ASSERT_TRUE(Add(db, kIdA));
+        ASSERT_EQ(sqlite3_exec(db.GetRawDb(),
+                               "DROP TABLE RankedSeasonObservation; DROP TABLE TrackedAccountRewards; DROP TABLE Seasons; PRAGMA user_version=11;",
+                               nullptr, nullptr, nullptr),
+                  SQLITE_OK);
+    }
+    {
+        DatabaseManager db(std::make_shared<SessionState>());
+        ASSERT_TRUE(db.Initialize(path));
+        EXPECT_EQ(db.GetSchemaVersion(), 12);
+        EXPECT_TRUE(db.GetTrackedAccount(kIdA));
+        EXPECT_TRUE(db.UpsertSeasons({{19, 100, 200, "official"}}));
+        EXPECT_TRUE(db.SaveTrackedAccountRewards(kIdA, 19, 1, 2, 150));
+    }
+    Cleanup(path);
+    std::filesystem::remove(path + ".bak-v11", ec);
+}
+
+TEST(SeasonDatabase, StoresSeasonsRewardsAndDetectsOnlyForwardLocalResets) {
+    DatabaseManager db(std::make_shared<SessionState>());
+    ASSERT_TRUE(db.Initialize(":memory:"));
+    ASSERT_TRUE(Add(db, kIdA));
+    ASSERT_TRUE(Add(db, kIdB));
+    ASSERT_TRUE(db.UpsertSeasons({{19, 100, 1000, "official"}}));
+    ASSERT_TRUE(db.SaveTrackedAccountRewards(kIdA, 19, 4, 7, 300));
+    ASSERT_TRUE(db.SaveTrackedAccountRewards(kIdA, 19, 1, 2, 200));
+    ASSERT_TRUE(db.SaveTrackedAccountRewards(kIdB, 19, 2, 3, 301));
+    ASSERT_TRUE(db.GetTrackedAccountRewards(kIdA, 19));
+    EXPECT_EQ(db.GetTrackedAccountRewards(kIdA, 19)->level, 4);
+    EXPECT_EQ(db.GetTrackedAccountRewards(kIdB, 19)->wins, 3);
+    ASSERT_TRUE(db.ObserveRankedSeason(kIdA, "2v2", 90, 200));
+    ASSERT_TRUE(db.ObserveRankedSeason(kIdA, "2v2", 2, 150));
+    ASSERT_EQ(db.GetSeasons().size(), 1u);
+    ASSERT_TRUE(db.ObserveRankedSeason(kIdA, "2v2", 1, 400));
+    auto seasons = db.GetSeasons();
+    ASSERT_EQ(seasons.size(), 2u);
+    EXPECT_EQ(seasons[0].season, 20);
+    EXPECT_EQ(seasons[0].startsAt, 400);
+    EXPECT_EQ(seasons[0].source, "observed");
+    ASSERT_TRUE(db.UpsertSeasons({{20, 390, 900, "official"}}));
+    ASSERT_TRUE(db.UpsertSeasons({{20, 400, 400, "observed"}}));
+    EXPECT_EQ(db.GetSeasons()[0].startsAt, 390);
+    ASSERT_TRUE(db.DeleteTrackedAccount(kIdA));
+    EXPECT_FALSE(db.GetTrackedAccountRewards(kIdA, 19));
+}
+
+TEST(SeasonDatabase, SummariesExcludePendingAndCasualAndPublishAsynchronously) {
+    auto state = std::make_shared<SessionState>();
+    {
+        DatabaseManager db(state);
+        ASSERT_TRUE(db.Initialize(":memory:"));
+        ASSERT_TRUE(Add(db, kIdA));
+        ASSERT_TRUE(db.UpsertSeasons({{19, 100, 200, "official"}, {20, 200, 500, "official"}}));
+        const char* sql = R"(
+            INSERT INTO Matches(id,timestamp,playlist_id,gamemode,win,result_pending) VALUES
+                (1,datetime(110,'unixepoch'),11,'2v2',1,0),
+                (2,datetime(210,'unixepoch'),11,'2v2',1,0),
+                (3,datetime(220,'unixepoch'),11,'2v2',0,0),
+                (4,datetime(230,'unixepoch'),11,'2v2',1,1),
+                (5,datetime(240,'unixepoch'),2,'casual',1,0);
+            INSERT INTO MatchPlayers(match_id,primary_id,mmr,mmr_estimated,is_opponent) VALUES
+                (1,'Steam|76561198000000001',900,0,0),
+                (2,'Steam|76561198000000001',1000,0,0),
+                (3,'Steam|76561198000000001',1020,0,0),
+                (4,'Steam|76561198000000001',2000,0,0),
+                (5,'Steam|76561198000000001',3000,0,0);
+            INSERT INTO TrackedAccountRankObservations(primary_id,playlist_key,mmr,rank_tier,observed_at)
+                VALUES('Steam|76561198000000001','2v2',1030,'Champion I',225);
+        )";
+        ASSERT_EQ(sqlite3_exec(db.GetRawDb(), sql, nullptr, nullptr, nullptr), SQLITE_OK);
+        auto summaries = db.GetSeasonSummaries(kIdA);
+        ASSERT_EQ(summaries.size(), 2u);
+        EXPECT_EQ(summaries[0].season.season, 20);
+        EXPECT_EQ(summaries[0].wins, 1);
+        EXPECT_EQ(summaries[0].losses, 1);
+        EXPECT_DOUBLE_EQ(summaries[0].winRate, 0.5);
+        EXPECT_EQ(db.GetSeasonSummaries("").size(), 2u);
+        EXPECT_EQ(summaries[0].playlists.at("2v2").mmrChange, 30);
+        EXPECT_EQ(summaries[0].peakRank, "Champion I");
+        EXPECT_EQ(summaries[0].peakMmr, 1030);
+        EXPECT_EQ(summaries[1].wins, 1);
+        db.AsyncGetSeasonSummaries(kIdA, 42);
+        db.AsyncGetSeasonSummaries("", 41);
+    }
+    auto snapshot = state->seasonSummaries.load();
+    ASSERT_TRUE(snapshot);
+    EXPECT_TRUE(snapshot->loaded);
+    EXPECT_EQ(snapshot->requestId, 42u);
+    EXPECT_EQ(snapshot->seasons.size(), 2u);
 }

@@ -5,7 +5,7 @@
 </head>
 <body id="app" class="view-document" data-model="insights">
     <div class="view-backdrop">
-        <div class="view-window">
+        <div class="view-window" data-class-season-window="tab == 'season'">
             <div class="view-header row">
                 <div class="grow">
                     <div class="brand-title">Insights</div>
@@ -19,6 +19,7 @@
                 <button class="tab-button" data-action="insights-tab" data-tab="people" data-class-active="tab == 'people'">People</button>
                 <button class="tab-button" data-action="insights-tab" data-tab="trends" data-class-active="tab == 'trends'">Trends</button>
                 <button class="tab-button" data-action="insights-tab" data-tab="playstyle" data-class-active="tab == 'playstyle'">Playstyle</button>
+                <button class="tab-button" data-action="insights-tab" data-tab="season" data-class-active="tab == 'season'">Season</button>
             </div>
 
             <div class="view-body" data-if="tab == 'recap'">
@@ -192,6 +193,85 @@
                     </div>
                 </div>
                 <div class="muted view-empty" data-if="trend_sections.size == 0">{{trends_empty}}</div>
+            </div>
+
+            <div class="view-body" data-if="tab == 'season'">
+                <div class="muted view-empty" data-if="!season_available">Season dates unavailable</div>
+                <div data-if="season_available">
+                    <div id="season-card">
+                        <div class="season-banner">
+                            <div class="grow">
+                                <div class="season-number">{{season_title}}</div>
+                                <div class="season-sub">{{season_dates}}</div>
+                            </div>
+                            <div>
+                                <div class="season-count">{{season_countdown}}</div>
+                                <div class="season-count-label">Ends {{season_end}} <span class="badge win" style="margin-left:4dp">{{season_source}}</span></div>
+                            </div>
+                        </div>
+                        <div class="season-timeline"><div class="season-timeline-fill" data-style-width="season_progress"></div></div>
+                        <div class="season-timeline-labels"><div class="grow">{{season_start}}</div><div>{{season_end}}</div></div>
+
+                        <div class="muted view-empty" data-if="!season_has_games">No ranked games yet</div>
+
+                        <div>
+                            <div class="recap-hero row" data-if="season_has_games">
+                                <div class="grow">
+                                    <div class="recap-record season-record"><span class="win">{{season_wins}}</span><span class="recap-dash">-</span><span class="loss">{{season_losses}}</span></div>
+                                    <div class="recap-games">{{season_games}}</div>
+                                </div>
+                                <div class="recap-hero-stat">
+                                    <div class="recap-hero-value">{{season_rate}}</div>
+                                    <div class="recap-hero-label">Win rate</div>
+                                </div>
+                                <div class="recap-hero-divider"></div>
+                                <div class="recap-hero-stat">
+                                    <div class="recap-hero-value win">{{season_mmr}}</div>
+                                    <div class="recap-hero-label">MMR since start</div>
+                                </div>
+                                <div class="recap-hero-divider"></div>
+                                <div class="recap-hero-stat">
+                                    <div class="recap-hero-value">{{season_peak}}</div>
+                                    <div class="recap-hero-label">{{season_peak_label}}</div>
+                                </div>
+                            </div>
+                            <div class="reward-row" data-if="season_reward_available">
+                                <div class="reward-tier">{{season_reward_next}}</div>
+                                <div class="reward-track"><div class="reward-fill" data-style-width="season_reward_width"></div></div>
+                                <div class="reward-count">{{season_reward_wins}}</div>
+                                <div class="label" style="width:170dp;text-align:right">{{season_reward_earned}} <span class="badge win" data-if="season_reward_earned_available">Earned</span></div>
+                            </div>
+
+
+                            <div class="recap-modes" data-if="season_playlists.size > 0">
+                                <div class="recap-section-title">By playlist</div>
+                                <div class="recap-mode-row" data-for="playlist : season_playlists">
+                                    <div class="recap-mode-name">{{playlist.name}}</div>
+                                    <div class="recap-mode-track"><div class="recap-bar-fill" data-style-width="playlist.win_width"></div></div>
+                                    <div class="recap-mode-record">{{playlist.record}}</div>
+                                    <div class="recap-mode-mmr">{{playlist.mmr}}</div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="recap-modes" data-if="season_previous.size > 0">
+                            <div class="recap-section-title">Previous seasons</div>
+                            <div class="past-row header"><div class="past-name">Season</div><div class="past-dates">Dates</div><div class="past-cell">Games</div><div class="past-cell">Win %</div><div class="past-peak">Peak</div></div>
+                            <div class="past-row" data-for="prev : season_previous">
+                                <div class="past-name">{{prev.name}}</div>
+                                <div class="past-dates">{{prev.dates}}</div>
+                                <div class="past-cell">{{prev.games}}</div>
+                                <div class="past-cell">{{prev.rate}}</div>
+                                <div class="past-peak">{{prev.peak}}</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="row gap-sm view-actions">
+                        <button class="primary" data-action="season-export">Save season card</button>
+                        <button class="ghost" data-action="season-history">Open in match history</button>
+                    </div>
+                </div>
             </div>
 
             <div class="view-body" data-if="tab == 'playstyle'">

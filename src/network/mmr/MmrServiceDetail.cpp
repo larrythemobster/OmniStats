@@ -3,6 +3,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <climits>
 #include <cmath>
 namespace MmrServiceDetail {
     bool CaseInsensitiveEquals(std::string_view a, std::string_view b) {
@@ -252,6 +253,12 @@ namespace MmrServiceDetail {
             }
         }
         nlohmann::json reqBody = {{"players", std::move(playersArray)}};
+        if (!batch.requests.empty() &&
+            std::all_of(batch.requests.begin(), batch.requests.end(), [](const MMRRequest& req) {
+                return req.reason == MMRRequestReason::TrackedAccount;
+            })) {
+            reqBody["include_rewards"] = true;
+        }
         if (batch.playlistId > 0) {
             reqBody["playlist"] = batch.playlistId;
         }
@@ -265,9 +272,19 @@ namespace MmrServiceDetail {
         if (playerJson.contains("error") && !playerJson["error"].is_null()) {
             return false;
         }
-        if (!playerJson.contains("skills") || !playerJson["skills"].is_array() ||
-            playerJson["skills"].empty()) {
-            return false;
+        if (!playerJson.contains("skills") || !playerJson["skills"].is_array()) return false;
+        std::optional<SeasonRewards> seasonRewards;
+        if (const auto rewards = playerJson.find("season_rewards");
+            rewards != playerJson.end() && rewards->is_object()) {
+            const auto level = rewards->find("level");
+            const auto wins = rewards->find("wins");
+            if (level != rewards->end() && wins != rewards->end() &&
+                level->is_number_integer() && wins->is_number_integer()) {
+                const auto levelValue = level->get<int64_t>();
+                const auto winsValue = wins->get<int64_t>();
+                if (levelValue >= 0 && levelValue <= 8 && winsValue >= 0 && winsValue <= 10)
+                    seasonRewards = SeasonRewards{static_cast<int>(levelValue), static_cast<int>(winsValue)};
+            }
         }
 
         int bestMmr = 0;
@@ -287,6 +304,8 @@ namespace MmrServiceDetail {
             if (plName.empty()) {
                 continue;
             }
+            const int matches = skill.value("matches_played", -1);
+            if (matches >= 0) playlistMatches[plName] += matches;
 
             if (!skill.contains("mmr") || !skill["mmr"].is_number()) {
                 continue;
@@ -299,7 +318,6 @@ namespace MmrServiceDetail {
 
             int tier = skill.value("tier", 0);
             int div = skill.value("division", 0);
-            int matches = skill.value("matches_played", -1);
 
             std::string tierName = (plName == "t")
                                        ? MmrService::GetTournamentTierForMmr(mmrInt)
@@ -309,9 +327,6 @@ namespace MmrServiceDetail {
                 playlistMMRs[plName] = mmrInt;
                 playlistTiers[plName] = tierName;
             }
-            if (matches >= 0) {
-                playlistMatches[plName] += matches;
-            }
 
             if (plName != "casual" && plName != "t" && mmrInt > bestMmr) {
                 bestMmr = mmrInt;
@@ -320,7 +335,7 @@ namespace MmrServiceDetail {
             }
         }
 
-        if (playlistMMRs.empty()) {
+        if (playlistMMRs.empty() && !seasonRewards) {
             return false;
         }
 
@@ -343,6 +358,7 @@ namespace MmrServiceDetail {
             totalWins = playerJson["total_wins"].get<int>();
         }
         outProfile.totalWins = totalWins;
+        outProfile.seasonRewards = seasonRewards;
         outProfile.rankVerificationSource = "ServerA";
         return true;
     }
@@ -452,7 +468,8 @@ namespace MmrServiceDetail {
                 continue;
             }
 
-            if (matched->contains("skills") && (*matched)["skills"].is_array() && (*matched)["skills"].empty()) {
+            if (matched->contains("skills") && (*matched)["skills"].is_array() && (*matched)["skills"].empty() &&
+                !matched->contains("season_rewards")) {
                 res.status = BatchPlayerStatus::UnusableData;
                 res.errorCode = "no_ranked_skills";
                 res.errorMessage = "The rank source has no ranked playlists for this account.";

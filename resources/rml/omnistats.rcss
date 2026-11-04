@@ -1285,6 +1285,7 @@ body.view-document { pointer-events: none; }
     border-radius: 12dp;
     overflow: hidden;
 }
+.view-window.season-window { height: 720dp; }
 .view-header {
     flex-shrink: 0;
     min-height: 58dp;
@@ -1403,6 +1404,7 @@ body.view-document { pointer-events: none; }
 .recap-brand { display: block; font-family: "Russo One"; font-size: 13dp; color: #a6b3bf; }
 .recap-hero { align-items: flex-end; gap: 22dp; margin: 22dp 0 12dp 0; }
 .recap-record { display: block; font-family: "Russo One"; font-size: 56dp; line-height: 1; }
+.season-record { white-space: nowrap; }
 .recap-dash { color: #a6b3bf; margin: 0 10dp; }
 .recap-games { display: block; margin-top: 6dp; font-size: 12dp; color: #a6b3bf; }
 .recap-hero-stat { display: flex; flex-direction: column; align-items: flex-end; min-width: 92dp; }
@@ -2002,3 +2004,25 @@ body.view-document { pointer-events: none; }
 .tournament-topbar.starting-soon { border-color: #ff0021; }
 .tournament-topbar.starting-soon .tournament-remaining { color: #ff304b; }
 .tournament-topbar .tooltip-bubble { right: 0; left: auto; top: 100%; bottom: auto; margin: 6dp 0 0; min-width: 240dp; text-align: left; line-height: 1.5; }
+#season-topbar-root { flex-shrink: 0; margin-right: 8dp; }
+.season-chip { display: inline-block; padding: 3dp 8dp; border: 1dp #eef1f526; border-radius: 5dp; color: #c8ced6; font-size: 11dp; white-space: nowrap; }
+.season-chip.ending-soon { color: #e3a33b; border-color: #e3a33b80; }
+.season-banner { display: flex; flex-direction: row; align-items: center; gap: 16dp; padding: 14dp 16dp; border: 1dp #eef1f51a; border-radius: 10dp; background-color: #0d0d0d; border-top: 3dp #760000; }
+.season-number { display: block; font-family: "Russo One"; font-size: 26dp; color: #eef1f5; line-height: 1; }
+.season-sub { display: block; margin-top: 5dp; font-size: 12dp; color: #a6b3bf; }
+.season-count { display: block; font-family: "JetBrains Mono"; font-size: 30dp; font-weight: 700; color: #eef1f5; text-align: right; line-height: 1; }
+.season-count-label { display: block; margin-top: 5dp; font-size: 11dp; color: #a6b3bf; text-align: right; }
+.season-timeline { display: block; margin-top: 12dp; height: 4dp; border-radius: 2dp; background-color: #eef1f51a; overflow: hidden; }
+.season-timeline-fill { display: block; height: 100%; background-color: #a6b3bf; }
+.season-timeline-labels { display: flex; flex-direction: row; margin-top: 4dp; font-size: 10dp; color: #707987; }
+.reward-row { display: flex; flex-direction: row; align-items: center; gap: 12dp; margin-top: 16dp; padding: 10dp 12dp; border: 1dp #eef1f512; border-radius: 8dp; background-color: #0e0e0ebf; }
+.reward-tier { display: block; width: 120dp; font-weight: 700; color: #eef1f5; font-size: 13dp; }
+.reward-track { flex-grow: 1; height: 6dp; border-radius: 3dp; background-color: #eef1f51a; overflow: hidden; }
+.reward-fill { display: block; height: 100%; background-color: #4a96ff; }
+.reward-count { display: block; width: 70dp; text-align: right; font-family: "JetBrains Mono"; color: #eef1f5; font-size: 13dp; }
+.past-row { display: flex; flex-direction: row; align-items: center; min-height: 28dp; border-top: 1dp #eef1f50f; font-size: 12dp; color: #eef1f5; }
+.past-row.header { color: #a6b3bf; font-size: 11dp; font-weight: 700; border-top: 0; }
+.past-name { width: 92dp; font-weight: 700; }
+.past-dates { flex-grow: 1; color: #a6b3bf; }
+.past-cell { width: 70dp; text-align: right; font-family: "JetBrains Mono"; }
+.past-peak { width: 130dp; text-align: right; }
