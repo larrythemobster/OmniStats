@@ -1,4 +1,5 @@
 #include "network/ExternalUpdaterLauncher.hpp"
+#include "network/telemetry/TelemetryManager.hpp"
 #include <asio.hpp>
 #include <windows.h>
 #include <chrono>
@@ -41,6 +42,10 @@ TEST(UpdaterCommonTest, VersionComparison) {
     // Multi-digit components
     EXPECT_TRUE(UpdaterCommon::IsNewerVersion("1.9.12", "1.10.2"));
     EXPECT_FALSE(UpdaterCommon::IsNewerVersion("1.10.2", "1.9.12"));
+    EXPECT_TRUE(UpdaterCommon::IsNewerVersion("1.2.3.0", "1.2.3.1"));
+    EXPECT_FALSE(UpdaterCommon::IsNewerVersion("1.2.3.1", "1.2.3"));
+    EXPECT_FALSE(UpdaterCommon::IsNewerVersion("1.2.3", "1.2.3.0"));
+    EXPECT_TRUE(UpdaterCommon::IsNewerVersion("1.2.3.99999999999999999999", "1.2.3.100000000000000000000"));
 }
 
 TEST(UpdaterCommonTest, TrimWhitespace) {
@@ -123,6 +128,22 @@ TEST(ExternalUpdaterLauncherTest, RepairWaitStopsOnRequestAndTimeoutWithoutBlock
     CloseHandle(done.hProcess);
 }
 
+TEST(ExternalUpdaterLauncherTest, TelemetryManagerCanBeReplacedConcurrently) {
+    auto first = std::make_shared<TelemetryManager>();
+    auto second = std::make_shared<TelemetryManager>();
+    std::vector<std::thread> threads;
+    for (int i = 0; i < 4; ++i) {
+        threads.emplace_back([&, i] {
+            for (int j = 0; j < 1000; ++j) {
+                ExternalUpdaterLauncher::SetTelemetryManager((i + j) % 2 ? first : second);
+            }
+        });
+    }
+    for (auto& thread : threads)
+        thread.join();
+    ExternalUpdaterLauncher::SetTelemetryManager(nullptr);
+}
+
 TEST(UpdaterCommonTest, VerifyAuthenticodeSignatureRejectsNonExistentFile) {
     auto result = UpdaterCommon::VerifyAuthenticodeSignature("C:\\NonExistentPath\\FakeFile.msi");
     EXPECT_FALSE(result.digestValid);
@@ -164,6 +185,8 @@ TEST(UpdaterCommonTest, VerifyMsiPackageRejectsUnsignedFileEvenIfFileHashMatches
 
     // Pass matching file hash, but unsigned file must still be rejected
     EXPECT_EQ(UpdaterCommon::VerifyMsiPackage(tempFile.string(), realHash, SigningConfig::CURRENT_CERT_SHA256),
+              UpdaterCommon::MsiVerifyResult::SignatureInvalid);
+    EXPECT_EQ(UpdaterCommon::VerifyMsiPackage(tempFile.string(), realHash, " ", " "),
               UpdaterCommon::MsiVerifyResult::SignatureInvalid);
     std::error_code ec;
     std::filesystem::remove(tempFile, ec);
@@ -573,6 +596,8 @@ TEST(ReleaseManifestTest, DowngradeRefused) {
               ManifestVerifyResult::Ok);
     EXPECT_EQ(parsedEqual.version, "2.4.0");
     EXPECT_FALSE(UpdaterCommon::IsNewerVersion("2.4.0", parsedEqual.version));
+    EXPECT_EQ(ReleaseManifestVerifier::VerifyManifest(manifestJsonEqual, sigEqual, "2.4.0.1", kp.publicKeyHex),
+              ManifestVerifyResult::DowngradeRefused);
 
     // Newer version 2.4.1 -> Accept
     manifest.version = "2.4.1";

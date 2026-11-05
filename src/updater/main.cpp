@@ -251,9 +251,16 @@ namespace {
     }
 
     bool LaunchSilentMsiUpgrade(const std::string& msiPath, const std::string& targetVersion, const std::string& localVersion) {
+        char systemDir[MAX_PATH];
+        const UINT length = GetSystemDirectoryA(systemDir, MAX_PATH);
+        if (length == 0 || length >= MAX_PATH) {
+            UpdaterCommon::RecordUpdaterEvent("msi_launch_failed", targetVersion, "system_directory_failed", localVersion);
+            return false;
+        }
+        const std::string installerPath = std::string(systemDir, length) + "\\msiexec.exe";
         const std::string logPath = UpdaterCommon::GetAppDataDir() + "omnistats_msi_update.log";
         std::string commandLine =
-            "msiexec.exe /i " + QuoteCommandLineArg(msiPath) +
+            QuoteCommandLineArg(installerPath) + " /i " + QuoteCommandLineArg(msiPath) +
             " /qn /norestart REBOOT=ReallySuppress OMNISTATS_AUTOSTART=1 /L*v " + QuoteCommandLineArg(logPath);
 
         STARTUPINFOA si = {};
@@ -262,7 +269,7 @@ namespace {
         std::vector<char> commandLineBuffer(commandLine.begin(), commandLine.end());
         commandLineBuffer.push_back('\0');
 
-        if (!CreateProcessA(nullptr, commandLineBuffer.data(), nullptr, nullptr, FALSE, 0, nullptr, nullptr, &si, &pi)) {
+        if (!CreateProcessA(installerPath.c_str(), commandLineBuffer.data(), nullptr, nullptr, FALSE, 0, nullptr, nullptr, &si, &pi)) {
             std::cout << "[Updater] Failed to start Windows Installer. Error: " << GetLastError() << "\n";
             UpdaterCommon::RecordUpdaterEvent("msi_launch_failed", targetVersion, "create_process_failed", localVersion);
             return false;

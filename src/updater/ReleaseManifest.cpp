@@ -6,7 +6,6 @@
 #include <sodium.h>
 #include <ctime>
 #include <algorithm>
-#include <cstring>
 #include <iostream>
 
 bool ReleaseManifestVerifier::ParseManifest(const std::string& jsonStr, ReleaseManifest& outManifest) {
@@ -90,10 +89,10 @@ bool ReleaseManifestVerifier::VerifySignature(const std::string& manifestData,
         return false;
     }
 
-    std::vector<unsigned char> sig(crypto_sign_BYTES);
-    if (signatureBytes.size() == crypto_sign_BYTES) {
-        std::memcpy(sig.data(), signatureBytes.data(), crypto_sign_BYTES);
-    } else {
+    std::vector<unsigned char> sig;
+    const unsigned char* signature = reinterpret_cast<const unsigned char*>(signatureBytes.data());
+    if (signatureBytes.size() != crypto_sign_BYTES) {
+        sig.resize(crypto_sign_BYTES);
         const std::string cleanSigHex = UpdaterCommon::Trim(signatureBytes);
         if (cleanSigHex.length() == crypto_sign_BYTES * 2) {
             if (sodium_hex2bin(sig.data(), sig.size(), cleanSigHex.data(), cleanSigHex.length(),
@@ -101,13 +100,14 @@ bool ReleaseManifestVerifier::VerifySignature(const std::string& manifestData,
                 binLen != crypto_sign_BYTES) {
                 return false;
             }
+            signature = sig.data();
         } else {
             return false;
         }
     }
 
     const int ret = crypto_sign_verify_detached(
-        sig.data(),
+        signature,
         reinterpret_cast<const unsigned char*>(manifestData.data()),
         manifestData.size(),
         pk.data());

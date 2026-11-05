@@ -10,6 +10,7 @@
 #include <algorithm>
 #include <iostream>
 #include <iomanip>
+#include <string_view>
 #include <windows.h>
 #include <wintrust.h>
 #include <softpub.h>
@@ -48,39 +49,27 @@ namespace UpdaterCommon {
     }
 
     bool IsNewerVersion(const std::string& current, const std::string& latest) {
-        std::vector<int> curParts, latParts;
-        std::stringstream curSS(current), latSS(latest);
-        std::string item;
-
-        while (std::getline(curSS, item, '.')) {
-            try {
-                curParts.push_back(std::stoi(item));
-            } catch (...) {
-                curParts.push_back(0);
-            }
-        }
-        while (std::getline(latSS, item, '.')) {
-            try {
-                latParts.push_back(std::stoi(item));
-            } catch (...) {
-                latParts.push_back(0);
-            }
-        }
-
-        while (curParts.size() < 3) {
-            curParts.push_back(0);
-        }
-        while (latParts.size() < 3) {
-            latParts.push_back(0);
-        }
-
-        for (size_t i = 0; i < 3; ++i) {
-            if (latParts[i] > curParts[i]) {
-                return true;
-            }
-            if (latParts[i] < curParts[i]) {
-                return false;
-            }
+        size_t cur = 0, lat = 0;
+        while (cur < current.size() || lat < latest.size()) {
+            auto component = [](const std::string& version, size_t& pos) {
+                const size_t end = version.find('.', pos);
+                const size_t stop = end == std::string::npos ? version.size() : end;
+                size_t start = pos;
+                while (start < stop && version[start] == '0')
+                    ++start;
+                for (size_t i = start; i < stop; ++i) {
+                    if (version[i] < '0' || version[i] > '9') {
+                        start = stop;
+                        break;
+                    }
+                }
+                pos = end == std::string::npos ? version.size() : end + 1;
+                return std::string_view(version.data() + start, stop - start);
+            };
+            const auto a = component(current, cur);
+            const auto b = component(latest, lat);
+            if (a.size() != b.size()) return b.size() > a.size();
+            if (a != b) return b > a;
         }
         return false;
     }
@@ -294,7 +283,7 @@ namespace UpdaterCommon {
 
         if (currentPin.empty() && nextPin.empty()) {
             std::cout << "[Updater] Authenticode certificate pin verification is not configured for this build.\n";
-            return MsiVerifyResult::Ok;
+            return MsiVerifyResult::SignatureInvalid;
         }
 
         // 2. Extra updater check: verify Authenticode signature against pinned certificate hash
