@@ -321,8 +321,8 @@ div.value { display: block; }
 .undock-hint { color: #8f99a8; font-size: 9dp; font-weight: 400; letter-spacing: 0; white-space: nowrap; margin-left: 8dp; }
 .widget-close { min-width: 24dp; width: 24dp; min-height: 22dp; height: 22dp; padding: 0; margin-left: 6dp; background-color: #35171a; border-color: #743238; color: #ffb2b7; }
 .overlay-card.dock-hover-target {
-    border: 2dp solid #ff0021 !important;
-    background-color: #ff002120 !important;
+    border: 2dp #ff0021;
+    background-color: #ff002120;
 }
 .overlay-dock-guide {
     position: absolute;
@@ -495,22 +495,22 @@ button.version-update .tooltip-bubble {
     pointer-events: auto;
 }
 .dashboard-edit-active .dashboard-widget {
-    border: 1dp solid #2d2d2d;
+    border: 1dp #2d2d2d;
     border-radius: 6dp;
     padding: 4dp 6dp;
 }
 .dashboard-widget.dragging {
     opacity: 0.65;
-    border: 1dp solid #ff0021;
+    border: 1dp #ff0021;
 }
 .dashboard-widget.drag-target {
-    border: 1dp solid #ff0021;
+    border: 1dp #ff0021;
 }
 .dashboard-drop-slot {
     display: none;
     height: 16dp;
     margin: 3dp 0;
-    border: 1dp dashed #454545;
+    border: 1dp #454545;
     border-radius: 4dp;
     background-color: #18181840;
     text-align: center;
@@ -527,7 +527,7 @@ button.version-update .tooltip-bubble {
     pointer-events: none;
 }
 .dashboard-drop-slot.drag-target {
-    border: 2dp solid #ff0021;
+    border: 2dp #ff0021;
     background-color: #ff002125;
 }
 .dashboard-drop-slot.drag-target .drop-hint {
@@ -536,10 +536,10 @@ button.version-update .tooltip-bubble {
 }
 .dashboard-widget.dragging {
     opacity: 0.45;
-    border: 2dp dashed #ff0021;
+    border: 2dp #ff0021;
 }
 .dashboard-widget.drag-target {
-    border: 2dp solid #ff0021;
+    border: 2dp #ff0021;
 }
 .dashboard-widget .player-row {
     min-height: 38dp;
@@ -1102,8 +1102,7 @@ scrollbarcorner { background-color: #0e0e0eaa; }
 .graph-band { position: absolute; pointer-events: none; }
 .graph-band-label { position: absolute; font-family: "Inter"; font-size: 10dp; font-weight: 600; opacity: 0.8; white-space: nowrap; pointer-events: none; }
 .graph-polyline { display: block; position: absolute; left: 0; top: 0; width: 100%; height: 100%; color: #5480d8; pointer-events: none; }
-.graph-line { position: absolute; height: 2dp; background-color: #5480d8; transform-origin: left center; opacity: 0.88; }
-.graph-line.baseline { height: 1dp; background-color: #e8f300; opacity: 0.4; }
+.graph-baseline { display: block; position: absolute; left: 0; width: 100%; height: 1dp; color: #e8f300; opacity: 0.4; pointer-events: none; }
 .graph-point {
     position: absolute;
     width: 8dp;
