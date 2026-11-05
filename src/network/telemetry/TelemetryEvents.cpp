@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cctype>
 #include <cmath>
+#include <limits>
 #include <nlohmann/json.hpp>
 #include "core/config/Constants.hpp"
 
@@ -42,7 +43,10 @@ namespace TelemetryEvents {
         std::optional<int> Integer(const nlohmann::json& j, const char* key) {
             const auto* v = Child(j, key);
             if (!v || !v->is_number()) return std::nullopt;
-            return static_cast<int>(std::lround(v->get<double>()));
+            const double value = v->get<double>();
+            if (!std::isfinite(value) || value < (std::numeric_limits<int>::min)() ||
+                value > (std::numeric_limits<int>::max)()) return std::nullopt;
+            return static_cast<int>(std::lround(value));
         }
 
         std::optional<bool> Bool(const nlohmann::json& j, const char* key) {

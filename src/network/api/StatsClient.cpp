@@ -65,6 +65,7 @@ StatsClient::~StatsClient() {
 
 void StatsClient::Start() {
     if (m_isRunning) return;
+    m_parser.Start();
     m_isRunning = true;
     m_workerThread = std::jthread(&StatsClient::RunLoop, this);
     std::cout << "[StatsClient] Background thread started.\n";

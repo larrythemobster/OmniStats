@@ -5,8 +5,12 @@
 #include "core/state/SessionState.hpp"
 #include "core/state/LiveMatchStore.hpp"
 #include "core/config/Config.hpp"
+#include "core/config/Constants.hpp"
+#include "network/telemetry/TelemetryEvents.hpp"
 #include <chrono>
 #include <functional>
+#include <future>
+#include <limits>
 #include <memory>
 #include <thread>
 
@@ -21,6 +25,57 @@ TEST(StatsClientTest, Lifecycle) {
     EXPECT_NO_THROW(client.Start());
     std::this_thread::sleep_for(std::chrono::milliseconds(50));
     EXPECT_NO_THROW(client.Stop());
+}
+
+TEST(TelemetryParserTest, StopInterruptsIdleConnectionAndPreventsLateStart) {
+    const ConfigData backup = Config::Read();
+    asio::io_context io;
+    asio::ip::tcp::acceptor acceptor(io, {asio::ip::address_v4::loopback(), 0});
+    asio::ip::tcp::socket peer(io);
+    std::promise<void> accepted;
+    auto ready = accepted.get_future();
+    acceptor.async_accept(peer, [&](const asio::error_code&) { accepted.set_value(); });
+    std::thread server([&] { io.run(); });
+    Config::Update([&](ConfigData& c) {
+        c.host = "127.0.0.1";
+        c.port = acceptor.local_endpoint().port();
+    },
+                   false);
+
+    TelemetryParser parser;
+    parser.Start();
+    std::thread reader([&] {
+        try {
+            parser.ConnectAndRead({});
+        } catch (const std::exception&) {
+        }
+    });
+    EXPECT_EQ(ready.wait_for(std::chrono::seconds(2)), std::future_status::ready);
+    const auto start = std::chrono::steady_clock::now();
+    parser.Stop();
+    reader.join();
+    EXPECT_LT(std::chrono::steady_clock::now() - start, std::chrono::seconds(1));
+    io.stop();
+    server.join();
+    Config::Update([&](ConfigData& c) { c = backup; }, false);
+
+    parser.Start();
+    parser.Stop();
+    EXPECT_NO_THROW(parser.ConnectAndRead({}));
+}
+
+TEST(TelemetryEventsTest, IntegerFieldsRejectOutOfRangeValues) {
+    const auto parse = [](const std::string& number) {
+        auto event = TelemetryEvents::ParseEventFromJson(
+            Constants::EVT_BOOST_PICKUP, "{\"Player\":{\"Shortcut\":" + number + "}}");
+        return event ? std::get<TelemetryEvents::BoostPickupEvent>(*event).player.shortcut : std::optional<int>{};
+    };
+    EXPECT_FALSE(parse("2147483648"));
+    EXPECT_FALSE(parse("-2147483649"));
+    EXPECT_FALSE(parse("1e100"));
+    EXPECT_EQ(parse("2147483647"), (std::numeric_limits<int>::max)());
+    EXPECT_EQ(parse("-2147483648"), (std::numeric_limits<int>::min)());
+    EXPECT_EQ(parse("1.6"), 2);
 }
 
 class MockDiscordManager : public DiscordManager {

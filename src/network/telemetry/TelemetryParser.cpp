@@ -5,6 +5,7 @@
 #include <nlohmann/json.hpp>
 #include <iostream>
 #include <stdexcept>
+#include <thread>
 
 TelemetryParser::TelemetryParser() : m_socket(m_ioContext) {}
 
@@ -14,16 +15,10 @@ TelemetryParser::~TelemetryParser() {
 
 void TelemetryParser::Stop() {
     m_stopping.store(true);
-    m_ioContext.stop();
-    if (m_socket.is_open()) {
-        asio::error_code ec;
-        m_socket.shutdown(asio::ip::tcp::socket::shutdown_both, ec);
-        m_socket.close(ec);
-    }
 }
 
 void TelemetryParser::ConnectAndRead(MessageCallback onMessage) {
-    m_stopping.store(false);
+    if (m_stopping.load()) return;
     if (m_socket.is_open()) {
         asio::error_code ec;
         m_socket.close(ec);
@@ -88,7 +83,17 @@ void TelemetryParser::ConnectAndRead(MessageCallback onMessage) {
     });
 
     m_ioContext.restart();
+    while (!connect_done && !m_stopping.load()) {
+        m_ioContext.run_for(std::chrono::milliseconds(20));
+    }
+    if (m_stopping.load()) {
+        asio::error_code ec;
+        m_socket.close(ec);
+        timer.cancel();
+    }
+    m_ioContext.restart();
     m_ioContext.run();
+    if (m_stopping.load()) return;
 
     if (connect_ec || !m_socket.is_open()) {
         throw std::runtime_error(connect_ec ? connect_ec.message() : "Connect timeout");
@@ -114,10 +119,7 @@ void TelemetryParser::ConnectAndRead(MessageCallback onMessage) {
     std::cout << "[StatsClient] Connected to Rocket League!\n";
     if (m_telemetry) m_telemetry->RecordMilestone(TelemetryManager::Milestone::StatsApiConnected);
 
-#ifdef _WIN32
-    DWORD timeoutMs = 5000;
-    setsockopt(m_socket.native_handle(), SOL_SOCKET, SO_RCVTIMEO, (const char*)&timeoutMs, sizeof(timeoutMs));
-#endif
+    m_socket.non_blocking(true);
 
     std::string dataBuffer;
     char readBuf[4096];
@@ -131,7 +133,8 @@ void TelemetryParser::ConnectAndRead(MessageCallback onMessage) {
         }
 
         if (ec) {
-            if (ec == asio::error::would_block || ec == asio::error::timed_out || ec.value() == 10060) {
+            if (ec == asio::error::would_block || ec == asio::error::try_again) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(20));
                 continue;
             }
             throw asio::system_error(ec);
