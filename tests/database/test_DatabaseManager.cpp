@@ -1,4 +1,5 @@
 #include <gtest/gtest.h>
+#include "TempDirectory.hpp"
 #include "database/DatabaseManager.hpp"
 #include "core/state/SessionState.hpp"
 #include "core/game/MatchAnalytics.hpp"
@@ -19,6 +20,7 @@ class DatabaseManagerTest : public ::testing::Test {
         ASSERT_TRUE(dbManager->Initialize(":memory:"));
     }
 
+    TempDirectory tempDir;
     std::shared_ptr<SessionState> sessionState;
     std::shared_ptr<DatabaseManager> dbManager;
 };
@@ -147,7 +149,7 @@ TEST_F(DatabaseManagerTest, SaveMatchDoesNotCrash) {
 }
 
 TEST_F(DatabaseManagerTest, QueueShutdownAndSnapshotCorrectness) {
-    std::string testDbPath = "test_queue_shutdown.db";
+    std::string testDbPath = (tempDir.path / "test_queue_shutdown.db").string();
     if (std::filesystem::exists(testDbPath)) {
         std::filesystem::remove(testDbPath);
     }
@@ -667,13 +669,13 @@ TEST_F(DatabaseManagerTest, MergeDatabaseRejectsInvalidOrMissingFile) {
     EXPECT_FALSE(resultEmpty.success);
     EXPECT_EQ(resultEmpty.error, "No database file selected.");
 
-    auto resultMissing = dbManager->MergeDatabase("non_existent_file_12345.db");
+    auto resultMissing = dbManager->MergeDatabase((tempDir.path / "missing.db").string());
     EXPECT_FALSE(resultMissing.success);
     EXPECT_NE(resultMissing.error.find("does not exist"), std::string::npos);
 }
 
 TEST_F(DatabaseManagerTest, MergeDatabaseRejectsSelfMerge) {
-    std::string testPath = "test_self_merge.db";
+    std::string testPath = (tempDir.path / "test_self_merge.db").string();
     RemoveTestDbFiles(testPath);
 
     {
@@ -688,7 +690,7 @@ TEST_F(DatabaseManagerTest, MergeDatabaseRejectsSelfMerge) {
 }
 
 TEST_F(DatabaseManagerTest, MergeDatabaseImportsMatchesAndPlayers) {
-    std::string sourcePath = "test_source_merge.db";
+    std::string sourcePath = (tempDir.path / "test_source_merge.db").string();
     RemoveTestDbFiles(sourcePath);
 
     const std::string pid = "Steam|merge_user";
@@ -749,7 +751,7 @@ TEST_F(DatabaseManagerTest, MergeDatabaseImportsMatchesAndPlayers) {
 }
 
 TEST_F(DatabaseManagerTest, MergeDatabaseDeduplicatesMatches) {
-    std::string sourcePath = "test_source_dedup.db";
+    std::string sourcePath = (tempDir.path / "test_source_dedup.db").string();
     RemoveTestDbFiles(sourcePath);
     const std::string pid = "Steam|dedup_user";
     MatchSaveSnapshot match1;
@@ -802,7 +804,7 @@ TEST_F(DatabaseManagerTest, MergeDatabaseDeduplicatesMatches) {
 }
 
 TEST_F(DatabaseManagerTest, MergeDatabaseHandlesLegacySchema) {
-    std::string legacyPath = "test_legacy_schema.db";
+    std::string legacyPath = (tempDir.path / "test_legacy_schema.db").string();
     RemoveTestDbFiles(legacyPath);
 
     // Create legacy sqlite database without playlist_id and mmr_estimated columns
@@ -1038,7 +1040,7 @@ TEST_F(DatabaseManagerTest, MigratesAllHistoricalSchemasToV2WithBackupsAndIdempo
     };
 
     for (const auto& tc : cases) {
-        const std::string path = std::string("test_mig_") + tc.label + ".db";
+        const std::string path = (tempDir.path / (std::string("test_mig_") + tc.label + ".db")).string();
         const std::string backupPath = path + ".bak-v" + std::to_string(tc.initialUserVersion);
         RemoveTestDbFiles(path);
         std::filesystem::remove(backupPath);
@@ -1082,7 +1084,7 @@ TEST_F(DatabaseManagerTest, MigratesAllHistoricalSchemasToV2WithBackupsAndIdempo
 }
 
 TEST_F(DatabaseManagerTest, LegacyArenaNamesAreRepairedOnceWithoutCascading) {
-    const std::string path = "test_arena_names.db";
+    const std::string path = (tempDir.path / "test_arena_names.db").string();
     RemoveTestDbFiles(path);
     {
         auto db = std::make_shared<DatabaseManager>(sessionState);
@@ -1119,8 +1121,8 @@ TEST_F(DatabaseManagerTest, LegacyArenaNamesAreRepairedOnceWithoutCascading) {
     RemoveTestDbFiles(path);
 }
 
-TEST_F(DatabaseManagerTest, MigrationV2FailureRollsBackAndKeepsRunningOnV1Tables) {
-    const std::string path = "test_mig_v2_fail.db";
+TEST_F(DatabaseManagerTest, MigrationV2FailureRollsBackAndRejectsInitialization) {
+    const std::string path = (tempDir.path / "test_mig_v2_fail.db").string();
     const std::string backupPath = path + ".bak-v0";
     RemoveTestDbFiles(path);
     std::filesystem::remove(backupPath);
@@ -1157,31 +1159,17 @@ TEST_F(DatabaseManagerTest, MigrationV2FailureRollsBackAndKeepsRunningOnV1Tables
 
     {
         auto db = std::make_shared<DatabaseManager>(sessionState);
-        ASSERT_TRUE(db->Initialize(path));
-        // Migration v1 committed, migration v2 rolled back completely.
-        EXPECT_EQ(db->GetSchemaVersion(), 1);
-        EXPECT_EQ(QueryIntScalar(db->GetRawDb(),
+        EXPECT_FALSE(db->Initialize(path));
+        EXPECT_FALSE(db->InitializationError().empty());
+    }
+    {
+        ASSERT_EQ(sqlite3_open(path.c_str(), &raw), SQLITE_OK);
+        EXPECT_EQ(QueryIntScalar(raw, "PRAGMA user_version;"), 1);
+        EXPECT_EQ(QueryIntScalar(raw,
                                  "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='MatchPlayerStats';"),
                   0);
-
-        MatchSaveSnapshot snap;
-        snap.arenaName = "DFH Stadium";
-        snap.matchGuid = "v1-fallback-guid";
-        snap.playlistId = 11;
-        snap.myTeam = 0;
-        snap.winnerTeam = 0;
-        snap.validResult = true;
-        snap.score[0] = 3;
-        snap.score[1] = 1;
-        snap.myPrimaryId = "Steam|v1user";
-        snap.roster["Steam|v1user"] = PlayerData{.primaryId = "Steam|v1user", .name = "Player", .team = 0, .mmr = 1000, .goals = 2};
-        db->SaveMatch(snap);
-
-        std::vector<SessionMatchSummary> recent;
-        db->GetRecentMatchHistory("Steam|v1user", recent, 10);
-        ASSERT_EQ(recent.size(), 1u);
-        EXPECT_EQ(recent[0].matchGuid, "v1-fallback-guid");
-        EXPECT_TRUE(db->GetPlayerStatSeries("Steam|v1user").empty());
+        EXPECT_EQ(QueryIntScalar(raw, "SELECT COUNT(*) FROM sqlite_master WHERE type='view' AND name='MatchLocalStats';"), 1);
+        sqlite3_close(raw);
     }
 
     RemoveTestDbFiles(path);
@@ -1189,11 +1177,11 @@ TEST_F(DatabaseManagerTest, MigrationV2FailureRollsBackAndKeepsRunningOnV1Tables
 }
 
 TEST_F(DatabaseManagerTest, ExistingForeignKeyViolationsAreRepairedAfterBackup) {
-    const std::string path = "test_fk_violation.db";
+    const std::string path = (tempDir.path / "test_fk_violation.db").string();
     RemoveTestDbFiles(path);
     const auto removeBackups = [&]() {
-        for (const auto& entry : std::filesystem::directory_iterator(".")) {
-            if (entry.path().filename().string().rfind(path + ".bak-fk-", 0) == 0) std::filesystem::remove(entry.path());
+        for (const auto& entry : std::filesystem::directory_iterator(tempDir.path)) {
+            if (entry.path().filename().string().rfind("test_fk_violation.db.bak-fk-", 0) == 0) std::filesystem::remove(entry.path());
         }
     };
     removeBackups();
@@ -1238,8 +1226,8 @@ TEST_F(DatabaseManagerTest, ExistingForeignKeyViolationsAreRepairedAfterBackup) 
     }
 
     std::string backup;
-    for (const auto& entry : std::filesystem::directory_iterator(".")) {
-        if (entry.path().filename().string().rfind(path + ".bak-fk-", 0) == 0) backup = entry.path().string();
+    for (const auto& entry : std::filesystem::directory_iterator(tempDir.path)) {
+        if (entry.path().filename().string().rfind("test_fk_violation.db.bak-fk-", 0) == 0) backup = entry.path().string();
     }
     ASSERT_FALSE(backup.empty());
     ASSERT_EQ(sqlite3_open(backup.c_str(), &raw), SQLITE_OK);
@@ -1431,8 +1419,8 @@ TEST_F(DatabaseManagerTest, PendingDestroyedMatchConfirmationUpsertsExactlyOneSt
 }
 
 TEST_F(DatabaseManagerTest, MergeDatabaseV1ToV2AndV2ToV2WithoutDuplicatesAndExportDeleteParity) {
-    const std::string v1SourcePath = "test_merge_v1_source.db";
-    const std::string v2SourcePath = "test_merge_v2_source.db";
+    const std::string v1SourcePath = (tempDir.path / "test_merge_v1_source.db").string();
+    const std::string v2SourcePath = (tempDir.path / "test_merge_v2_source.db").string();
     RemoveTestDbFiles(v1SourcePath);
     RemoveTestDbFiles(v2SourcePath);
 
@@ -1682,7 +1670,7 @@ TEST_F(DatabaseManagerTest, GetMatchMmrContextAggregatesLobbiesAndExcludesOtherA
 }
 
 TEST_F(DatabaseManagerTest, MigrationV2ToV3CreatesSessionsTableAndMatchSessionIndex) {
-    const std::string path = "test_mig_v2_to_v3.db";
+    const std::string path = (tempDir.path / "test_mig_v2_to_v3.db").string();
     const std::string backupPath = path + ".bak-v2";
     RemoveTestDbFiles(path);
     std::filesystem::remove(backupPath);
@@ -2465,7 +2453,7 @@ TEST_F(DatabaseManagerTest, AsyncQueryMatchesAndAsyncGetMatchDetailIgnoreStaleRe
 }
 
 TEST_F(DatabaseManagerTest, MigrationV3ToV4CreatesReplayUploadsTable) {
-    const std::string path = "test_mig_v3_to_v4.db";
+    const std::string path = (tempDir.path / "test_mig_v3_to_v4.db").string();
     const std::string backupPath = path + ".bak-v3";
     RemoveTestDbFiles(path);
     std::filesystem::remove(backupPath);
@@ -2908,7 +2896,7 @@ TEST_F(DatabaseManagerTest, MatchRowMvpAndOvertime) {
 }
 
 TEST_F(DatabaseManagerTest, EnsureStepCreatesTableWhenUserVersionAboveLatest) {
-    const std::string path = "test_user_version_above_latest.db";
+    const std::string path = (tempDir.path / "test_user_version_above_latest.db").string();
     RemoveTestDbFiles(path);
 
     sqlite3* raw = nullptr;
