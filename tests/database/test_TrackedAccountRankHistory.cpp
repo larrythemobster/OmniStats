@@ -1,4 +1,5 @@
 #include <gtest/gtest.h>
+#include "TempDirectory.hpp"
 #include <sqlite3.h>
 #include <filesystem>
 #include <memory>
@@ -134,7 +135,8 @@ TEST(TrackedAccountRankHistory, DownsamplingPreservesRealEndpointsAndAllTimePeak
 }
 
 TEST(TrackedAccountRankHistory, VersionEightUpgradeSeedsOnlyActualFetchedSnapshotsAndSurvivesRestart) {
-    const std::string path = "test_rank_history_upgrade.db";
+    TempDirectory tempDir;
+    const std::string path = (tempDir.path / "test_rank_history_upgrade.db").string();
     Cleanup(path);
     auto state = std::make_shared<SessionState>();
     {
@@ -202,7 +204,8 @@ TEST(TrackedAccountRankHistory, AsyncAccountHistoryQueryKeepsDataOffTheRenderPat
 }
 
 TEST(SeasonDatabase, UpgradesVersionElevenWithoutLosingAccounts) {
-    const std::string path = "test_season_upgrade.db";
+    TempDirectory tempDir;
+    const std::string path = (tempDir.path / "test_season_upgrade.db").string();
     Cleanup(path);
     std::error_code ec;
     std::filesystem::remove(path + ".bak-v11", ec);

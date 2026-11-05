@@ -1,4 +1,5 @@
 #include <gtest/gtest.h>
+#include "TempDirectory.hpp"
 
 #include <algorithm>
 #include <filesystem>
@@ -161,7 +162,8 @@ TEST_F(EncounterRecordsTest, PeopleListAgreesWithPerPlayerLookups) {
 }
 
 TEST(EncounterRecordsMigrationTest, RecoversBothRelationshipsFromVersion1History) {
-    const auto path = std::filesystem::temp_directory_path() / "omnistats_encounter_v1.db";
+    TempDirectory tempDir;
+    const auto path = tempDir.path / "omnistats_encounter_v1.db";
     std::error_code ec;
     for (const char* suffix : {"", "-wal", "-shm", ".bak-v1"})
         std::filesystem::remove(path.string() + suffix, ec);

@@ -1,4 +1,5 @@
 #include <gtest/gtest.h>
+#include "TempDirectory.hpp"
 
 #include <chrono>
 #include <filesystem>
@@ -36,8 +37,9 @@ namespace {
     }
 
     struct TempDb {
+        TempDirectory directory;
         std::filesystem::path path;
-        explicit TempDb(const char* name) : path(std::filesystem::temp_directory_path() / name) {
+        explicit TempDb(const char* name) : path(directory.path / name) {
             Clean();
         }
         ~TempDb() {

@@ -1,4 +1,5 @@
 #include <gtest/gtest.h>
+#include "TempDirectory.hpp"
 #include <filesystem>
 #include <memory>
 #include <string>
@@ -94,7 +95,8 @@ TEST(MatchEvents, ForeignKeyCascadeAndFullDeletion) {
 }
 
 TEST(MatchEvents, MigrationFromSevenPreservesMatchHistoryAndNewEventsAcrossRestart) {
-    const std::string path = "test_match_events_upgrade.db";
+    TempDirectory tempDir;
+    const std::string path = (tempDir.path / "test_match_events_upgrade.db").string();
     Cleanup(path);
     auto state = std::make_shared<SessionState>();
     {
@@ -130,7 +132,8 @@ TEST(MatchEvents, MigrationFromSevenPreservesMatchHistoryAndNewEventsAcrossResta
 }
 
 TEST(MatchEvents, ImportPreservesOriginalMatchAssociation) {
-    const std::string path = "test_journal_merge_source.db";
+    TempDirectory tempDir;
+    const std::string path = (tempDir.path / "test_journal_merge_source.db").string();
     Cleanup(path);
     auto state = std::make_shared<SessionState>();
     {

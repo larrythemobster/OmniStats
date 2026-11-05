@@ -1,4 +1,5 @@
 #include <gtest/gtest.h>
+#include "TempDirectory.hpp"
 
 #include <chrono>
 #include <filesystem>
@@ -149,7 +150,8 @@ TEST(PlayerScout, AsyncTagsAndProfilesCompleteOnWorker) {
 }
 
 TEST(PlayerScout, VersionNineMigrationPreservesNotesAndMatches) {
-    const auto file = std::filesystem::temp_directory_path() / "omnistats_scout_upgrade_v9.db";
+    TempDirectory tempDir;
+    const auto file = tempDir.path / "omnistats_scout_upgrade_v9.db";
     std::error_code ec;
     for (const char* suffix : {"", "-wal", "-shm", ".bak-v9"})
         std::filesystem::remove(file.string() + suffix, ec);

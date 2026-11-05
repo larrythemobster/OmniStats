@@ -1,4 +1,5 @@
 #include <gtest/gtest.h>
+#include "TempDirectory.hpp"
 #include "database/DatabaseManager.hpp"
 #include "core/state/SessionState.hpp"
 #include "core/accounts/TrackedAccounts.hpp"
@@ -37,6 +38,7 @@ class TrackedAccountsDbTest : public ::testing::Test {
         ASSERT_TRUE(dbManager->Initialize(":memory:"));
     }
 
+    TempDirectory tempDir;
     std::shared_ptr<SessionState> sessionState;
     std::shared_ptr<DatabaseManager> dbManager;
 };
@@ -49,7 +51,7 @@ TEST_F(TrackedAccountsDbTest, FreshDbMigratesToLatestWithTrackedAccountTables) {
 }
 
 TEST_F(TrackedAccountsDbTest, MigrationFromV4PreservesExistingDataAndCreatesTables) {
-    const std::string path = "test_tracked_migration_v4.db";
+    const std::string path = (tempDir.path / "test_tracked_migration_v4.db").string();
     const std::string backupPath = path + ".bak-v4";
     RemoveTestDbFiles(path);
     std::error_code ec;
@@ -138,7 +140,7 @@ TEST_F(TrackedAccountsDbTest, RegisterListGetRenameRemoveAndDuplicateHandling) {
 }
 
 TEST_F(TrackedAccountsDbTest, RestartPersistenceRoundTripsAllFieldsAndRanks) {
-    const std::string path = "test_tracked_restart.db";
+    const std::string path = (tempDir.path / "test_tracked_restart.db").string();
     RemoveTestDbFiles(path);
 
     {
