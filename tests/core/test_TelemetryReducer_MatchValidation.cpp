@@ -1275,6 +1275,21 @@ TEST(TelemetryReducerMatchValidation, MatchEndedFollowedByMatchDestroyedDoesNotD
     EXPECT_FALSE(effects2.saveMatch);
 }
 
+TEST(TelemetryReducerMatchValidation, ConfirmationKeepsUnknownWinnerForUnknownLocalTeam) {
+    for (const bool won : {false, true}) {
+        auto state = std::make_shared<SessionState>();
+        TelemetryReducer reducer(state);
+        state->game.matchGuid = "unknown-team";
+        CapturedMatch match;
+        match.matchGuid = state->game.matchGuid;
+        match.myTeam = -1;
+        state->game.pendingDestroyedMatches.emplace(match.matchGuid, match);
+        reducer.ConfirmPendingDestroyedMatch(match.matchGuid, won);
+        EXPECT_EQ(state->game.matchSummaryWinnerTeam, -1);
+        EXPECT_TRUE(state->game.matchFinalized);
+    }
+}
+
 TEST(TelemetryReducerMatchValidation, DelayedMatchEndedResolvesPendingMatchExactlyOnce) {
     Storage::InitializeEnvironment();
     auto state = std::make_shared<SessionState>();

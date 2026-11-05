@@ -503,7 +503,9 @@ SideEffects TelemetryReducer::ConfirmPendingDestroyedMatch(
 
     CapturedMatch match = std::move(pendingIt->second);
     state.pendingDestroyedMatches.erase(pendingIt);
-    const int winnerTeam = won ? match.myTeam : 1 - match.myTeam;
+    const int winnerTeam = (match.myTeam == 0 || match.myTeam == 1)
+                               ? (won ? match.myTeam : 1 - match.myTeam)
+                               : -1;
     FinalizeCapturedMatch(
         state,
         std::move(match),
