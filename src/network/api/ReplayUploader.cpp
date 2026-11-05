@@ -192,7 +192,15 @@ ReplayUploader::~ReplayUploader() {
 void ReplayUploader::Start() {
     if (m_running.load()) return;
     m_running.store(true);
-    m_worker = std::jthread(&ReplayUploader::WorkerLoop, this);
+    try {
+        m_worker = std::jthread(&ReplayUploader::WorkerLoop, this);
+        m_uploadWorker = std::jthread(&ReplayUploader::UploadLoop, this);
+    } catch (...) {
+        m_running.store(false);
+        m_cv.notify_all();
+        if (m_worker.joinable()) m_worker.join();
+        throw;
+    }
     std::cout << "[ReplayUploader] Started\n";
 }
 
@@ -201,6 +209,7 @@ void ReplayUploader::Stop() {
     m_running.store(false);
     m_cv.notify_all();
     if (m_worker.joinable()) m_worker.join();
+    if (m_uploadWorker.joinable()) m_uploadWorker.join();
     std::cout << "[ReplayUploader] Stopped\n";
 }
 
@@ -214,7 +223,6 @@ bool ReplayUploader::IsFileReady(const std::string& path) {
 }
 
 void ReplayUploader::CheckAndSaveReplay() {
-    m_saveImminent = false;
     if (!m_state) return;
     const ConfigData conf = Config::Read();
 
@@ -246,14 +254,15 @@ void ReplayUploader::CheckAndSaveReplay() {
         m_pendingSaveSince = now;
     }
     if (now - m_pendingSaveSince < kSaveReplayDelay) {
-        m_saveImminent = true;
         return;
     }
 
     // RL's in-match save replay requires holding the bind. A focused-away player gets
     // another attempt each tick until the match ends.
-    if (!::SimulateSaveReplayKeyPress(conf.key_save_replay, 1500)) {
-        m_saveImminent = true;
+    const bool saved = m_saveReplayKeyForTests
+                           ? m_saveReplayKeyForTests(conf.key_save_replay, 1500)
+                           : ::SimulateSaveReplayKeyPress(conf.key_save_replay, 1500);
+    if (!saved) {
         return;
     }
     m_lastSavedGuid = guid;
@@ -506,8 +515,6 @@ void ReplayUploader::WorkerLoop() {
 
             try {
                 ScanReplayDirectories(target_dirs, false);
-                // A long upload here would delay the save keystroke.
-                if (!m_saveImminent) ProcessPendingUploads();
                 PublishUploadState();
             } catch (const std::exception& e) {
                 std::cout << "[ReplayUploader] Worker loop error: " << e.what() << "\n";
@@ -518,5 +525,22 @@ void ReplayUploader::WorkerLoop() {
             std::unique_lock<std::mutex> lock(m_mutex);
             m_cv.wait_for(lock, std::chrono::milliseconds(1000), [this]() { return !m_running.load(); });
         }
+    }
+}
+
+void ReplayUploader::UploadLoop() {
+    while (m_running.load()) {
+        try {
+            if (m_uploadTaskForTests) {
+                m_uploadTaskForTests();
+            } else {
+                ProcessPendingUploads();
+            }
+        } catch (const std::exception& e) {
+            std::cout << "[ReplayUploader] Upload loop error: " << e.what() << "\n";
+        }
+
+        std::unique_lock<std::mutex> lock(m_mutex);
+        m_cv.wait_for(lock, std::chrono::milliseconds(1000), [this]() { return !m_running.load(); });
     }
 }

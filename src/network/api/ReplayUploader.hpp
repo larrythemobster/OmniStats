@@ -6,6 +6,8 @@
 #include <memory>
 #include <chrono>
 #include <vector>
+#include <condition_variable>
+#include <functional>
 #include <optional>
 
 class SessionState;
@@ -61,6 +63,7 @@ class ReplayUploader {
 
   private:
     void WorkerLoop();
+    void UploadLoop();
     void PublishUploadState();
     bool IsFileReady(const std::string& path);
     void CheckAndSaveReplay();
@@ -68,10 +71,15 @@ class ReplayUploader {
     void ProcessPendingUploads();
     void UploadReplayRecord(int64_t id, const std::string& path, const std::string& matchGuid, int currentAttempts);
 
+    friend class ReplayUploaderTestAccess;
+
     std::jthread m_worker;
+    std::jthread m_uploadWorker;
     std::atomic<bool> m_running{false};
     std::mutex m_mutex;
     std::condition_variable m_cv;
+    std::function<void()> m_uploadTaskForTests;
+    std::function<bool(int, int)> m_saveReplayKeyForTests;
 
     std::shared_ptr<SessionState> m_state;
     std::shared_ptr<DatabaseManager> m_db;
@@ -80,7 +88,6 @@ class ReplayUploader {
     std::string m_lastSavedGuid;
     std::string m_pendingSaveGuid;
     std::chrono::steady_clock::time_point m_pendingSaveSince{};
-    bool m_saveImminent = false;
 
     std::string m_expectingReplayGuid;
     std::optional<std::chrono::steady_clock::time_point> m_expectingReplayUntil;

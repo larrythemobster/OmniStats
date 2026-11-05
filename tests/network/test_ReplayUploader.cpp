@@ -1,7 +1,19 @@
 #include <gtest/gtest.h>
 #include "network/api/ReplayUploader.hpp"
 #include "core/state/SessionState.hpp"
+#include "core/config/Config.hpp"
+#include "core/state/LiveMatchStore.hpp"
+#include <condition_variable>
 #include <memory>
+
+class ReplayUploaderTestAccess {
+  public:
+    static void SetTasks(ReplayUploader& uploader, std::function<void()> upload,
+                         std::function<bool(int, int)> saveKey) {
+        uploader.m_uploadTaskForTests = std::move(upload);
+        uploader.m_saveReplayKeyForTests = std::move(saveKey);
+    }
+};
 
 TEST(ReplayUploaderTest, Lifecycle) {
     auto state = std::make_shared<SessionState>();
@@ -10,6 +22,67 @@ TEST(ReplayUploaderTest, Lifecycle) {
     EXPECT_NO_THROW(uploader.Start());
     std::this_thread::sleep_for(std::chrono::milliseconds(50));
     EXPECT_NO_THROW(uploader.Stop());
+    EXPECT_NO_THROW(uploader.Start());
+    EXPECT_NO_THROW(uploader.Stop());
+}
+
+TEST(ReplayUploaderTest, SaveRequestRunsWhileUploadIsBlocked) {
+    const ConfigData original = Config::Read();
+    Config::Update([](ConfigData& conf) {
+        conf.auto_save_replays = true;
+        conf.auto_upload_replays = false;
+        conf.key_save_replay = VK_F6;
+    },
+                   false);
+
+    auto state = std::make_shared<SessionState>();
+    state->liveMatch = std::make_shared<LiveMatchStore>();
+    ReplayUploader uploader(state);
+    std::mutex mutex;
+    std::condition_variable cv;
+    bool uploadEntered = false;
+    bool releaseUpload = false;
+    bool saveAttempted = false;
+    ReplayUploaderTestAccess::SetTasks(
+        uploader,
+        [&] {
+            std::unique_lock lock(mutex);
+            uploadEntered = true;
+            cv.notify_all();
+            cv.wait(lock, [&] { return releaseUpload; });
+        },
+        [&](int, int) {
+            std::lock_guard lock(mutex);
+            saveAttempted = true;
+            cv.notify_all();
+            return false;
+        });
+
+    uploader.Start();
+    bool uploadStarted;
+    {
+        std::unique_lock lock(mutex);
+        uploadStarted = cv.wait_for(lock, std::chrono::seconds(5), [&] { return uploadEntered; });
+    }
+    if (uploadStarted) {
+        state->liveMatch->Update([](MatchState& match) {
+            match.inMatch = true;
+            match.myTeam = 0;
+            match.matchGuid = "match-started-during-upload";
+        });
+        std::unique_lock lock(mutex);
+        cv.wait_for(lock, std::chrono::seconds(8), [&] { return saveAttempted; });
+    }
+    {
+        std::lock_guard lock(mutex);
+        releaseUpload = true;
+    }
+    cv.notify_all();
+    uploader.Stop();
+    Config::Update([&](ConfigData& conf) { conf = original; }, false);
+
+    EXPECT_TRUE(uploadStarted);
+    EXPECT_TRUE(saveAttempted);
 }
 
 TEST(ReplayUploaderTest, EvaluateUploadResponse201Done) {
