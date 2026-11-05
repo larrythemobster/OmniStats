@@ -194,6 +194,7 @@ void RmlRenderInterfaceD3D11::Shutdown() {
     m_scissorRectDirty = true;
     m_boundTexture = 0;
     m_textureBindingKnown = false;
+    m_constantsValid = false;
     m_hasTransform = false;
     m_transform = Rml::Matrix4f::Identity();
     if (m_gdiplusToken) {
@@ -353,17 +354,22 @@ float4 PSMain(PSInput input) : SV_TARGET {
 }
 
 void RmlRenderInterfaceD3D11::UpdateConstants(Rml::TextureHandle texture, const Rml::Vector2f& translation) {
+    Constants constants{};
+    constants.viewport[0] = static_cast<float>(m_width);
+    constants.viewport[1] = static_cast<float>(m_height);
+    constants.translation[0] = translation.x;
+    constants.translation[1] = translation.y;
+    std::memcpy(constants.transform, m_transform.data(), sizeof(constants.transform));
+    constants.hasTransform = m_hasTransform ? 1 : 0;
+    constants.hasTexture = texture ? 1 : 0;
+    if (m_constantsValid && std::memcmp(&constants, &m_cachedConstants, sizeof(constants)) == 0) return;
+
     D3D11_MAPPED_SUBRESOURCE mapped{};
     if (FAILED(m_context->Map(m_constantBuffer.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped))) return;
-    auto* constants = static_cast<Constants*>(mapped.pData);
-    constants->viewport[0] = static_cast<float>(m_width);
-    constants->viewport[1] = static_cast<float>(m_height);
-    constants->translation[0] = translation.x;
-    constants->translation[1] = translation.y;
-    std::memcpy(constants->transform, m_transform.data(), sizeof(constants->transform));
-    constants->hasTransform = m_hasTransform ? 1 : 0;
-    constants->hasTexture = texture ? 1 : 0;
+    std::memcpy(mapped.pData, &constants, sizeof(constants));
     m_context->Unmap(m_constantBuffer.Get(), 0);
+    m_cachedConstants = constants;
+    m_constantsValid = true;
 }
 
 void RmlRenderInterfaceD3D11::DrawGeometry(ID3D11Buffer* vertexBuffer, ID3D11Buffer* indexBuffer, int indexCount,

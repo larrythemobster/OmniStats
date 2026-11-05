@@ -71,6 +71,8 @@ class RmlRenderInterfaceD3D11 final : public Rml::RenderInterface {
     bool m_textureBindingKnown = false;
     Rml::Matrix4f m_transform = Rml::Matrix4f::Identity();
     bool m_hasTransform = false;
+    Constants m_cachedConstants{};
+    bool m_constantsValid = false;
     ULONG_PTR m_gdiplusToken = 0;
 
     Microsoft::WRL::ComPtr<ID3D11VertexShader> m_vertexShader;
