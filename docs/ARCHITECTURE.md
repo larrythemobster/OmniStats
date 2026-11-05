@@ -37,6 +37,10 @@ flowchart LR
 Release manifests must be UTF-8 without a BOM or leading or trailing whitespace. Publish the Ed25519 signature as 128 lowercase ASCII hex characters without a BOM or newline. Updaters in 2.4.2 and 2.4.3 trim downloaded text before verification, so a signed trailing newline or a raw binary signature can prevent those clients from updating.
 The release signer rejects manifests with a BOM or whitespace at either edge and writes hexadecimal signatures. Manifest downloads preserve exact response bytes; no trimming or normalization occurs before verification.
 
+The launcher keeps at most one background update-check thread and joins it before replacing it or shutting down. Telemetry manager replacements use atomic shared ownership.
+
+Replay discovery and save-key timing run separately from the upload worker, so an in-flight upload cannot delay a new save request. Shutdown stops and joins both workers.
+
 ## Data pipeline and session lifecycle
 
 1. **Ingestion.** `TelemetryParser` receives JSON packets from Rocket League's loopback interface and emits typed event structs.
@@ -114,8 +118,8 @@ The Settings and onboarding Stats API repair runs on a background thread. The re
   If composition swap-chain creation returns `E_NOTIMPL`, rendering uses an opaque HWND swap chain instead. Window styles then omit `WS_EX_NOREDIRECTIONBITMAP` and `WS_EX_LAYERED`, including during setup and device recreation. Other swap-chain creation errors remain fatal.
 
 - **Foreground hook.** `ForegroundDetector` tracks Rocket League focus using a WinEvent hook (`EVENT_SYSTEM_FOREGROUND`) instead of per-frame polling.
-- **Surface presenters.** UI markup generation is divided among `OverlayPresenter`, `DashboardPresenter`, and `SettingsPresenter`. Common interaction, font loading, and background tasks are managed by `InputCaptureService`, `FontService`, and `BackgroundTaskService`.
-- **Data models.** Fast counters update through the `live` data model. Enriched widget models (`OverlayWidgetModel`) provide data-bound collections for roster, lobby ranks, graph series, and previous games.
+- **UI rendering.** The controller and widget renderers generate overlay and dashboard markup, while `SettingsPresenter` handles settings markup. Common interaction, font loading, and background tasks are managed by `InputCaptureService`, `FontService`, and `BackgroundTaskService`.
+- **Data models.** Fast counters update through the `live` data model.
 
 The app and UI test executable embed the same named RCDATA resources for fonts, templates, and images. Tests do not depend on the launch directory to load the UI.
 
