@@ -97,10 +97,6 @@ std::string RenderLobbyRanksImpl(const RmlRenderSnapshot& snap, const ConfigData
     return out.str();
 }
 
-std::string OverlayPresenter::RenderLobbyRanks(const RmlRenderSnapshot& snap, const ConfigData& config) {
-    return RenderLobbyRanksImpl(snap, config);
-}
-
 std::string RmlUiController::RenderLobbyRanks() {
     return RenderLobbyRanksImpl(m_snap, m_config);
 }

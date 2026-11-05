@@ -1,5 +1,6 @@
 #include "ui/rml/RmlUiPch.hpp"
 #include "ui/rml/controller/RmlUiController.hpp"
+#include <RmlUi/Core/Elements/ElementFormControlSelect.h>
 #include <shobjidl.h>
 #include <commdlg.h>
 
@@ -15,8 +16,87 @@
 #include "ui/rml/widgets/RmlMmrGraphLines.hpp"
 
 #include "ui/rml/controller/RmlUiHelpers.hpp"
+#include "ui/rml/presenters/ReleaseBanners.hpp"
 
 using namespace RmlUiDetail;
+
+namespace {
+    bool SameSettingsElement(Rml::Element* current, Rml::Element* desired) {
+        if (current->GetTagName() != desired->GetTagName()) return false;
+        for (const char* key : {"id", "data-setting", "data-action"}) {
+            if (current->GetAttribute<Rml::String>(key, "") != desired->GetAttribute<Rml::String>(key, "")) return false;
+        }
+        return true;
+    }
+
+    void UpdateSettingsElement(Rml::Element* current, Rml::Element* desired, bool updateAttributes = true) {
+        if (auto* text = dynamic_cast<Rml::ElementText*>(current)) {
+            auto* newText = dynamic_cast<Rml::ElementText*>(desired);
+            if (newText && text->GetText() != newText->GetText()) text->SetText(newText->GetText());
+            return;
+        }
+
+        if (updateAttributes) {
+            Rml::StringList removed;
+            for (const auto& [name, value] : current->GetAttributes()) {
+                if (!desired->HasAttribute(name) && !(current->GetTagName() == "select" && name == "value")) removed.push_back(name);
+            }
+            for (const auto& name : removed)
+                current->RemoveAttribute(name);
+            for (const auto& [name, value] : desired->GetAttributes()) {
+                const auto* previous = current->GetAttribute(name);
+                if (!previous || *previous != value) current->SetAttribute(name, value);
+            }
+        }
+
+        if (auto* select = dynamic_cast<Rml::ElementFormControlSelect*>(current)) {
+            auto* desiredSelect = static_cast<Rml::ElementFormControlSelect*>(desired);
+            const int count = desiredSelect->GetNumOptions();
+            bool optionsChanged = current->GetNumChildren() != 0 || select->GetNumOptions() != count;
+            int selection = -1;
+            for (int i = 0; i < count; ++i) {
+                auto* option = desiredSelect->GetOption(i);
+                if (option->HasAttribute("selected")) selection = i;
+                if (!optionsChanged) {
+                    auto* existing = select->GetOption(i);
+                    optionsChanged = existing->GetAttribute<Rml::String>("value", "") != option->GetAttribute<Rml::String>("value", "") ||
+                                     existing->HasAttribute("disabled") != option->HasAttribute("disabled") ||
+                                     existing->GetInnerRML() != option->GetInnerRML();
+                }
+            }
+            if (optionsChanged) {
+                select->RemoveAll();
+                while (auto* child = current->GetFirstChild())
+                    current->RemoveChild(child);
+                for (int i = 0; i < count; ++i)
+                    select->Add(desiredSelect->GetOption(i)->Clone());
+            }
+            if (selection >= 0 && select->GetSelection() != selection) select->SetSelection(selection);
+            return;
+        }
+
+        int index = 0;
+        while (index < desired->GetNumChildren()) {
+            auto* next = desired->GetChild(index);
+            auto* child = index < current->GetNumChildren() ? current->GetChild(index) : nullptr;
+            if (!child) {
+                current->AppendChild(next->Clone());
+                ++index;
+                continue;
+            }
+            if (!SameSettingsElement(child, next)) {
+                current->ReplaceChild(next->Clone(), child);
+                ++index;
+                continue;
+            }
+            UpdateSettingsElement(child, next);
+            ++index;
+        }
+        while (current->GetNumChildren() > desired->GetNumChildren()) {
+            current->RemoveChild(current->GetLastChild());
+        }
+    }
+}
 
 void RmlUiController::RebuildSettings() {
     float scrollTop = 0.0f;
@@ -108,7 +188,7 @@ void RmlUiController::RebuildSettings() {
         const auto page = static_cast<SettingsPage>(i);
         out << "<button class='" << (page == m_settingsPage ? "active" : "") << "' data-action='settings-page' data-page='" << i << "'>" << SettingsPageName(page) << "</button>";
     }
-    out << "</div><div class='settings-page' data-page='" << static_cast<int>(m_settingsPage) << "'>" << RenderReleaseBanners() << content.str() << "</div></div><div class='settings-footer'>" << Button("history-open", "History", "ghost") << Button("accounts-open", "Accounts", "ghost") << Button("insights-open", "Insights", "ghost") << Button("help-discord", "Help on Discord", "ghost") << "<div class='grow'></div>" << Button("close-settings", "Done", "primary") << "</div></div>";
+    out << "</div><div class='settings-page' data-page='" << static_cast<int>(m_settingsPage) << "'>" << RenderReleaseBanners(m_state, m_remoteConfig.get()) << content.str() << "</div></div><div class='settings-footer'>" << Button("history-open", "History", "ghost") << Button("accounts-open", "Accounts", "ghost") << Button("insights-open", "Insights", "ghost") << Button("help-discord", "Help on Discord", "ghost") << "<div class='grow'></div>" << Button("close-settings", "Done", "primary") << "</div></div>";
 
     if (m_confirmReplayUploads) {
         out << "<div class='confirm-backdrop'><div class='card privacy-dialog'><div class='card-title'>Before you upload replays</div>"
@@ -121,11 +201,25 @@ void RmlUiController::RebuildSettings() {
     if (m_confirmDeleteHistory) {
         out << "<div class='confirm-backdrop'><div class='card' style='width:470dp'><div class='card-title loss'>Delete local history and saved identity?</div><div class='setting-help'>This removes local match history and your selected account identity. Settings, service tokens, and tracked accounts in Accounts are kept. This cannot be undone.</div><div class='row gap-sm' style='margin-top:12dp'>" << Button("confirm-delete-history", "Delete", "danger") << Button("cancel-delete-history", "Cancel", "ghost") << "</div></div></div>";
     }
-    SetRootRml("settings-root", out.str());
-    if (scrollTop > 0.0f && m_document) {
-        m_document->UpdateDocument();
-        if (auto* root = Root("settings-root")) {
-            if (auto* page = root->QuerySelector(".settings-page")) page->SetScrollTop(scrollTop);
+    auto* root = Root("settings-root");
+    if (!root || !m_document) return;
+    if (!root->GetFirstChild()) {
+        SetRootRml("settings-root", out.str());
+    } else {
+        auto desired = m_document->CreateElement("div");
+        desired->SetInnerRML(out.str());
+        const bool wasRebuilding = m_rebuildingUi;
+        m_rebuildingUi = true;
+        m_systemInterface.BeginCursorUpdate();
+        UpdateSettingsElement(root, desired.get(), false);
+        if (m_hasPointerPosition && m_context) {
+            m_context->Update();
+            m_context->ProcessMouseMove(m_lastPointerX, m_lastPointerY, 0);
         }
+        m_systemInterface.EndCursorUpdate();
+        m_rebuildingUi = wasRebuilding;
+        m_renderDirty = true;
     }
+    m_document->UpdateDocument();
+    if (auto* page = root->QuerySelector(".settings-page")) page->SetScrollTop(scrollTop);
 }

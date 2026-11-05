@@ -5,10 +5,7 @@
 #include <RmlUi/Core/Types.h>
 #include <vector>
 
-// Custom RmlUi element used only for the MMR graph polyline. The normal DOM
-// handles labels, points, controls, and the dashed baseline. Rendering the
-// connecting segments here lets us use the element's resolved pixel size, so
-// the line remains geometrically correct at every card width/aspect ratio.
+// Renders the MMR graph polyline and dashed baseline at the resolved element size.
 class RmlMmrGraphLines final : public Rml::Element {
   public:
     explicit RmlMmrGraphLines(const Rml::String& tag);

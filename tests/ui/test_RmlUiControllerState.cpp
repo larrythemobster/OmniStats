@@ -7,6 +7,7 @@
 #include <RmlUi/Core/Element.h>
 #include <RmlUi/Core/ElementDocument.h>
 #include <RmlUi/Core/Elements/ElementFormControl.h>
+#include <RmlUi/Core/Elements/ElementFormControlSelect.h>
 #include <RmlUi/Core/StringUtilities.h>
 #include <d3d11.h>
 #include <wincodec.h>
@@ -186,11 +187,11 @@ class RmlUiControllerStateTest : public ::testing::Test {
         controller.m_showBallchasingToken = true;
         controller.m_confirmReplayUploads = true;
         controller.m_confirmDeleteHistory = true;
-        controller.m_editColorKey = "theme_accent";
+        controller.m_themeEditor.m_editColorKey = "theme_accent";
     }
     bool HasSettingsTransientState(const RmlUiController& controller) const {
         return controller.m_showBallchasingToken || controller.m_confirmReplayUploads ||
-               controller.m_confirmDeleteHistory || !controller.m_editColorKey.empty();
+               controller.m_confirmDeleteHistory || !controller.m_themeEditor.m_editColorKey.empty();
     }
     void SetSettingsPage(RmlUiController& controller, int page) {
         controller.m_settingsPage = static_cast<RmlUiController::SettingsPage>(page);
@@ -218,11 +219,11 @@ class RmlUiControllerStateTest : public ::testing::Test {
         controller.Render();
     }
     void SimulateOverlayDragStart(RmlUiController& controller, const std::string& containerId, float x, float y) {
-        controller.m_drag = {};
-        controller.m_drag.kind = RmlUiController::DragKind::OverlayMove;
-        controller.m_drag.containerId = containerId;
-        controller.m_drag.startX = x;
-        controller.m_drag.startY = y;
+        controller.m_layoutDrag.m_drag = {};
+        controller.m_layoutDrag.m_drag.kind = RmlUiController::DragKind::OverlayMove;
+        controller.m_layoutDrag.m_drag.containerId = containerId;
+        controller.m_layoutDrag.m_drag.startX = x;
+        controller.m_layoutDrag.m_drag.startY = y;
         for (auto& c : controller.m_config.overlay_layout.containers) {
             if (c.id == containerId) {
                 c.x = x;
@@ -232,7 +233,7 @@ class RmlUiControllerStateTest : public ::testing::Test {
         }
     }
     void ClearOverlayDrag(RmlUiController& controller) {
-        controller.m_drag = {};
+        controller.m_layoutDrag.m_drag = {};
     }
     bool HasDeferredSelectRebuild(const RmlUiController& controller) const {
         return controller.m_deferredSelectRebuild;
@@ -1013,6 +1014,11 @@ TEST_F(RmlUiControllerStateTest, LifetimeGraphKeepsLatestTwentyFiveDottedMatches
     EXPECT_EQ(html.find("data-action='graph-mode'"), std::string::npos);
     EXPECT_NE(html.find("<mmrgraphlines class='graph-polyline'"), std::string::npos);
     EXPECT_NE(html.find("class='graph-point"), std::string::npos);
+    const std::string baseline = "<mmrgraphlines class='graph-baseline' dashed='1'";
+    const size_t baselinePos = html.find(baseline);
+    ASSERT_NE(baselinePos, std::string::npos);
+    EXPECT_EQ(html.find(baseline, baselinePos + baseline.size()), std::string::npos);
+    EXPECT_EQ(html.find("class='graph-line baseline'"), std::string::npos);
 }
 
 TEST_F(RmlUiControllerStateTest, DashboardAndOverlaySessionCardsKeepCompactLegacySemantics) {
@@ -1443,6 +1449,45 @@ TEST_F(RmlUiControllerStateTest, OverlayCardGeometryFollowsUiScale) {
     const Rml::Vector2f large = renderedSize(1.5f);
     EXPECT_NEAR(large.x, 900.0f, 1.0f);
     EXPECT_NEAR(large.y, full.y * 1.5f, 2.0f);
+    DestroyWindow(hwnd);
+}
+
+TEST_F(RmlUiControllerStateTest, DpiChangeRebuildsOverlayGeometry) {
+    Microsoft::WRL::ComPtr<ID3D11Device> device;
+    Microsoft::WRL::ComPtr<ID3D11DeviceContext> context;
+    D3D_FEATURE_LEVEL featureLevel;
+    if (FAILED(D3D11CreateDevice(nullptr, D3D_DRIVER_TYPE_WARP, nullptr, 0, nullptr, 0, D3D11_SDK_VERSION,
+                                 &device, &featureLevel, &context))) {
+        GTEST_SKIP() << "WARP device creation not available in this environment.";
+    }
+    HWND hwnd = CreateWindowExA(0, "STATIC", "test", WS_POPUP, 0, 0, 1920, 1080, nullptr, nullptr,
+                                GetModuleHandle(nullptr), nullptr);
+    ASSERT_NE(hwnd, nullptr);
+    Config::Update([](ConfigData& c) {
+        c.ui_scale = 1.0f;
+        c.overlay_layout.containers.clear();
+        OverlayLayout::ContainerConfig container;
+        container.id = "dpi-test";
+        container.x = 120.0f;
+        container.y = 80.0f;
+        container.w = 600.0f;
+        container.h = 400.0f;
+        container.widgets = {DashboardLayout::WidgetId::SessionStats};
+        c.overlay_layout.containers.push_back(container);
+    },
+                   true);
+    auto state = std::make_shared<SessionState>();
+    state->ui.showOverlay.store(true);
+    state->ui.dashboardLayoutEditMode.store(true);
+    RmlUiController controller(state, nullptr);
+    ASSERT_TRUE(controller.Initialize(hwnd, device.Get(), context.Get(), 1920, 1080, 1.0f));
+    controller.Render();
+    controller.SetDpiScale(1.5f);
+    controller.Render();
+    auto* card = OverlayRoot(controller)->QuerySelector("[data-container='dpi-test']");
+    ASSERT_NE(card, nullptr);
+    EXPECT_NEAR(card->GetAbsoluteLeft(), 120.0f, 1.0f);
+    EXPECT_NEAR(card->GetAbsoluteTop(), 80.0f, 1.0f);
     DestroyWindow(hwnd);
 }
 
@@ -1888,6 +1933,53 @@ TEST_F(RmlUiControllerStateTest, LongSettingsPagesScrollAndPreservePositionAfter
     controller.Update(Config::Read());
     controller.Render();
 
+    DestroyWindow(hwnd);
+}
+
+TEST_F(RmlUiControllerStateTest, SettingsRefreshPreservesSelectOptionsAndUpdatesSelection) {
+    Microsoft::WRL::ComPtr<ID3D11Device> device;
+    Microsoft::WRL::ComPtr<ID3D11DeviceContext> context;
+    D3D_FEATURE_LEVEL featureLevel;
+    HRESULT hr = D3D11CreateDevice(nullptr, D3D_DRIVER_TYPE_WARP, nullptr, 0, nullptr, 0,
+                                   D3D11_SDK_VERSION, &device, &featureLevel, &context);
+    if (FAILED(hr)) {
+        GTEST_SKIP() << "WARP device creation not available in this environment.";
+    }
+
+    HWND hwnd = CreateWindowExA(0, "STATIC", "test", WS_POPUP, 0, 0, 1920, 1080, nullptr, nullptr, GetModuleHandle(nullptr), nullptr);
+    ASSERT_TRUE(hwnd != nullptr);
+    Config::Update([](ConfigData& c) { c.season_reminder_days = 3; }, true);
+
+    auto state = std::make_shared<SessionState>();
+    RmlUiController controller(state, nullptr);
+    ASSERT_TRUE(controller.Initialize(hwnd, device.Get(), context.Get(), 1920, 1080, 1.0f));
+    state->ui.showMenu.store(true);
+    controller.Update(Config::Read());
+    controller.Render();
+
+    auto* select = dynamic_cast<Rml::ElementFormControlSelect*>(
+        SettingsRoot(controller)->QuerySelector("[data-setting='season_reminder_days']"));
+    ASSERT_NE(select, nullptr);
+    ASSERT_EQ(select->GetNumOptions(), 4);
+    EXPECT_EQ(select->GetValue(), "3");
+
+    const std::vector<int> selections = {7, 14, 0, 3, 7};
+    const std::vector<std::string> optionValues = {"0", "3", "7", "14"};
+    for (int days : selections) {
+        Config::Update([days](ConfigData& c) { c.season_reminder_days = days; }, true);
+        controller.Update(Config::Read(), true, Config::Revision());
+        RefreshSettings(controller);
+        RefreshSettings(controller);
+        auto* current = dynamic_cast<Rml::ElementFormControlSelect*>(
+            SettingsRoot(controller)->QuerySelector("[data-setting='season_reminder_days']"));
+        ASSERT_EQ(current, select);
+        ASSERT_EQ(current->GetNumOptions(), static_cast<int>(optionValues.size()));
+        EXPECT_EQ(current->GetValue(), std::to_string(days));
+        for (int i = 0; i < current->GetNumOptions(); ++i) {
+            ASSERT_NE(current->GetOption(i), nullptr);
+            EXPECT_EQ(current->GetOption(i)->GetAttribute<Rml::String>("value", ""), optionValues[i]);
+        }
+    }
     DestroyWindow(hwnd);
 }
 

@@ -35,8 +35,6 @@ class AccountClient;
 #include "ui/rml/views/PlayerNoteView.hpp"
 #include "ui/rml/backend/RmlSystemInterfaceWin32.hpp"
 #include "ui/rml/controller/RmlRenderSnapshot.hpp"
-#include "ui/rml/presenters/OverlayPresenter.hpp"
-#include "ui/rml/presenters/DashboardPresenter.hpp"
 #include "ui/rml/presenters/SettingsPresenter.hpp"
 #include "ui/rml/services/BackgroundTaskService.hpp"
 #include "ui/rml/services/InputCaptureService.hpp"
@@ -155,6 +153,35 @@ class RmlUiController final : public Rml::EventListener {
         std::vector<DragSnapRect> snapRects;
     };
 
+    class LayoutDrag {
+      public:
+        explicit LayoutDrag(RmlUiController& owner) : m_owner(owner) {}
+        void HandleMouseDown(Rml::Element* target, Rml::Event& event);
+        void HandleMouseMove(Rml::Event& event);
+        void HandleMouseUp(Rml::Event& event);
+        DragState m_drag;
+
+      private:
+        void UpdateOverlayDockHover(float mouseX, float mouseY, const std::string& excludeId);
+        RmlUiController& m_owner;
+    };
+
+    class ThemeEditor {
+      public:
+        explicit ThemeEditor(RmlUiController& owner) : m_owner(owner) {}
+        void ApplyColorPick(float mouseX, float mouseY);
+        void RefreshColorPickPreview(bool updateFieldGradient);
+        void RefreshThemeEditorControls(std::string_view preserveHexKey = {});
+        void CommitColorPick();
+        std::string m_editColorKey;
+        float m_editColorHue = 0.0f;
+        bool m_colorPickDirty = false;
+        int m_colorPickerGradientHue = -1;
+
+      private:
+        RmlUiController& m_owner;
+    };
+
     void SnapshotState();
     bool LoadBundledFonts();
     // Rml family name to render `choice` with: bundled families as-is, installed
@@ -179,7 +206,6 @@ class RmlUiController final : public Rml::EventListener {
     void RebuildSettings();
     void RebuildToast();
 
-    std::string RenderReleaseBanners() const;
     std::string RenderWidget(DashboardLayout::WidgetId id, bool dashboard);
     std::string RenderPlayerRoster(int team, const char* label);
     std::string RenderLiveMatchStats();
@@ -226,14 +252,8 @@ class RmlUiController final : public Rml::EventListener {
     void HandleClick(Rml::Element* target);
     void HandleChange(Rml::Element* target, Rml::Event& event);
     void HandleInput(Rml::Element* target);
-    void HandleMouseDown(Rml::Element* target, Rml::Event& event);
-    void ApplyColorPick(float mouseX, float mouseY);
-    void RefreshColorPickPreview(bool updateFieldGradient);
-    void RefreshThemeEditorControls(std::string_view preserveHexKey = {});
-    void CommitColorPick();
-    void HandleMouseMove(Rml::Event& event);
-    void UpdateOverlayDockHover(float mouseX, float mouseY, const std::string& excludeId);
-    void HandleMouseUp(Rml::Event& event);
+    LayoutDrag m_layoutDrag{*this};
+    ThemeEditor m_themeEditor{*this};
     void PanGraph(int direction);
     void BeginBindCapture(BindCaptureTarget target);
     void FinishBindCapture();
@@ -401,14 +421,6 @@ class RmlUiController final : public Rml::EventListener {
     SettingsPage m_settingsPage = SettingsPage::Display;
     BindCaptureTarget m_bindCaptureTarget = BindCaptureTarget::None;
     bool m_showBallchasingToken = false;
-    std::string m_editColorKey;
-    // Hue is tracked separately from the edited RGBA: dragging saturation or
-    // value through gray would otherwise lose the hue the user picked.
-    float m_editColorHue = 0.0f;
-    bool m_colorPickDirty = false;
-    // The SV texture only needs to change when the visible hue bucket changes.
-    // Avoid rebinding/regenerating a procedural texture for every mouse pixel.
-    int m_colorPickerGradientHue = -1;
     bool m_showCardDetails = false;
     bool m_showAdvancedAppearance = false;
     bool m_showRankDetails = false;
@@ -418,7 +430,6 @@ class RmlUiController final : public Rml::EventListener {
     bool m_showUpdatePrompt = false;
     bool m_accountPromptPending = false;
     StatsApiPrompt m_statsApiPrompt = StatsApiPrompt::Hidden;
-    DragState m_drag;
     bool m_pointerPressed = false;
     std::string m_pendingBallchasingToken;
     std::string m_statsApiPathError;
@@ -435,6 +446,7 @@ class RmlUiController final : public Rml::EventListener {
     int m_seasonRecapSelection = 0;
     std::optional<SeasonRecord> m_currentSeason;
     bool m_rebuildingUi = false;
+    bool m_dpiRebuildPending = false;
     bool m_renderDirty = true;
     bool m_interactionUpdatePending = false;
     std::chrono::steady_clock::time_point m_nextRmlUpdateAt = std::chrono::steady_clock::time_point::max();
@@ -460,8 +472,6 @@ class RmlUiController final : public Rml::EventListener {
     std::shared_ptr<Tournaments::TournamentScheduleService> m_tournamentService;
     std::shared_ptr<TelemetryManager> m_telemetry;
 
-    std::unique_ptr<OverlayPresenter> m_overlayPresenter;
-    std::unique_ptr<DashboardPresenter> m_dashboardPresenter;
     std::unique_ptr<SettingsPresenter> m_settingsPresenter;
 
     std::unique_ptr<BackgroundTaskService> m_backgroundTaskService;

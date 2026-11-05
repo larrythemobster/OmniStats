@@ -35,8 +35,6 @@ RmlUiController::RmlUiController(std::shared_ptr<SessionState> state,
     : m_state(std::move(state)), m_dbManager(std::move(dbManager)), m_accountsService(std::move(accounts)),
       m_accountClient(std::move(accountClient)), m_remoteConfig(std::move(remoteConfig)), m_tournamentService(std::move(tournamentService)), m_telemetry(std::move(telemetry)),
       m_systemInterface(nullptr),
-      m_overlayPresenter(std::make_unique<OverlayPresenter>()),
-      m_dashboardPresenter(std::make_unique<DashboardPresenter>()),
       m_settingsPresenter(std::make_unique<SettingsPresenter>()),
       m_backgroundTaskService(std::make_unique<BackgroundTaskService>()),
       m_inputCaptureService(std::make_unique<InputCaptureService>()),
@@ -76,9 +74,7 @@ bool RmlUiController::Initialize(HWND hwnd, ID3D11Device* device, ID3D11DeviceCo
         Shutdown();
         return false;
     }
-    if (!m_liveModel.Create(m_context, [this](Rml::DataModelConstructor& c) {
-            m_overlayPresenter->Bind(c);
-        }) ||
+    if (!m_liveModel.Create(m_context) ||
         !m_insights.Create(m_context) || !m_history.Create(m_context) || !m_accounts.Create(m_context) || !m_playerNote.Create(m_context) || !m_onboarding.Create(m_context)) {
         Shutdown();
         return false;
@@ -148,7 +144,6 @@ void RmlUiController::Shutdown() {
         m_accounts.Reset();
         m_playerNote.Reset();
         m_onboarding.Reset();
-        m_overlayPresenter->Reset();
         CloseViewDocuments();
     }
     ShutdownBackgroundTasks();
@@ -206,7 +201,13 @@ void RmlUiController::SetDpiScale(float dpiScale) {
     m_dpiScale = SanitizedScale(dpiScale);
     m_appliedUiScale = SanitizedUiScale(m_config.ui_scale);
     if (m_context) m_context->SetDensityIndependentPixelRatio(m_dpiScale * m_appliedUiScale);
-    if (m_dpiScale != previous) m_renderDirty = true;
+    if (m_dpiScale != previous) {
+        m_renderDirty = true;
+        if (m_document) {
+            m_dpiRebuildPending = true;
+            RebuildVisibleUi(true);
+        }
+    }
 }
 
 bool RmlUiController::ProcessWindowMessage(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam) {
@@ -318,7 +319,7 @@ bool RmlUiController::WantsInteraction() const {
     // mouse input must continue through to Rocket League. Second-monitor mode
     // is a normal interactive window. RmlUi hover state must not override this.
     return m_state->ui.showMenu.load() || m_state->ui.dashboardLayoutEditMode.load() ||
-           m_config.second_monitor_mode || m_drag.kind != DragKind::None || WantsAttention();
+           m_config.second_monitor_mode || m_layoutDrag.m_drag.kind != DragKind::None || WantsAttention();
 }
 
 void RmlUiController::Update(const ConfigData& config, bool configChanged, uint64_t configRevision) {
@@ -356,8 +357,8 @@ void RmlUiController::Update(const ConfigData& config, bool configChanged, uint6
                        FontsDifferFromApplied(config);
         if (!m_config.account_link_prompt_shown) CheckAccountLinkPrompt();
 
-        const auto activeDragKind = m_drag.kind;
-        const std::string draggingId = m_drag.containerId;
+        const auto activeDragKind = m_layoutDrag.m_drag.kind;
+        const std::string draggingId = m_layoutDrag.m_drag.containerId;
         float inFlightX = 0.0f, inFlightY = 0.0f, inFlightW = 0.0f, inFlightH = 0.0f;
         bool hasInFlight = false;
         if (activeDragKind == DragKind::OverlayMove || activeDragKind == DragKind::OverlayResize) {
@@ -414,12 +415,12 @@ void RmlUiController::Update(const ConfigData& config, bool configChanged, uint6
     } else if (m_lastShowMenu && !settingsOpen) {
         // A range can be adjusted from the keyboard without producing a mouse-up.
         // Do not discard an in-flight color edit when Settings is closed.
-        CommitColorPick();
+        m_themeEditor.CommitColorPick();
         FinishBindCapture();
         m_showBallchasingToken = false;
         m_confirmReplayUploads = false;
         m_confirmDeleteHistory = false;
-        m_editColorKey.clear();
+        m_themeEditor.m_editColorKey.clear();
     } else {
         UpdateInputCapture();
     }
@@ -427,7 +428,7 @@ void RmlUiController::Update(const ConfigData& config, bool configChanged, uint6
     PublishBackgroundTaskCompletion();
     if (themeChanged) {
         UpdateThemeProperties();
-        RefreshThemeEditorControls();
+        m_themeEditor.RefreshThemeEditorControls();
     }
 
     const int64_t nowMs = SteadyNowMs();
@@ -626,11 +627,13 @@ void RmlUiController::RebuildVisibleUi(bool force, bool configChanged) {
     // telemetry flowing. This preserves drag/click stability without freezing
     // live counters for the entire interaction. Structural versions remain
     // pending and are reconciled as soon as the interaction ends.
-    if (m_drag.kind != DragKind::None || (m_pointerPressed && !force)) {
+    if (m_layoutDrag.m_drag.kind != DragKind::None || (m_pointerPressed && !force)) {
         m_nextVisibilityWakeMs.reset();
         RefreshLiveUi(false, false);
         return;
     }
+    force = force || m_dpiRebuildPending;
+    m_dpiRebuildPending = false;
     m_deferredSelectRebuild = false;
 
     const int64_t nowMs = SteadyNowMs();
@@ -829,7 +832,7 @@ void RmlUiController::RebuildVisibleUi(bool force, bool configChanged) {
         HashAppend(settingsHash, m_remoteConfig ? m_remoteConfig->Version() : 0);
         HashAppend(settingsHash, (m_tournamentService && m_tournamentService->Snapshot()) ? m_tournamentService->Snapshot()->version : 0);
         HashAppend(settingsHash, static_cast<uint64_t>(m_confirmDeleteHistory));
-        HashAppend(settingsHash, m_editColorKey);
+        HashAppend(settingsHash, m_themeEditor.m_editColorKey);
         HashAppend(settingsHash, m_statsApiPathError);
         if (m_state) {
             HashAppend(settingsHash, static_cast<uint64_t>(m_state->ui.updateChecked.load(std::memory_order_relaxed)));
@@ -1180,7 +1183,6 @@ void RmlUiController::RefreshLiveUi(bool force, bool allowStructural) {
         bool changed = m_liveModel.SetValues(ComputeLiveValues(m_snap, m_config));
         if (changed) m_renderDirty = true;
     }
-    if (m_overlayPresenter->Update(m_snap, m_config, m_state, m_tournamentService.get())) m_renderDirty = true;
 
     if (leafGameChanged || primeStructure) m_lastLeafGameVersion = m_lastGameVersion;
     if (allowStructural) {
@@ -1370,7 +1372,8 @@ void RmlUiController::RefreshTournaments(bool force) {
             Config::RequestSave();
         }
     }
-    const auto snapshot = m_tournamentService ? m_tournamentService->Snapshot() : std::make_shared<Tournaments::ScheduleSnapshot>();
+    static const auto emptySchedule = std::make_shared<const Tournaments::ScheduleSnapshot>();
+    const auto snapshot = m_tournamentService ? m_tournamentService->Snapshot() : emptySchedule;
     const bool enabled = m_accountClient && m_accountClient->IsSignedIn();
     if (enabled && !m_onboardingVisible) {
         const auto* next = Tournaments::NextSlot(snapshot->slots, now, m_config.tournament_reminder_standard_only);

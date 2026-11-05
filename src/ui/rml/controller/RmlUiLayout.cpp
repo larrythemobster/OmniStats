@@ -2,6 +2,7 @@
 #include "ui/config/WidgetSettings.hpp"
 #include "ui/rml/widgets/TournamentWidget.hpp"
 #include "ui/rml/controller/RmlUiController.hpp"
+#include "ui/rml/presenters/ReleaseBanners.hpp"
 #include <shobjidl.h>
 #include <commdlg.h>
 
@@ -305,10 +306,6 @@ void RmlUiController::RebuildOverlay() {
     m_liveDomNeedsPrime = true;
 }
 
-std::string RmlUiController::RenderReleaseBanners() const {
-    return m_dashboardPresenter->RenderReleaseBanners(m_state, m_remoteConfig.get());
-}
-
 void RmlUiController::RebuildDashboard() {
     if (m_onboardingVisible || !m_config.second_monitor_mode) return;
     const bool editMode = m_state && m_state->ui.dashboardLayoutEditMode.load();
@@ -320,13 +317,6 @@ void RmlUiController::RebuildDashboard() {
         for (const auto& p : layout.widgets) {
             if (p.zone != zone) continue;
             if (!editMode && !WidgetSettings::Enabled(m_config, p.id, true)) continue;
-            if (!editMode && p.id == DashboardLayout::WidgetId::LiveRoster && !m_config.second_monitor_show_roster) continue;
-            if (!editMode && p.id == DashboardLayout::WidgetId::SessionStats && !m_config.second_monitor_show_session) continue;
-            if (!editMode && p.id == DashboardLayout::WidgetId::LobbyRanks && !m_config.show_lobby_ranks_overlay) continue;
-            if (!editMode && p.id == DashboardLayout::WidgetId::DemoTracker && !m_config.show_demo_tracker_overlay) continue;
-            if (!editMode && p.id == DashboardLayout::WidgetId::PreviousGames && !m_config.show_previous_games_summary) continue;
-            if (!editMode && p.id == DashboardLayout::WidgetId::RankProgress && !m_config.show_rank_progress) continue;
-            if (!editMode && p.id == DashboardLayout::WidgetId::Tournaments && (!m_config.show_tournaments || !m_accountClient || !m_accountClient->IsSignedIn())) continue;
             result.push_back(p);
         }
         std::sort(result.begin(), result.end(), [](const auto& a, const auto& b) { return a.order < b.order; });
@@ -423,7 +413,7 @@ void RmlUiController::RebuildDashboard() {
         << "</div></div>";
 
     out << "<div class='dashboard-content'>";
-    out << RenderReleaseBanners();
+    out << RenderReleaseBanners(m_state, m_remoteConfig.get());
     if (!editMode && !dashboardHasVisibleWidgets) {
         out << "<div class='card empty-dashboard'><div class='card-title'>Dashboard panels are hidden</div>"
             << "<div class='setting-help'>Open Settings or Edit layout to show dashboard widgets again.</div></div>";

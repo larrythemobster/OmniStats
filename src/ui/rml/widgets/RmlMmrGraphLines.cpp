@@ -16,7 +16,7 @@ namespace {
         const float length = std::sqrt(dx * dx + dy * dy);
         if (!(length > 0.001f) || !std::isfinite(length)) return;
 
-        const float half = std::max(thickness, 1.0f) * 0.5f;
+        const float half = thickness * 0.5f;
         const Rml::Vector2f normal{-dy / length * half, dx / length * half};
         const int first = static_cast<int>(mesh.vertices.size());
 
@@ -69,7 +69,8 @@ void RmlMmrGraphLines::OnResize() {
 
 void RmlMmrGraphLines::OnAttributeChange(const Rml::ElementAttributes& changedAttributes) {
     Rml::Element::OnAttributeChange(changedAttributes);
-    if (changedAttributes.find("points") != changedAttributes.end() || changedAttributes.find("fill-to") != changedAttributes.end()) {
+    if (changedAttributes.find("points") != changedAttributes.end() || changedAttributes.find("fill-to") != changedAttributes.end() ||
+        changedAttributes.find("dashed") != changedAttributes.end()) {
         ParsePoints();
         RebuildGeometry();
     }
@@ -109,10 +110,24 @@ void RmlMmrGraphLines::ParsePoints() {
 
 void RmlMmrGraphLines::RebuildGeometry() {
     m_geometry = {};
-    if (m_points.size() < 2 || !GetRenderManager()) return;
+    if (!GetRenderManager()) return;
 
     const Rml::Vector2f size = GetBox().GetSize();
     if (!(size.x > 0.0f) || !(size.y > 0.0f) || !std::isfinite(size.x) || !std::isfinite(size.y)) return;
+    if (HasAttribute("dashed")) {
+        const auto& computed = GetComputedValues();
+        const auto colour = computed.color().ToPremultiplied(computed.opacity());
+        Rml::Mesh mesh;
+        mesh.vertices.reserve(19 * 4);
+        mesh.indices.reserve(19 * 6);
+        for (int i = 0; i < 19; ++i) {
+            const float left = (0.04f + static_cast<float>(i) * 0.91f / 19.0f) * size.x;
+            AddLineQuad(mesh, {left, size.y * 0.5f}, {left + 0.02f * size.x, size.y * 0.5f}, size.y, colour);
+        }
+        if (mesh) m_geometry = GetRenderManager()->MakeGeometry(std::move(mesh));
+        return;
+    }
+    if (m_points.size() < 2) return;
 
     const float dpRatio = GetContext() ? GetContext()->GetDensityIndependentPixelRatio() : 1.0f;
     const float thickness = 3.5f * std::max(dpRatio, 0.5f);

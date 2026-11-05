@@ -83,7 +83,7 @@ namespace WidgetSettings {
                 if (placement.id != widget) continue;
                 placement.enabled = enabled;
                 if (enabled && placement.zone == DashboardLayout::Zone::Hidden) {
-                    placement.zone = widget == DashboardLayout::WidgetId::Tournaments ? DashboardLayout::Zone::Top : DashboardLayout::Zone::Right;
+                    placement.zone = DashboardLayout::Zone::Right;
                     placement.order = static_cast<int>(config.dashboard_layout.widgets.size());
                 }
             }

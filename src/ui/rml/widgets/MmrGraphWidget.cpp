@@ -177,14 +177,8 @@ std::string RenderMmrGraphImpl(bool showCategoryBadge, bool showPanControls, con
     }
 
     if (hasBaseline && baseline >= minV && baseline <= maxV) {
-        const float baseY = yPct(baseline);
-        constexpr int dashCount = 19;
-        constexpr float dashWidth = 2.0f;
-        const float step = (xMax - xMin) / static_cast<float>(dashCount);
-        for (int i = 0; i < dashCount; ++i) {
-            const float left = xMin + static_cast<float>(i) * step;
-            out << "<div class='graph-line baseline' style='left:" << left << "%;top:" << baseY << "%;width:" << dashWidth << "%'></div>";
-        }
+        out << "<mmrgraphlines class='graph-baseline' dashed='1' style='top:" << yPct(baseline)
+            << "%'></mmrgraphlines>";
     }
 
     out << "<mmrgraphlines class='graph-polyline' fill-to='" << (yMax / 100.0f) << "' points='";
@@ -277,22 +271,14 @@ std::string RenderMmrGraphImpl(bool showCategoryBadge, bool showPanControls, con
     return out.str();
 }
 
-std::string OverlayPresenter::RenderMmrGraph(bool showCategoryBadge, bool showPanControls, const RmlRenderSnapshot& snap, const ConfigData& config, const std::shared_ptr<SessionState>& state) {
-    return RenderMmrGraphImpl(showCategoryBadge, showPanControls, snap, config, state);
-}
-
-std::string OverlayPresenter::RenderGraphPanControls(const RmlRenderSnapshot& snap, const std::shared_ptr<SessionState>& state) {
-    const auto series = ResolveGraphSeries(snap, state);
-    const int offset = state ? state->ui.graphOffset.load() : 0;
+std::string RmlUiController::RenderGraphPanControls() const {
+    const auto series = ResolveGraphSeries(m_snap, m_state);
+    const int offset = m_state ? m_state->ui.graphOffset.load() : 0;
     return RenderGraphPanControlsImpl(ComputeGraphWindow(static_cast<int>(series.ratings.size()), offset, kVisibleGraphMatches));
 }
 
-std::string RmlUiController::RenderGraphPanControls() const {
-    return m_overlayPresenter->RenderGraphPanControls(m_snap, m_state);
-}
-
 std::string RmlUiController::RenderMmrGraph(bool showCategoryBadge, bool showPanControls) {
-    return m_overlayPresenter->RenderMmrGraph(showCategoryBadge, showPanControls, m_snap, m_config, m_state);
+    return RenderMmrGraphImpl(showCategoryBadge, showPanControls, m_snap, m_config, m_state);
 }
 
 void RmlUiController::PanGraph(int direction) {

@@ -1,11 +1,10 @@
-#include "ui/rml/presenters/DashboardPresenter.hpp"
+#include "ui/rml/presenters/ReleaseBanners.hpp"
 #include <sstream>
 #include "core/config/AppVersion.hpp"
 #include "network/api/RemoteConfig.hpp"
 #include "network/omninet/OmniNet.hpp"
 #include "ui/rml/controller/RmlUiHelpers.hpp"
-std::string DashboardPresenter::RenderReleaseBanners(const std::shared_ptr<SessionState>& state,
-                                                     const RemoteConfig* remoteConfig) const {
+std::string RenderReleaseBanners(const std::shared_ptr<SessionState>& state, const RemoteConfig* remoteConfig) {
     const RemoteConfigData remoteSnap = remoteConfig ? remoteConfig->GetSnapshot() : RemoteConfigData{};
     const bool belowMin = RemoteConfig::IsVersionBelowMinimum(AppVersion::Current, remoteSnap.min_supported_version);
     const bool wireUpdateRequired = OmniNet::UpdateRequired();

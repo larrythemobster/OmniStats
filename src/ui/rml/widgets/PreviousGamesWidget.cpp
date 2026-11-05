@@ -59,10 +59,6 @@ std::string RenderPreviousGamesImpl(bool includeHeading, const RmlRenderSnapshot
     return out.str();
 }
 
-std::string OverlayPresenter::RenderPreviousGames(bool includeHeading, const RmlRenderSnapshot& snap, const ConfigData& config) {
-    return RenderPreviousGamesImpl(includeHeading, snap, config);
-}
-
 std::string RmlUiController::RenderPreviousGames(bool includeHeading) {
     return RenderPreviousGamesImpl(includeHeading, m_snap, m_config);
 }

@@ -139,6 +139,8 @@ void RmlUiController::UpdateThemeProperties() {
         rule(selector, "color", accent);
     rule(".accounts-active-dot", "background-color", accent);
     rule(".overlay-edit", "border-color", accent);
+    rule(".overlay-card.dock-hover-target", "border-color", "#ff0021");
+    rule(".overlay-card.dock-hover-target", "background-color", "#ff002120");
     rule(".dashboard-widget.dragging", "border-color", accent);
     rule(".settings-nav button.active", "border-color", accent);
     rule(".settings-nav button.active", "background-color", accentDark);
@@ -235,13 +237,12 @@ void RmlUiController::UpdateThemeProperties() {
         rule(".badge" + selector, "background-color", color + "1f");
     }
 
-    rule(".graph-line", "background-color", graph);
     rule(".graph-polyline", "color", graph);
     rule(".graph-point", "background-color", graph);
     rule(".graph-point", "border-color", graphPanel);
     rule(".graph-point.start", "border-color", muted);
     rule(".graph-point-halo", "background-color", graph);
-    rule(".graph-line.baseline", "background-color", baseline);
+    rule(".graph-baseline", "color", baseline);
     rule(".graph-point.win, .graph-point-halo.win", "background-color", win);
     rule(".graph-point.loss, .graph-point-halo.loss", "background-color", loss);
     rule(".graph-point.neutral, .graph-point-halo.neutral", "background-color", muted);
@@ -268,16 +269,16 @@ void RmlUiController::UpdateThemeProperties() {
 // mouse-up. In particular, do not rebuild the dynamic theme stylesheet here: this
 // function runs synchronously from WM_MOUSEMOVE, and stylesheet compilation/layout
 // on every pointer sample makes the picker visibly lag behind the cursor.
-void RmlUiController::ApplyColorPick(float mouseX, float mouseY) {
-    ColorRGBA* current = ThemeColorForKey(m_config, m_editColorKey);
+void RmlUiController::ThemeEditor::ApplyColorPick(float mouseX, float mouseY) {
+    ColorRGBA* current = ThemeColorForKey(m_owner.m_config, m_editColorKey);
     if (!current) return;
 
-    const float u = std::clamp((mouseX - m_drag.startX) / m_drag.startW, 0.0f, 1.0f);
-    const float v = std::clamp((mouseY - m_drag.startY) / m_drag.startH, 0.0f, 1.0f);
+    const float u = std::clamp((mouseX - m_owner.m_layoutDrag.m_drag.startX) / m_owner.m_layoutDrag.m_drag.startW, 0.0f, 1.0f);
+    const float v = std::clamp((mouseY - m_owner.m_layoutDrag.m_drag.startY) / m_owner.m_layoutDrag.m_drag.startH, 0.0f, 1.0f);
     const Hsv existing = RgbToHsv(*current);
     Hsv picked = existing;
     picked.h = existing.s > 0.0f ? existing.h : m_editColorHue;
-    if (m_drag.kind == DragKind::ColorHue) {
+    if (m_owner.m_layoutDrag.m_drag.kind == DragKind::ColorHue) {
         picked.h = u * 360.0f;
         // A fully black or white swatch has nothing for a hue to act on; give the
         // dragged hue something visible instead of leaving the field blank.
@@ -291,13 +292,13 @@ void RmlUiController::ApplyColorPick(float mouseX, float mouseY) {
 
     *current = HsvToRgb(picked, current->a);
     m_colorPickDirty = true;
-    RefreshColorPickPreview(m_drag.kind == DragKind::ColorHue);
+    RefreshColorPickPreview(m_owner.m_layoutDrag.m_drag.kind == DragKind::ColorHue);
 }
 
-void RmlUiController::RefreshColorPickPreview(bool updateFieldGradient) {
-    if (!m_document || m_settingsPage != SettingsPage::Appearance) return;
+void RmlUiController::ThemeEditor::RefreshColorPickPreview(bool updateFieldGradient) {
+    if (!m_owner.m_document || m_owner.m_settingsPage != SettingsPage::Appearance) return;
 
-    const ColorRGBA* editing = ThemeColorForKey(m_config, m_editColorKey);
+    const ColorRGBA* editing = ThemeColorForKey(m_owner.m_config, m_editColorKey);
     if (!editing) return;
 
     const Hsv hsv = RgbToHsv(*editing);
@@ -314,31 +315,31 @@ void RmlUiController::RefreshColorPickPreview(bool updateFieldGradient) {
     if (updateFieldGradient) {
         const int gradientHue = QuantizedPickerHue(hue);
         if (gradientHue != m_colorPickerGradientHue) {
-            if (auto* field = m_document->GetElementById("theme-color-field"))
+            if (auto* field = m_owner.m_document->GetElementById("theme-color-field"))
                 field->SetProperty("decorator", "image(gen://sv?h=" + std::to_string(gradientHue) + ")");
             m_colorPickerGradientHue = gradientHue;
         }
     }
 
-    if (auto* marker = m_document->GetElementById("theme-color-field-marker")) {
+    if (auto* marker = m_owner.m_document->GetElementById("theme-color-field-marker")) {
         marker->SetProperty("left", percent(hsv.s));
         marker->SetProperty("top", percent(1.0f - hsv.v));
     }
-    if (auto* marker = m_document->GetElementById("theme-color-hue-marker"))
+    if (auto* marker = m_owner.m_document->GetElementById("theme-color-hue-marker"))
         marker->SetProperty("left", percent(hue / 360.0f));
 
-    const std::string css = CssColor(*editing);
-    if (auto* preview = m_document->GetElementById("theme-color-preview"))
+    const std::string css = m_owner.CssColor(*editing);
+    if (auto* preview = m_owner.m_document->GetElementById("theme-color-preview"))
         preview->SetProperty("background-color", css);
-    if (auto* swatch = m_document->GetElementById((std::string("theme-swatch-") + m_editColorKey).c_str()))
+    if (auto* swatch = m_owner.m_document->GetElementById((std::string("theme-swatch-") + m_editColorKey).c_str()))
         swatch->SetProperty("background-color", css);
-    if (auto* element = m_document->GetElementById((std::string("theme-hex-") + m_editColorKey).c_str())) {
+    if (auto* element = m_owner.m_document->GetElementById((std::string("theme-hex-") + m_editColorKey).c_str())) {
         if (auto* control = dynamic_cast<Rml::ElementFormControl*>(element)) control->SetValue(css);
     }
 }
 
-void RmlUiController::RefreshThemeEditorControls(std::string_view preserveHexKey) {
-    if (!m_document || m_settingsPage != SettingsPage::Appearance) return;
+void RmlUiController::ThemeEditor::RefreshThemeEditorControls(std::string_view preserveHexKey) {
+    if (!m_owner.m_document || m_owner.m_settingsPage != SettingsPage::Appearance) return;
 
     constexpr std::array<const char*, 18> kThemeKeys = {
         "theme_bg", "theme_panel", "theme_topbar", "theme_graph_panel",
@@ -347,19 +348,19 @@ void RmlUiController::RefreshThemeEditorControls(std::string_view preserveHexKey
         "theme_graph", "theme_baseline"};
 
     for (const char* key : kThemeKeys) {
-        const ColorRGBA* color = ThemeColorForKey(m_config, key);
+        const ColorRGBA* color = ThemeColorForKey(m_owner.m_config, key);
         if (!color) continue;
-        const std::string css = CssColor(*color);
-        if (auto* swatch = m_document->GetElementById((std::string("theme-swatch-") + key).c_str()))
+        const std::string css = m_owner.CssColor(*color);
+        if (auto* swatch = m_owner.m_document->GetElementById((std::string("theme-swatch-") + key).c_str()))
             swatch->SetProperty("background-color", css);
         if (preserveHexKey != key) {
-            if (auto* element = m_document->GetElementById((std::string("theme-hex-") + key).c_str())) {
+            if (auto* element = m_owner.m_document->GetElementById((std::string("theme-hex-") + key).c_str())) {
                 if (auto* control = dynamic_cast<Rml::ElementFormControl*>(element)) control->SetValue(css);
             }
         }
     }
 
-    const ColorRGBA* editing = ThemeColorForKey(m_config, m_editColorKey);
+    const ColorRGBA* editing = ThemeColorForKey(m_owner.m_config, m_editColorKey);
     if (!editing) return;
     const Hsv hsv = RgbToHsv(*editing);
     const float hue = hsv.s > 0.0f ? hsv.h : m_editColorHue;
@@ -374,17 +375,17 @@ void RmlUiController::RefreshThemeEditorControls(std::string_view preserveHexKey
     };
 
     const int gradientHue = QuantizedPickerHue(hue);
-    if (auto* field = m_document->GetElementById("theme-color-field"))
+    if (auto* field = m_owner.m_document->GetElementById("theme-color-field"))
         field->SetProperty("decorator", "image(gen://sv?h=" + std::to_string(gradientHue) + ")");
     m_colorPickerGradientHue = gradientHue;
-    if (auto* marker = m_document->GetElementById("theme-color-field-marker")) {
+    if (auto* marker = m_owner.m_document->GetElementById("theme-color-field-marker")) {
         marker->SetProperty("left", percent(hsv.s));
         marker->SetProperty("top", percent(1.0f - hsv.v));
     }
-    if (auto* marker = m_document->GetElementById("theme-color-hue-marker"))
+    if (auto* marker = m_owner.m_document->GetElementById("theme-color-hue-marker"))
         marker->SetProperty("left", percent(hue / 360.0f));
-    if (auto* preview = m_document->GetElementById("theme-color-preview"))
-        preview->SetProperty("background-color", CssColor(*editing));
+    if (auto* preview = m_owner.m_document->GetElementById("theme-color-preview"))
+        preview->SetProperty("background-color", m_owner.CssColor(*editing));
 
     const std::array<std::pair<char, int>, 4> channels = {{{'r', channelByte(editing->r)},
                                                            {'g', channelByte(editing->g)},
@@ -392,16 +393,16 @@ void RmlUiController::RefreshThemeEditorControls(std::string_view preserveHexKey
                                                            {'a', channelByte(editing->a)}}};
     for (const auto [component, value] : channels) {
         const std::string id = std::string("theme-color-") + component;
-        if (auto* element = m_document->GetElementById(id.c_str())) {
+        if (auto* element = m_owner.m_document->GetElementById(id.c_str())) {
             if (auto* control = dynamic_cast<Rml::ElementFormControl*>(element)) control->SetValue(std::to_string(value));
         }
-        if (auto* label = m_document->GetElementById((id + "-value").c_str())) SetElementText(label, std::to_string(value));
+        if (auto* label = m_owner.m_document->GetElementById((id + "-value").c_str())) m_owner.SetElementText(label, std::to_string(value));
     }
 }
 
-void RmlUiController::CommitColorPick() {
+void RmlUiController::ThemeEditor::CommitColorPick() {
     if (!m_colorPickDirty) return;
-    const ColorRGBA* current = ThemeColorForKey(m_config, m_editColorKey);
+    const ColorRGBA* current = ThemeColorForKey(m_owner.m_config, m_editColorKey);
     if (!current) {
         m_colorPickDirty = false;
         return;
@@ -414,6 +415,6 @@ void RmlUiController::CommitColorPick() {
     m_colorPickDirty = false;
     // The picker itself stays lightweight while the mouse is down. Apply the
     // selected color to the rest of the app once, after the drag has finished.
-    UpdateThemeProperties();
+    m_owner.UpdateThemeProperties();
     RefreshThemeEditorControls();
 }

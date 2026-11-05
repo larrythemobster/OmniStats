@@ -51,14 +51,14 @@ void RmlUiController::ProcessEvent(Rml::Event& event) {
         } else {
             std::string_view colorKey;
             char component = 0;
-            if (ParseThemeComponentKey(key, colorKey, component)) CommitColorPick();
+            if (ParseThemeComponentKey(key, colorKey, component)) m_themeEditor.CommitColorPick();
         }
     } else if (type == "mousedown")
-        HandleMouseDown(target, event);
+        m_layoutDrag.HandleMouseDown(target, event);
     else if (type == "mousemove")
-        HandleMouseMove(event);
+        m_layoutDrag.HandleMouseMove(event);
     else if (type == "mouseup")
-        HandleMouseUp(event);
+        m_layoutDrag.HandleMouseUp(event);
 
     const uint64_t configRevisionAfter = Config::Revision();
     if (configRevisionAfter != configRevisionBefore) m_lastLocalConfigRevision = configRevisionAfter;
@@ -250,11 +250,11 @@ void RmlUiController::HandleClick(Rml::Element* target) {
     } else if (action == "reset-theme-colors") {
         Config::Update([](ConfigData& c) { c.ResetThemeColors(); });
         m_config = Config::Read();
-        m_editColorKey.clear();
-        m_colorPickerGradientHue = -1;
-        m_colorPickDirty = false;
+        m_themeEditor.m_editColorKey.clear();
+        m_themeEditor.m_colorPickerGradientHue = -1;
+        m_themeEditor.m_colorPickDirty = false;
         UpdateThemeProperties();
-        RefreshThemeEditorControls();
+        m_themeEditor.RefreshThemeEditorControls();
         RebuildSettings();
         RebuildVisibleUi(true, true);
         ShowToast("Theme colors reset to default.");
@@ -267,11 +267,11 @@ void RmlUiController::HandleClick(Rml::Element* target) {
     } else if (action == "reset-theme-and-layout") {
         Config::Update([](ConfigData& c) { c.ResetThemeAndLayout(); });
         m_config = Config::Read();
-        m_editColorKey.clear();
-        m_colorPickerGradientHue = -1;
-        m_colorPickDirty = false;
+        m_themeEditor.m_editColorKey.clear();
+        m_themeEditor.m_colorPickerGradientHue = -1;
+        m_themeEditor.m_colorPickDirty = false;
         UpdateThemeProperties();
-        RefreshThemeEditorControls();
+        m_themeEditor.RefreshThemeEditorControls();
         RebuildOverlay();
         RebuildSettings();
         RebuildVisibleUi(true, true);
@@ -300,8 +300,8 @@ void RmlUiController::HandleClick(Rml::Element* target) {
         RebuildSettings();
     } else if (action == "edit-color") {
         const std::string key = Attribute(target, "data-color-key");
-        m_editColorKey = ThemeColorForKey(m_config, key) ? key : std::string{};
-        m_colorPickerGradientHue = -1;
+        m_themeEditor.m_editColorKey = ThemeColorForKey(m_config, key) ? key : std::string{};
+        m_themeEditor.m_colorPickerGradientHue = -1;
         RebuildSettings();
         if (auto* root = Root("settings-root")) {
             if (auto* el = root->QuerySelector("#active-color-editor")) {
@@ -309,7 +309,7 @@ void RmlUiController::HandleClick(Rml::Element* target) {
             }
         }
     } else if (action == "close-color-editor") {
-        m_editColorKey.clear();
+        m_themeEditor.m_editColorKey.clear();
         RebuildSettings();
     } else if (action == "confirm-replay-upload") {
         Config::Update([](ConfigData& c) { c.ballchasing_upload_notice_accepted = true; c.auto_upload_replays = true; });
@@ -469,18 +469,18 @@ void RmlUiController::HandleInput(Rml::Element* target) {
         std::string_view componentColorKey;
         char component = 0;
         if (ParseThemeComponentKey(key, componentColorKey, component)) {
-            if (componentColorKey != m_editColorKey) return;
+            if (componentColorKey != m_themeEditor.m_editColorKey) return;
             // RGB/A sliders can emit an event for every pointer pixel. Stage the
             // value in the controller copy and keep this path DOM-local; saving
             // and rebuilding the theme stylesheet on every sample makes the
             // slider thumb lag for the same reason as the SV picker.
             if (!SetThemeComponent(m_config, key, value)) return;
-            m_colorPickDirty = true;
+            m_themeEditor.m_colorPickDirty = true;
             const ColorRGBA* stagedColor = ThemeColorForKey(m_config, componentColorKey);
             if (!stagedColor) return;
             const Hsv hsv = RgbToHsv(*stagedColor);
-            if (hsv.s > 0.0f) m_editColorHue = hsv.h;
-            RefreshColorPickPreview(component != 'a');
+            if (hsv.s > 0.0f) m_themeEditor.m_editColorHue = hsv.h;
+            m_themeEditor.RefreshColorPickPreview(component != 'a');
 
             if (auto* label = m_document ? m_document->GetElementById((std::string("theme-color-") + component + "-value").c_str()) : nullptr) {
                 const ColorRGBA* color = ThemeColorForKey(m_config, componentColorKey);
@@ -526,7 +526,7 @@ void RmlUiController::HandleInput(Rml::Element* target) {
         // Preserve the text field currently being typed into so canonicalizing
         // the hex value does not reset its caret/selection on every keystroke.
         const std::string_view preserveHexKey = key.find(':') == std::string::npos ? std::string_view(key) : std::string_view{};
-        RefreshThemeEditorControls(preserveHexKey);
+        m_themeEditor.RefreshThemeEditorControls(preserveHexKey);
     }
 }
 
@@ -851,7 +851,7 @@ void RmlUiController::HandleChange(Rml::Element* target, Rml::Event& event) {
     }
     if (themeChanged) {
         UpdateThemeProperties();
-        RefreshThemeEditorControls();
+        m_themeEditor.RefreshThemeEditorControls();
     }
     // Theme-only changes are handled entirely by the persistent stylesheet.
     // Do not rebuild either large root just to apply colors.

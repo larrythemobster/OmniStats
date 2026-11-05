@@ -134,7 +134,10 @@ std::string RmlUiController::BestRankTier(const PlayerData& p) const {
     return MmrService::GetRankTierForPlaylistMmr(BestRankSource(p, p.mmr, m_config.show_extra_playlists), p.mmr);
 }
 
-std::string OverlayPresenter::RenderPlayerRoster(int team, const char* label, const RmlRenderSnapshot& snap, const ConfigData& config, const std::shared_ptr<SessionState>& state) {
+std::string RmlUiController::RenderPlayerRoster(int team, const char* label) {
+    const auto& snap = m_snap;
+    const auto& config = m_config;
+    const auto& state = m_state;
     std::vector<const PlayerData*> players;
     const std::string category = MmrCategoryToString(state ? state->ui.rosterMmrCategory.load() : MmrCategory::Best);
     for (const auto& [_, player] : snap.roster)
@@ -284,11 +287,10 @@ std::string OverlayPresenter::RenderPlayerRoster(int team, const char* label, co
     return out.str();
 }
 
-std::string RmlUiController::RenderPlayerRoster(int team, const char* label) {
-    return m_overlayPresenter->RenderPlayerRoster(team, label, m_snap, m_config, m_state);
-}
-
-std::string OverlayPresenter::RenderSelfRankProgress(bool card, const RmlRenderSnapshot& snap, const ConfigData& config, const std::shared_ptr<SessionState>& state) {
+std::string RmlUiController::RenderSelfRankProgress(bool card) const {
+    const auto& snap = m_snap;
+    const auto& config = m_config;
+    const auto& state = m_state;
     const PlayerData* self = nullptr;
     if (!snap.myPrimaryId.empty()) {
         if (auto it = snap.roster.find(snap.myPrimaryId); it != snap.roster.end()) self = &it->second;
@@ -308,8 +310,4 @@ std::string OverlayPresenter::RenderSelfRankProgress(bool card, const RmlRenderS
     const std::string label = MmrLabel(StringToMmrCategory(playlist));
     if (progress.empty()) return "<div class='label'>No rank to show for " + Escape(label) + ".</div>";
     return "<div class='row rank-progress-card-head'><span class='badge'>" + Escape(label) + "</span></div>" + progress;
-}
-
-std::string RmlUiController::RenderSelfRankProgress(bool card) const {
-    return m_overlayPresenter->RenderSelfRankProgress(card, m_snap, m_config, m_state);
 }

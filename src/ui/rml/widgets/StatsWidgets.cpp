@@ -40,8 +40,8 @@ namespace {
     }
 }
 
-std::string OverlayPresenter::RenderLiveMatchStats(const RmlRenderSnapshot& snap, const ConfigData& /*config*/) {
-    const auto& s = snap.currentMatch;
+std::string RmlUiController::RenderLiveMatchStats() {
+    const auto& s = m_snap.currentMatch;
     std::string play = "<div class='metric-list'>" + BoundMetricRow("Saves", "match_saves") + BoundMetricRow("Shots", "match_shots") +
                        BoundMetricRow("Assists", "match_assists") + BoundMetricRow("Demos", "match_demos");
     if (s.demoedSelf > 0) play += BoundMetricRow("Demoed", "match_demoed");
@@ -58,11 +58,9 @@ std::string OverlayPresenter::RenderLiveMatchStats(const RmlRenderSnapshot& snap
            "<div class='stat-section-title' style='margin-top:7dp'>FUN</div>" + fun;
 }
 
-std::string RmlUiController::RenderLiveMatchStats() {
-    return m_overlayPresenter->RenderLiveMatchStats(m_snap, m_config);
-}
-
-std::string OverlayPresenter::RenderStreaksStats(const std::shared_ptr<SessionState>& state, const ConfigData& config) {
+std::string RmlUiController::RenderStreaksStats() {
+    const auto& state = m_state;
+    const auto& config = m_config;
     int cw = 0, cl = 0, lw = 0, ll = 0;
     if (state) {
         std::lock_guard lock(state->ui.dbStatsMutex);
@@ -90,11 +88,10 @@ std::string OverlayPresenter::RenderStreaksStats(const std::shared_ptr<SessionSt
     return out.str();
 }
 
-std::string RmlUiController::RenderStreaksStats() {
-    return m_overlayPresenter->RenderStreaksStats(m_state, m_config);
-}
-
-std::string OverlayPresenter::RenderGamemodeBreakdown(GamemodeBreakdownScope scope, const RmlRenderSnapshot& snap, const std::shared_ptr<SessionState>& state, const ConfigData& config) {
+std::string RmlUiController::RenderGamemodeBreakdown(GamemodeBreakdownScope scope) {
+    const auto& snap = m_snap;
+    const auto& state = m_state;
+    const auto& config = m_config;
     std::ostringstream out;
     const std::array<std::pair<const char*, bool>, 3> modes{{{"1v1", config.show_gamemode_record_1v1}, {"2v2", config.show_gamemode_record_2v2}, {"3v3", config.show_gamemode_record_3v3}}};
     bool any = false;
@@ -130,11 +127,9 @@ std::string OverlayPresenter::RenderGamemodeBreakdown(GamemodeBreakdownScope sco
     return out.str();
 }
 
-std::string RmlUiController::RenderGamemodeBreakdown(GamemodeBreakdownScope scope) {
-    return m_overlayPresenter->RenderGamemodeBreakdown(scope, m_snap, m_state, m_config);
-}
-
-std::string OverlayPresenter::RenderSessionStats(bool compact, bool includeStreak, const RmlRenderSnapshot& snap, const ConfigData& config) {
+std::string RmlUiController::RenderSessionStats(bool compact, bool includeStreak) {
+    const auto& snap = m_snap;
+    const auto& config = m_config;
     const auto& stats = snap.sessionTotals;
     const int mmr = static_cast<int>(std::lround(stats.totalMmrChange));
     const float gp = stats.teamGoals > 0 ? 100.0f * static_cast<float>(stats.goalParticipations) / static_cast<float>(stats.teamGoals) : 0.0f;
@@ -192,15 +187,7 @@ std::string OverlayPresenter::RenderSessionStats(bool compact, bool includeStrea
     return out.str();
 }
 
-std::string RmlUiController::RenderSessionStats(bool compact, bool includeStreak) {
-    return m_overlayPresenter->RenderSessionStats(compact, includeStreak, m_snap, m_config);
-}
-
-std::string OverlayPresenter::RenderDemoTracker() {
+std::string RmlUiController::RenderDemoTracker() {
     return "<div class='metric-pair'>" + BoundKdMetric("GAME K/D", "demo_game_count", "demo_game_kd", "demo_game_tone") +
            BoundKdMetric("SESSION K/D", "demo_session_count", "demo_session_kd", "demo_session_tone") + "</div>";
-}
-
-std::string RmlUiController::RenderDemoTracker() {
-    return m_overlayPresenter->RenderDemoTracker();
 }

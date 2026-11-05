@@ -46,7 +46,14 @@ namespace {
     }
 }
 
-std::string OverlayPresenter::RenderMatchSummary(const RmlRenderSnapshot& snap, const ConfigData& config, const std::shared_ptr<SessionState>& state, bool interactive, float dpiScale, float viewportWidth, float viewportHeight) {
+std::string RmlUiController::RenderMatchSummary() {
+    const auto& snap = m_snap;
+    const auto& config = m_config;
+    const auto& state = m_state;
+    const bool interactive = WantsInteraction();
+    const float dpiScale = m_dpiScale;
+    const float viewportWidth = static_cast<float>(m_width);
+    const float viewportHeight = static_cast<float>(m_height);
     const int myTeam = snap.matchSummaryMyTeam;
     const int score0 = snap.matchSummaryScore[0];
     const int score1 = snap.matchSummaryScore[1];
@@ -130,11 +137,17 @@ std::string OverlayPresenter::RenderMatchSummary(const RmlRenderSnapshot& snap, 
     return out.str();
 }
 
-std::string RmlUiController::RenderMatchSummary() {
-    return m_overlayPresenter->RenderMatchSummary(m_snap, m_config, m_state, WantsInteraction(), m_dpiScale, static_cast<float>(m_width), static_cast<float>(m_height));
-}
-
-std::string OverlayPresenter::RenderSessionView(const RmlRenderSnapshot& snap, const ConfigData& config, const std::shared_ptr<SessionState>& state, bool interactive, float dpiScale, float viewportWidth, float viewportHeight) {
+std::string RmlUiController::RenderSessionView() {
+    if (m_telemetry && m_state && m_state->ui.showGraphView.load()) {
+        m_telemetry->RecordMilestone(TelemetryManager::Milestone::MmrGraphView);
+    }
+    const auto& snap = m_snap;
+    const auto& config = m_config;
+    const auto& state = m_state;
+    const bool interactive = WantsInteraction();
+    const float dpiScale = m_dpiScale;
+    const float viewportWidth = static_cast<float>(m_width);
+    const float viewportHeight = static_cast<float>(m_height);
     const auto category = state ? state->ui.graphMmrCategory.load() : MmrCategory::TwoVTwo;
     const bool graph = state && state->ui.showGraphView.load();
     const bool lifetime = graph && snap.showLifetimeGraph;
@@ -144,16 +157,9 @@ std::string OverlayPresenter::RenderSessionView(const RmlRenderSnapshot& snap, c
         << "><div class='row session-view-head'><div class='card-title grow'>"
         << (lifetime ? "LIFETIME MMR · " : graph ? "SESSION MMR · "
                                                  : "SESSION · ")
-        << Escape(MmrLabel(category)) << "</div>" << (graph ? RenderGraphPanControls(snap, state) : std::string{})
+        << Escape(MmrLabel(category)) << "</div>" << (graph ? RenderGraphPanControls() : std::string{})
         << "<span class='badge'>F7 view · F6 playlist</span></div>";
-    out << (graph ? RenderMmrGraph(false, false, snap, config, state) : RenderSessionStats(true, true, snap, config));
+    out << (graph ? RenderMmrGraph(false, false) : RenderSessionStats(true, true));
     out << "</div>";
     return out.str();
-}
-
-std::string RmlUiController::RenderSessionView() {
-    if (m_telemetry && m_state && m_state->ui.showGraphView.load()) {
-        m_telemetry->RecordMilestone(TelemetryManager::Milestone::MmrGraphView);
-    }
-    return m_overlayPresenter->RenderSessionView(m_snap, m_config, m_state, WantsInteraction(), m_dpiScale, static_cast<float>(m_width), static_cast<float>(m_height));
 }

@@ -154,5 +154,5 @@ std::string SettingsPresenter::RenderAppearance(const ConfigData& config, const 
 }
 
 std::string RmlUiController::RenderSettingsAppearance() {
-    return m_settingsPresenter->RenderAppearance(m_config, m_editColorKey, m_editColorHue, m_showAdvancedAppearance);
+    return m_settingsPresenter->RenderAppearance(m_config, m_themeEditor.m_editColorKey, m_themeEditor.m_editColorHue, m_showAdvancedAppearance);
 }
