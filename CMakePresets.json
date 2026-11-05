@@ -12,7 +12,6 @@
         "VCPKG_TARGET_TRIPLET": "x64-windows-static",
         "BUILD_TESTING": "ON",
         "OMNISTATS_BUILD_UPDATER": "ON",
-        "OMNISTATS_BUILD_INSTALLER": "OFF",
         "OMNISTATS_BUILD_BENCHMARKS": "OFF",
         "OMNISTATS_BUILD_FUZZER": "OFF"
       }
@@ -28,7 +27,6 @@
         "VCPKG_TARGET_TRIPLET": "x64-windows-static",
         "BUILD_TESTING": "ON",
         "OMNISTATS_BUILD_UPDATER": "ON",
-        "OMNISTATS_BUILD_INSTALLER": "OFF",
         "OMNISTATS_BUILD_BENCHMARKS": "OFF",
         "OMNISTATS_BUILD_FUZZER": "OFF"
       }

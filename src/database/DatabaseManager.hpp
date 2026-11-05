@@ -175,7 +175,6 @@ class DatabaseManager {
     };
 
     [[nodiscard]] bool EnqueueDbJob(std::function<void()> job, DbJobPriority priority = DbJobPriority::Normal, std::string coalesceKey = "");
-    database::sqlite::Connection& GetReadConnection();
 
     std::shared_ptr<SessionState> m_state;
     DatabaseHooks m_hooks;

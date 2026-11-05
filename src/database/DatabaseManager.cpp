@@ -145,10 +145,6 @@ bool DatabaseManager::Initialize(const std::string& dbPath) {
     return true;
 }
 
-database::sqlite::Connection& DatabaseManager::GetReadConnection() {
-    return m_db;
-}
-
 bool DatabaseManager::EnqueueDbJob(std::function<void()> job, DbJobPriority priority, std::string coalesceKey) {
     {
         std::lock_guard lock(m_queueMutex);

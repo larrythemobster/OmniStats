@@ -72,12 +72,8 @@ option(ENABLE_SANITIZERS "Enable Address and Undefined sanitizers" OFF)
 option(ENABLE_TSAN "Enable Thread sanitizer" OFF)
 option(ENABLE_COVERAGE "Enable code coverage instrumentation" OFF)
 option(OMNISTATS_BUILD_UPDATER "Build OmniStatsUpdater.exe" ON)
-option(OMNISTATS_BUILD_INSTALLER "Deprecated compatibility option; the WiX MSI is the only supported installer" OFF)
 option(OMNISTATS_ENABLE_LOW_LEVEL_HOOK "Enable the legacy low-level keyboard hook" OFF)
 
-if(OMNISTATS_BUILD_INSTALLER)
-    message(FATAL_ERROR "The legacy bootstrap installer was retired. Build the supported WiX MSI from installer/wix.")
-endif()
 
 if(ENABLE_SANITIZERS)
     if(MSVC)

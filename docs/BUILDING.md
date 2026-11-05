@@ -63,7 +63,6 @@ Debug builds read from the source tree automatically. The hotkey reloads the sty
 | `OMNISTATS_BUILD_BENCHMARKS` | `OFF` | Builds the Google Benchmark executable. |
 | `OMNISTATS_BUILD_FUZZER` | `OFF` | Builds the fuzzing executable. Requires the clang-cl toolset on Windows (`-T ClangCL`); plain `cl.exe` cannot link libFuzzer. |
 | `OMNISTATS_BUILD_UPDATER` | `ON` | Builds `OmniStatsUpdater.exe`. |
-| `OMNISTATS_BUILD_INSTALLER` | `OFF` | Deprecated compatibility switch. Enabling it fails with instructions to use the WiX MSI. |
 | `OMNISTATS_ENABLE_LOW_LEVEL_HOOK` | `OFF` | Enables the retired low-level keyboard-hook path for local testing only. |
 | `CMAKE_DISABLE_PRECOMPILE_HEADERS` | `OFF` | Disables the RmlUi PCH. RmlUi sources explicitly include the shared header, so both configurations are supported. |
 | `ENABLE_SANITIZERS` | `OFF` | Enables supported sanitizer instrumentation. |

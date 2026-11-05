@@ -801,7 +801,7 @@ namespace Config {
                 Current.tournament_reminder_minutes = 10;
             }
 
-            if (!j.contains("check_for_updates") || !j["check_for_updates"].is_boolean() || !j["check_for_updates"].get<bool>()) {
+            if (j.contains("check_for_updates")) {
                 needsSave = true;
             }
 
@@ -863,7 +863,6 @@ namespace Config {
             desc.save(j, Current, secrets);
         }
 
-        j["check_for_updates"] = true;
         j["controller_default_back_migrated"] = true;
 
         std::string configFile = GetConfigPath();

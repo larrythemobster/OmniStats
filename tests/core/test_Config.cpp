@@ -108,6 +108,28 @@ TEST_F(ConfigTest, PersistsDisabledStatsApiStartupCheck) {
     EXPECT_FALSE(Config::Read().check_stats_api_config_on_startup);
 }
 
+TEST_F(ConfigTest, RemovesObsoleteUpdateSetting) {
+    const std::string path = Storage::GetDataDirectory() + "config.json";
+    Config::Save();
+    nlohmann::json config;
+    {
+        std::ifstream file(path);
+        file >> config;
+    }
+    config["check_for_updates"] = false;
+    {
+        std::ofstream file(path);
+        file << config.dump();
+    }
+    Config::Load();
+    Config::Save();
+    {
+        std::ifstream file(path);
+        file >> config;
+    }
+    EXPECT_FALSE(config.contains("check_for_updates"));
+}
+
 TEST_F(ConfigTest, ConcurrencyReadUpdate) {
     std::atomic<bool> start{false};
     std::atomic<int> completed{0};
