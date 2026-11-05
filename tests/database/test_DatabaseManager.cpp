@@ -1121,7 +1121,7 @@ TEST_F(DatabaseManagerTest, LegacyArenaNamesAreRepairedOnceWithoutCascading) {
     RemoveTestDbFiles(path);
 }
 
-TEST_F(DatabaseManagerTest, MigrationV2FailureRollsBackAndRejectsInitialization) {
+TEST_F(DatabaseManagerTest, MigrationV2FailureRollsBackAndKeepsRunningOnV1Tables) {
     const std::string path = (tempDir.path / "test_mig_v2_fail.db").string();
     const std::string backupPath = path + ".bak-v0";
     RemoveTestDbFiles(path);
@@ -1159,17 +1159,31 @@ TEST_F(DatabaseManagerTest, MigrationV2FailureRollsBackAndRejectsInitialization)
 
     {
         auto db = std::make_shared<DatabaseManager>(sessionState);
-        EXPECT_FALSE(db->Initialize(path));
-        EXPECT_FALSE(db->InitializationError().empty());
-    }
-    {
-        ASSERT_EQ(sqlite3_open(path.c_str(), &raw), SQLITE_OK);
-        EXPECT_EQ(QueryIntScalar(raw, "PRAGMA user_version;"), 1);
-        EXPECT_EQ(QueryIntScalar(raw,
+        ASSERT_TRUE(db->Initialize(path));
+        // Migration v1 committed, migration v2 rolled back completely.
+        EXPECT_EQ(db->GetSchemaVersion(), 1);
+        EXPECT_EQ(QueryIntScalar(db->GetRawDb(),
                                  "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='MatchPlayerStats';"),
                   0);
-        EXPECT_EQ(QueryIntScalar(raw, "SELECT COUNT(*) FROM sqlite_master WHERE type='view' AND name='MatchLocalStats';"), 1);
-        sqlite3_close(raw);
+
+        MatchSaveSnapshot snap;
+        snap.arenaName = "DFH Stadium";
+        snap.matchGuid = "v1-fallback-guid";
+        snap.playlistId = 11;
+        snap.myTeam = 0;
+        snap.winnerTeam = 0;
+        snap.validResult = true;
+        snap.score[0] = 3;
+        snap.score[1] = 1;
+        snap.myPrimaryId = "Steam|v1user";
+        snap.roster["Steam|v1user"] = PlayerData{.primaryId = "Steam|v1user", .name = "Player", .team = 0, .mmr = 1000, .goals = 2};
+        db->SaveMatch(snap);
+
+        std::vector<SessionMatchSummary> recent;
+        db->GetRecentMatchHistory("Steam|v1user", recent, 10);
+        ASSERT_EQ(recent.size(), 1u);
+        EXPECT_EQ(recent[0].matchGuid, "v1-fallback-guid");
+        EXPECT_TRUE(db->GetPlayerStatSeries("Steam|v1user").empty());
     }
 
     RemoveTestDbFiles(path);

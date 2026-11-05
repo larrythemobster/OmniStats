@@ -571,7 +571,6 @@ namespace database::repository {
                 break;
             }
         }
-        if (currentVersion < latestVersion) return false;
 
         // Ensure MatchAnalytics exists even if user_version is already >= 11 from another build.
         try {
