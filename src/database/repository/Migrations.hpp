@@ -7,6 +7,7 @@ namespace database::repository {
 
     class Migrations {
       public:
+        static int LatestVersion();
         static bool Migrate(sqlite::Connection& db, const std::string& dbPath);
         // Backs up the file, then clears or deletes rows whose referenced parent no longer exists.
         static bool RepairForeignKeyViolations(sqlite::Connection& db, const std::string& dbPath, std::string& error);

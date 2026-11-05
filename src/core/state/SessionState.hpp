@@ -197,6 +197,7 @@ struct UIState {
     std::atomic<bool> updateDownloadFailed{false};
     std::atomic<bool> updatePromptShown{false};
     std::atomic<bool> appExitRequested{false};
+    std::atomic<bool> databaseUpgradeIncomplete{false};
     mutable std::mutex updateMutex;
     std::string updateAvailableVersion;
     std::string updateServerUrl;

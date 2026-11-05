@@ -128,6 +128,7 @@ bool DatabaseManager::Initialize(const std::string& dbPath) {
         m_db.Close();
         return false;
     }
+    m_schemaUpgradeIncomplete = m_db.UserVersion() < repository::Migrations::LatestVersion();
     repository::Migrations::RepairArenaNames(m_db);
 
     if (repository::SessionRepository::HasUnlinkedMatches(m_db)) {

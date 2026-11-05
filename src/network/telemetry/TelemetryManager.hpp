@@ -51,6 +51,8 @@ class TelemetryManager {
         TournamentsView,
         SettingsChanged,
         MatchCardShared,
+        // Existing servers only accept "onboarding" and "feature" kinds, so this health signal uses "feature".
+        DatabaseUpgradeFailed,
         Count
     };
 
@@ -91,6 +93,8 @@ class TelemetryManager {
             return {"feature", "settings_changed"};
         case Milestone::MatchCardShared:
             return {"feature", "match_card_shared"};
+        case Milestone::DatabaseUpgradeFailed:
+            return {"feature", "database_upgrade_failed"};
         default:
             return {"", ""};
         }

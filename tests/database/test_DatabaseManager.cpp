@@ -1054,6 +1054,7 @@ TEST_F(DatabaseManagerTest, MigratesAllHistoricalSchemasToV2WithBackupsAndIdempo
             auto db = std::make_shared<DatabaseManager>(sessionState);
             ASSERT_TRUE(db->Initialize(path)) << tc.label;
             EXPECT_EQ(db->GetSchemaVersion(), 12) << tc.label;
+            EXPECT_FALSE(db->SchemaUpgradeIncomplete()) << tc.label;
             EXPECT_EQ(QueryIntScalar(db->GetRawDb(), "SELECT COUNT(*) FROM sqlite_master WHERE type='index' AND name='idx_matches_match_guid';"), 1)
                 << tc.label;
             EXPECT_EQ(QueryIntScalar(db->GetRawDb(), "SELECT COUNT(*) FROM Matches;"), 2) << tc.label;
@@ -1162,6 +1163,7 @@ TEST_F(DatabaseManagerTest, MigrationV2FailureRollsBackAndKeepsRunningOnV1Tables
         ASSERT_TRUE(db->Initialize(path));
         // Migration v1 committed, migration v2 rolled back completely.
         EXPECT_EQ(db->GetSchemaVersion(), 1);
+        EXPECT_TRUE(db->SchemaUpgradeIncomplete());
         EXPECT_EQ(QueryIntScalar(db->GetRawDb(),
                                  "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='MatchPlayerStats';"),
                   0);
@@ -2964,6 +2966,7 @@ TEST_F(DatabaseManagerTest, EnsureStepCreatesTableWhenUserVersionAboveLatest) {
         auto db = std::make_shared<DatabaseManager>(sessionState);
         ASSERT_TRUE(db->Initialize(path));
         EXPECT_EQ(db->GetSchemaVersion(), 99);
+        EXPECT_FALSE(db->SchemaUpgradeIncomplete());
         EXPECT_EQ(QueryIntScalar(db->GetRawDb(), "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='MatchAnalytics';"), 1);
     }
 

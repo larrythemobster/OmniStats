@@ -43,6 +43,10 @@ class DatabaseManager {
     const std::string& InitializationError() const noexcept {
         return m_initializationError;
     }
+    // True when a migration step failed and the app is running on an older schema; retried on next launch.
+    bool SchemaUpgradeIncomplete() const noexcept {
+        return m_schemaUpgradeIncomplete;
+    }
 
     void SaveMatch(const MatchSaveSnapshot& snapshot);
     void AsyncSaveMatch(MatchSaveSnapshot snapshot);
@@ -183,6 +187,7 @@ class DatabaseManager {
     database::ReaderPool m_readerPool; // 2-4 read-only connections
     std::string m_dbPath;
     std::string m_initializationError;
+    bool m_schemaUpgradeIncomplete = false;
     std::mutex m_writeMutex;
 
     std::atomic<bool> m_backfillPending{false};

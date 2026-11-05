@@ -115,6 +115,10 @@ int App::Run() {
         MessageBoxW(nullptr, message.c_str(), L"OmniStats database error", MB_OK | MB_ICONERROR);
         return 1;
     }
+    if (m_dbManager->SchemaUpgradeIncomplete()) {
+        std::cerr << "[Database] Schema upgrade incomplete; running on the older schema until the next launch retries it.\n";
+        m_state->ui.databaseUpgradeIncomplete.store(true);
+    }
 
     m_remoteConfig = std::make_shared<RemoteConfig>();
     m_remoteConfig->SetSnapshotCallback([db = std::weak_ptr<DatabaseManager>(m_dbManager)](const RemoteConfigData& config) {
@@ -136,6 +140,9 @@ int App::Run() {
                 m_state, ExternalUpdaterLauncher::BackgroundUpdateCheckReason::Initial);
         }
         m_telemetryManager->Initialize(m_dbManager);
+        if (m_dbManager->SchemaUpgradeIncomplete()) {
+            m_telemetryManager->RecordMilestone(TelemetryManager::Milestone::DatabaseUpgradeFailed);
+        }
         m_remoteConfig->Start();
         m_tournamentService->Start();
     };

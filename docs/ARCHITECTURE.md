@@ -78,6 +78,8 @@ Database operations are split into domain repositories (`MatchRepository`, `Sess
 
 `database::sqlite::Statement` and `Transaction` wrap SQLite handles in RAII objects that finalize prepared statements and roll back aborted transactions automatically.
 
+Each migration step runs in its own transaction after a pre-migration backup. If a step fails, it rolls back and the app keeps running on the last committed schema. Settings and the dashboard show a "Database upgrade incomplete" banner, a one-time `database_upgrade_failed` milestone is reported when telemetry consent is given, and the next launch retries the remaining steps.
+
 File-backed databases open a pool of three read-only connections (`database::ReaderPool`) after migrations. History, account, session, note, replay, and settings reads lease connections from this pool with RAII lease objects. Each lease begins an isolated read transaction and rolls back on destruction. Writes execute on the primary connection under a write mutex. In-memory databases use the primary connection for reads.
 
 CSV exports prefix formula-like text cells with an apostrophe before applying CSV quoting, including formulas preceded by whitespace. JSON exports preserve the original text.

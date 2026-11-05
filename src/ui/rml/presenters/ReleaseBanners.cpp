@@ -9,7 +9,8 @@ std::string RenderReleaseBanners(const std::shared_ptr<SessionState>& state, con
     const bool belowMin = RemoteConfig::IsVersionBelowMinimum(AppVersion::Current, remoteSnap.min_supported_version);
     const bool wireUpdateRequired = OmniNet::UpdateRequired();
     const auto announcements = remoteConfig ? remoteConfig->ActiveAnnouncements() : std::vector<RemoteAnnouncement>{};
-    if (!belowMin && !wireUpdateRequired && announcements.empty()) {
+    const bool dbUpgradeIncomplete = state && state->ui.databaseUpgradeIncomplete.load(std::memory_order_relaxed);
+    if (!belowMin && !wireUpdateRequired && announcements.empty() && !dbUpgradeIncomplete) {
         return {};
     }
 
@@ -40,6 +41,16 @@ std::string RenderReleaseBanners(const std::shared_ptr<SessionState>& state, con
             << "<div class='release-banner-text'>" << RmlUiDetail::Escape(msg) << "</div>"
             << "</div><div class='release-banner-actions'>"
             << RmlUiDetail::Button("update-app", updateLabel, "primary compact")
+            << "</div></div>";
+    }
+    if (dbUpgradeIncomplete) {
+        out << "<div class='release-banner severity-warning db-upgrade-banner'>"
+            << "<div class='release-banner-body'>"
+            << "<div class='release-banner-title'>Database upgrade incomplete</div>"
+            << "<div class='release-banner-text'>Live stats still work, but some history and insights features may be off. "
+               "Your saved matches are kept, and OmniStats retries the upgrade the next time it starts.</div>"
+            << "</div><div class='release-banner-actions'>"
+            << RmlUiDetail::Button("help-discord", "Get help", "ghost compact")
             << "</div></div>";
     }
 

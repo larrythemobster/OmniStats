@@ -525,10 +525,14 @@ namespace database::repository {
         }
     }
 
+    int Migrations::LatestVersion() {
+        return kMigrations.empty() ? 0 : kMigrations.back().version;
+    }
+
     bool Migrations::Migrate(sqlite::Connection& db, const std::string& dbPath) {
         const bool hadExistingTables = HasAnyUserTable(db);
         int currentVersion = db.UserVersion();
-        const int latestVersion = kMigrations.empty() ? 0 : kMigrations.back().version;
+        const int latestVersion = LatestVersion();
 
         if (hadExistingTables && currentVersion < latestVersion) {
             BackupDatabaseBeforeMigration(db, dbPath, currentVersion);
