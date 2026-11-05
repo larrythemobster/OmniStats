@@ -30,8 +30,8 @@ namespace {
         Failed
     };
 
-    std::mutex g_updateThreadsMutex;
-    std::vector<std::thread> g_updateThreads;
+    std::mutex g_updateThreadMutex;
+    std::thread g_updateThread;
     std::atomic<bool> g_updateCheckInProgress{false};
     std::atomic<ULONGLONG> g_lastUpdateCheckAttemptMs{0};
     std::atomic<ULONGLONG> g_lastSuccessfulUpdateCheckMs{0};
@@ -44,7 +44,7 @@ namespace {
         }
         return std::string(path, length);
     }
-    static std::shared_ptr<TelemetryManager> s_telemetry;
+    std::atomic<std::shared_ptr<TelemetryManager>> s_telemetry;
 
     std::string GetDirectoryForPath(const std::string& path) {
         size_t lastSlash = path.find_last_of("\\/");
@@ -143,7 +143,7 @@ namespace {
         const std::string currentExePath = GetCurrentExecutablePath();
         if (currentExePath.empty()) {
             std::cout << "[UpdaterLauncher] Failed to resolve current executable path.\n";
-            if (s_telemetry) s_telemetry->RecordUpdaterEvent("update_check_failed", targetVersion, "resolve_exe_failed", AppVersion::Current);
+            if (auto telemetry = s_telemetry.load()) telemetry->RecordUpdaterEvent("update_check_failed", targetVersion, "resolve_exe_failed", AppVersion::Current);
             return false;
         }
 
@@ -156,7 +156,7 @@ namespace {
             arguments += " --target-version " + targetVersion;
         }
         if (!LaunchUpdater(arguments)) {
-            if (s_telemetry) s_telemetry->RecordUpdaterEvent("update_check_failed", targetVersion, "updater_missing", AppVersion::Current);
+            if (auto telemetry = s_telemetry.load()) telemetry->RecordUpdaterEvent("update_check_failed", targetVersion, "updater_missing", AppVersion::Current);
             return false;
         }
         return true;
@@ -168,7 +168,7 @@ namespace {
         std::string updaterPath;
         if (!FindUpdaterExecutable(updaterPath)) {
             std::cout << "[UpdaterLauncher] Installed updater not found; skipping update check.\n";
-            if (s_telemetry) s_telemetry->RecordUpdaterEvent("update_check_failed", "", "updater_missing", AppVersion::Current);
+            if (auto telemetry = s_telemetry.load()) telemetry->RecordUpdaterEvent("update_check_failed", "", "updater_missing", AppVersion::Current);
             return UpdateCheckResult::Failed;
         }
 
@@ -183,7 +183,7 @@ namespace {
         const std::string arguments = "--check --result-file \"" + resultPath + "\"";
         if (!LaunchUpdater(arguments, &processHandle) || !processHandle) {
             DeleteFileA(resultPath.c_str());
-            if (s_telemetry) s_telemetry->RecordUpdaterEvent("update_check_failed", "", "launch_failed", AppVersion::Current);
+            if (auto telemetry = s_telemetry.load()) telemetry->RecordUpdaterEvent("update_check_failed", "", "launch_failed", AppVersion::Current);
             return UpdateCheckResult::Failed;
         }
 
@@ -192,7 +192,7 @@ namespace {
             std::cout << "[UpdaterLauncher] Installed updater check timed out.\n";
             CloseHandle(processHandle);
             DeleteFileA(resultPath.c_str());
-            if (s_telemetry) s_telemetry->RecordUpdaterEvent("update_check_failed", "", "timeout", AppVersion::Current);
+            if (auto telemetry = s_telemetry.load()) telemetry->RecordUpdaterEvent("update_check_failed", "", "timeout", AppVersion::Current);
             return UpdateCheckResult::Failed;
         }
 
@@ -264,27 +264,15 @@ namespace {
         return exited && exitCode == 0;
     }
 
-    void JoinBackgroundThreads() {
-        std::vector<std::thread> threads;
-        {
-            std::lock_guard<std::mutex> lock(g_updateThreadsMutex);
-            threads.swap(g_updateThreads);
+    void JoinBackgroundThread() {
+        std::lock_guard<std::mutex> lock(g_updateThreadMutex);
+        if (g_updateThread.joinable()) {
+            g_updateThread.join();
         }
-
-        for (auto& thread : threads) {
-            if (thread.joinable()) {
-                thread.join();
-            }
-        }
-    }
-
-    void StoreBackgroundThread(std::thread thread) {
-        std::lock_guard<std::mutex> lock(g_updateThreadsMutex);
-        g_updateThreads.push_back(std::move(thread));
     }
     struct BackgroundThreadGuard {
         ~BackgroundThreadGuard() {
-            JoinBackgroundThreads();
+            JoinBackgroundThread();
         }
     } g_backgroundThreadGuard;
 
@@ -292,7 +280,7 @@ namespace {
 
 namespace ExternalUpdaterLauncher {
     void SetTelemetryManager(std::shared_ptr<TelemetryManager> tm) {
-        s_telemetry = std::move(tm);
+        s_telemetry.store(std::move(tm));
     }
 
     bool RunStartupUpdateCheck() {
@@ -340,34 +328,43 @@ namespace ExternalUpdaterLauncher {
         }
         g_lastUpdateCheckAttemptMs.store(claimedAt, std::memory_order_relaxed);
 
-        StoreBackgroundThread(std::thread([state = std::move(state)]() {
-            std::string latestVersion;
-            const UpdateCheckResult result = RunInstalledUpdaterCheck(latestVersion);
+        std::lock_guard<std::mutex> lock(g_updateThreadMutex);
+        if (g_updateThread.joinable()) {
+            g_updateThread.join();
+        }
+        try {
+            g_updateThread = std::thread([state = std::move(state)]() {
+                std::string latestVersion;
+                const UpdateCheckResult result = RunInstalledUpdaterCheck(latestVersion);
 
-            if (result != UpdateCheckResult::Failed) {
-                g_lastSuccessfulUpdateCheckMs.store(GetTickCount64(), std::memory_order_relaxed);
-                {
-                    std::lock_guard<std::mutex> lock(state->ui.updateMutex);
-                    state->ui.updateAvailableVersion =
-                        result == UpdateCheckResult::UpdateAvailable ? latestVersion : std::string{};
-                    state->ui.updateServerUrl.clear();
+                if (result != UpdateCheckResult::Failed) {
+                    g_lastSuccessfulUpdateCheckMs.store(GetTickCount64(), std::memory_order_relaxed);
+                    {
+                        std::lock_guard<std::mutex> lock(state->ui.updateMutex);
+                        state->ui.updateAvailableVersion =
+                            result == UpdateCheckResult::UpdateAvailable ? latestVersion : std::string{};
+                        state->ui.updateServerUrl.clear();
+                    }
+                    const bool updateAvailable = result == UpdateCheckResult::UpdateAvailable;
+                    state->ui.updateAvailable.store(updateAvailable);
+                    state->ui.updateChecked.store(true);
+                    if (!updateAvailable) {
+                        state->ui.updatePromptShown.store(false);
+                        state->ui.updateDownloadFailed.store(false);
+                    }
                 }
-                const bool updateAvailable = result == UpdateCheckResult::UpdateAvailable;
-                state->ui.updateAvailable.store(updateAvailable);
-                state->ui.updateChecked.store(true);
-                if (!updateAvailable) {
-                    state->ui.updatePromptShown.store(false);
-                    state->ui.updateDownloadFailed.store(false);
-                }
-            }
 
+                std::cout << "[UpdaterLauncher] Background updater check finished. Result: "
+                          << (result == UpdateCheckResult::UpdateAvailable ? "update available"
+                              : result == UpdateCheckResult::UpToDate      ? "up to date"
+                                                                           : "failed")
+                          << (latestVersion.empty() ? "" : ", latest version: ") << latestVersion << "\n";
+                g_updateCheckInProgress.store(false);
+            });
+        } catch (...) {
             g_updateCheckInProgress.store(false);
-            std::cout << "[UpdaterLauncher] Background updater check finished. Result: "
-                      << (result == UpdateCheckResult::UpdateAvailable ? "update available"
-                          : result == UpdateCheckResult::UpToDate      ? "up to date"
-                                                                       : "failed")
-                      << (latestVersion.empty() ? "" : ", latest version: ") << latestVersion << "\n";
-        }));
+            throw;
+        }
         return true;
     }
 
@@ -418,7 +415,7 @@ namespace ExternalUpdaterLauncher {
     }
 
     void ShutdownBackgroundTasks() {
-        JoinBackgroundThreads();
+        JoinBackgroundThread();
     }
 
 } // namespace ExternalUpdaterLauncher
