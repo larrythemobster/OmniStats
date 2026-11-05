@@ -44,6 +44,21 @@ TEST(MmrTimingsTest, QueueUsesInjectedForbiddenLockouts) {
     EXPECT_EQ(third->second, std::chrono::milliseconds(150));
 }
 
+TEST(MmrRequestQueueTest, PostMatchWaitsForRateLimitExpiration) {
+    MmrRequestQueue queue;
+    const auto now = std::chrono::steady_clock::now();
+    MMRRequest request;
+    request.matchGuid = "match";
+    request.notBefore = now;
+    ASSERT_TRUE(queue.EnqueuePostMatch(request));
+    queue.SetRateLimitedUntil(now + std::chrono::seconds(10));
+    EXPECT_FALSE(queue.PopNextPostMatch(now));
+    EXPECT_EQ(queue.PendingCount(), 1u);
+    auto ready = queue.PopNextPostMatch(now + std::chrono::seconds(10));
+    ASSERT_TRUE(ready);
+    EXPECT_EQ(ready->matchGuid, "match");
+}
+
 TEST(MmrRequestQueueTest, CancelledCompletionAndRetriesCannotAffectReplacement) {
     MmrRequestQueue queue(FastMmrTimings());
     int retryNotices = 0;
@@ -388,6 +403,10 @@ TEST_F(MmrServiceTest, FetchProfileRateLimitedPausesQueue) {
     std::this_thread::sleep_for(std::chrono::milliseconds(100));
 
     EXPECT_TRUE(fetcher->IsRateLimited());
+    const int attempts = g_mock_perform_count.load();
+    EnqueuePostMatch("rate-limited-post-match", true);
+    std::this_thread::sleep_for(std::chrono::milliseconds(650));
+    EXPECT_EQ(g_mock_perform_count.load(), attempts);
 
     fetcher->Stop();
 }

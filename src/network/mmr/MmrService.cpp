@@ -973,13 +973,13 @@ void MmrService::WorkerLoop() {
         }
 
         const auto now = std::chrono::steady_clock::now();
-        if (m_queue.HasReady(MMRRequestReason::PostMatch, now)) {
-            DispatchSingle(provider);
-            continue;
-        }
         if (m_queue.IsRateLimited(now)) {
             std::unique_lock<std::mutex> lock(m_cvMutex);
             m_cv.wait_until(lock, now + std::chrono::milliseconds(500));
+            continue;
+        }
+        if (m_queue.HasReady(MMRRequestReason::PostMatch, now)) {
+            DispatchSingle(provider);
             continue;
         }
 

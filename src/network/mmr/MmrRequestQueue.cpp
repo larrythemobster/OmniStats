@@ -107,6 +107,7 @@ bool MmrRequestQueue::HasPendingPostMatch(const std::string& matchGuid) const {
 
 std::optional<MMRRequest> MmrRequestQueue::PopNextPostMatch(std::chrono::steady_clock::time_point now) {
     std::lock_guard<std::mutex> lock(m_mutex);
+    if (m_rateLimitedUntil > now) return std::nullopt;
     auto it = std::find_if(m_queue.begin(), m_queue.end(), [&](const MMRRequest& r) {
         return r.reason == MMRRequestReason::PostMatch && r.notBefore <= now;
     });
