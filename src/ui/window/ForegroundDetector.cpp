@@ -131,13 +131,11 @@ void ForegroundDetector::UpdateFromHwnd(HWND fg) {
     const bool isOverlay = (fg == m_overlayHwnd);
 
     char className[256]{};
+    wchar_t wideTitle[256]{};
     char title[256]{};
     GetClassNameA(fg, className, sizeof(className));
-
-    DWORD_PTR textLength = 0;
-    SendMessageTimeoutA(fg, WM_GETTEXT, sizeof(title),
-                        reinterpret_cast<LPARAM>(title),
-                        SMTO_ABORTIFHUNG | SMTO_BLOCK, 50, &textLength);
+    GetWindowTextW(fg, wideTitle, static_cast<int>(sizeof(wideTitle) / sizeof(wideTitle[0])));
+    WideCharToMultiByte(CP_ACP, 0, wideTitle, -1, title, static_cast<int>(sizeof(title)), nullptr, nullptr);
 
     ForegroundKind kind = ClassifyForegroundWindow(className, title, isOverlay, isCachedRL);
 

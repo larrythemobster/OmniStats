@@ -34,7 +34,6 @@ bool OverlayWindow::Create(HICON appIconBig, HICON appIconSmall, WNDPROC wndProc
 
     UpdateStyle(false, false, true);
     SetWindowTextW(m_hwnd, L"OmniStats");
-    SetWindowTextA(m_hwnd, "OmniStats");
 
     SendMessageW(m_hwnd, WM_SETICON, ICON_BIG, reinterpret_cast<LPARAM>(appIconBig));
     SendMessageW(m_hwnd, WM_SETICON, ICON_SMALL, reinterpret_cast<LPARAM>(appIconSmall));
@@ -89,7 +88,6 @@ void OverlayWindow::UpdateStyle(bool secondMonitorMode, bool showMenu, bool comp
         m_frameExtended = false;
 
         SetWindowTextW(m_hwnd, L"OmniStats");
-        SetWindowTextA(m_hwnd, "OmniStats");
     } else {
         BOOL useDarkMode = FALSE;
         DwmSetWindowAttribute(m_hwnd, 20, &useDarkMode, sizeof(useDarkMode));
@@ -191,8 +189,9 @@ void OverlayWindow::UpdatePosition(bool resetSecondMonitorPlacement) {
             return;
         }
 
-        w = 1024;
-        h = 768;
+        w = static_cast<int>(1024 * m_dpiScale);
+        h = static_cast<int>(768 * m_dpiScale);
+        ClampSecondMonitorSize(w, h, m_dpiScale);
         int x = rect.left + (rect.right - rect.left - w) / 2;
         int y = rect.top + (rect.bottom - rect.top - h) / 2;
 
