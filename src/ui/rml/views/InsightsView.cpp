@@ -8,6 +8,7 @@
 #include <iterator>
 #include <set>
 
+#include "ui/Formatting.hpp"
 #include "ui/rml/controller/RmlUiHelpers.hpp"
 
 using namespace RmlUiDetail;
@@ -254,7 +255,9 @@ bool InsightsView::Create(Rml::Context* context) {
         row.RegisterMember("dates", &SeasonPreviousRow::dates);
         row.RegisterMember("games", &SeasonPreviousRow::games);
         row.RegisterMember("rate", &SeasonPreviousRow::rate);
-        row.RegisterMember("peak", &SeasonPreviousRow::peak);
+        row.RegisterMember("peak_rank", &SeasonPreviousRow::peak_rank);
+        row.RegisterMember("peak_color", &SeasonPreviousRow::peak_color);
+        row.RegisterMember("peak_mmr", &SeasonPreviousRow::peak_mmr);
     }
     constructor.RegisterArray<std::vector<SeasonPreviousRow>>();
     constructor.Bind("season_available", &m_seasonAvailable);
@@ -267,7 +270,8 @@ bool InsightsView::Create(Rml::Context* context) {
     constructor.Bind("season_source", &m_seasonSource);
     constructor.Bind("season_start", &m_seasonStart);
     constructor.Bind("season_end", &m_seasonEnd);
-    constructor.Bind("season_peak_label", &m_seasonPeakLabel);
+    constructor.Bind("season_peak_rank", &m_seasonPeakRank);
+    constructor.Bind("season_peak_color", &m_seasonPeakColor);
     constructor.Bind("season_progress", &m_seasonProgress);
     constructor.Bind("season_wins", &m_seasonWins);
     constructor.Bind("season_losses", &m_seasonLosses);
@@ -367,7 +371,8 @@ void InsightsView::SetSeason(const std::vector<SeasonSummary>& summaries,
         m_seasonRate = Percent(static_cast<float>(season.winRate));
         m_seasonMmr = SignedNumber(season.totalMmrChange);
         m_seasonPeak = season.peakMmr > 0 ? std::to_string(season.peakMmr) : "-";
-        m_seasonPeakLabel = "Peak" + (season.peakRank.empty() ? std::string{} : " · " + season.peakRank);
+        m_seasonPeakRank = season.peakRank;
+        m_seasonPeakColor = season.peakRank.empty() ? "" : CssColor(Format::RankColor(season.peakRank));
         for (const auto& [name, row] : season.playlists) {
             const int games = row.wins + row.losses;
             const std::string display = name == "1v1" ? "Duel" : name == "2v2" ? "Doubles"
@@ -393,12 +398,14 @@ void InsightsView::SetSeason(const std::vector<SeasonSummary>& summaries,
             m_seasonPrevious.push_back({"Season " + std::to_string(it->season.season),
                                         ShortDate(it->season.startsAt) + " - " + ShortDate(it->season.endsAt),
                                         std::to_string(games), Percent(static_cast<float>(it->winRate)),
-                                        it->peakMmr > 0 ? it->peakRank + " · " + std::to_string(it->peakMmr) : "-"});
+                                        it->peakMmr > 0 ? it->peakRank : "",
+                                        it->peakMmr > 0 && !it->peakRank.empty() ? CssColor(Format::RankColor(it->peakRank)) : "",
+                                        it->peakMmr > 0 ? (it->peakRank.empty() ? "" : " · ") + std::to_string(it->peakMmr) : "-"});
         }
     }
     for (const char* name : {"season_available", "season_has_games", "season_reward_available", "season_reward_earned_available", "season_title", "season_dates", "season_start", "season_end",
                              "season_countdown", "season_source", "season_progress", "season_wins", "season_losses",
-                             "season_games", "season_rate", "season_mmr", "season_peak", "season_peak_label", "season_reward_next",
+                             "season_games", "season_rate", "season_mmr", "season_peak", "season_peak_rank", "season_peak_color", "season_reward_next",
                              "season_reward_wins", "season_reward_earned", "season_reward_width", "season_playlists",
                              "season_previous"})
         Dirty(name);

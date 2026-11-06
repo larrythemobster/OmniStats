@@ -232,7 +232,7 @@
                                 <div class="recap-hero-divider"></div>
                                 <div class="recap-hero-stat">
                                     <div class="recap-hero-value">{{season_peak}}</div>
-                                    <div class="recap-hero-label">{{season_peak_label}}</div>
+                                    <div class="recap-hero-label">Peak<span data-if="season_peak_rank != ''"> · <span data-style-color="season_peak_color">{{season_peak_rank}}</span></span></div>
                                 </div>
                             </div>
                             <div class="reward-row" data-if="season_reward_available">
@@ -262,7 +262,7 @@
                                 <div class="past-dates">{{prev.dates}}</div>
                                 <div class="past-cell">{{prev.games}}</div>
                                 <div class="past-cell">{{prev.rate}}</div>
-                                <div class="past-peak">{{prev.peak}}</div>
+                                <div class="past-peak"><span data-if="prev.peak_rank != ''" data-style-color="prev.peak_color">{{prev.peak_rank}}</span>{{prev.peak_mmr}}</div>
                             </div>
                         </div>
                     </div>

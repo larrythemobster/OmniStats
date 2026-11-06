@@ -126,7 +126,7 @@ struct SeasonPlaylistRow {
 };
 
 struct SeasonPreviousRow {
-    Rml::String name, dates, games, rate, peak;
+    Rml::String name, dates, games, rate, peak_rank, peak_color, peak_mmr;
 };
 
 class InsightsView {
@@ -293,7 +293,7 @@ class InsightsView {
     bool m_seasonRewardAvailable = false;
     bool m_seasonRewardEarnedAvailable = false;
     Rml::String m_seasonTitle, m_seasonDates, m_seasonCountdown, m_seasonSource, m_seasonProgress;
-    Rml::String m_seasonStart, m_seasonEnd, m_seasonPeakLabel;
+    Rml::String m_seasonStart, m_seasonEnd, m_seasonPeakRank, m_seasonPeakColor;
     Rml::String m_seasonWins, m_seasonLosses, m_seasonGames, m_seasonRate, m_seasonMmr, m_seasonPeak;
     Rml::String m_seasonRewardNext, m_seasonRewardWins, m_seasonRewardEarned, m_seasonRewardWidth;
     std::vector<SeasonPlaylistRow> m_seasonPlaylists;
