@@ -411,7 +411,7 @@ namespace database::repository {
 
             tx.Commit();
             std::cout << "Match saved to database. ID: " << matchId << " Gamemode: " << gamemode << "\n";
-            if (telemetry) telemetry->RecordMilestone(TelemetryManager::Milestone::FirstMatchTracked);
+            if (telemetry) telemetry->RecordMatchTracked();
         } catch (const std::exception& e) {
             std::cerr << "Failed to save match: " << e.what() << "\n";
         }

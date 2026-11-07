@@ -525,12 +525,15 @@ void RmlUiController::FinishOnboarding() {
 void RmlUiController::RefreshOnboarding() {
     StatsApiConfig::CheckResult result;
     bool checked = false;
+    bool streaming = false;
     if (m_state) {
         std::lock_guard lock(m_state->ui.statsApiMutex);
         result = m_state->ui.statsApiResult;
         checked = m_state->ui.statsApiChecked.load();
+        streaming = m_state->ui.statsApiStreaming.load(std::memory_order_relaxed);
     }
-    m_onboarding.Refresh(m_config, result, checked, !m_snap.myPrimaryId.empty(), m_accountClient ? m_accountClient->GetStatus() : AccountStatusSnapshot{});
+    m_lastStatsApiStreaming = streaming;
+    m_onboarding.Refresh(m_config, result, checked, streaming, !m_snap.myPrimaryId.empty(), m_accountClient ? m_accountClient->GetStatus() : AccountStatusSnapshot{});
 
     // The account list changes with the live roster, so it is rendered with
     // the same select helper as Settings instead of a bound option list.

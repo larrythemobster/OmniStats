@@ -13,6 +13,7 @@
 #include "core/config/StatsApiIni.hpp"
 #include "database/DatabaseManager.hpp"
 #include "network/ExternalUpdaterLauncher.hpp"
+#include "network/telemetry/TelemetryManager.hpp"
 #include "network/mmr/MmrService.hpp"
 #include "network/api/AccountClient.hpp"
 #include "network/api/RemoteConfig.hpp"
@@ -622,6 +623,10 @@ void RmlUiController::RebuildVisibleUi(bool force, bool configChanged) {
         } else if (m_accountPromptPending) {
             CheckAccountLinkPrompt();
         }
+    }
+    if (m_onboardingVisible && m_state &&
+        m_state->ui.statsApiStreaming.load(std::memory_order_relaxed) != m_lastStatsApiStreaming) {
+        RefreshOnboarding();
     }
     // Do not replace DOM while a pointer target is active, but keep safe leaf
     // telemetry flowing. This preserves drag/click stability without freezing
@@ -1547,6 +1552,14 @@ bool RmlUiController::CheckStatsApi(bool repair, bool showToast) {
                     m_state->ui.statsApiResult = result;
                 }
                 m_state->ui.statsApiChecked.store(true);
+                if (m_telemetry) {
+                    if (result.status != StatsApiConfig::Status::Valid) {
+                        m_telemetry->RecordSetupFriction(TelemetryManager::Milestone::SetupStatsApiRepairFailed);
+                    } else if (result.rlRunning) {
+                        // Rocket League reads the Stats API config only at startup.
+                        m_telemetry->RecordSetupFriction(TelemetryManager::Milestone::SetupStatsApiRestartNeeded);
+                    }
+                }
                 if (showToast) ShowToast(StatsApiConfig::GetStatusMessage(result.status), result.status != StatsApiConfig::Status::Valid);
                 if (m_state->ui.showMenu.load()) RebuildSettings();
                 if (m_onboardingVisible) RefreshOnboarding();
@@ -1568,6 +1581,7 @@ bool RmlUiController::CheckStatsApi(bool repair, bool showToast) {
         m_state->ui.statsApiResult = result;
     }
     m_state->ui.statsApiChecked.store(true);
+    if (m_telemetry) m_telemetry->RecordStatsApiCheck(result.status);
     if (showToast) {
         ShowToast(StatsApiConfig::GetStatusMessage(result.status), result.status != StatsApiConfig::Status::Valid);
     }

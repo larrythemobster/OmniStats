@@ -143,6 +143,10 @@ int App::Run() {
         if (m_dbManager->SchemaUpgradeIncomplete()) {
             m_telemetryManager->RecordMilestone(TelemetryManager::Milestone::DatabaseUpgradeFailed);
         }
+        if (m_state->ui.statsApiChecked.load()) {
+            std::lock_guard<std::mutex> lock(m_state->ui.statsApiMutex);
+            m_telemetryManager->RecordStatsApiCheck(m_state->ui.statsApiResult.status);
+        }
         m_remoteConfig->Start();
         m_tournamentService->Start();
     };

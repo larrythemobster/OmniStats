@@ -2,6 +2,7 @@
 #include "database/DatabaseManager.hpp"
 #include "core/config/AppVersion.hpp"
 #include "core/config/Config.hpp"
+#include "core/config/StatsApiConfig.hpp"
 #include "network/omninet/OmniNet.hpp"
 #include "updater/UpdaterEventLog.hpp"
 #include "utils/PrivacyLog.hpp"
@@ -72,6 +73,9 @@ namespace {
         }
         return arr.dump();
     }
+    constexpr const char* kUnreportedMatchesKey = "heartbeat_unreported_matches";
+    // Must match the backend's per-heartbeat limit, or every heartbeat is rejected until the backlog clears.
+    constexpr uint32_t kMaxHeartbeatMatches = 1000;
 
 } // namespace
 
@@ -133,6 +137,29 @@ void TelemetryManager::RecordMilestone(Milestone m) {
     if (m_db) {
         m_db->AsyncSetSetting("milestones_pending", pendingJson);
     }
+}
+
+bool TelemetryManager::HasMilestone(Milestone m) const {
+    const auto idx = static_cast<uint8_t>(m);
+    if (idx >= static_cast<uint8_t>(Milestone::Count)) return false;
+    return (m_knownMask.load(std::memory_order_acquire) & (1u << idx)) != 0;
+}
+
+void TelemetryManager::RecordSetupFriction(Milestone m) {
+    if (!HasMilestone(Milestone::StatsApiConnected)) RecordMilestone(m);
+}
+
+void TelemetryManager::RecordStatsApiCheck(StatsApiConfig::Status status) {
+    if (status == StatsApiConfig::Status::Valid) return;
+    RecordSetupFriction(status == StatsApiConfig::Status::NotFound ? Milestone::SetupStatsApiNotFound
+                                                                   : Milestone::SetupStatsApiInvalid);
+}
+
+void TelemetryManager::RecordMatchTracked() {
+    RecordMilestone(Milestone::FirstMatchTracked);
+    std::lock_guard<std::mutex> lock(m_matchesMutex);
+    ++m_unreportedMatches;
+    if (m_db) m_db->AsyncSetSetting(kUnreportedMatchesKey, std::to_string(m_unreportedMatches));
 }
 
 void TelemetryManager::FlushPendingMilestones() {
@@ -279,11 +306,17 @@ void TelemetryManager::SendHeartbeatInternal(bool isShutdown) {
     const uint64_t now = GetCurrentUnbiasedTime();
     const uint64_t elapsed = (now >= m_lastAccountingUnbiasedTime) ? (now - m_lastAccountingUnbiasedTime) : 0;
     const auto accounting = TelemetryDetail::CalculateHeartbeatMinutes(elapsed);
+    uint32_t matches = 0;
+    {
+        std::lock_guard<std::mutex> matchesLock(m_matchesMutex);
+        matches = std::min(m_unreportedMatches, kMaxHeartbeatMatches);
+    }
 
     nlohmann::json j;
     j["client_uuid"] = conf.client_uuid;
     j["version"] = AppVersion::Current;
     j["open_minutes"] = accounting.open_minutes;
+    j["matches"] = matches;
 
     OmniNet::Request req;
     req.op = OmniNet::Op::Heartbeat;
@@ -297,7 +330,12 @@ void TelemetryManager::SendHeartbeatInternal(bool isShutdown) {
     const auto resp = OmniNet::Send(req);
     if (resp.transportError == 0 && resp.status == 200) {
         m_lastAccountingUnbiasedTime = now - accounting.remainder_100ns;
-        std::cout << "[Telemetry] Heartbeat sent (HTTP 200, open_minutes " << accounting.open_minutes << ")\n";
+        if (matches > 0) {
+            std::lock_guard<std::mutex> matchesLock(m_matchesMutex);
+            m_unreportedMatches -= std::min(matches, m_unreportedMatches);
+            if (m_db) m_db->AsyncSetSetting(kUnreportedMatchesKey, std::to_string(m_unreportedMatches));
+        }
+        std::cout << "[Telemetry] Heartbeat sent (HTTP 200, open_minutes " << accounting.open_minutes << ", matches " << matches << ")\n";
     } else {
         std::cerr << "[Telemetry] Heartbeat failed (HTTP " << resp.status
                   << ", transportError " << resp.transportError << ")\n";
@@ -330,6 +368,16 @@ void TelemetryManager::Initialize(std::shared_ptr<DatabaseManager> db) {
         m_reportedMask = LoadMaskFromJson(db->GetSetting("milestones_reported"));
         m_pendingMask = LoadMaskFromJson(db->GetSetting("milestones_pending"));
         m_knownMask.store(m_reportedMask | m_pendingMask, std::memory_order_release);
+    }
+    {
+        uint32_t stored = 0;
+        try {
+            const std::string raw = db->GetSetting(kUnreportedMatchesKey);
+            if (!raw.empty()) stored = static_cast<uint32_t>(std::min<unsigned long>(std::stoul(raw), 10'000));
+        } catch (...) {
+        }
+        std::lock_guard<std::mutex> lock(m_matchesMutex);
+        m_unreportedMatches = stored;
     }
 
     m_shutdownHeartbeatSent.store(false);

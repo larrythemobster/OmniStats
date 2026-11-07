@@ -11,6 +11,9 @@
 #include <thread>
 
 class DatabaseManager;
+namespace StatsApiConfig {
+    enum class Status;
+}
 
 namespace TelemetryDetail {
     inline constexpr uint64_t k100nsPerMinute = 600'000'000ULL;
@@ -53,6 +56,11 @@ class TelemetryManager {
         MatchCardShared,
         // Existing servers only accept "onboarding" and "feature" kinds, so this health signal uses "feature".
         DatabaseUpgradeFailed,
+        // Setup friction, reported only before the Stats API ever connected.
+        SetupStatsApiNotFound,
+        SetupStatsApiInvalid,
+        SetupStatsApiRepairFailed,
+        SetupStatsApiRestartNeeded,
         Count
     };
 
@@ -95,6 +103,14 @@ class TelemetryManager {
             return {"feature", "match_card_shared"};
         case Milestone::DatabaseUpgradeFailed:
             return {"feature", "database_upgrade_failed"};
+        case Milestone::SetupStatsApiNotFound:
+            return {"feature", "setup_stats_api_not_found"};
+        case Milestone::SetupStatsApiInvalid:
+            return {"feature", "setup_stats_api_invalid"};
+        case Milestone::SetupStatsApiRepairFailed:
+            return {"feature", "setup_stats_api_repair_failed"};
+        case Milestone::SetupStatsApiRestartNeeded:
+            return {"feature", "setup_stats_api_restart_needed"};
         default:
             return {"", ""};
         }
@@ -113,6 +129,10 @@ class TelemetryManager {
     void Shutdown();
 
     void RecordMilestone(Milestone m);
+    bool HasMilestone(Milestone m) const;
+    void RecordSetupFriction(Milestone m);
+    void RecordStatsApiCheck(StatsApiConfig::Status status);
+    void RecordMatchTracked();
     void RecordUpdaterEvent(const std::string& event,
                             const std::string& targetVersion,
                             const std::string& errorCategory,
@@ -142,5 +162,8 @@ class TelemetryManager {
     std::atomic<uint32_t> m_knownMask{0};
     uint32_t m_reportedMask = 0;
     uint32_t m_pendingMask = 0;
+    // Saved matches not yet acknowledged by a heartbeat. Persisted under the mutex so queued writes land in order.
+    std::mutex m_matchesMutex;
+    uint32_t m_unreportedMatches = 0;
     std::shared_ptr<DatabaseManager> m_db;
 };

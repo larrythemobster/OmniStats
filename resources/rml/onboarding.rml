@@ -64,7 +64,7 @@
                     </div>
                     <div class="label mono status-path">{{stats_path}}</div>
                     <div class="setting-help loss" data-if="stats_message != ''">{{stats_message}}</div>
-                    <div class="setting-help" data-if="show_restart_hint">Restart Rocket League after fixing the config.</div>
+                    <div class="setting-help" data-if="show_restart_hint">Rocket League reads this config only when it starts. If it was open when the config changed, restart it.</div>
                 </div>
                 <div class="row gap-sm view-actions">
                     <button class="primary" data-if="stats_can_fix" data-action="onboarding-statsapi-fix">Fix it for me</button>

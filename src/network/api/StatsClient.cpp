@@ -109,6 +109,9 @@ void StatsClient::HandleEvent(const TelemetryEvents::TelemetryEvent& event) {
 
 void StatsClient::HandleLine(const std::string& line) {
     if (m_recorder) m_recorder->Record(line);
+    if (m_state && !m_state->ui.statsApiStreaming.load(std::memory_order_relaxed)) {
+        m_state->ui.statsApiStreaming.store(true, std::memory_order_relaxed);
+    }
     try {
         nlohmann::json msg = nlohmann::json::parse(line);
         if (msg.contains("Event") && msg["Event"].is_string() && msg.contains("Data")) {
@@ -148,6 +151,7 @@ void StatsClient::RunLoop() {
             m_parser.ConnectAndRead([this](const std::string& message) { HandleLine(message); });
             errorLogged = false;
         } catch (const std::exception& e) {
+            if (m_state) m_state->ui.statsApiStreaming.store(false, std::memory_order_relaxed);
             if (!errorLogged) {
                 std::cout << "[StatsClient] Connection error: " << e.what() << " (Suppressing further errors until connected)\n";
                 errorLogged = true;

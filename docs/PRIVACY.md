@@ -7,6 +7,8 @@ OmniStats is a local-first Windows companion application for Rocket League. Tele
 | Feature | Destination | Transmitted data | Default |
 |---|---|---|---|
 | **Startup diagnostics** | OmniStats service | App version, pseudonymous installation ID, and integration toggle states. Official builds only. No match data or player names. | Required in official builds (startup); absent in source builds |
+| **Heartbeat** | OmniStats service | Installation ID, app version, minutes the app was open, and the number of matches saved since the previous heartbeat (count only, no match details). Sent hourly and at shutdown. Official builds only. | Required in official builds; absent in source builds |
+| **Milestones** | OmniStats service | Installation ID, app version, and a predetermined name the first time a feature is used, an onboarding step is reached, or a Stats API setup problem occurs before the first connection. Official builds only. | Required in official builds; absent in source builds |
 | **Update checks** | `omnistats.org` | App version. Receives version metadata and announcements. The MSI is checked against its SHA-256 checksum and pinned Authenticode signature before installation. | Always on |
 | **OmniStats rank lookup** | OmniStats service | Up to 8 player platform and account IDs per batch, sent with the signed-in access token. Tracked-account batches also request season reward progress. Official builds only. | Opt-in |
 | **Tournament schedules** | OmniStats service | Region code, device ID, and signed-in access token. Local ping-cache and match-log contents are not uploaded. Official builds only. | Enabled while signed in; can be disabled |
