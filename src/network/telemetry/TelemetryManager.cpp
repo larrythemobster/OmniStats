@@ -162,7 +162,7 @@ void TelemetryManager::RecordMatchTracked() {
     if (m_db) m_db->AsyncSetSetting(kUnreportedMatchesKey, std::to_string(m_unreportedMatches));
 }
 
-void TelemetryManager::FlushPendingMilestones() {
+void TelemetryManager::FlushPendingMilestones(bool isShutdown) {
     if (m_isTestMode || !OmniNet::Available()) {
         return;
     }
@@ -199,7 +199,11 @@ void TelemetryManager::FlushPendingMilestones() {
     OmniNet::Request req;
     req.op = OmniNet::Op::Milestones;
     req.payload = j.dump();
-    req.shouldAbort = [this]() { return !m_isRunning.load(); };
+    if (isShutdown) {
+        req.timeoutSeconds = 3;
+    } else {
+        req.shouldAbort = [this]() { return !m_isRunning.load(); };
+    }
 
     const auto resp = OmniNet::Send(req);
     if (resp.transportError == 0 && resp.status == 200) {
@@ -444,6 +448,8 @@ void TelemetryManager::Initialize(std::shared_ptr<DatabaseManager> db) {
                     SendHeartbeat();
                     FlushPendingMilestones();
                 }
+                // Milestones otherwise wait for the hourly flush, so an install closed within its first hour and never reopened would not report them.
+                FlushPendingMilestones(true);
                 SendShutdownHeartbeat();
             } catch (const std::exception& e) {
                 std::cerr << "[Telemetry] Worker error: " << e.what() << "\n";

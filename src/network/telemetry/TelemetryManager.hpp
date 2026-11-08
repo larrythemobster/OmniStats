@@ -138,7 +138,7 @@ class TelemetryManager {
                             const std::string& errorCategory,
                             const std::string& version);
 
-    void FlushPendingMilestones();
+    void FlushPendingMilestones(bool isShutdown = false);
     void FlushPendingUpdaterEvents();
     void SendHeartbeat();
     void CheckAndReportCrashes();
