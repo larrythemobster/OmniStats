@@ -146,8 +146,9 @@ class TelemetryManager {
     void SendCrashAsync(const std::string& filePath);
 
   private:
-    void SendHeartbeatInternal(bool isShutdown);
-    void SendShutdownHeartbeat();
+    bool SendHeartbeatInternal(bool isShutdown);
+    // True when the heartbeat request reached the server, whatever its status.
+    bool SendShutdownHeartbeat();
 
     bool m_isTestMode = false;
     std::unique_ptr<std::jthread> m_workerThread;

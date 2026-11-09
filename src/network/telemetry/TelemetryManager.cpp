@@ -292,19 +292,19 @@ void TelemetryManager::FlushPendingUpdaterEvents() {
     }
 }
 
-void TelemetryManager::SendHeartbeatInternal(bool isShutdown) {
+bool TelemetryManager::SendHeartbeatInternal(bool isShutdown) {
     if (m_isTestMode || !OmniNet::Available()) {
-        return;
+        return false;
     }
 
     const ConfigData conf = Config::Read();
     if (conf.client_uuid.empty()) {
-        return;
+        return false;
     }
 
     std::lock_guard<std::mutex> lock(m_heartbeatMutex);
     if (!isShutdown && (!m_isRunning.load() || m_shutdownHeartbeatSent.load())) {
-        return;
+        return false;
     }
 
     const uint64_t now = GetCurrentUnbiasedTime();
@@ -344,13 +344,14 @@ void TelemetryManager::SendHeartbeatInternal(bool isShutdown) {
         std::cerr << "[Telemetry] Heartbeat failed (HTTP " << resp.status
                   << ", transportError " << resp.transportError << ")\n";
     }
+    return resp.transportError == 0;
 }
 
-void TelemetryManager::SendShutdownHeartbeat() {
+bool TelemetryManager::SendShutdownHeartbeat() {
     if (m_shutdownHeartbeatSent.exchange(true)) {
-        return;
+        return false;
     }
-    SendHeartbeatInternal(true);
+    return SendHeartbeatInternal(true);
 }
 
 void TelemetryManager::SendHeartbeat() {
@@ -449,8 +450,8 @@ void TelemetryManager::Initialize(std::shared_ptr<DatabaseManager> db) {
                     FlushPendingMilestones();
                 }
                 // Milestones otherwise wait for the hourly flush, so an install closed within its first hour and never reopened would not report them.
-                FlushPendingMilestones(true);
-                SendShutdownHeartbeat();
+                // Only when the heartbeat reached the server, so an offline exit waits for one timeout instead of two.
+                if (SendShutdownHeartbeat()) FlushPendingMilestones(true);
             } catch (const std::exception& e) {
                 std::cerr << "[Telemetry] Worker error: " << e.what() << "\n";
             } catch (...) {
