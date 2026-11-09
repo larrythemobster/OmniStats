@@ -39,6 +39,8 @@ The release signer rejects manifests with a BOM or whitespace at either edge and
 
 The launcher keeps at most one background update-check thread and joins it before replacing it or shutting down. Telemetry manager replacements use atomic shared ownership.
 
+The installer updater waits up to 60 seconds for the client to exit, allowing an in-flight update check to finish during shutdown. On exit, telemetry sends its bounded heartbeat first and flushes pending milestones only if that request reached the server.
+
 Replay discovery and save-key timing run separately from the upload worker, so an in-flight upload cannot delay a new save request. Shutdown stops and joins both workers.
 
 ## Data pipeline and session lifecycle
@@ -101,6 +103,8 @@ Credentials use user-scoped Windows DPAPI via `SecretStore`. Successfully decryp
 Application, updater, and test executables embed a UTF-8 active-code-page manifest for Unicode profile and game paths. Stats API config detection uses non-throwing filesystem probes.
 
 Stats API checks and repairs follow the game's lookup: `TAGame\Config\TAStatsAPI.ini`, or `DefaultStatsAPI.ini` when `TAStatsAPI.ini` does not exist. Only keys under `[TAGame.MatchStatsExporter_TA]` count; repair rewrites or adds `PacketSendRate=30` and `Port` in that section and leaves every other section unchanged.
+
+Onboarding reports a Stats API connection when the TCP socket connects, even when the game is idle and sends no match messages. Match destruction captures timing for history before clearing the active clock.
 
 An unavailable local database stops startup with a visible error and exit code 1, rather than running without match persistence. The Release build sends stdout and stderr to the rotated application log. C++ termination, pure virtual calls, and invalid CRT parameters write a fatal cause through Win32 file I/O, capture a minidump, and terminate without invoking the failing CRT stream again.
 
