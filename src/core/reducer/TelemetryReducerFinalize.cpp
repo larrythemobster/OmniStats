@@ -331,7 +331,6 @@ namespace TelemetryReducerDetail {
         state.lastMatchStartMs = 0;
         state.uiMatchGuid.clear();
         state.countdownSeenThisRound = false;
-        state.ResetTiming();
 
         const bool replayActiveAtDestruction = state.inReplay;
         const int authoritativeWinner = ev.winnerTeam.value_or(-1);
@@ -428,6 +427,7 @@ namespace TelemetryReducerDetail {
         }
 
         (void)replayActiveAtDestruction;
+        state.ResetTiming();
         state.inMatch = false;
         state.arenaName.clear();
         state.arenaAsset.clear();

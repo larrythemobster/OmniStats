@@ -1386,6 +1386,8 @@ TEST(TelemetryReducerMatchValidation, DestroyedCompetitiveMatchAppearsInHistoryW
     TelemetryReducer reducer(state);
     StartRankedOnesMatch(
         reducer, state, "pending-history-guid", 4, 2);
+    state->game.regulationClockStart = 300.0f;
+    state->game.regulationClockLatest = 120.0f;
 
     SideEffects effects = reducer.Reduce(
         std::string(Constants::EVT_MATCH_DESTROYED),
@@ -1407,6 +1409,9 @@ TEST(TelemetryReducerMatchValidation, DestroyedCompetitiveMatchAppearsInHistoryW
     ASSERT_TRUE(effects.provisionalSaveSnapshot.has_value());
     EXPECT_TRUE(effects.provisionalSaveSnapshot->resultPending);
     EXPECT_EQ(effects.provisionalSaveSnapshot->matchGuid, "pending-history-guid");
+    EXPECT_FLOAT_EQ(effects.provisionalSaveSnapshot->durationSeconds, 180.0f);
+    EXPECT_FLOAT_EQ(state->game.pendingDestroyedMatches.at("pending-history-guid").durationSeconds, 180.0f);
+    EXPECT_FALSE(state->game.regulationClockStart.has_value());
     EXPECT_EQ(effects.provisionalSaveSnapshot->winnerTeam, effects.provisionalSaveSnapshot->myTeam);
     EXPECT_EQ(state->game.sessionTotals.wins, 0);
     EXPECT_EQ(state->game.sessionTotals.losses, 0);
