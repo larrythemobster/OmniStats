@@ -517,7 +517,8 @@ int main(int argc, char* argv[]) {
     if (installUpdate) {
         if (parentPid != 0) {
             std::cout << "[Updater] Waiting for OmniStats process " << parentPid << " to exit...\n";
-            if (!UpdaterCommon::WaitForProcessExit(parentPid, 15000)) {
+            // App shutdown can join an in-flight update check (20 s) after the telemetry shutdown requests.
+            if (!UpdaterCommon::WaitForProcessExit(parentPid, 60000)) {
                 std::cout << "[Updater] OmniStats is still running; refusing to start MSI update.\n";
                 curl_global_cleanup();
                 return 1;
