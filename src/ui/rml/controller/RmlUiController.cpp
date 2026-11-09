@@ -625,7 +625,7 @@ void RmlUiController::RebuildVisibleUi(bool force, bool configChanged) {
         }
     }
     if (m_onboardingVisible && m_state &&
-        m_state->ui.statsApiStreaming.load(std::memory_order_relaxed) != m_lastStatsApiStreaming) {
+        m_state->ui.statsApiConnected.load(std::memory_order_relaxed) != m_lastStatsApiConnected) {
         RefreshOnboarding();
     }
     // Do not replace DOM while a pointer target is active, but keep safe leaf

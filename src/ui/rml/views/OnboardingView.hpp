@@ -29,7 +29,7 @@ class OnboardingView {
     }
     void SetStep(int step);
     void Refresh(const ConfigData& config, const StatsApiConfig::CheckResult& statsApi, bool statsApiChecked,
-                 bool statsApiStreaming, bool accountDetected, const AccountStatusSnapshot& account = {});
+                 bool statsApiConnected, bool accountDetected, const AccountStatusSnapshot& account = {});
 
     void ToggleFallback();
     void SetShowFallback(bool show);

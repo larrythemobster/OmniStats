@@ -18,7 +18,8 @@ class TelemetryParser {
     void Start() {
         m_stopping.store(false);
     }
-    void ConnectAndRead(MessageCallback onMessage);
+    // onConnected runs once the socket is up. Rocket League only sends messages during a match, so a menu connection is silent.
+    void ConnectAndRead(MessageCallback onMessage, std::function<void()> onConnected = {});
     void Stop();
     void SetTelemetryManager(std::shared_ptr<TelemetryManager> tm) {
         m_telemetry = std::move(tm);

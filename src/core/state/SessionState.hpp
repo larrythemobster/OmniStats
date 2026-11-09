@@ -206,8 +206,8 @@ struct UIState {
     mutable std::mutex statsApiMutex;
     StatsApiConfig::CheckResult statsApiResult;
     std::atomic<bool> statsApiChecked{false};
-    // True while Rocket League's Stats API socket is delivering messages.
-    std::atomic<bool> statsApiStreaming{false};
+    // True while OmniStats holds an open connection to Rocket League's Stats API socket.
+    std::atomic<bool> statsApiConnected{false};
     std::atomic<bool> ballchasingTokenRejected{false};
     mutable std::mutex replayUploadMutex;
     ReplayUploadStatus replayUploadStatus;

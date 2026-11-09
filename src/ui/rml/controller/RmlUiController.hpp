@@ -375,7 +375,7 @@ class RmlUiController final : public Rml::EventListener {
     uint64_t m_lastRenderedHistoryVersion = 0;
     uint64_t m_lastRenderedDbStatsVersion = 0;
     uint64_t m_lastAccountStatusVersion = 0;
-    bool m_lastStatsApiStreaming = false;
+    bool m_lastStatsApiConnected = false;
     bool m_lastShowMenu = false;
     bool m_lastShowOverlay = false;
     bool m_lastShowSessionView = false;

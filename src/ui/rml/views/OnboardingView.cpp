@@ -111,10 +111,10 @@ void OnboardingView::SetShowFallback(bool show) {
 }
 
 void OnboardingView::Refresh(const ConfigData& config, const StatsApiConfig::CheckResult& statsApi, bool statsApiChecked,
-                             bool statsApiStreaming, bool accountDetected, const AccountStatusSnapshot& account) {
+                             bool statsApiConnected, bool accountDetected, const AccountStatusSnapshot& account) {
     const bool ok = statsApiChecked && statsApi.status == StatsApiConfig::Status::Valid;
     Set(m_statsOk, ok, "stats_ok");
-    const char* okStatus = statsApiStreaming    ? "Stats API is on. You're connected."
+    const char* okStatus = statsApiConnected    ? "Stats API is on. You're connected."
                            : statsApi.rlRunning ? "Stats API is on. Waiting for Rocket League to connect."
                                                 : "Stats API is on. Start Rocket League and OmniStats will connect.";
     Set(m_statsStatus, Rml::String(!statsApiChecked ? "Checking the Stats API config..." : ok ? okStatus
@@ -127,7 +127,7 @@ void OnboardingView::Refresh(const ConfigData& config, const StatsApiConfig::Che
         "stats_message");
     Set(m_statsCanFix, !ok && !statsApi.path.empty(), "stats_can_fix");
     // Rocket League reads the config only at startup, so a running game needs a restart after any fix.
-    Set(m_showRestartHint, statsApi.rlRunning && !statsApiStreaming, "show_restart_hint");
+    Set(m_showRestartHint, statsApi.rlRunning && !statsApiConnected, "show_restart_hint");
 
     Set(m_consentRequired, !Config::HasCurrentConsent(config), "consent_required");
     Set(m_secondMonitor, config.second_monitor_mode, "second_monitor");

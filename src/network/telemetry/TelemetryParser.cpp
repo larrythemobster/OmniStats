@@ -17,7 +17,7 @@ void TelemetryParser::Stop() {
     m_stopping.store(true);
 }
 
-void TelemetryParser::ConnectAndRead(MessageCallback onMessage) {
+void TelemetryParser::ConnectAndRead(MessageCallback onMessage, std::function<void()> onConnected) {
     if (m_stopping.load()) return;
     if (m_socket.is_open()) {
         asio::error_code ec;
@@ -118,6 +118,7 @@ void TelemetryParser::ConnectAndRead(MessageCallback onMessage) {
 
     std::cout << "[StatsClient] Connected to Rocket League!\n";
     if (m_telemetry) m_telemetry->RecordMilestone(TelemetryManager::Milestone::StatsApiConnected);
+    if (onConnected) onConnected();
 
     m_socket.non_blocking(true);
 

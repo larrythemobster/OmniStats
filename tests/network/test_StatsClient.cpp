@@ -44,13 +44,16 @@ TEST(TelemetryParserTest, StopInterruptsIdleConnectionAndPreventsLateStart) {
 
     TelemetryParser parser;
     parser.Start();
+    std::promise<void> connected;
+    auto connectedReady = connected.get_future();
     std::thread reader([&] {
         try {
-            parser.ConnectAndRead({});
+            parser.ConnectAndRead({}, [&] { connected.set_value(); });
         } catch (const std::exception&) {
         }
     });
     EXPECT_EQ(ready.wait_for(std::chrono::seconds(2)), std::future_status::ready);
+    EXPECT_EQ(connectedReady.wait_for(std::chrono::seconds(2)), std::future_status::ready);
     const auto start = std::chrono::steady_clock::now();
     parser.Stop();
     reader.join();
