@@ -14,6 +14,8 @@
 #include <wrl/client.h>
 
 #include <algorithm>
+#include <cstdio>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <future>
@@ -2934,6 +2936,143 @@ TEST_F(RmlUiControllerStateTest, HistoryViewOpensClosesIgnoresStaleResponsesAndO
     controller.OpenHistory();
     EXPECT_TRUE(controller.ProcessWindowMessage(nullptr, WM_KEYDOWN, VK_ESCAPE, 0));
     EXPECT_TRUE(controller.ProcessWindowMessage(nullptr, WM_KEYDOWN, VK_ESCAPE, 0));
+}
+
+TEST_F(RmlUiControllerStateTest, HistoryFieldHoverConnectsOnlyScoringRoundAndRotatesForOrange) {
+    WarpDevice warp;
+    if (!warp.Create(1280, 900)) GTEST_SKIP() << "WARP not available.";
+    Config::Update([](ConfigData& c) { c.imperial_units = false; }, true);
+    auto state = std::make_shared<SessionState>();
+    RmlUiController controller(state, nullptr);
+    ASSERT_TRUE(controller.Initialize(nullptr, warp.device.Get(), warp.context.Get(), 1280, 900, 1.0f));
+    controller.Update(Config::Read(), false);
+    controller.OpenHistory();
+
+    MatchDetail detail;
+    detail.found = true;
+    detail.accountPrimaryId = "Steam|map";
+    detail.arena = "DFH Stadium";
+    detail.playlist = "2v2";
+    detail.ourScore = 3;
+    detail.theirScore = 1;
+    detail.hasPlayerStats = true;
+    detail.durationSeconds = 100.0f;
+    MatchDetailPlayer local;
+    local.primaryId = detail.accountPrimaryId;
+    local.name = "Map player";
+    local.team = 1;
+    local.isMe = true;
+    detail.ourTeam.push_back(local);
+    detail.analytics.emplace();
+    auto& analytics = *detail.analytics;
+    analytics.playSeconds = 100.0f;
+    PlayerAnalytics player;
+    player.primaryId = local.primaryId;
+    player.name = local.name;
+    player.team = 1;
+    analytics.players.push_back(player);
+    analytics.hits = {
+        {10.0f, local.primaryId, 1, {2048.0f, 2560.0f, 200.0f}, 60.0f},
+        {25.0f, local.primaryId, 1, {-2048.0f, -2560.0f, 400.0f}, 120.0f},
+        {55.0f, local.primaryId, 1, {1000.0f, -1000.0f, 100.0f}, 80.0f},
+        {80.0f, "Steam|opponent", 0, {2000.0f, 3000.0f, 100.0f}, 90.0f}};
+    GoalRecord first;
+    first.playSeconds = 30.0f;
+    first.clockSeconds = 270.0f;
+    first.team = 1;
+    first.scorerId = local.primaryId;
+    first.scorerName = local.name;
+    first.assisterName = "Teammate";
+    first.goalSpeed = 110.0f;
+    first.location = FieldPoint{100.0f, -5300.0f, 200.0f};
+    first.scoreAfter = {0, 1};
+    analytics.goals.push_back(first);
+    auto missingImpact = first;
+    missingImpact.playSeconds = 60.0f;
+    missingImpact.location.reset();
+    analytics.goals.push_back(missingImpact);
+    auto opponentGoal = first;
+    opponentGoal.playSeconds = 90.0f;
+    opponentGoal.team = 0;
+    opponentGoal.scorerId = "Steam|opponent";
+    opponentGoal.scorerName = "Opponent";
+    opponentGoal.location = FieldPoint{-200.0f, 5300.0f, 200.0f};
+    opponentGoal.scoreAfter = {1, 2};
+    analytics.goals.push_back(opponentGoal);
+    auto noRoundTouch = first;
+    noRoundTouch.playSeconds = 100.0f;
+    noRoundTouch.location = FieldPoint{-600.0f, -5300.0f, 200.0f};
+    analytics.goals.push_back(noRoundTouch);
+
+    auto& view = HistoryModel(controller);
+    ASSERT_TRUE(view.ApplyDetailResult(view.BeginDetail(), detail));
+    view.SetDetailTab("field");
+    controller.Render();
+    auto* doc = HistoryDocument(controller);
+    Rml::ElementList goals;
+    doc->QuerySelectorAll(goals, ".pitch-goal-event");
+    ASSERT_EQ(goals.size(), 3u);
+    auto* path = goals[0]->QuerySelector(".pitch-goal-path");
+    auto* goal = goals[0]->QuerySelector(".pitch-goal");
+    auto* tooltip = goals[0]->QuerySelector(".pitch-tooltip");
+    ASSERT_NE(path, nullptr);
+    ASSERT_NE(goal, nullptr);
+    ASSERT_NE(tooltip, nullptr);
+    float tx = 0, ty = 0, gx = 0, gy = 0;
+    ASSERT_EQ(std::sscanf(path->GetAttribute<Rml::String>("points", "").c_str(), "%f,%f;%f,%f", &tx, &ty, &gx, &gy), 4);
+    EXPECT_FLOAT_EQ(tx, 0.75f);
+    EXPECT_FLOAT_EQ(ty, 0.25f);
+    EXPECT_NEAR(gx, 0.4878f, 0.0001f);
+    EXPECT_FLOAT_EQ(gy, 0.02f);
+    EXPECT_NE(goals[1]->QuerySelector(".pitch-goal-path"), nullptr);
+    auto* absentPath = goals[2]->QuerySelector(".pitch-goal-path");
+    ASSERT_NE(absentPath, nullptr);
+    EXPECT_EQ(absentPath->GetComputedValues().display(), Rml::Style::Display::None);
+    EXPECT_EQ(path->GetComputedValues().visibility(), Rml::Style::Visibility::Hidden);
+    EXPECT_EQ(tooltip->GetComputedValues().display(), Rml::Style::Display::None);
+    const auto hover = [&](Rml::Element* element) {
+        const auto at = element->GetAbsoluteOffset() + Rml::Vector2f(8.0f, 8.0f);
+        RmlContext(controller)->ProcessMouseMove(static_cast<int>(at.x), static_cast<int>(at.y), 0);
+        controller.Render();
+    };
+    const auto capture = [&](const char* filename) {
+        if (const char* dir = std::getenv("OMNISTATS_CAPTURE_DIR"); dir && *dir) {
+            std::filesystem::create_directories(dir);
+            const float clear[4] = {0.0f, 0.0f, 0.0f, 1.0f};
+            warp.context->ClearRenderTargetView(warp.target.Get(), clear);
+            controller.Render();
+            std::string error;
+            EXPECT_TRUE(RmlCapture::SaveBoundRenderTargetRegion(warp.context.Get(), 0, 0, 1280, 900, 0.0f,
+                                                                (std::filesystem::path(dir) / filename).wstring(), error))
+                << error;
+        }
+    };
+    hover(goal);
+    EXPECT_EQ(path->GetComputedValues().visibility(), Rml::Style::Visibility::Visible);
+    EXPECT_NE(tooltip->GetComputedValues().display(), Rml::Style::Display::None);
+    capture("history-goal-hover.png");
+    Rml::ElementList touches;
+    doc->QuerySelectorAll(touches, ".pitch-dot");
+    ASSERT_EQ(touches.size(), 3u);
+    hover(touches[0]);
+    EXPECT_EQ(path->GetComputedValues().visibility(), Rml::Style::Visibility::Hidden);
+    auto* touchTooltip = touches[0]->QuerySelector(".pitch-tooltip");
+    ASSERT_NE(touchTooltip, nullptr);
+    EXPECT_NE(touchTooltip->GetComputedValues().display(), Rml::Style::Display::None);
+    const auto displayedSpeed = [](Rml::Element* element) {
+        int value = -1;
+        char unit[16]{};
+        std::sscanf(element->GetInnerRML().c_str(), "%d %15s", &value, unit);
+        return std::pair{value, std::string(unit)};
+    };
+    EXPECT_EQ(displayedSpeed(touches[0]->QuerySelector(".pitch-tooltip-stat")), (std::pair{60, std::string("km/h")}));
+    capture("history-touch-hover.png");
+    Config::Update([](ConfigData& c) { c.imperial_units = true; }, true);
+    ASSERT_TRUE(view.ApplyDetailResult(view.ActiveDetailRequestId(), detail));
+    controller.Render();
+    auto* speed = doc->QuerySelector(".pitch-dot .pitch-tooltip-stat");
+    ASSERT_NE(speed, nullptr);
+    EXPECT_EQ(displayedSpeed(speed), (std::pair{37, std::string("mph")}));
 }
 
 TEST_F(RmlUiControllerStateTest, HistoryViewSetSeasonOptionsAndBuildQueryBoundaries) {

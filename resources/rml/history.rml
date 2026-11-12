@@ -458,8 +458,11 @@
 
                         <!-- 5. FIELD TAB -->
                         <div data-if="detail_tab == 'field'">
-                            <div class="stat-section-title">PITCH TOUCHES &amp; GOALS</div>
-                            <div class="pitch-outer row" data-if="field_has_data">
+                            <div class="pitch-heading">
+                                <div class="value">Touches &amp; goals</div>
+                                <div class="label">Hover a touch for details or a goal to connect its last recorded scoring touch.</div>
+                            </div>
+                            <div class="pitch-outer" data-if="field_has_data">
                                 <div class="pitch-container">
                                     <div class="pitch-halfway-line"></div>
                                     <div class="pitch-center-circle"></div>
@@ -468,28 +471,59 @@
                                     <div class="pitch-label top">Attacking</div>
                                     <div class="pitch-label bottom">Defending</div>
 
-                                    <div class="pitch-dot" data-for="d : field_dots" data-style-left="d.x_pct" data-style-top="d.y_pct" data-attr-class="d.dot_class"></div>
-                                    <div class="pitch-goal" data-for="g : field_goals" data-style-left="g.x_pct" data-style-top="g.y_pct" data-attr-class="g.marker_class">
-                                        <div class="pitch-goal-pin"></div>
+                                    <div data-for="d : field_dots" data-style-left="d.x_pct" data-style-top="d.y_pct" data-attr-class="d.dot_class">
+                                        <div class="pitch-touch-pin"></div>
+                                        <div data-attr-class="d.tooltip_class">
+                                            <div class="pitch-tooltip-title">{{d.player}}</div>
+                                            <div class="label">Touch / {{d.timing}}</div>
+                                            <div class="pitch-tooltip-stat">{{d.speed}}</div>
+                                            <div class="label">{{d.position}}</div>
+                                        </div>
+                                    </div>
+                                    <div data-for="g : field_goals" data-attr-class="g.marker_class">
+                                        <mmrgraphlines class="graph-polyline pitch-goal-path" data-if="g.path_points != ''" data-attr-points="g.path_points"></mmrgraphlines>
+                                        <div class="pitch-shot-origin" data-if="g.path_points != ''" data-style-left="g.touch_x_pct" data-style-top="g.touch_y_pct"></div>
+                                        <div class="pitch-goal" data-style-left="g.x_pct" data-style-top="g.y_pct">
+                                            <div class="pitch-goal-pin"></div>
+                                        </div>
+                                        <div class="tooltip-bubble pitch-tooltip pitch-goal-tooltip">
+                                            <div class="pitch-tooltip-title">{{g.scorer}}</div>
+                                            <div class="label">Goal / {{g.timing}}</div>
+                                            <div class="pitch-tooltip-stat">{{g.speed}}</div>
+                                            <div class="value">{{g.score}}</div>
+                                            <div class="label" data-if="g.assist != ''">{{g.assist}}</div>
+                                            <div class="label pitch-tooltip-note" data-if="g.path_points == ''">Scoring touch not recorded</div>
+                                        </div>
                                     </div>
                                 </div>
 
-                                <div class="pitch-side-panel card">
-                                    <div class="card-title">Pitch Map</div>
-                                    <div class="label">{{field_touches_count}}</div>
-                                    <div class="label" style="margin-top:12dp;">Your touches are oriented so you attack upward regardless of team colour.</div>
-
-                                    <div class="stat-section-title" style="margin-top:16dp;">TOUCH SPEED</div>
-                                    <div class="row gap-xs" style="align-items:center;margin-top:4dp;"><span class="pitch-legend-dot soft"></span> <span class="label">{{pitch_legend_soft}}</span></div>
-                                    <div class="row gap-xs" style="align-items:center;margin-top:4dp;"><span class="pitch-legend-dot medium"></span> <span class="label">{{pitch_legend_med}}</span></div>
-                                    <div class="row gap-xs" style="align-items:center;margin-top:4dp;"><span class="pitch-legend-dot hard"></span> <span class="label">{{pitch_legend_hard}}</span></div>
-
-                                    <div class="stat-section-title" style="margin-top:16dp;">GOAL LOCATIONS</div>
-                                    <div class="row gap-xs" style="align-items:center;margin-top:4dp;"><span class="pitch-legend-goal our"></span> <span class="label">Our Team Goal</span></div>
-                                    <div class="row gap-xs" style="align-items:center;margin-top:4dp;"><span class="pitch-legend-goal their"></span> <span class="label">Opponents Goal</span></div>
+                                <div class="pitch-side-panel">
+                                    <div class="pitch-summary">
+                                        <div class="value">Match map</div>
+                                        <div class="label">{{field_touches_count}}</div>
+                                        <div class="label">{{field_goals_count}}</div>
+                                    </div>
+                                    <div class="pitch-inspector">
+                                        <div class="pitch-legend-title">Inspect a goal</div>
+                                        <div class="label">Hover a goal marker to see its scorer, speed and assist alongside the connection.</div>
+                                    </div>
+                                    <div class="pitch-legend-group">
+                                        <div class="pitch-legend-section">
+                                            <div class="pitch-legend-title">Your touch speed</div>
+                                            <div class="pitch-legend-row"><span class="pitch-legend-dot soft"></span><span class="label">{{pitch_legend_soft}}</span></div>
+                                            <div class="pitch-legend-row"><span class="pitch-legend-dot medium"></span><span class="label">{{pitch_legend_med}}</span></div>
+                                            <div class="pitch-legend-row"><span class="pitch-legend-dot hard"></span><span class="label">{{pitch_legend_hard}}</span></div>
+                                        </div>
+                                        <div class="pitch-legend-section">
+                                            <div class="pitch-legend-title">Goals</div>
+                                            <div class="pitch-legend-row"><span class="pitch-legend-goal our"></span><span class="label">Our team</span></div>
+                                            <div class="pitch-legend-row"><span class="pitch-legend-goal their"></span><span class="label">Opponents</span></div>
+                                        </div>
+                                    </div>
+                                    <div class="pitch-map-help label">You attack upward. Connections show recorded endpoints, not the ball's full path.</div>
                                 </div>
                             </div>
-                            <div class="muted view-empty" data-if="!field_has_data">No pitch touch coordinates were recorded for this match.</div>
+                            <div class="muted view-empty" data-if="!field_has_data">No touch or goal coordinates were recorded for this match.</div>
                         </div>
 
                         <!-- 6. EVENTS TAB -->

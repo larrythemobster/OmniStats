@@ -123,13 +123,25 @@ struct HistoryFieldDot {
     Rml::String x_pct;
     Rml::String y_pct;
     Rml::String dot_class;
+    Rml::String tooltip_class;
+    Rml::String player;
+    Rml::String timing;
+    Rml::String speed;
+    Rml::String position;
 };
 
 struct HistoryFieldGoal {
     Rml::String x_pct;
     Rml::String y_pct;
     Rml::String marker_class;
-    Rml::String label;
+    Rml::String scorer;
+    Rml::String timing;
+    Rml::String speed;
+    Rml::String score;
+    Rml::String assist;
+    Rml::String path_points;
+    Rml::String touch_x_pct;
+    Rml::String touch_y_pct;
 };
 
 class HistoryView {
@@ -345,6 +357,7 @@ class HistoryView {
     std::vector<HistoryFieldDot> m_fieldDots;
     std::vector<HistoryFieldGoal> m_fieldGoals;
     Rml::String m_fieldTouchesCount;
+    Rml::String m_fieldGoalsCount;
     Rml::String m_pitchLegendSoft;
     Rml::String m_pitchLegendMed;
     Rml::String m_pitchLegendHard;

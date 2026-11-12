@@ -1805,33 +1805,62 @@ body.view-document { pointer-events: none; }
 .bold { font-weight: 700; }
 .history-mech-cell { width: 64dp; flex-shrink: 0; text-align: center; }
 
-.pitch-outer { gap: 16dp; align-items: flex-start; margin-top: 8dp; }
-.pitch-container { position: relative; width: 340dp; height: 425dp; background-color: #0a100d; border: 2dp #22c55e44; border-radius: 8dp; overflow: hidden; }
+.pitch-heading { margin-bottom: 12dp; }
+.pitch-heading .value { margin-bottom: 4dp; }
+.pitch-outer { display: flex; flex-direction: row; flex-wrap: wrap; gap: 24dp; align-items: flex-start; padding: 4dp 8dp 12dp; }
+.pitch-container { position: relative; width: 288dp; height: 360dp; flex-shrink: 0; background-color: #0a100d; border: 1dp #22c55e44; border-radius: 8dp; overflow: visible; }
 .pitch-halfway-line { position: absolute; left: 0; right: 0; top: 50%; height: 1dp; background-color: #22c55e33; }
 .pitch-center-circle { position: absolute; left: 50%; top: 50%; width: 70dp; height: 70dp; margin-left: -35dp; margin-top: -35dp; border: 1dp #22c55e33; border-radius: 35dp; }
 .pitch-goal-box { position: absolute; left: 50%; width: 120dp; margin-left: -60dp; border: 1dp #22c55e33; }
 .pitch-goal-box.top { top: 0; height: 50dp; border-top: 0; }
 .pitch-goal-box.bottom { bottom: 0; height: 50dp; border-bottom: 0; }
-.pitch-label { position: absolute; font-size: 10dp; font-weight: 700; letter-spacing: 0.5dp; color: #22c55e88; width: auto; z-index: 10; }
-.pitch-label.top { top: 8dp; left: 10dp; text-align: left; }
-.pitch-label.bottom { bottom: 8dp; right: 10dp; text-align: right; }
-.pitch-dot { position: absolute; width: 6dp; height: 6dp; border-radius: 3dp; transform: translate(-3dp, -3dp); }
-.pitch-dot-soft { background-color: #38bdf8cc; }
-.pitch-dot-medium { background-color: #fbbf24cc; }
-.pitch-dot-hard { background-color: #f43f5ecc; }
-.pitch-goal { position: absolute; transform: translate(-50%, -50%); display: flex; flex-direction: column; align-items: center; }
-.pitch-goal-pin { width: 10dp; height: 10dp; border-radius: 5dp; border: 1dp #ffffff; }
-.pitch-goal.pitch-goal-our .pitch-goal-pin { background-color: #3b82f6; }
-.pitch-goal.pitch-goal-their .pitch-goal-pin { background-color: #ef4444; }
-.pitch-goal-label { font-size: 9dp; font-weight: 700; color: #ffffff; background-color: #000000b3; padding: 1dp 3dp; border-radius: 2dp; margin-top: 1dp; }
-.pitch-side-panel { flex-grow: 1; padding: 14dp; }
-.pitch-legend-dot { display: inline-block; width: 8dp; height: 8dp; border-radius: 4dp; margin-right: 6dp; }
+.pitch-label { position: absolute; font-size: 11dp; font-weight: 700; color: #7da98d; pointer-events: none; }
+.pitch-label.top { top: 8dp; left: 10dp; }
+.pitch-label.bottom { bottom: 8dp; right: 10dp; }
+.pitch-dot, .pitch-goal { position: absolute; width: 16dp; height: 16dp; margin-left: -8dp; margin-top: -8dp; pointer-events: auto; }
+.pitch-dot { z-index: 1; color: #38bdf8; }
+.pitch-dot-medium { color: #fbbf24; }
+.pitch-dot-hard { color: #f43f5e; }
+.pitch-touch-pin { position: absolute; left: 5dp; top: 5dp; width: 6dp; height: 6dp; border-radius: 3dp; background-color: #38bdf8; pointer-events: none; }
+.pitch-dot-medium .pitch-touch-pin { background-color: #fbbf24; }
+.pitch-dot-hard .pitch-touch-pin { background-color: #f43f5e; }
+.pitch-dot:hover, .pitch-goal:hover { z-index: 20; }
+.pitch-dot:hover .pitch-touch-pin { left: 3dp; top: 3dp; width: 10dp; height: 10dp; border-radius: 5dp; border: 1dp #eef1f5; }
+.pitch-goal-event { position: absolute; left: 0; top: 0; width: 100%; height: 100%; pointer-events: none; z-index: 2; color: #4a96ff; }
+.pitch-goal-event.their { color: #ff6b6b; }
+.pitch-goal-event:hover { z-index: 21; }
+.pitch-goal-pin { position: absolute; left: 3dp; top: 3dp; width: 10dp; height: 10dp; border-radius: 5dp; border: 1dp #eef1f5; background-color: #4a96ff; pointer-events: none; }
+.pitch-goal-event.their .pitch-goal-pin { background-color: #ff6b6b; }
+.pitch-goal:hover .pitch-goal-pin { border-width: 2dp; }
+.pitch-goal-path { visibility: hidden; color: inherit; opacity: 0.8; }
+.pitch-goal-event:hover .pitch-goal-path { visibility: visible; }
+.pitch-shot-origin { position: absolute; width: 12dp; height: 12dp; margin: -6dp 0 0 -6dp; border: 2dp #4a96ff; border-radius: 6dp; visibility: hidden; pointer-events: none; }
+.pitch-goal-event.their .pitch-shot-origin { border-color: #ff6b6b; }
+.pitch-goal-event:hover .pitch-shot-origin { visibility: visible; }
+.pitch-tooltip { left: 0; width: 240dp; min-width: 0; max-width: 240dp; margin-left: 0; margin-bottom: 6dp; padding: 10dp 12dp; border-radius: 6dp; white-space: normal; line-height: 1.4; }
+.pitch-tooltip.align-right { left: auto; right: 0; }
+.pitch-tooltip.below { top: 100%; bottom: auto; margin-top: 6dp; margin-bottom: 0; }
+.pitch-dot:hover .pitch-tooltip, .pitch-goal-event:hover .pitch-goal-tooltip { display: block; }
+.pitch-goal-tooltip { left: 100%; top: 68dp; bottom: auto; width: 320dp; max-width: 320dp; margin-left: 24dp; margin-bottom: 0; background-color: #090909; }
+.pitch-tooltip-title { display: block; font-size: 13dp; font-weight: 700; margin-bottom: 3dp; overflow-wrap: break-word; }
+.pitch-tooltip-stat { display: block; font-family: "JetBrains Mono"; font-size: 13dp; margin: 8dp 0 4dp; }
+.pitch-tooltip-note { margin-top: 6dp; }
+.pitch-side-panel { flex-grow: 1; flex-basis: 200dp; min-width: 180dp; max-width: 320dp; padding: 4dp 0; }
+.pitch-summary { display: block; }
+.pitch-summary .label { margin-top: 4dp; }
+.pitch-inspector { display: block; height: 124dp; padding: 12dp 0; margin-top: 12dp; }
+.pitch-legend-group { display: flex; flex-wrap: wrap; gap: 20dp; }
+.pitch-legend-section { display: block; }
+.pitch-legend-title { display: block; font-size: 12dp; font-weight: 700; margin-bottom: 8dp; }
+.pitch-legend-row { display: flex; align-items: center; margin-top: 8dp; }
+.pitch-map-help { display: block; margin-top: 16dp; line-height: 1.5; }
+.pitch-legend-dot { display: inline-block; width: 8dp; height: 8dp; border-radius: 4dp; margin-right: 10dp; flex-shrink: 0; }
 .pitch-legend-dot.soft { background-color: #38bdf8; }
 .pitch-legend-dot.medium { background-color: #fbbf24; }
 .pitch-legend-dot.hard { background-color: #f43f5e; }
-.pitch-legend-goal { display: inline-block; width: 10dp; height: 10dp; border-radius: 5dp; border: 1dp #ffffff; margin-right: 6dp; }
-.pitch-legend-goal.our { background-color: #3b82f6; }
-.pitch-legend-goal.their { background-color: #ef4444; }
+.pitch-legend-goal { display: inline-block; width: 10dp; height: 10dp; border-radius: 5dp; border: 1dp #eef1f5; margin-right: 8dp; flex-shrink: 0; }
+.pitch-legend-goal.our { background-color: #4a96ff; }
+.pitch-legend-goal.their { background-color: #ff6b6b; }
 .previous-games-view-all { margin-left: 8dp; padding: 2dp 8dp; min-height: 22dp; font-size: 11dp; }
 .match-summary-actions { justify-content: flex-end; margin-top: 8dp; }
 

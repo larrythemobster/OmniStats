@@ -19,6 +19,8 @@
 - **Rank progress and MMR graph.** Visual division bands, pre-session baseline, and match deltas. F9 toggles between session and lifetime history.
 - **Player scouting.** Head-to-head records (with and vs) computed from local history, plus private player notes.
 - **Match analytics.** Each saved match records hits, kickoffs, possession, goal locations, stat-feed mechanics, and your boost and movement profile, shown in match history with a match story, timeline and field map.
+  In History, open a match and select Field. Hover a touch for player, elapsed time, speed and height. Hover a goal for scorer, assist, clock, speed and score, plus a line to the scorer's last recorded touch in that round.
+  Connections join recorded touch and goal coordinates, not the ball's full flight. Missing goal coordinates or scoring touches leave no connection. The map shows up to 150 of your touches and reports how many goals have coordinates.
 - **Session insights.** Win rates by teammate, time-of-day trends, clutch and arena records, playstyle averages, what separates your wins from losses, and session recap cards exportable as PNG.
 - **Season insights.** Review ranked records, MMR changes and rewards by season, with a countdown and optional reminders.
 - **Account tracking.** Track MMR across all playlists for your main and alts without Rocket League running.

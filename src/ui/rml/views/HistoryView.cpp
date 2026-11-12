@@ -330,6 +330,11 @@ bool HistoryView::Create(Rml::Context* context) {
         dot.RegisterMember("x_pct", &HistoryFieldDot::x_pct);
         dot.RegisterMember("y_pct", &HistoryFieldDot::y_pct);
         dot.RegisterMember("dot_class", &HistoryFieldDot::dot_class);
+        dot.RegisterMember("tooltip_class", &HistoryFieldDot::tooltip_class);
+        dot.RegisterMember("player", &HistoryFieldDot::player);
+        dot.RegisterMember("timing", &HistoryFieldDot::timing);
+        dot.RegisterMember("speed", &HistoryFieldDot::speed);
+        dot.RegisterMember("position", &HistoryFieldDot::position);
     }
     constructor.RegisterArray<std::vector<HistoryFieldDot>>();
 
@@ -337,7 +342,14 @@ bool HistoryView::Create(Rml::Context* context) {
         fgoal.RegisterMember("x_pct", &HistoryFieldGoal::x_pct);
         fgoal.RegisterMember("y_pct", &HistoryFieldGoal::y_pct);
         fgoal.RegisterMember("marker_class", &HistoryFieldGoal::marker_class);
-        fgoal.RegisterMember("label", &HistoryFieldGoal::label);
+        fgoal.RegisterMember("scorer", &HistoryFieldGoal::scorer);
+        fgoal.RegisterMember("timing", &HistoryFieldGoal::timing);
+        fgoal.RegisterMember("speed", &HistoryFieldGoal::speed);
+        fgoal.RegisterMember("score", &HistoryFieldGoal::score);
+        fgoal.RegisterMember("assist", &HistoryFieldGoal::assist);
+        fgoal.RegisterMember("path_points", &HistoryFieldGoal::path_points);
+        fgoal.RegisterMember("touch_x_pct", &HistoryFieldGoal::touch_x_pct);
+        fgoal.RegisterMember("touch_y_pct", &HistoryFieldGoal::touch_y_pct);
     }
     constructor.RegisterArray<std::vector<HistoryFieldGoal>>();
 
@@ -433,6 +445,7 @@ bool HistoryView::Create(Rml::Context* context) {
     constructor.Bind("field_dots", &m_fieldDots);
     constructor.Bind("field_goals", &m_fieldGoals);
     constructor.Bind("field_touches_count", &m_fieldTouchesCount);
+    constructor.Bind("field_goals_count", &m_fieldGoalsCount);
     constructor.Bind("pitch_legend_soft", &m_pitchLegendSoft);
     constructor.Bind("pitch_legend_med", &m_pitchLegendMed);
     constructor.Bind("pitch_legend_hard", &m_pitchLegendHard);
@@ -889,7 +902,7 @@ void HistoryView::RebuildDetail() {
         const bool imperial = Config::Read().imperial_units;
         int ourTeam = 0;
         if (!d.ourTeam.empty()) {
-            ourTeam = d.ourTeam.front().team;
+            ourTeam = d.ourTeam.front().team == 1 ? 1 : 0;
         } else if (d.analytics.has_value()) {
             if (!d.accountPrimaryId.empty()) {
                 if (const auto* mePa = d.analytics->FindPlayer(d.accountPrimaryId)) {
@@ -1206,58 +1219,97 @@ void HistoryView::RebuildDetail() {
             const auto& a = *d.analytics;
             const std::string myPid = me ? me->primaryId : d.accountPrimaryId;
 
-            size_t touchLimit = 150;
+            const auto project = [ourTeam](const FieldPoint& p) {
+                const float direction = ourTeam == 1 ? -1.0f : 1.0f;
+                return std::pair{
+                    std::clamp((p.x * direction + 4096.0f) / 8192.0f, 0.02f, 0.98f),
+                    std::clamp((5120.0f - p.y * direction) / 10240.0f, 0.02f, 0.98f)};
+            };
+            const auto percent = [](float value) {
+                char buf[24]{};
+                std::snprintf(buf, sizeof(buf), "%.2f%%", value * 100.0f);
+                return std::string(buf);
+            };
+            const auto tooltipClass = [](float x, float y) {
+                std::string cls = "tooltip-bubble pitch-tooltip";
+                if (x > 0.5f) cls += " align-right";
+                if (y < 0.45f) cls += " below";
+                return cls;
+            };
+            constexpr size_t touchLimit = 150;
             size_t touchCount = 0;
             for (const auto& h : a.hits) {
-                if (!myPid.empty() && h.playerId != myPid) continue;
-                touchCount++;
+                if (myPid.empty() || h.playerId != myPid) continue;
+                ++touchCount;
                 if (m_fieldDots.size() >= touchLimit) continue;
-
-                float X = h.location.x;
-                float Y = h.location.y;
-                if (ourTeam == 1) {
-                    X = -X;
-                    Y = -Y;
-                }
-                const float xPct = std::clamp((X - (-4096.0f)) / 8192.0f * 100.0f, 2.0f, 98.0f);
-                const float yPct = std::clamp((5120.0f - Y) / 10240.0f * 100.0f, 2.0f, 98.0f);
-
-                char xBuf[32]{}, yBuf[32]{};
-                std::snprintf(xBuf, sizeof(xBuf), "%.1f%%", xPct);
-                std::snprintf(yBuf, sizeof(yBuf), "%.1f%%", yPct);
-
-                std::string dotClass = "pitch-dot pitch-dot-soft";
-                if (h.speed >= 100.0f) {
-                    dotClass = "pitch-dot pitch-dot-hard";
-                } else if (h.speed >= 70.0f) {
-                    dotClass = "pitch-dot pitch-dot-medium";
-                }
-                m_fieldDots.push_back({xBuf, yBuf, std::move(dotClass)});
+                const auto [x, y] = project(h.location);
+                HistoryFieldDot dot;
+                dot.x_pct = percent(x);
+                dot.y_pct = percent(y);
+                dot.dot_class = h.speed >= 100.0f  ? "pitch-dot pitch-dot-hard"
+                                : h.speed >= 70.0f ? "pitch-dot pitch-dot-medium"
+                                                   : "pitch-dot pitch-dot-soft";
+                dot.tooltip_class = tooltipClass(x, y);
+                dot.player = me && !me->name.empty() ? me->name : myPid;
+                dot.timing = FormatMinutesSeconds(h.playSeconds) + " elapsed";
+                dot.speed = FormatSpeed(h.speed, imperial) + " after touch";
+                const float relativeY = ourTeam == 1 ? -h.location.y : h.location.y;
+                const char* third = relativeY < -1707.0f  ? "Defensive third"
+                                    : relativeY > 1707.0f ? "Attacking third"
+                                                          : "Middle third";
+                dot.position = std::string(third) + " / " +
+                               std::to_string(static_cast<int>(std::lround(h.location.z))) + " uu high";
+                m_fieldDots.push_back(std::move(dot));
             }
 
+            float previousGoalTime = -1.0f;
             for (const auto& g : a.goals) {
-                if (!g.location.has_value()) continue;
-                float X = g.location->x;
-                float Y = g.location->y;
-                if (ourTeam == 1) {
-                    X = -X;
-                    Y = -Y;
+                const float roundStart = previousGoalTime;
+                previousGoalTime = g.playSeconds;
+                if (!g.location) continue;
+                const auto [x, y] = project(*g.location);
+                HistoryFieldGoal goal;
+                goal.x_pct = percent(x);
+                goal.y_pct = percent(y);
+                goal.marker_class = g.team == ourTeam ? "pitch-goal-event our" : "pitch-goal-event their";
+                goal.scorer = !g.scorerName.empty() ? g.scorerName
+                              : !g.scorerId.empty() ? g.scorerId
+                                                    : "Unknown scorer";
+                goal.timing = g.clockSeconds ? (g.overtime ? "+" : "") + FormatMinutesSeconds(*g.clockSeconds) +
+                                                   (g.overtime ? " OT" : " remaining")
+                                             : FormatMinutesSeconds(g.playSeconds) + " elapsed";
+                goal.speed = g.goalSpeed        ? FormatSpeed(*g.goalSpeed, imperial) + " goal speed"
+                             : g.lastTouchSpeed ? FormatSpeed(*g.lastTouchSpeed, imperial) + " last touch"
+                                                : "Speed not recorded";
+                goal.score = std::to_string(g.scoreAfter[ourTeam]) + " - " +
+                             std::to_string(g.scoreAfter[theirTeam]) + " / " +
+                             (g.team == ourTeam ? "Our team" : "Opponents");
+                const auto& assister = g.assisterName.empty() ? g.assisterId : g.assisterName;
+                if (!assister.empty()) goal.assist = "Assist: " + assister;
+
+                const HitRecord* scoringTouch = nullptr;
+                for (const auto& h : a.hits) {
+                    if (g.scorerId.empty() || h.playerId != g.scorerId ||
+                        h.playSeconds <= roundStart || h.playSeconds > g.playSeconds) continue;
+                    if (!scoringTouch || h.playSeconds >= scoringTouch->playSeconds) scoringTouch = &h;
                 }
-                const float xPct = std::clamp((X - (-4096.0f)) / 8192.0f * 100.0f, 3.0f, 97.0f);
-                const float yPct = std::clamp((5120.0f - Y) / 10240.0f * 100.0f, 3.0f, 97.0f);
-
-                char xBuf[32]{}, yBuf[32]{};
-                std::snprintf(xBuf, sizeof(xBuf), "%.1f%%", xPct);
-                std::snprintf(yBuf, sizeof(yBuf), "%.1f%%", yPct);
-
-                const bool isOurGoal = (g.team == ourTeam);
-                std::string markerClass = isOurGoal ? "pitch-goal pitch-goal-our" : "pitch-goal pitch-goal-their";
-                std::string label = g.scorerName.empty() ? "Goal" : g.scorerName;
-                m_fieldGoals.push_back({xBuf, yBuf, std::move(markerClass), std::move(label)});
+                if (scoringTouch) {
+                    const auto [tx, ty] = project(scoringTouch->location);
+                    goal.touch_x_pct = percent(tx);
+                    goal.touch_y_pct = percent(ty);
+                    char points[96]{};
+                    std::snprintf(points, sizeof(points), "%.4f,%.4f;%.4f,%.4f", tx, ty, x, y);
+                    goal.path_points = points;
+                }
+                m_fieldGoals.push_back(std::move(goal));
             }
 
             m_fieldHasData = (!m_fieldDots.empty() || !m_fieldGoals.empty());
-            m_fieldTouchesCount = std::to_string(touchCount) + " touches recorded";
+            m_fieldTouchesCount = std::to_string(m_fieldDots.size()) +
+                                  (touchCount > touchLimit ? " of " + std::to_string(touchCount) : "") +
+                                  " touches shown";
+            m_fieldGoalsCount = std::to_string(m_fieldGoals.size()) + " of " +
+                                std::to_string(a.goals.size()) + " goals mapped";
             if (imperial) {
                 m_pitchLegendSoft = "< 43 mph (Soft)";
                 m_pitchLegendMed = "43 - 62 mph (Medium)";
@@ -1353,7 +1405,7 @@ void HistoryView::RebuildDetail() {
              "surface_ground_label", "surface_air_label", "surface_wall_label", "legacy_boost_collected",
              "legacy_demoed", "legacy_crossbars", "legacy_hardest_crossbar", "legacy_max_ball_speed",
              "legacy_ownGoals", "has_mechanics", "mechanics_columns", "mechanics_rows",
-             "field_has_data", "field_dots", "field_goals", "field_touches_count", "detail_events",
+             "field_has_data", "field_dots", "field_goals", "field_touches_count", "field_goals_count", "detail_events",
              "event_empty", "event_team_available", "pitch_legend_soft", "pitch_legend_med",
              "pitch_legend_hard"}) {
         Dirty(name);
