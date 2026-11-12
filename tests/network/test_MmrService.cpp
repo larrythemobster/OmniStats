@@ -1761,6 +1761,72 @@ TEST_F(MmrServiceTest, SwitchingAccountsKeepsEachSessionGraphOnItsOwnRating) {
     EXPECT_EQ(history->playlistMatchPoints.at("2v2")[1].mmr, 1407);
 }
 
+TEST_F(MmrServiceTest, RosterAdmissionSkipsBotsAndUnsupportedIdentities) {
+    SetUpSignedInDeviceAuth(false);
+    sessionState->liveMatch->Update([](MatchState& ms) {
+        ms.roster["Unknown|Merlin"] = PlayerData{.primaryId = "Unknown|Merlin", .name = "Merlin", .fetched = true};
+        ms.roster["Stadia|123"] = PlayerData{.primaryId = "Stadia|123", .name = "Unsupported"};
+        ms.roster["Epic|   "] = PlayerData{.primaryId = "Epic|   ", .name = "Missing account"};
+    });
+    fetcher->Enqueue("Unknown|Merlin", "Merlin");
+    fetcher->Enqueue("Stadia|123", "Unsupported");
+    fetcher->Enqueue("Epic|   ", "Missing account");
+    EXPECT_EQ(fetcher->PendingRequestCount(), 0u);
+    auto snapshot = sessionState->liveMatch->GetSnapshot();
+    EXPECT_TRUE(snapshot->roster.at("Unknown|Merlin").fetched);
+    EXPECT_FALSE(snapshot->roster.at("Unknown|Merlin").fetchFailed);
+    EXPECT_TRUE(snapshot->roster.at("Stadia|123").fetched);
+    EXPECT_TRUE(snapshot->roster.at("Stadia|123").fetchFailed);
+    EXPECT_TRUE(snapshot->roster.at("Epic|   ").fetched);
+    EXPECT_TRUE(snapshot->roster.at("Epic|   ").fetchFailed);
+
+    fetcher->Enqueue("Steam|76561198000000001", "Human");
+    const auto batch = fetcher->TakeNextCustomApiBatch();
+    ASSERT_EQ(batch.requests.size(), 1u);
+    EXPECT_EQ(batch.requests.front().primaryId, "Steam|76561198000000001");
+}
+
+TEST_F(MmrServiceTest, CustomApiBotOnlyBatchDoesNotSendRequest) {
+    SetUpSignedInDeviceAuth(false);
+    AssembledBatch batch;
+    MMRRequest bot;
+    bot.primaryId = "Unknown|Merlin";
+    bot.name = "Merlin";
+    batch.requests.push_back(bot);
+    const auto result = fetcher->CustomProvider()->FetchBatch(batch);
+    EXPECT_EQ(result.httpResult, CustomApiFetchResult::UnusableData);
+    EXPECT_EQ(result.httpCode, 0);
+    EXPECT_EQ(g_mock_perform_count.load(), 0);
+}
+
+TEST_F(MmrServiceTest, CustomApiMixedBatchStillPublishesHumanRank) {
+    SetUpSignedInDeviceAuth(false);
+    const std::string humanId = "Steam|76561198000000001";
+    sessionState->liveMatch->Update([&](MatchState& ms) {
+        ms.roster[humanId] = PlayerData{.primaryId = humanId, .name = "Human"};
+    });
+    AssembledBatch batch;
+    MMRRequest bot;
+    bot.primaryId = "Unknown|Merlin";
+    bot.name = "Merlin";
+    batch.requests.push_back(bot);
+    MMRRequest human;
+    human.primaryId = humanId;
+    human.name = "Human";
+    batch.requests.push_back(human);
+    g_mock_custom_api_response_code = 200;
+    g_mock_custom_api_response = R"({"players":[{"platform":"Steam","account_id":"76561198000000001","skills":[{"playlist":11,"mmr":1475,"tier":17,"division":1,"matches_played":30}]}]})";
+    fetcher->ProcessCustomApiBatch(batch);
+    EXPECT_EQ(g_mock_perform_count.load(), 1);
+    const auto payload = nlohmann::json::parse(g_mock_post_fields);
+    ASSERT_EQ(payload.at("players").size(), 1u);
+    EXPECT_EQ(payload.at("players").front().at("account_id"), "76561198000000001");
+    const auto snapshot = sessionState->liveMatch->GetSnapshot();
+    EXPECT_TRUE(snapshot->roster.at(humanId).fetched);
+    EXPECT_FALSE(snapshot->roster.at(humanId).fetchFailed);
+    EXPECT_EQ(snapshot->roster.at(humanId).mmr, 1475);
+}
+
 TEST_F(MmrServiceTest, SignedInUsesBearerHeadersAndIsPrimaryForAllPlayers) {
     auto& account = *accountClient;
     AccountClient::DeviceKeyPair keyPair;

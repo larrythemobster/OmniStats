@@ -34,7 +34,12 @@ CustomApiBatchResult OmniNetRankProvider::FetchBatch(const AssembledBatch& batch
         return result;
     }
 
-    const std::string reqBodyStr = BuildCustomApiBatchJson(batch).dump();
+    const auto reqBody = BuildCustomApiBatchJson(batch);
+    if (reqBody.at("players").empty()) {
+        result.httpResult = CustomApiFetchResult::UnusableData;
+        return result;
+    }
+    const std::string reqBodyStr = reqBody.dump();
     if (!m_accountClient) {
         result.httpResult = CustomApiFetchResult::DisabledOrNotReady;
         return result;

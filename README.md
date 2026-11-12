@@ -14,7 +14,7 @@
 
 ## Features
 
-- **Lobby ranks.** Rank, division, and MMR across 1v1, 2v2, 3v3, casual, tournaments, and extra modes.
+- **Lobby ranks.** Rank, division, and MMR across 1v1, 2v2, 3v3, casual, tournaments, and extra modes. Bots and unsupported identities do not enter roster rank queues. Empty player batches are not sent to the rank API.
 - **Live telemetry.** Real-time saves, shots, assists, demos, and goal and ball speeds for the lobby and for you.
 - **Rank progress and MMR graph.** Visual division bands, pre-session baseline, and match deltas. F9 toggles between session and lifetime history.
 - **Player scouting.** Head-to-head records (with and vs) computed from local history, plus private player notes.

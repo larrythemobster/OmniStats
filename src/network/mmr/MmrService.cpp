@@ -131,8 +131,13 @@ void MmrService::Stop() {
 }
 
 void MmrService::Enqueue(const std::string& primaryId, const std::string& name) {
-    if (CurrentRankProvider() == RankProvider::Unavailable || primaryId.empty()) return;
+    if (CurrentRankProvider() == RankProvider::Unavailable || primaryId.empty() || primaryId.starts_with("Unknown|")) return;
     if (TrySatisfyLocalRosterRequest(primaryId)) return;
+    CustomApiPlayerTarget target;
+    if (!TryParseCustomApiTarget(primaryId, target)) {
+        if (m_state) MmrPublisher::PublishRosterFetchFailure(*m_state, primaryId);
+        return;
+    }
 
     const auto snapshot = m_state && m_state->liveMatch ? m_state->liveMatch->GetSnapshot() : nullptr;
     const uint64_t sessionGen = snapshot ? snapshot->sessionGeneration : 0;
