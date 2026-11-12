@@ -1,91 +1,72 @@
-<h1><img src="resources/Logo.png" alt="" width="36" height="36" align="top"> OmniStats</h1>
+<p align="center">
+  <img src="resources/Logo.png" alt="" width="80" height="80">
+</p>
 
-[![C++20](https://img.shields.io/badge/C%2B%2B-20-00599C?logo=cplusplus&logoColor=white)](CMakeLists.txt)
-[![Platform](https://img.shields.io/badge/platform-Windows%2010%2B-0078D6)](docs/BUILDING.md)
-[![Linux](https://img.shields.io/badge/Linux-Proton%20experimental-yellow)](docs/LINUX.md)
-[![License](https://img.shields.io/badge/license-PolyForm%20Internal%20Use-555)](LICENSE)
-[![Discord](https://img.shields.io/badge/Discord-join-5865F2?logo=discord&logoColor=white)](https://discord.gg/4KBW35ApvF)
+<h1 align="center">OmniStats</h1>
 
-`OmniStats` is a native Windows companion for Rocket League. It connects to the game's loopback Stats API over TCP, tracks live match and session stats, and renders a click-through overlay or second-monitor dashboard using Direct3D 11 and RmlUi. Match history, notes, and tracked accounts stay local in SQLite.
+<p align="center">Live ranks, match history, and session stats for Rocket League.</p>
 
-**[Architecture](docs/ARCHITECTURE.md) · [Building](docs/BUILDING.md) · [Privacy](docs/PRIVACY.md) · [Overlay rules](docs/OVERLAY.md) · [Contributing](CONTRIBUTING.md) · [Security](SECURITY.md)**
+<p align="center">
+  <a href="https://omnistats.org/"><strong>Download for Windows</strong></a> ·
+  <a href="#getting-started">Getting started</a> ·
+  <a href="https://discord.gg/4KBW35ApvF">Discord</a> ·
+  <a href="CONTRIBUTING.md">Contributing</a>
+</p>
 
-![OmniStats second-monitor dashboard](docs/screenshots/dashboard.png)
+<p align="center">
+  <a href="docs/BUILDING.md"><img src="https://img.shields.io/badge/platform-Windows%2010%2B-0078D6" alt="Windows 10 or newer"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-PolyForm%20Internal%20Use-555" alt="PolyForm Internal Use license"></a>
+  <a href="https://discord.gg/4KBW35ApvF"><img src="https://img.shields.io/badge/Discord-join-5865F2?logo=discord&logoColor=white" alt="Join Discord"></a>
+  <a href="https://github.com/larrythemobster/OmniStats/releases/latest"><img src="https://img.shields.io/github/v/release/larrythemobster/OmniStats?label=release" alt="Latest release"></a>
+</p>
+
+![OmniStats dashboard showing live lobby ranks, session stats, and MMR progress](docs/screenshots/dashboard.png)
+
+OmniStats is a Windows companion app for Rocket League. Follow your lobby's ranks, track your progress, and review past matches in an in-game overlay or a second-monitor dashboard.
 
 ## Features
 
-- **Lobby ranks.** Rank, division, and MMR across 1v1, 2v2, 3v3, casual, tournaments, and extra modes. Bots and unsupported identities do not enter roster rank queues. Empty player batches are not sent to the rank API.
-- **Live telemetry.** Real-time saves, shots, assists, demos, and goal and ball speeds for the lobby and for you.
-- **Rank progress and MMR graph.** Visual division bands, pre-session baseline, and match deltas. F9 toggles between session and lifetime history.
-- **Player scouting.** Head-to-head records (with and vs) computed from local history, plus private player notes.
-- **Match analytics.** Each saved match records hits, kickoffs, possession, goal locations, stat-feed mechanics, and your boost and movement profile, shown in match history with a match story, timeline and field map.
-  In History, open a match and select Field. Hover a touch for player, elapsed time, speed and height. Hover a goal for scorer, assist, clock, speed and score, plus a line to the scorer's last recorded touch in that round.
-  Connections join recorded touch and goal coordinates, not the ball's full flight. Missing goal coordinates or scoring touches leave no connection. The map shows up to 150 of your touches and reports how many goals have coordinates.
-- **Session insights.** Win rates by teammate, time-of-day trends, clutch and arena records, playstyle averages, what separates your wins from losses, and session recap cards exportable as PNG.
-- **Season insights.** Review ranked records, MMR changes and rewards by season, with a countdown and optional reminders.
-- **Account tracking.** Track MMR across all playlists for your main and alts without Rocket League running.
-- **Tournament reminders.** Signed-in users get a compact next-tournament countdown in either display mode, brief in-match reminders, and an optional dashboard sound cue. Card visibility and reminders are configured separately.
-- **Modular layout.** Draggable, dockable cards with per-card visibility rules, or a separate second-monitor window.
-- **Integrations.** Optional automatic replay saving, Ballchasing.com uploads, and Discord Rich Presence.
+- Live lobby ranks, divisions, and MMR across playlists.
+- Match stats, session records, and MMR graphs with division thresholds.
+- Match history with timelines, touch and goal maps, and boost and movement stats.
+- Teammate records, private player notes, season insights, and shareable session recaps.
+- Main and alt account tracking, even when Rocket League isn't running.
+- Draggable, dockable cards with visibility rules for individual cards.
+- Tournament countdowns and reminders for signed-in users.
+- Optional replay saving, Ballchasing uploads, and Discord Rich Presence.
 
-## Architecture and design
+## Getting started
 
-| Subsystem | Implementation | Design notes |
-|---|---|---|
-| **Game link** | Loopback TCP (Asio) | Connects to Rocket League's built-in Stats API on `127.0.0.1:49123`. Zero DLL injection, zero game memory reads. |
-| **Renderer** | Direct3D 11 + RmlUi | Hardware-accelerated HTML/CSS-style DOM. Live telemetry updates text nodes directly via data bindings without rebuilding widgets. |
-| **Storage** | SQLite 3 (WAL mode) | Local persistence for matches, player stats, notes, and tracked accounts. Uses versioned schema migrations. |
-| **Rank lookup** | OmniStats API + Tracker Network | Official builds include the private OmniStats service module for live ranks, device sign-in, and tournament schedules. Open-source builds link a public stub that uses Tracker Network only (no account sign-in or telemetry). Saved DPAPI credentials are used for device sessions. |
-| **Packaging** | WiX Toolset v4 (MSI) | Authenticode-signed installer. The updater checks the MSI's SHA-256 checksum and pinned Authenticode signature before installing. |
-| **Test suite** | GoogleTest | Unit and integration tests, including offscreen headless UI tests rendered through DirectX 11 WARP. |
+1. Download and run the signed installer from [omnistats.org](https://omnistats.org/).
+2. Open OmniStats. Setup checks Rocket League's Stats API configuration and lets you choose your display mode.
+3. Connect your OmniStats account for live ranks, or choose **Set up later**. Replay uploads and Discord Rich Presence are optional.
 
-Existing installations receive a one-time device-link prompt after upgrading if they are not linked. Saved API keys migrate in the background before the prompt is considered. If migration fails, Settings > Accounts & services explains how to recover and offers Retry migration without opening a browser. The key stays saved for retry or the next launch. Signing out discards the saved key and prevents an in-flight migration from signing the device back in.
+Use **borderless windowed** mode in Rocket League for the in-game overlay. The second-monitor dashboard also works while the game uses exclusive fullscreen.
 
-## Supported surfaces
-
-| Surface | Display mode | Description |
-|---|---|---|
-| **In-game overlay** | Borderless windowed | Click-through HUD rendered over Rocket League. Uses per-container visibility triggers (scoreboard hold, kickoff, goal, podium). |
-| **Second monitor** | Exclusive fullscreen or borderless | Separate window with editable, dockable cards. Rocket League stays focused on your primary display. |
-
-## Quick start
-
-Download the signed installer from [omnistats.org](https://omnistats.org/) or build from source. Official installer builds include the private OmniStats service module. Open-source builds from this repository compile against a public stub (ranks via Tracker Network only; no OmniStats account sign-in, telemetry, or crash uploads).
-
-Source builds also need the pinned Discord Social SDK archive. See [Building](docs/BUILDING.md#discord-social-sdk) for its download and path configuration.
-```powershell
-$env:VCPKG_ROOT = 'C:\src\vcpkg'
-cmake --preset windows-release
-cmake --build --preset windows-release
-ctest --preset windows-release
-```
-
-First-run setup checks Rocket League's Stats API configuration, prompts for display mode, and offers a dedicated **Connect live ranks** step. **Continue in browser** opens OmniStats sign-in and PC approval; **Set up later** continues without an account. The browser fallback can copy the sign-in link or verification code. After connecting, choose **Continue** to reach optional integrations and your detected Rocket League account. See [docs/BUILDING.md](docs/BUILDING.md) for full prerequisites and toolchain requirements.
-
-### Linux
-
-OmniStats runs on Linux through Proton in second-monitor mode. Linux support is experimental, and the in-game overlay doesn't work yet. See [docs/LINUX.md](docs/LINUX.md).
+Linux support through Proton is experimental and limited to the second-monitor dashboard. See the [Linux guide](docs/LINUX.md).
 
 ## Screenshots
 
-| In-game overlay | Match history | Accounts |
+| In-game overlay | Match history | Account tracking |
 |:---:|:---:|:---:|
-| ![Overlay roster with rank progress](docs/screenshots/overlay.png) | ![Match history window](docs/screenshots/history.png) | ![Tracked accounts window](docs/screenshots/accounts.png) |
+| ![Overlay roster and rank progress](docs/screenshots/overlay.png) | ![Saved match history](docs/screenshots/history.png) | ![Tracked accounts and playlist ranks](docs/screenshots/accounts.png) |
 
-## Documentation index
+## How it works
 
-| Guide | Description |
-|---|---|
-| [Architecture](docs/ARCHITECTURE.md) | Data pipeline, reducer state machine, and RmlUi DOM update model |
-| [Building](docs/BUILDING.md) | Visual Studio 2022, MSVC, vcpkg, and CMake configuration |
-| [Linux](docs/LINUX.md) | Running the Windows build through Proton |
-| [Overlay rules](docs/OVERLAY.md) | Container visibility rules, event timers, and layout editing |
-| [Privacy](docs/PRIVACY.md) | Network data flows, local storage, diagnostic pings, and retention |
-| [Contributing](CONTRIBUTING.md) | Code style, commit conventions, and testing requirements |
-| [Security](SECURITY.md) | Vulnerability disclosure policy and release integrity verification |
+OmniStats reads Rocket League's local Stats API. It does not inject DLLs or read game memory. Match history, player notes, and tracked accounts are stored locally in SQLite.
 
-## License and trademarks
+Official builds send required diagnostics. Rank lookups, replay uploads, and other integrations communicate with external services. See the [privacy guide](docs/PRIVACY.md) for the data each feature sends and which features are optional.
 
-Source available under the [PolyForm Internal Use License 1.0.0](LICENSE). Contributions accepted under [CONTRIBUTION_EXCEPTION.md](CONTRIBUTION_EXCEPTION.md). Redistribution, public mirrors, and competing distributions require written permission.
+## Development
 
-Rocket League, Psyonix, Epic Games, Tracker Network, Discord, and Ballchasing are trademarks of their respective owners. OmniStats is an independent project and is not affiliated with or endorsed by them.
+The client uses C++20, Direct3D 11, and RmlUi. See the [build guide](docs/BUILDING.md) for prerequisites, the Discord Social SDK requirement, and build/test commands. The [architecture guide](docs/ARCHITECTURE.md) covers the code layout and data flow.
+
+Source builds use a public service stub with Tracker Network rank lookup. OmniStats account sign-in, tournament schedules, diagnostics, and crash uploads require the private service module included in official builds.
+
+Read [CONTRIBUTING.md](CONTRIBUTING.md) before opening a PR. For help, join [Discord](https://discord.gg/4KBW35ApvF). Report vulnerabilities privately using the [security policy](SECURITY.md).
+
+## License
+
+OmniStats is source available under the [PolyForm Internal Use License 1.0.0](LICENSE), not open source. The [contribution exception](CONTRIBUTION_EXCEPTION.md) permits forks for proposing changes. Redistribution, public mirrors, and competing distributions require written permission.
+
+OmniStats is not affiliated with or endorsed by Psyonix, Epic Games, Tracker Network, Discord, or Ballchasing. Rocket League and the other product names belong to their respective owners.
