@@ -85,8 +85,8 @@
                         <div class="history-cell-badges row gap-xs">
                             <span class="badge" data-for="b : row.badges" data-attr-class="b.badge_class">{{b.label}}</span>
                         </div>
-                        <div class="history-cell-arena">{{row.arena}}</div>
-                        <div class="history-cell-teammates label">{{row.teammates}}</div>
+                        <div class="history-cell-arena tooltip-host"><span class="history-cell-text">{{row.arena}}</span><div class="tooltip-bubble">{{row.arena}}</div></div>
+                        <div class="history-cell-teammates label tooltip-host"><span class="history-cell-text">{{row.teammates}}</span><div class="tooltip-bubble">{{row.teammates}}</div></div>
                         <div class="history-cell-time label">{{row.time}}</div>
                     </div>
                 </div>

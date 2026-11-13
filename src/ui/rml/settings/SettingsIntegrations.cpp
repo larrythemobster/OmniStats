@@ -96,7 +96,7 @@ std::string SettingsPresenter::RenderIntegrations(
     out << SectionEnd();
     out << SectionStart("Ballchasing uploads")
         << "<div class='setting-help section-help'>Upload saved replay files to your Ballchasing account. Get an API token from ballchasing.com.</div>"
-        << "<div class='setting-row'><div class='setting-info'><div class='setting-name'>API token</div></div><input type='" << (showToken ? "text" : "password") << "' class='text' data-setting='ballchasing_token' value='" << Escape(tokenToUse) << "'/><button class='ghost' data-action='toggle-token'>" << (showToken ? "Hide" : "Show") << "</button></div>";
+        << "<div class='setting-row'><div class='setting-info'><div class='setting-name'>API token</div></div><div class='row gap-sm'><input type='" << (showToken ? "text" : "password") << "' class='text' data-setting='ballchasing_token' value='" << Escape(tokenToUse) << "'/><button class='ghost' data-action='toggle-token'>" << (showToken ? "Hide" : "Show") << "</button></div></div>";
     if (config.auto_upload_replays && config.ballchasing_token.empty()) {
         out << "<div class='setting-help loss'>Add an API token to start uploading replays.</div>";
     } else if (config.auto_upload_replays && state && state->ui.ballchasingTokenRejected.load()) {

@@ -44,7 +44,7 @@
                     </div>
                 </div>
 
-                <div class="accounts-table" data-if="loaded && rows.size > 0">
+                <div class="accounts-table" data-class-extra="column_set == 'extra'" data-if="loaded && rows.size > 0">
                     <div class="accounts-row header">
                         <div class="accounts-cell-account sortable" data-action="accounts-sort" data-sort="nickname">
                             <span>Account</span>

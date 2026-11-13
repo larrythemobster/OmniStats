@@ -799,7 +799,7 @@ void HistoryView::RebuildRows() {
 
         row.arena = src.arena.empty() ? "Unknown Arena" : src.arena;
         if (!src.teammates.empty()) {
-            std::string joined = "with ";
+            std::string joined;
             for (size_t i = 0; i < src.teammates.size(); ++i) {
                 if (i > 0) joined += ", ";
                 joined += src.teammates[i];

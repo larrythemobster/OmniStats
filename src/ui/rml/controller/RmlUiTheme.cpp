@@ -130,13 +130,17 @@ void RmlUiController::UpdateThemeProperties() {
 
     for (const char* selector : {".card-subtitle", ".stat-section-title", ".label", ".metric-label", ".muted", ".badge",
                                  ".running-indicator", ".roster-footer", ".rank-table-row", ".debug-label", ".match-mode",
-                                 ".lobby-rank-header"})
+                                 ".lobby-rank-header", ".setting-help"})
         rule(selector, "color", muted);
-    for (const char* selector : {".dim", ".lobby-rank-matches", ".dashboard-edit-zone", ".setting-help", ".match-time"})
+    for (const char* selector : {".dim", ".lobby-rank-matches", ".dashboard-edit-zone", ".match-time"})
         rule(selector, "color", dim);
     rule(".lobby-rank-header", "background-color", scaledColor(m_config.themeBg, 0.70f, 0.80f));
-    for (const char* selector : {".accent", ".badge.accent", ".accounts-active-label"})
-        rule(selector, "color", accent);
+    rule(".accent", "color", accent);
+    for (const char* selector : {".badge.accent", ".accounts-active-label"}) {
+        rule(selector, "color", text);
+        rule(selector, "background-color", accentMid);
+        rule(selector, "border-color", accent);
+    }
     rule(".accounts-active-dot", "background-color", accent);
     rule(".overlay-edit", "border-color", accent);
     rule(".overlay-card.dock-hover-target", "border-color", "#ff0021");

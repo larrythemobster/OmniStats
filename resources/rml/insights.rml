@@ -5,7 +5,7 @@
 </head>
 <body id="app" class="view-document" data-model="insights">
     <div class="view-backdrop">
-        <div class="view-window" data-class-season-window="tab == 'season'">
+        <div class="view-window">
             <div class="view-header row">
                 <div class="grow">
                     <div class="brand-title">Insights</div>
@@ -99,11 +99,11 @@
             <div class="view-body" data-if="tab == 'sessions'">
                 <div class="sessions-table" data-if="sessions.size > 0">
                     <div class="session-row header">
-                        <div class="session-date-col">Session</div>
+                        <div class="session-date-col"><span>Session</span></div>
                         <div class="session-cell">Games</div>
                         <div class="session-cell">Record</div>
-                        <div class="session-bar-col">Win rate</div>
-                        <div class="session-playlists-col">By playlist</div>
+                        <div class="session-bar-col"><span>Win rate</span></div>
+                        <div class="session-playlists-col"><span>By playlist</span></div>
                         <div class="session-cell">Net MMR</div>
                     </div>
                     <div data-for="session : sessions">

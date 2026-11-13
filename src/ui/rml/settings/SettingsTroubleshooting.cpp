@@ -36,7 +36,7 @@ std::string SettingsPresenter::RenderTroubleshooting(const ConfigData& config, c
     if (result.status != StatsApiConfig::Status::Valid && result.rlRunning) {
         out << "<div class='setting-notice'>Restart Rocket League after fixing for changes to take effect.</div>";
     }
-    out << "<div class='setting-row'><div class='setting-info'><div class='setting-name'>Manual config path</div><div class='setting-help'>TAStatsAPI.ini, or DefaultStatsAPI.ini when TAStatsAPI.ini does not exist.</div></div><div class='row gap-xs'><input class='text' style='width:300dp' data-setting='statsapi_path' value='" << Escape(config.rocket_league_stats_api_config_path) << "'/>" << Button("statsapi-browse", "Browse...", "ghost") << "</div></div>";
+    out << "<div class='setting-row'><div class='setting-info'><div class='setting-name'>Manual config path</div><div class='setting-help'>TAStatsAPI.ini, or DefaultStatsAPI.ini when TAStatsAPI.ini does not exist.</div></div><div class='row gap-sm'><input class='text' style='width:300dp' data-setting='statsapi_path' value='" << Escape(config.rocket_league_stats_api_config_path) << "'/>" << Button("statsapi-browse", "Browse...", "ghost") << "</div></div>";
     if (!statsApiPathError.empty()) out << "<div class='setting-help loss'>" << Escape(statsApiPathError) << "</div>";
     out << SectionEnd();
     out << SectionStart("Diagnostics and logs")
