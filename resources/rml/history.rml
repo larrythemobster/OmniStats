@@ -71,7 +71,7 @@
                         <div class="history-cell-score">Score</div>
                         <div class="history-cell-mmr">MMR</div>
                         <div class="history-cell-stats">Stats</div>
-                        <div class="history-cell-badges">Badges</div>
+                        <div class="history-cell-badges"><span>Badges</span></div>
                         <div class="history-cell-arena">Arena</div>
                         <div class="history-cell-teammates">Teammates</div>
                         <div class="history-cell-time">Time</div>

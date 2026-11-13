@@ -4358,3 +4358,65 @@ TEST_F(RmlUiControllerStateTest, AccountMenuShowsCapturedNamesAndKeepsIdentityVa
     EXPECT_TRUE(state->liveMatch->GetSnapshot()->myPrimaryId.empty());
     worker->Drain();
 }
+
+TEST_F(RmlUiControllerStateTest, HistoryBadgesStayInsideTheirColumnWithoutOverlapping) {
+    for (const auto [width, height] : {std::pair{960, 1032}, std::pair{800, 600}}) {
+        WarpDevice warp;
+        if (!warp.Create(width, height)) GTEST_SKIP() << "WARP not available.";
+        auto state = std::make_shared<SessionState>();
+        state->liveMatch->Update([](MatchState& ms) { ms.myPrimaryId = "Steam|badges"; });
+        RmlUiController controller(state, nullptr);
+        ASSERT_TRUE(controller.Initialize(nullptr, warp.device.Get(), warp.context.Get(), width, height, 1.0f));
+        controller.Update(Config::Read(), false);
+        controller.OpenHistory();
+        std::vector<MatchRow> rows;
+        const auto row = [&](bool mvp, bool overtime, bool comeback, bool blownLead, bool lateWinner, bool endedEarly) {
+            MatchRow match;
+            match.matchId = static_cast<int64_t>(rows.size() + 1);
+            match.playlist = "2v2";
+            match.arena = "Utopia Coliseum (Dusk)";
+            match.teammates = {"OverallHawk1081"};
+            match.mvp = mvp;
+            match.overtime = overtime;
+            match.endedEarly = endedEarly;
+            ScorelineSummary scoreline;
+            scoreline.comeback = comeback;
+            scoreline.blownLead = blownLead;
+            scoreline.lateWinner = lateWinner;
+            match.scoreline = scoreline;
+            rows.push_back(match);
+        };
+        row(true, false, true, false, false, false);
+        row(false, true, false, true, false, false);
+        row(false, false, true, false, false, true);
+        row(false, false, true, false, true, false);
+        row(true, true, true, false, true, true);
+        auto& history = HistoryModel(controller);
+        ASSERT_TRUE(history.ApplyQueryResult(history.ActiveRequestId(), rows, static_cast<int>(rows.size())));
+        controller.Render();
+        controller.Render();
+
+        Rml::ElementList cells;
+        HistoryDocument(controller)->QuerySelectorAll(cells, ".history-row.item .history-cell-badges");
+        ASSERT_EQ(cells.size(), rows.size());
+        for (auto* cell : cells) {
+            const auto cellLeft = cell->GetAbsoluteOffset(Rml::BoxArea::Border).x;
+            const auto cellRight = cellLeft + cell->GetOffsetWidth();
+            Rml::ElementList badges;
+            cell->QuerySelectorAll(badges, ".badge");
+            badges.erase(std::remove_if(badges.begin(), badges.end(), [](Rml::Element* badge) { return !badge->IsVisible(); }), badges.end());
+            ASSERT_FALSE(badges.empty());
+            for (size_t i = 0; i < badges.size(); ++i) {
+                const auto a = badges[i]->GetAbsoluteOffset(Rml::BoxArea::Border);
+                EXPECT_GE(a.x + 0.5f, cellLeft) << width;
+                EXPECT_LE(a.x + badges[i]->GetOffsetWidth(), cellRight + 0.5f) << width;
+                for (size_t j = i + 1; j < badges.size(); ++j) {
+                    const auto b = badges[j]->GetAbsoluteOffset(Rml::BoxArea::Border);
+                    const bool separate = a.x + badges[i]->GetOffsetWidth() <= b.x + 0.5f || b.x + badges[j]->GetOffsetWidth() <= a.x + 0.5f ||
+                                          a.y + badges[i]->GetOffsetHeight() <= b.y + 0.5f || b.y + badges[j]->GetOffsetHeight() <= a.y + 0.5f;
+                    EXPECT_TRUE(separate) << width << ": " << badges[i]->GetInnerRML() << " overlaps " << badges[j]->GetInnerRML();
+                }
+            }
+        }
+    }
+}

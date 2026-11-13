@@ -1652,9 +1652,10 @@ body.view-document { pointer-events: none; }
 .history-cell-score { width: 40dp; flex-shrink: 0; text-align: center; }
 .history-cell-mmr { width: 44dp; flex-shrink: 0; text-align: right; font-weight: 700; }
 .history-cell-stats { width: 104dp; flex-shrink: 0; font-size: 11dp; white-space: nowrap; }
-.history-cell-badges { flex: 0 1 60dp; min-width: 0; overflow: hidden; align-items: center; }
-.history-cell-arena { flex: 1 1 90dp; min-width: 64dp; }
-.history-cell-teammates { flex: 2 1 160dp; min-width: 100dp; }
+.history-cell-badges { display: flex; flex: 0 0 136dp; flex-wrap: wrap; align-items: center; gap: 3dp 4dp; }
+.history-cell-badges .badge { flex-shrink: 0; white-space: nowrap; }
+.history-cell-arena { flex: 1 1 90dp; min-width: 56dp; }
+.history-cell-teammates { flex: 2 1 160dp; min-width: 80dp; }
 .history-cell-time { width: 64dp; flex-shrink: 0; text-align: right; }
 .history-cell-text { display: block; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .history-cell-arena .tooltip-bubble, .history-cell-teammates .tooltip-bubble { white-space: normal; min-width: 180dp; right: 0; left: auto; margin-left: 0; }
