@@ -2,7 +2,7 @@
 
 OmniStats targets Windows 10 or newer and requires Visual Studio 2022 with the Desktop development with C++ workload, a Windows SDK, CMake 3.22 or newer, Git, vcpkg, and the standalone Discord Social SDK archive described below.
 
-There's no native Linux build. To run OmniStats on Linux, see [LINUX.md](LINUX.md).
+There's no native Linux build. To run OmniStats on Linux, see the [Linux guide](LINUX.md).
 
 ## Set up vcpkg
 

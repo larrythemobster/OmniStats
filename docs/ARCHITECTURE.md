@@ -69,7 +69,7 @@ RmlUi documents remain loaded between frames. Presenters use version counters an
 
 The overlay is a transparent, click-through window for borderless gameplay. The dashboard is a separate second-monitor window. Both use the Direct3D 11 backend; foreground changes use a WinEvent hook rather than polling every frame.
 
-Release builds embed markup, styles, fonts, and images. See [BUILDING.md](BUILDING.md#editing-the-ui-without-rebuilding) for local UI iteration.
+Release builds embed markup, styles, fonts, and images. See the [build guide](BUILDING.md#editing-the-ui-without-rebuilding) for local UI iteration.
 
 ## Updates and external services
 
@@ -77,4 +77,4 @@ The updater runs separately from the client. It verifies signed release manifest
 
 Official builds include a private service module for OmniStats sign-in, ranks, tournament schedules, and diagnostics. Source builds use the public stub and Tracker Network rank lookup.
 
-See [PRIVACY.md](PRIVACY.md) for network destinations and transmitted data, and [../.github/SECURITY.md](../.github/SECURITY.md) for vulnerability reporting and release verification.
+See the [privacy guide](PRIVACY.md) for network destinations and transmitted data, and the [security policy](../.github/SECURITY.md) for vulnerability reporting and release verification.

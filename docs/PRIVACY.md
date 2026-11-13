@@ -44,4 +44,4 @@ Automatic tournament-region detection reads Rocket League's `RegionCache.cache` 
 
 ## Contact
 
-For privacy questions or data deletion requests regarding optional accounts, visit the [OmniStats Discord](https://discord.gg/4KBW35ApvF) or see [https://omnistats.org/privacy](https://omnistats.org/privacy).
+For privacy questions or data deletion requests regarding optional accounts, visit the [OmniStats Discord](https://discord.gg/4KBW35ApvF) or see the [privacy policy](https://omnistats.org/privacy).

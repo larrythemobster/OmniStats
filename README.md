@@ -65,7 +65,7 @@ The client uses C++20, Direct3D 11, and RmlUi. See the [build guide](docs/BUILDI
 
 Source builds use a public service stub with Tracker Network rank lookup. OmniStats account sign-in, tournament schedules, diagnostics, and crash uploads require the private service module included in official builds.
 
-Read [.github/CONTRIBUTING.md](.github/CONTRIBUTING.md) before opening a PR. For help, join [Discord](https://discord.gg/4KBW35ApvF). Report vulnerabilities privately using the [security policy](.github/SECURITY.md).
+Read the [contribution guidelines](.github/CONTRIBUTING.md) before opening a PR. For help, join [Discord](https://discord.gg/4KBW35ApvF). Report vulnerabilities privately using the [security policy](.github/SECURITY.md).
 
 ## License
 
