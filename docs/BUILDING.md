@@ -14,7 +14,7 @@ git clone https://github.com/microsoft/vcpkg.git "$HOME\src\vcpkg"
 $env:VCPKG_ROOT = "$HOME\src\vcpkg"
 ```
 
-CI checks out the official `2026.03.18` vcpkg release before configuring the project.
+The dependency baseline is pinned in `vcpkg.json`.
 
 ## Discord Social SDK
 
@@ -22,7 +22,7 @@ The SDK files can be placed under `Client/third_party/discord-social-sdk/discord
 
 The application uses desktop Rich Presence through local Discord IPC without calling `Client::Connect`, requesting OAuth scopes, or handling Discord tokens. The SDK runtime `discord_partner_sdk.dll` is copied beside the application and included in the MSI. Voice libraries and noise-suppression models are not used or packaged.
 
-GitHub Actions does not build the client because the SDK cannot be downloaded there. Build and test locally; `deploy.ps1` also runs the full suite before every release. Do not commit the SDK archive or credentials to the repository.
+GitHub Actions runs formatting and secret scans only. Build and test locally. The maintainer's `deploy.ps1` builds the Windows release and runs its offline tests before packaging. Do not commit the SDK archive or credentials to the repository.
 
 ## Configure, build, and test
 

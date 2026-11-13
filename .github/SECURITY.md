@@ -27,7 +27,7 @@ Only downloads published through the official OmniStats website or this GitHub r
 Official releases should:
 
 - be built from reviewed source code;
-- pass the Windows build and test workflow;
+- pass the local Windows release build and offline tests before packaging;
 - be distributed over HTTPS;
 - publish the MSI with its SHA-256 checksum; and
 - clearly state whether the binaries are digitally signed or unsigned.
