@@ -17,11 +17,7 @@
 #include <vector>
 #include "ui/config/DashboardLayoutConfig.hpp"
 #include "ui/config/OverlayLayoutConfig.hpp"
-
-// Lightweight renderer-independent RGBA color stored in configuration
-struct ColorRGBA {
-    float r, g, b, a;
-};
+#include "core/config/Themes.hpp"
 
 // Holds all user preferences
 struct ConfigData {
@@ -138,6 +134,25 @@ struct ConfigData {
     ColorRGBA themeStatBox = {0.054901961237192154f, 0.054901961237192154f, 0.054901961237192154f, 0.7490196228027344f};
     ColorRGBA themeMatchRow = {0.06927955150604248f, 0.06927955150604248f, 0.06927955150604248f, 0.7490196228027344f};
     ColorRGBA themeMatchRowAlt = {0.05098039284348488f, 0.05098039284348488f, 0.05098039284348488f, 0.9843137264251709f};
+    ColorRGBA themePrimaryButton = {themeAccent.r * 0.62f, themeAccent.g * 0.62f, themeAccent.b * 0.62f, 1};
+    ColorRGBA themePrimaryBorder = themeAccent;
+    ColorRGBA themePrimaryHover = themePrimaryButton;
+    ColorRGBA themePrimaryPressed = themePrimaryButton;
+    ColorRGBA themeButtonText = themeText;
+    ColorRGBA themeButtonBg = {37.0f / 255, 37.0f / 255, 37.0f / 255, 1};
+    ColorRGBA themeButtonBorder = {57.0f / 255, 57.0f / 255, 57.0f / 255, 1};
+    ColorRGBA themeButtonHover = {48.0f / 255, 48.0f / 255, 48.0f / 255, 1};
+    ColorRGBA themeInputBg = {18.0f / 255, 18.0f / 255, 18.0f / 255, 1};
+    ColorRGBA themeInputBorder = {59.0f / 255, 59.0f / 255, 59.0f / 255, 1};
+    ColorRGBA themeInputText = themeText;
+    ColorRGBA themeBorder = {themeText.r, themeText.g, themeText.b, 0.10f};
+    ColorRGBA themeSelection = {themeAccent.r * 0.28f, themeAccent.g * 0.28f, themeAccent.b * 0.28f, 0.95f};
+    ColorRGBA themeRowHover = {238.0f / 255, 241.0f / 255, 245.0f / 255, 13.0f / 255};
+    ColorRGBA themeBadgeBg = {20.0f / 255, 20.0f / 255, 20.0f / 255, 204.0f / 255};
+    ColorRGBA themeGraphGrid = {105.0f / 255, 114.0f / 255, 128.0f / 255, 64.0f / 255};
+    ColorRGBA themeButtonPressed = {28.0f / 255, 28.0f / 255, 28.0f / 255, 1};
+    std::vector<Themes::SavedTheme> custom_themes;
+    bool custom_themes_unreadable = false;
     // Session Card Visibility Toggles
     bool show_session_record = true;
     bool show_session_goals = true;
@@ -220,25 +235,7 @@ struct ConfigData {
     OverlayLayout::LayoutConfig overlay_layout = OverlayLayout::DefaultOverlayLayout();
 
     void ResetThemeColors() {
-        const ConfigData defaults;
-        themeBg = defaults.themeBg;
-        themeSettingsPanel = defaults.themeSettingsPanel;
-        themeTopbar = defaults.themeTopbar;
-        themeGraphPanel = defaults.themeGraphPanel;
-        themeText = defaults.themeText;
-        themeAccent = defaults.themeAccent;
-        themeWin = defaults.themeWin;
-        themeLoss = defaults.themeLoss;
-        themeDim = defaults.themeDim;
-        themeMuted = defaults.themeMuted;
-        themeGraphLine = defaults.themeGraphLine;
-        themeGraphBaseline = defaults.themeGraphBaseline;
-        themeRosterCard = defaults.themeRosterCard;
-        themeRosterCardSelf = defaults.themeRosterCardSelf;
-        themeScoutTag = defaults.themeScoutTag;
-        themeStatBox = defaults.themeStatBox;
-        themeMatchRow = defaults.themeMatchRow;
-        themeMatchRowAlt = defaults.themeMatchRowAlt;
+        Themes::Apply(*this, Themes::Read(ConfigData{}));
     }
     void ResetLayouts() {
         const ConfigData defaults;

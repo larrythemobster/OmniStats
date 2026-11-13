@@ -252,19 +252,61 @@ namespace {
             }};
     }
 
-    static FieldDescriptor MakeThemeColorField(const char* themeKey, ColorRGBA ConfigData::* member, ColorRGBA defaultVal) {
-        return {
-            std::string("theme.") + themeKey,
-            [themeKey, member, defaultVal](const nlohmann::json& j, ConfigData& cfg, SecretStore&, bool&, bool&) {
-                if (j.contains("theme") && j["theme"].is_object() && j["theme"].contains(themeKey)) {
-                    cfg.*member = JsonToColor(j["theme"][themeKey], defaultVal);
-                } else {
-                    cfg.*member = defaultVal;
+    static std::optional<nlohmann::json> invalidCustomThemes;
+
+    static std::string ThemeDiskKey(std::string_view key) {
+        if (key == "theme_panel") return "settings_panel";
+        if (key == "theme_graph") return "graph_line";
+        if (key == "theme_baseline") return "graph_baseline";
+        return std::string(key.substr(6));
+    }
+
+    static bool ValidSavedThemes(const std::vector<Themes::SavedTheme>& themes) {
+        if (themes.size() > 32) return false;
+        for (size_t i = 0; i < themes.size(); ++i) {
+            const auto& theme = themes[i];
+            if (theme.name.empty() || theme.name.size() > 80 || Themes::Encode(theme.colors).empty()) return false;
+            try {
+                (void)nlohmann::json(theme.name).dump();
+            } catch (const nlohmann::json::exception&) {
+                return false;
+            }
+            for (size_t k = 0; k < i; ++k)
+                if (themes[k].name == theme.name) return false;
+        }
+        return true;
+    }
+
+    static bool ParseSavedThemes(const nlohmann::json& value, std::vector<Themes::SavedTheme>& result) {
+        if (!value.is_array() || value.size() > 32) return false;
+        std::vector<Themes::SavedTheme> parsed;
+        for (const auto& item : value) {
+            if (!item.is_object() || !item.contains("name") || !item["name"].is_string() ||
+                !item.contains("colors") || !item["colors"].is_array() ||
+                (item["colors"].size() != 18 && item["colors"].size() != Themes::Palette{}.size())) return false;
+            Themes::SavedTheme saved{};
+            saved.name = item["name"].get<std::string>();
+            for (size_t i = 0; i < item["colors"].size(); ++i) {
+                const auto& color = item["colors"][i];
+                if (!color.is_array() || color.size() != 4) return false;
+                for (const auto& channel : color) {
+                    if (!channel.is_number()) return false;
+                    const double v = channel.get<double>();
+                    if (!std::isfinite(v) || v < 0 || v > 1) return false;
                 }
-            },
-            [themeKey, member](nlohmann::json& j, const ConfigData& cfg, SecretStore&) {
-                j["theme"][themeKey] = ColorToJson(cfg.*member);
-            }};
+                saved.colors[i] = {color[0].get<float>(), color[1].get<float>(), color[2].get<float>(), color[3].get<float>()};
+            }
+            if (item["colors"].size() == 18) {
+                ConfigData config{};
+                Themes::Apply(config, saved.colors);
+                Themes::CompleteLegacy(config);
+                saved.colors = Themes::Read(config);
+            }
+            parsed.push_back(std::move(saved));
+        }
+        if (!ValidSavedThemes(parsed)) return false;
+        result = std::move(parsed);
+        return true;
     }
 
     static const std::vector<FieldDescriptor>& GetFieldDescriptors() {
@@ -368,24 +410,50 @@ namespace {
             MakeBoolField("auto_save_replays", &ConfigData::auto_save_replays, def.auto_save_replays),
             MakeIntField("key_save_replay", &ConfigData::key_save_replay, def.key_save_replay),
 
-            MakeThemeColorField("bg", &ConfigData::themeBg, def.themeBg),
-            MakeThemeColorField("settings_panel", &ConfigData::themeSettingsPanel, def.themeSettingsPanel),
-            MakeThemeColorField("topbar", &ConfigData::themeTopbar, def.themeTopbar),
-            MakeThemeColorField("graph_panel", &ConfigData::themeGraphPanel, def.themeGraphPanel),
-            MakeThemeColorField("text", &ConfigData::themeText, def.themeText),
-            MakeThemeColorField("accent", &ConfigData::themeAccent, def.themeAccent),
-            MakeThemeColorField("win", &ConfigData::themeWin, def.themeWin),
-            MakeThemeColorField("loss", &ConfigData::themeLoss, def.themeLoss),
-            MakeThemeColorField("dim", &ConfigData::themeDim, def.themeDim),
-            MakeThemeColorField("muted", &ConfigData::themeMuted, def.themeMuted),
-            MakeThemeColorField("graph_line", &ConfigData::themeGraphLine, def.themeGraphLine),
-            MakeThemeColorField("graph_baseline", &ConfigData::themeGraphBaseline, def.themeGraphBaseline),
-            MakeThemeColorField("roster_card", &ConfigData::themeRosterCard, def.themeRosterCard),
-            MakeThemeColorField("roster_card_self", &ConfigData::themeRosterCardSelf, def.themeRosterCardSelf),
-            MakeThemeColorField("scout_tag", &ConfigData::themeScoutTag, def.themeScoutTag),
-            MakeThemeColorField("stat_box", &ConfigData::themeStatBox, def.themeStatBox),
-            MakeThemeColorField("match_row", &ConfigData::themeMatchRow, def.themeMatchRow),
-            MakeThemeColorField("match_row_alt", &ConfigData::themeMatchRowAlt, def.themeMatchRowAlt),
+            {"theme",
+             [](const nlohmann::json& j, ConfigData& cfg, SecretStore&, bool&, bool&) {
+                 if (!j.contains("theme") || !j["theme"].is_object()) return;
+                 const auto fields = Themes::Fields();
+                 for (size_t i = 0; i < 18; ++i) {
+                     const auto& field = fields[i];
+                     const auto key = ThemeDiskKey(field.key);
+                     if (j["theme"].contains(key)) cfg.*field.member = JsonToColor(j["theme"][key], cfg.*field.member);
+                 }
+                 Themes::CompleteLegacy(cfg);
+                 for (size_t i = 18; i < fields.size(); ++i) {
+                     const auto& field = fields[i];
+                     const auto key = ThemeDiskKey(field.key);
+                     if (j["theme"].contains(key)) cfg.*field.member = JsonToColor(j["theme"][key], cfg.*field.member);
+                 }
+             },
+             [](nlohmann::json& j, const ConfigData& cfg, SecretStore&) {
+                 for (const auto& field : Themes::Fields())
+                     j["theme"][ThemeDiskKey(field.key)] = ColorToJson(cfg.*field.member);
+             }},
+            {"custom_themes",
+             [](const nlohmann::json& j, ConfigData& cfg, SecretStore&, bool&, bool&) {
+                 invalidCustomThemes.reset();
+                 if (!j.contains("custom_themes")) return;
+                 if (!ParseSavedThemes(j["custom_themes"], cfg.custom_themes)) {
+                     invalidCustomThemes = j["custom_themes"];
+                     cfg.custom_themes_unreadable = true;
+                     std::cerr << "[Config] Invalid custom themes preserved without loading.\n";
+                 }
+             },
+             [](nlohmann::json& j, const ConfigData& cfg, SecretStore&) {
+                 if (invalidCustomThemes) {
+                     j["custom_themes"] = *invalidCustomThemes;
+                     return;
+                 }
+                 auto& output = j["custom_themes"];
+                 output = nlohmann::json::array();
+                 for (const auto& theme : cfg.custom_themes) {
+                     nlohmann::json colors = nlohmann::json::array();
+                     for (const auto& color : theme.colors)
+                         colors.push_back(ColorToJson(color));
+                     output.push_back({{"name", theme.name}, {"colors", std::move(colors)}});
+                 }
+             }},
 
             MakeBoolField("show_session_record", &ConfigData::show_session_record, def.show_session_record),
             MakeBoolField("show_session_goals", &ConfigData::show_session_goals, def.show_session_goals),
@@ -696,6 +764,7 @@ namespace Config {
         std::unique_lock<std::shared_mutex> lock(Mutex);
         std::string configFile = GetConfigPath();
         if (!fs::exists(configFile)) {
+            invalidCustomThemes.reset();
             std::cout << "[Config] No config found. Creating default config.\n";
             Current = ConfigData{};
             secrets.Reset();
@@ -857,6 +926,10 @@ namespace Config {
     }
 
     static void SaveInternal(SecretStore& secrets) {
+        if (!ValidSavedThemes(Current.custom_themes) || (invalidCustomThemes && !Current.custom_themes.empty())) {
+            std::cerr << "[Config] Cannot save invalid custom themes or replace unrecognized saved themes.\n";
+            return;
+        }
         nlohmann::json j;
         const auto& descriptors = GetFieldDescriptors();
         for (const auto& desc : descriptors) {
