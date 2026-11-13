@@ -78,11 +78,20 @@ void RmlUiController::HandleClick(Rml::Element* target) {
 
     if (action == "toggle-card-details" || action == "toggle-advanced-appearance" ||
         action == "toggle-rank-details" || action == "toggle-troubleshooting") {
-        if (action == "toggle-card-details") m_showCardDetails = !m_showCardDetails;
-        if (action == "toggle-advanced-appearance") m_showAdvancedAppearance = !m_showAdvancedAppearance;
-        if (action == "toggle-rank-details") m_showRankDetails = !m_showRankDetails;
-        if (action == "toggle-troubleshooting") m_showTroubleshooting = !m_showTroubleshooting;
+        bool expanded = false;
+        if (action == "toggle-card-details") expanded = m_showCardDetails = !m_showCardDetails;
+        if (action == "toggle-advanced-appearance") expanded = m_showAdvancedAppearance = !m_showAdvancedAppearance;
+        if (action == "toggle-rank-details") expanded = m_showRankDetails = !m_showRankDetails;
+        if (action == "toggle-troubleshooting") expanded = m_showTroubleshooting = !m_showTroubleshooting;
         RebuildSettings();
+        if (expanded) {
+            if (auto* root = Root("settings-root")) {
+                const std::string selector = "[data-action='" + action + "']";
+                if (auto* button = root->QuerySelector(selector)) {
+                    if (auto* disclosure = button->GetParentNode()) disclosure->ScrollIntoView(true);
+                }
+            }
+        }
     } else if (action == "position-widget" || action == "overlay-edit-toggle" || action == "finish-position") {
         if (m_state) {
             const bool editing = action != "finish-position";

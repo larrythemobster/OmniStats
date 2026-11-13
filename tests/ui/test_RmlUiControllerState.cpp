@@ -1992,6 +1992,87 @@ TEST_F(RmlUiControllerStateTest, SettingsRefreshPreservesSelectOptionsAndUpdates
     DestroyWindow(hwnd);
 }
 
+TEST_F(RmlUiControllerStateTest, SettingsDisclosureRetainsFontOptionsAndPageLabels) {
+    Microsoft::WRL::ComPtr<ID3D11Device> device;
+    Microsoft::WRL::ComPtr<ID3D11DeviceContext> context;
+    D3D_FEATURE_LEVEL featureLevel;
+    if (FAILED(D3D11CreateDevice(nullptr, D3D_DRIVER_TYPE_WARP, nullptr, 0, nullptr, 0, D3D11_SDK_VERSION,
+                                 &device, &featureLevel, &context))) {
+        GTEST_SKIP() << "WARP device creation not available in this environment.";
+    }
+    HWND hwnd = CreateWindowExA(0, "STATIC", "test", WS_POPUP, 0, 0, 1920, 1080, nullptr, nullptr,
+                                GetModuleHandle(nullptr), nullptr);
+    ASSERT_NE(hwnd, nullptr);
+    Config::Update([](ConfigData& c) { c.font_ui.clear(); c.ui_scale = 1.0f; }, true);
+    auto state = std::make_shared<SessionState>();
+    state->ui.showMenu.store(true);
+    RmlUiController controller(state, nullptr);
+    ASSERT_TRUE(controller.Initialize(hwnd, device.Get(), context.Get(), 1920, 1080, 1.0f));
+    controller.Update(Config::Read());
+    controller.Render();
+
+    const auto click = [&](Rml::Element* element) {
+        const auto center = element->GetAbsoluteOffset() +
+                            Rml::Vector2f(element->GetOffsetWidth() * 0.5f, element->GetOffsetHeight() * 0.5f);
+        const LPARAM position = MAKELPARAM(static_cast<int>(center.x), static_cast<int>(center.y));
+        controller.ProcessWindowMessage(hwnd, WM_MOUSEMOVE, 0, position);
+        controller.ProcessWindowMessage(hwnd, WM_LBUTTONDOWN, MK_LBUTTON, position);
+        controller.ProcessWindowMessage(hwnd, WM_LBUTTONUP, 0, position);
+        controller.Render();
+    };
+    auto* appearance = SettingsRoot(controller)->QuerySelector("[data-action='settings-page'][data-page='2']");
+    ASSERT_NE(appearance, nullptr);
+    click(appearance);
+    auto* title = SettingsRoot(controller)->QuerySelector(".settings-page .setting-title");
+    ASSERT_NE(title, nullptr);
+    EXPECT_EQ(title->GetInnerRML(), "Scale");
+
+    auto* disclosure = SettingsRoot(controller)->QuerySelector("[data-action='toggle-advanced-appearance']");
+    ASSERT_NE(disclosure, nullptr);
+    disclosure->ScrollIntoView(false);
+    controller.Render();
+    click(disclosure);
+    controller.Update(Config::Read(), false);
+    controller.Update(Config::Read(), false);
+    controller.Render();
+    auto* page = SettingsRoot(controller)->QuerySelector(".settings-page");
+    auto* select = dynamic_cast<Rml::ElementFormControlSelect*>(
+        page->QuerySelector("[data-setting='font_ui']"));
+    ASSERT_NE(select, nullptr);
+    ASSERT_GE(select->GetNumOptions(), 4);
+    EXPECT_EQ(select->GetOption(0)->GetInnerRML(), "Default");
+    EXPECT_EQ(select->GetOption(1)->GetAttribute<Rml::String>("value", ""), "Inter");
+    EXPECT_FALSE(select->GetOption(1)->GetInnerRML().empty());
+    EXPECT_EQ(select->GetValue(), "");
+    auto* section = select->GetParentNode()->GetParentNode();
+    EXPECT_LT(section->GetAbsoluteOffset().y, page->GetAbsoluteOffset().y + page->GetClientHeight());
+
+    select->ScrollIntoView(false);
+    controller.Render();
+    click(select);
+    ASSERT_TRUE(select->IsSelectBoxVisible());
+    auto* inter = select->GetOption(1);
+    ASSERT_NE(inter, nullptr);
+    click(inter);
+    EXPECT_EQ(Config::Read().font_ui, "Inter");
+    controller.Update(Config::Read(), false);
+    controller.Update(Config::Read(), false);
+    controller.Render();
+    select = dynamic_cast<Rml::ElementFormControlSelect*>(
+        SettingsRoot(controller)->QuerySelector("[data-setting='font_ui']"));
+    ASSERT_NE(select, nullptr);
+    EXPECT_EQ(select->GetValue(), "Inter");
+    EXPECT_FALSE(select->GetOption(1)->GetInnerRML().empty());
+
+    auto* reminders = SettingsRoot(controller)->QuerySelector("[data-action='settings-page'][data-page='1']");
+    ASSERT_NE(reminders, nullptr);
+    click(reminders);
+    title = SettingsRoot(controller)->QuerySelector(".settings-page .setting-title");
+    ASSERT_NE(title, nullptr);
+    EXPECT_EQ(title->GetInnerRML(), "Tournament reminders");
+    DestroyWindow(hwnd);
+}
+
 TEST_F(RmlUiControllerStateTest, DemoTrackerFormatsKdClassesAndSpacing) {
     // 1. Check DemoKdClass logic
     EXPECT_STREQ(RmlUiController::DemoKdClass(0, 0), "loss");

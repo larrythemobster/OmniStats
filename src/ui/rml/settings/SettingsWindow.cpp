@@ -76,23 +76,22 @@ namespace {
         }
 
         int index = 0;
-        while (index < desired->GetNumChildren()) {
-            auto* next = desired->GetChild(index);
+        int desiredIndex = 0;
+        while (desiredIndex < desired->GetNumChildren()) {
+            auto* next = desired->GetChild(desiredIndex);
             auto* child = index < current->GetNumChildren() ? current->GetChild(index) : nullptr;
+            // Clone serializes DOM children, but text nodes and select widget options are not preserved that way.
             if (!child) {
-                current->AppendChild(next->Clone());
-                ++index;
-                continue;
+                current->AppendChild(desired->RemoveChild(next));
+            } else if (!SameSettingsElement(child, next)) {
+                current->ReplaceChild(desired->RemoveChild(next), child);
+            } else {
+                UpdateSettingsElement(child, next);
+                ++desiredIndex;
             }
-            if (!SameSettingsElement(child, next)) {
-                current->ReplaceChild(next->Clone(), child);
-                ++index;
-                continue;
-            }
-            UpdateSettingsElement(child, next);
             ++index;
         }
-        while (current->GetNumChildren() > desired->GetNumChildren()) {
+        while (current->GetNumChildren() > index) {
             current->RemoveChild(current->GetLastChild());
         }
     }
