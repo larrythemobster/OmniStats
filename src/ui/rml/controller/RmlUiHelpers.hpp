@@ -140,7 +140,6 @@ namespace RmlUiDetail {
     const ColorRGBA* ThemeColorForKey(const ConfigData& config, std::string_view key);
     const char* ThemeColorLabel(std::string_view key);
     bool ParseThemeComponentKey(std::string_view key, std::string_view& colorKey, char& component);
-    bool SetThemeComponent(ConfigData& config, std::string_view key, const std::string& value);
     Hsv RgbToHsv(const ColorRGBA& color);
     ColorRGBA HsvToRgb(const Hsv& hsv, float alpha);
     int QuantizedPickerHue(float hue);

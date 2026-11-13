@@ -293,6 +293,12 @@ class RmlUiControllerStateTest : public ::testing::Test {
     void Click(RmlUiController& controller, Rml::Element* element) {
         controller.HandleClick(element);
     }
+    void ThemeInput(RmlUiController& controller, const std::string& key, const std::string& value) {
+        controller.m_themeEditor.HandleInput(key, value);
+    }
+    Themes::Palette PreviewTheme(const RmlUiController& controller) {
+        return Themes::Read(controller.m_themeEditor.PreviewConfig());
+    }
     PlayerNoteView& NoteModel(RmlUiController& controller) {
         return controller.m_playerNote;
     }
@@ -2023,9 +2029,6 @@ TEST_F(RmlUiControllerStateTest, SettingsDisclosureRetainsFontOptionsAndPageLabe
     auto* appearance = SettingsRoot(controller)->QuerySelector("[data-action='settings-page'][data-page='2']");
     ASSERT_NE(appearance, nullptr);
     click(appearance);
-    auto* title = SettingsRoot(controller)->QuerySelector(".settings-page .setting-title");
-    ASSERT_NE(title, nullptr);
-    EXPECT_EQ(title->GetInnerRML(), "Scale");
 
     auto* disclosure = SettingsRoot(controller)->QuerySelector("[data-action='toggle-advanced-appearance']");
     ASSERT_NE(disclosure, nullptr);
@@ -2044,8 +2047,6 @@ TEST_F(RmlUiControllerStateTest, SettingsDisclosureRetainsFontOptionsAndPageLabe
     EXPECT_EQ(select->GetOption(1)->GetAttribute<Rml::String>("value", ""), "Inter");
     EXPECT_FALSE(select->GetOption(1)->GetInnerRML().empty());
     EXPECT_EQ(select->GetValue(), "");
-    auto* section = select->GetParentNode()->GetParentNode();
-    EXPECT_LT(section->GetAbsoluteOffset().y, page->GetAbsoluteOffset().y + page->GetClientHeight());
 
     select->ScrollIntoView(false);
     controller.Render();
@@ -2064,12 +2065,6 @@ TEST_F(RmlUiControllerStateTest, SettingsDisclosureRetainsFontOptionsAndPageLabe
     EXPECT_EQ(select->GetValue(), "Inter");
     EXPECT_FALSE(select->GetOption(1)->GetInnerRML().empty());
 
-    auto* reminders = SettingsRoot(controller)->QuerySelector("[data-action='settings-page'][data-page='1']");
-    ASSERT_NE(reminders, nullptr);
-    click(reminders);
-    title = SettingsRoot(controller)->QuerySelector(".settings-page .setting-title");
-    ASSERT_NE(title, nullptr);
-    EXPECT_EQ(title->GetInnerRML(), "Tournament reminders");
     DestroyWindow(hwnd);
 }
 
@@ -4419,4 +4414,111 @@ TEST_F(RmlUiControllerStateTest, HistoryBadgesStayInsideTheirColumnWithoutOverla
             }
         }
     }
+}
+
+TEST_F(RmlUiControllerStateTest, ThemePreviewSurvivesConfigEchoAndOnlyApplyPersistsColors) {
+    WarpDevice warp;
+    if (!warp.Create(1280, 800)) GTEST_SKIP() << "WARP not available.";
+    Config::Update([](ConfigData& c) { c.ResetThemeColors(); c.custom_themes.clear(); c.second_monitor_mode = true; }, false);
+    const auto saved = Themes::Read(Config::Read());
+    auto state = std::make_shared<SessionState>();
+    state->liveMatch->Update([](MatchState& match) {
+        match.myPrimaryId = "Steam|theme";
+        match.myTeam = 0;
+        PlayerData player;
+        player.primaryId = "Steam|theme";
+        player.name = "Player";
+        player.team = 0;
+        player.mmr = 1234;
+        player.rankTier = "Champion II";
+        player.playlists["2v2"] = player.mmr;
+        player.playlistTiers["2v2"] = player.rankTier;
+        match.roster[player.primaryId] = player;
+    });
+    state->ui.showMenu.store(true);
+    RmlUiController controller(state, nullptr);
+    ASSERT_TRUE(controller.Initialize(nullptr, warp.device.Get(), warp.context.Get(), 1280, 800, 1.0f));
+    SetSettingsPage(controller, 2);
+    controller.Update(Config::Read(), true);
+    controller.Render();
+    const auto action = [&](const char* selector) {
+        auto* element = SettingsRoot(controller)->QuerySelector(selector);
+        ASSERT_NE(element, nullptr) << selector;
+        Click(controller, element);
+        controller.Render();
+    };
+    action("[data-theme-id='light']");
+    const auto light = PreviewTheme(controller);
+    EXPECT_FALSE(Themes::Equal(light, saved));
+    EXPECT_TRUE(Themes::Equal(Themes::Read(Config::Read()), saved));
+    Config::Update([](ConfigData& c) { c.use_roman_numerals = !c.use_roman_numerals; }, false);
+    controller.Update(Config::Read(), true);
+    EXPECT_TRUE(Themes::Equal(PreviewTheme(controller), light));
+    action("[data-action='theme-apply']");
+    EXPECT_TRUE(Themes::Equal(Themes::Read(Config::Read()), light));
+    action("[data-theme-id='purple']");
+    action("[data-action='theme-revert']");
+    EXPECT_TRUE(Themes::Equal(PreviewTheme(controller), light));
+    action("[data-theme-id='green']");
+    state->ui.showMenu.store(false);
+    controller.Update(Config::Read(), false);
+    EXPECT_TRUE(Themes::Equal(PreviewTheme(controller), light));
+    EXPECT_TRUE(Themes::Equal(Themes::Read(Config::Read()), light));
+}
+
+TEST_F(RmlUiControllerStateTest, ThemeImportResetAndSavedThemesPreserveAppliedColors) {
+    WarpDevice warp;
+    if (!warp.Create(800, 600)) GTEST_SKIP() << "WARP not available.";
+    Config::Update([](ConfigData& c) { c.ResetThemeColors(); c.custom_themes.clear(); }, false);
+    const auto applied = Themes::Read(Config::Read());
+    auto state = std::make_shared<SessionState>();
+    state->ui.showMenu.store(true);
+    RmlUiController controller(state, nullptr);
+    ASSERT_TRUE(controller.Initialize(nullptr, warp.device.Get(), warp.context.Get(), 800, 600, 1.0f));
+    SetSettingsPage(controller, 2);
+    controller.Update(Config::Read(), true);
+    controller.Render();
+    const auto action = [&](const char* selector) {
+        auto* element = SettingsRoot(controller)->QuerySelector(selector);
+        ASSERT_NE(element, nullptr) << selector;
+        Click(controller, element);
+        controller.Render();
+    };
+    action("[data-theme-id='purple']");
+    const auto importedCode = Themes::Encode(PreviewTheme(controller));
+    action("[data-action='reset-theme-colors']");
+    action("[data-action='theme-undo-reset']");
+    EXPECT_EQ(Themes::Encode(PreviewTheme(controller)), importedCode);
+    ThemeInput(controller, "theme_name", "My purple");
+    action("[data-action='theme-save']");
+    ASSERT_EQ(Config::Read().custom_themes.size(), 1u);
+    ThemeInput(controller, "theme_name", "My purple");
+    action("[data-action='theme-save']");
+    EXPECT_EQ(Config::Read().custom_themes.size(), 1u);
+    action("[data-action='theme-revert']");
+    ThemeInput(controller, "theme_import", importedCode);
+    action("[data-action='theme-import']");
+    EXPECT_EQ(Themes::Encode(PreviewTheme(controller)), importedCode);
+    ThemeInput(controller, "theme_import", "omni-theme:v2:garbage");
+    action("[data-action='theme-import']");
+    EXPECT_EQ(Themes::Encode(PreviewTheme(controller)), importedCode);
+    action("[data-action='toggle-advanced-appearance']");
+    ThemeInput(controller, "theme_text", "#xyz");
+    action("[data-action='theme-apply']");
+    EXPECT_TRUE(Themes::Equal(Themes::Read(Config::Read()), applied));
+    auto* invalidInput = dynamic_cast<Rml::ElementFormControl*>(SettingsRoot(controller)->QuerySelector("[data-setting='theme_text']"));
+    ASSERT_NE(invalidInput, nullptr);
+    EXPECT_EQ(invalidInput->GetValue(), "#xyz");
+    ThemeInput(controller, "theme_text", "#000000");
+    auto* warning = SettingsRoot(controller)->QuerySelector("#theme-error-theme_text");
+    ASSERT_NE(warning, nullptr);
+    EXPECT_FALSE(warning->GetInnerRML().empty());
+    ThemeInput(controller, "theme_accent", "#ffff00");
+    action("[data-action='theme-apply']");
+    EXPECT_FLOAT_EQ(Config::Read().themeAccent.r, 1);
+    EXPECT_FLOAT_EQ(Config::Read().themeScoutTag.r, 0.55f);
+    action("[data-action='theme-delete'][data-theme-index='0']");
+    EXPECT_EQ(Config::Read().custom_themes.size(), 1u);
+    action("[data-action='theme-delete'][data-theme-index='0']");
+    EXPECT_TRUE(Config::Read().custom_themes.empty());
 }

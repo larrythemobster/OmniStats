@@ -51,6 +51,8 @@ void RmlUiController::ReloadUiResources() {
 
 void RmlUiController::UpdateThemeProperties() {
     if (!m_document || !m_baseStyleSheet) return;
+    const ConfigData config = m_themeEditor.PreviewConfig();
+    const ConfigData& m_config = config;
 
     const std::string bg = CssColor(m_config.themeBg);
     const std::string panel = CssColor(m_config.themeSettingsPanel);
@@ -274,7 +276,7 @@ void RmlUiController::UpdateThemeProperties() {
 // function runs synchronously from WM_MOUSEMOVE, and stylesheet compilation/layout
 // on every pointer sample makes the picker visibly lag behind the cursor.
 void RmlUiController::ThemeEditor::ApplyColorPick(float mouseX, float mouseY) {
-    ColorRGBA* current = ThemeColorForKey(m_owner.m_config, m_editColorKey);
+    ColorRGBA* current = Color(m_editColorKey);
     if (!current) return;
 
     const float u = std::clamp((mouseX - m_owner.m_layoutDrag.m_drag.startX) / m_owner.m_layoutDrag.m_drag.startW, 0.0f, 1.0f);
@@ -302,7 +304,7 @@ void RmlUiController::ThemeEditor::ApplyColorPick(float mouseX, float mouseY) {
 void RmlUiController::ThemeEditor::RefreshColorPickPreview(bool updateFieldGradient) {
     if (!m_owner.m_document || m_owner.m_settingsPage != SettingsPage::Appearance) return;
 
-    const ColorRGBA* editing = ThemeColorForKey(m_owner.m_config, m_editColorKey);
+    const ColorRGBA* editing = Color(m_editColorKey);
     if (!editing) return;
 
     const Hsv hsv = RgbToHsv(*editing);
@@ -345,26 +347,23 @@ void RmlUiController::ThemeEditor::RefreshColorPickPreview(bool updateFieldGradi
 void RmlUiController::ThemeEditor::RefreshThemeEditorControls(std::string_view preserveHexKey) {
     if (!m_owner.m_document || m_owner.m_settingsPage != SettingsPage::Appearance) return;
 
-    constexpr std::array<const char*, 18> kThemeKeys = {
-        "theme_bg", "theme_panel", "theme_topbar", "theme_graph_panel",
-        "theme_roster_card", "theme_roster_card_self", "theme_scout_tag", "theme_stat_box", "theme_match_row", "theme_match_row_alt",
-        "theme_text", "theme_accent", "theme_win", "theme_loss", "theme_dim", "theme_muted",
-        "theme_graph", "theme_baseline"};
-
-    for (const char* key : kThemeKeys) {
-        const ColorRGBA* color = ThemeColorForKey(m_owner.m_config, key);
+    const ConfigData config = PreviewConfig();
+    RefreshStatus();
+    for (const auto& field : Themes::Fields()) {
+        const char* key = field.key;
+        const ColorRGBA* color = &(config.*field.member);
         if (!color) continue;
         const std::string css = m_owner.CssColor(*color);
         if (auto* swatch = m_owner.m_document->GetElementById((std::string("theme-swatch-") + key).c_str()))
             swatch->SetProperty("background-color", css);
-        if (preserveHexKey != key) {
+        if (preserveHexKey != key && !m_invalidColors.contains(key)) {
             if (auto* element = m_owner.m_document->GetElementById((std::string("theme-hex-") + key).c_str())) {
                 if (auto* control = dynamic_cast<Rml::ElementFormControl*>(element)) control->SetValue(css);
             }
         }
     }
 
-    const ColorRGBA* editing = ThemeColorForKey(m_owner.m_config, m_editColorKey);
+    const ColorRGBA* editing = ThemeColorForKey(config, m_editColorKey);
     if (!editing) return;
     const Hsv hsv = RgbToHsv(*editing);
     const float hue = hsv.s > 0.0f ? hsv.h : m_editColorHue;
@@ -406,16 +405,18 @@ void RmlUiController::ThemeEditor::RefreshThemeEditorControls(std::string_view p
 
 void RmlUiController::ThemeEditor::CommitColorPick() {
     if (!m_colorPickDirty) return;
-    const ColorRGBA* current = ThemeColorForKey(m_owner.m_config, m_editColorKey);
+    const ColorRGBA* current = Color(m_editColorKey);
     if (!current) {
         m_colorPickDirty = false;
         return;
     }
-    const std::string key = m_editColorKey;
-    const ColorRGBA color = *current;
-    Config::Update([key, color](ConfigData& c) {
-        if (ColorRGBA* target = ThemeColorForKey(c, key)) *target = color;
-    });
+    if (m_editColorKey == "theme_accent") {
+        ConfigData config = PreviewConfig();
+        Themes::SetAccent(config, *current);
+        m_draft = Themes::Read(config);
+    }
+    Themes::LinkColor(EnsureDraft(), m_editColorKey);
+    m_invalidColors.erase(m_editColorKey);
     m_colorPickDirty = false;
     // The picker itself stays lightweight while the mouse is down. Apply the
     // selected color to the rest of the app once, after the drag has finished.

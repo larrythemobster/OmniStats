@@ -1087,7 +1087,7 @@ scrollbarcorner { background-color: #0e0e0eaa; }
     border-radius: 3dp;
     pointer-events: none;
 }
-.color-editor-preview { width: 100%; height: 28dp; border: 1dp #ffffff33; border-radius: 5dp; margin: 4dp 0 8dp 0; }
+.color-editor-preview { display: block; width: 100%; height: 28dp; border: 1dp #ffffff33; border-radius: 5dp; margin: 4dp 0 8dp 0; }
 .color-channel { display: flex; flex-direction: row; align-items: center; min-height: 27dp; gap: 8dp; }
 .color-channel-label { width: 14dp; font-family: "JetBrains Mono"; font-size: 11dp; color: #9da6b3; }
 .color-range { flex-grow: 1; width: auto; }
@@ -2064,3 +2064,21 @@ body.view-document { pointer-events: none; }
 .past-dates { flex-grow: 1; color: #a6b3bf; }
 .past-cell { width: 70dp; text-align: right; font-family: "JetBrains Mono"; }
 .past-peak { width: 130dp; text-align: right; }
+
+.theme-presets { display: flex; flex-direction: row; flex-wrap: wrap; gap: 8dp; margin: 8dp 0 12dp; }
+.settings-page .theme-preset { display: block; width: 150dp; padding: 6dp; text-align: left; border-radius: 8dp; }
+.settings-page .theme-preset.selected { border-width: 2dp; }
+.theme-preset-name { display: block; margin-top: 5dp; font-weight: 600; }
+.theme-mini { display: block; height: 60dp; padding: 5dp; border-radius: 4dp; }
+.theme-mini-roster { display: block; padding: 3dp 5dp; border-radius: 3dp; font-size: 10dp; }
+.theme-mini-bottom { display: flex; flex-direction: row; justify-content: space-between; align-items: center; margin-top: 5dp; }
+.theme-mini-button { display: inline-block; padding: 2dp 6dp; border-radius: 3dp; font-size: 9dp; }
+.theme-mini-graph { display: inline-block; width: 50dp; border-bottom: 1dp; text-align: center; font-size: 10dp; }
+.theme-saved-heading { display: block; margin: 12dp 0 5dp; font-weight: 600; }
+.theme-apply-row, .theme-input-row, .theme-saved-row { display: flex; flex-direction: row; align-items: center; gap: 6dp; margin-top: 6dp; }
+.theme-input-row input { flex-grow: 1; }
+.theme-saved-row { min-height: 30dp; }
+.theme-message, .theme-field-error, .theme-warning { display: block; font-size: 11dp; }
+.theme-message.error, .theme-field-error { color: #ff6b6b; }
+.theme-warning { margin-top: 4dp; color: #e3a33b; }
+.settings-page input.theme-hex { min-width: 100dp; width: 100dp; margin-left: 6dp; }

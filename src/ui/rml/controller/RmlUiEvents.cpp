@@ -75,6 +75,7 @@ void RmlUiController::HandleClick(Rml::Element* target) {
     if (!actionTarget || action.empty()) return;
     target = actionTarget;
     if (HandleViewAction(action, target)) return;
+    if (m_themeEditor.HandleAction(action, target)) return;
 
     if (action == "toggle-card-details" || action == "toggle-advanced-appearance" ||
         action == "toggle-rank-details" || action == "toggle-troubleshooting") {
@@ -256,35 +257,12 @@ void RmlUiController::HandleClick(Rml::Element* target) {
         RebuildOverlay();
         RebuildSettings();
         ShowToast("Overlay layout reset.");
-    } else if (action == "reset-theme-colors") {
-        Config::Update([](ConfigData& c) { c.ResetThemeColors(); });
-        m_config = Config::Read();
-        m_themeEditor.m_editColorKey.clear();
-        m_themeEditor.m_colorPickerGradientHue = -1;
-        m_themeEditor.m_colorPickDirty = false;
-        UpdateThemeProperties();
-        m_themeEditor.RefreshThemeEditorControls();
-        RebuildSettings();
-        RebuildVisibleUi(true, true);
-        ShowToast("Theme colors reset to default.");
     } else if (action == "reset-fonts") {
         Config::Update([](ConfigData& c) { c.ResetFonts(); });
         m_config = Config::Read();
         UpdateThemeProperties();
         RebuildSettings();
         ShowToast("Fonts reset to default.");
-    } else if (action == "reset-theme-and-layout") {
-        Config::Update([](ConfigData& c) { c.ResetThemeAndLayout(); });
-        m_config = Config::Read();
-        m_themeEditor.m_editColorKey.clear();
-        m_themeEditor.m_colorPickerGradientHue = -1;
-        m_themeEditor.m_colorPickDirty = false;
-        UpdateThemeProperties();
-        m_themeEditor.RefreshThemeEditorControls();
-        RebuildOverlay();
-        RebuildSettings();
-        RebuildVisibleUi(true, true);
-        ShowToast("Theme and layout reset to default.");
     } else if (action == "graph-pan-older") {
         PanGraph(-1);
     } else if (action == "graph-pan-newer") {
@@ -308,6 +286,7 @@ void RmlUiController::HandleClick(Rml::Element* target) {
         m_showBallchasingToken = !m_showBallchasingToken;
         RebuildSettings();
     } else if (action == "edit-color") {
+        m_themeEditor.CommitColorPick();
         const std::string key = Attribute(target, "data-color-key");
         m_themeEditor.m_editColorKey = ThemeColorForKey(m_config, key) ? key : std::string{};
         m_themeEditor.m_colorPickerGradientHue = -1;
@@ -318,6 +297,7 @@ void RmlUiController::HandleClick(Rml::Element* target) {
             }
         }
     } else if (action == "close-color-editor") {
+        m_themeEditor.CommitColorPick();
         m_themeEditor.m_editColorKey.clear();
         RebuildSettings();
     } else if (action == "confirm-replay-upload") {
@@ -415,25 +395,10 @@ void RmlUiController::HandleInput(Rml::Element* target) {
     // RmlUi text and range controls emit change events during editing.
     // Update their values without replacing the focused control.
     const std::string value = ControlValue(target);
-    bool themeChanged = false;
-    auto parseColor = [](std::string text, ColorRGBA& out) {
-        if (!text.empty() && text.front() == '#') text.erase(text.begin());
-        if (text.size() != 6 && text.size() != 8) return false;
-        unsigned long parsed = 0;
-        size_t consumed = 0;
-        try {
-            parsed = std::stoul(text, &consumed, 16);
-        } catch (...) {
-            return false;
-        }
-        if (consumed != text.size()) return false;
-        if (text.size() == 6) parsed = (parsed << 8) | 0xffu;
-        out.r = ((parsed >> 24) & 0xffu) / 255.0f;
-        out.g = ((parsed >> 16) & 0xffu) / 255.0f;
-        out.b = ((parsed >> 8) & 0xffu) / 255.0f;
-        out.a = (parsed & 0xffu) / 255.0f;
-        return true;
-    };
+    if (key.rfind("theme_", 0) == 0) {
+        m_themeEditor.HandleInput(key, value);
+        return;
+    }
 
     if (key == "ballchasing_token") {
         m_pendingBallchasingToken = value;
@@ -474,69 +439,11 @@ void RmlUiController::HandleInput(Rml::Element* target) {
         m_playerNote.SetDraft(value);
         m_renderDirty = true;
         return;
-    } else if (key.rfind("theme_", 0) == 0) {
-        std::string_view componentColorKey;
-        char component = 0;
-        if (ParseThemeComponentKey(key, componentColorKey, component)) {
-            if (componentColorKey != m_themeEditor.m_editColorKey) return;
-            // RGB/A sliders can emit an event for every pointer pixel. Stage the
-            // value in the controller copy and keep this path DOM-local; saving
-            // and rebuilding the theme stylesheet on every sample makes the
-            // slider thumb lag for the same reason as the SV picker.
-            if (!SetThemeComponent(m_config, key, value)) return;
-            m_themeEditor.m_colorPickDirty = true;
-            const ColorRGBA* stagedColor = ThemeColorForKey(m_config, componentColorKey);
-            if (!stagedColor) return;
-            const Hsv hsv = RgbToHsv(*stagedColor);
-            if (hsv.s > 0.0f) m_themeEditor.m_editColorHue = hsv.h;
-            m_themeEditor.RefreshColorPickPreview(component != 'a');
-
-            if (auto* label = m_document ? m_document->GetElementById((std::string("theme-color-") + component + "-value").c_str()) : nullptr) {
-                const ColorRGBA* color = ThemeColorForKey(m_config, componentColorKey);
-                float channel = 0.0f;
-                if (color) {
-                    switch (component) {
-                    case 'r':
-                        channel = color->r;
-                        break;
-                    case 'g':
-                        channel = color->g;
-                        break;
-                    case 'b':
-                        channel = color->b;
-                        break;
-                    case 'a':
-                        channel = color->a;
-                        break;
-                    default:
-                        break;
-                    }
-                }
-                SetElementText(label, std::to_string(std::clamp(static_cast<int>(std::lround(channel * 255.0f)), 0, 255)));
-            }
-            return;
-        } else {
-            ColorRGBA color;
-            if (!parseColor(value, color)) return;
-            Config::Update([&](ConfigData& c) {
-                if (ColorRGBA* targetColor = ThemeColorForKey(c, key)) {
-                    *targetColor = color;
-                    themeChanged = true;
-                }
-            });
-        }
     } else {
         return;
     }
 
     m_config = Config::Read();
-    if (themeChanged) {
-        UpdateThemeProperties();
-        // Preserve the text field currently being typed into so canonicalizing
-        // the hex value does not reset its caret/selection on every keystroke.
-        const std::string_view preserveHexKey = key.find(':') == std::string::npos ? std::string_view(key) : std::string_view{};
-        m_themeEditor.RefreshThemeEditorControls(preserveHexKey);
-    }
 }
 
 void RmlUiController::SelectIdentity(const std::string& primaryId) {
@@ -560,11 +467,14 @@ void RmlUiController::SelectIdentity(const std::string& primaryId) {
 void RmlUiController::HandleChange(Rml::Element* target, Rml::Event& event) {
     const std::string key = Attribute(target, "data-setting");
     if (key.empty()) return;
+    if (key.rfind("theme_", 0) == 0) {
+        HandleInput(target);
+        return;
+    }
     if (event.GetType() != "blur" &&
         (key == "ballchasing_token" || key == "statsapi_path" ||
          key == "history_with" || key == "history_against" || key == "history_arena" || key == "history_search" ||
-         key == "accounts_add_id" || key == "accounts_add_nickname" || key == "accounts_rename_input" || key == "player_note_text" || key == "player_scout_tag" ||
-         key.rfind("theme_", 0) == 0)) {
+         key == "accounts_add_id" || key == "accounts_add_nickname" || key == "accounts_rename_input" || key == "player_note_text" || key == "player_scout_tag")) {
         HandleInput(target);
         return;
     }
@@ -590,27 +500,7 @@ void RmlUiController::HandleChange(Rml::Element* target, Rml::Event& event) {
         m_statsApiPathError.clear();
     }
 
-    auto parseColor = [](std::string text, ColorRGBA& out) {
-        if (!text.empty() && text.front() == '#') text.erase(text.begin());
-        if (text.size() != 6 && text.size() != 8) return false;
-        unsigned long value = 0;
-        size_t consumed = 0;
-        try {
-            value = std::stoul(text, &consumed, 16);
-        } catch (...) {
-            return false;
-        }
-        if (consumed != text.size()) return false;
-        if (text.size() == 6) value = (value << 8) | 0xffu;
-        out.r = ((value >> 24) & 0xffu) / 255.0f;
-        out.g = ((value >> 16) & 0xffu) / 255.0f;
-        out.b = ((value >> 8) & 0xffu) / 255.0f;
-        out.a = (value & 0xffu) / 255.0f;
-        return true;
-    };
-
     const bool signedIn = m_accountClient && m_accountClient->IsSignedIn(m_config);
-    bool themeChanged = false;
     Config::Update([&](ConfigData& c) {
         if (key == "require_rl_focus")
             c.require_rl_focus = checked;
@@ -761,21 +651,7 @@ void RmlUiController::HandleChange(Rml::Element* target, Rml::Event& event) {
             c.debug_logging = checked;
         else if (key == "statsapi_path")
             c.rocket_league_stats_api_config_path = value;
-        else if (key.rfind("theme_", 0) == 0) {
-            std::string_view componentColorKey;
-            char component = 0;
-            if (ParseThemeComponentKey(key, componentColorKey, component)) {
-                themeChanged = SetThemeComponent(c, key, value);
-            } else {
-                ColorRGBA parsed;
-                if (parseColor(value, parsed)) {
-                    if (ColorRGBA* targetColor = ThemeColorForKey(c, key)) {
-                        *targetColor = parsed;
-                        themeChanged = true;
-                    }
-                }
-            }
-        } else if (key.rfind("widget_vis_", 0) == 0) {
+        else if (key.rfind("widget_vis_", 0) == 0) {
             const size_t colon = key.find(':');
             if (colon != std::string::npos && colon + 1 < key.size()) {
                 const std::string_view field(key.data(), colon);
@@ -868,13 +744,7 @@ void RmlUiController::HandleChange(Rml::Element* target, Rml::Event& event) {
         m_deferredSelectRebuild = true;
         return;
     }
-    if (themeChanged) {
-        UpdateThemeProperties();
-        m_themeEditor.RefreshThemeEditorControls();
-    }
-    // Theme-only changes are handled entirely by the persistent stylesheet.
-    // Do not rebuild either large root just to apply colors.
-    RebuildVisibleUi(!themeChanged, !themeChanged);
+    RebuildVisibleUi(true, true);
 }
 
 void RmlUiController::BeginBindCapture(BindCaptureTarget target) {

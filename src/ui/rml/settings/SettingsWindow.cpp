@@ -173,7 +173,7 @@ void RmlUiController::RebuildSettings() {
     std::ostringstream out;
     out << "<div class='settings-window' style='left:" << settingsLeftDp
         << "dp;top:" << settingsTopDp << "dp'><div class='settings-header row' data-action='settings-drag'>"
-        << "<div class='grow'><div class='brand-title'>Settings</div><div class='label'>Changes apply automatically.</div></div>";
+        << "<div class='grow'><div class='brand-title'>Settings</div><div class='label'>Theme previews need Apply. Other settings save automatically.</div></div>";
     if (m_state && m_state->ui.updateAvailable.load()) {
         std::string ver;
         {
@@ -192,7 +192,13 @@ void RmlUiController::RebuildSettings() {
         const auto page = static_cast<SettingsPage>(i);
         out << "<button class='" << (page == m_settingsPage ? "active" : "") << "' data-action='settings-page' data-page='" << i << "'>" << SettingsPageName(page) << "</button>";
     }
-    out << "</div><div class='settings-page' data-page='" << static_cast<int>(m_settingsPage) << "'>" << RenderReleaseBanners(m_state, m_remoteConfig.get()) << content.str() << "</div></div><div class='settings-footer'>" << Button("history-open", "History", "ghost") << Button("accounts-open", "Accounts", "ghost") << Button("insights-open", "Insights", "ghost") << Button("help-discord", "Help on Discord", "ghost") << "<div class='grow'></div>" << Button("close-settings", "Done", "primary") << "</div></div>";
+    out << "</div><div class='settings-page' data-page='" << static_cast<int>(m_settingsPage) << "'>" << RenderReleaseBanners(m_state, m_remoteConfig.get()) << content.str() << "</div></div><div class='settings-footer'>"
+        << Button("history-open", "History", "ghost") << Button("accounts-open", "Accounts", "ghost")
+        << Button("insights-open", "Insights", "ghost") << Button("help-discord", "Help on Discord", "ghost") << "<div class='grow'></div>";
+    if (m_settingsPage == SettingsPage::Appearance || m_themeEditor.Pending())
+        out << Button("theme-revert", "Revert", "ghost", !m_themeEditor.Pending())
+            << Button("theme-apply", "Apply", "primary", !m_themeEditor.Pending());
+    out << Button("close-settings", "Done", "primary") << "</div></div>";
 
     if (m_confirmReplayUploads) {
         out << "<div class='confirm-backdrop'><div class='card privacy-dialog'><div class='card-title'>Before you upload replays</div>"
@@ -225,5 +231,6 @@ void RmlUiController::RebuildSettings() {
         m_renderDirty = true;
     }
     m_document->UpdateDocument();
+    if (m_settingsPage == SettingsPage::Appearance) m_themeEditor.RefreshStatus();
     if (auto* page = root->QuerySelector(".settings-page")) page->SetScrollTop(scrollTop);
 }

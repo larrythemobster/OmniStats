@@ -333,29 +333,13 @@ void RmlUiController::Update(const ConfigData& config, bool configChanged, uint6
     bool themeChanged = false;
 
     if (configChanged) {
-        const auto sameColor = [](const ColorRGBA& a, const ColorRGBA& b) {
-            return a.r == b.r && a.g == b.g && a.b == b.b && a.a == b.a;
-        };
         // Compare against the scale actually pushed into the RmlUi context, not the
         // previous config: a `<select>` change writes the new value into m_config and
         // defers the rest of its work, so a config-to-config comparison would never
         // see the change and the context would keep rendering at the old dp ratio
         // while all geometry was computed for the new one.
         scaleChanged = SanitizedUiScale(config.ui_scale) != m_appliedUiScale;
-        themeChanged = !sameColor(config.themeBg, m_config.themeBg) ||
-                       !sameColor(config.themeSettingsPanel, m_config.themeSettingsPanel) ||
-                       !sameColor(config.themeTopbar, m_config.themeTopbar) ||
-                       !sameColor(config.themeGraphPanel, m_config.themeGraphPanel) ||
-                       !sameColor(config.themeText, m_config.themeText) ||
-                       !sameColor(config.themeAccent, m_config.themeAccent) ||
-                       !sameColor(config.themeWin, m_config.themeWin) ||
-                       !sameColor(config.themeLoss, m_config.themeLoss) ||
-                       !sameColor(config.themeDim, m_config.themeDim) ||
-                       !sameColor(config.themeMuted, m_config.themeMuted) ||
-                       !sameColor(config.themeGraphLine, m_config.themeGraphLine) ||
-                       !sameColor(config.themeGraphBaseline, m_config.themeGraphBaseline) ||
-                       !sameColor(config.themeScoutTag, m_config.themeScoutTag) ||
-                       FontsDifferFromApplied(config);
+        themeChanged = !Themes::Equal(Themes::Read(config), Themes::Read(m_config)) || FontsDifferFromApplied(config);
         if (!m_config.account_link_prompt_shown) CheckAccountLinkPrompt();
 
         const auto activeDragKind = m_layoutDrag.m_drag.kind;
@@ -414,9 +398,7 @@ void RmlUiController::Update(const ConfigData& config, bool configChanged, uint6
         CheckStatsApi(false, false);
         UpdateInputCapture();
     } else if (m_lastShowMenu && !settingsOpen) {
-        // A range can be adjusted from the keyboard without producing a mouse-up.
-        // Do not discard an in-flight color edit when Settings is closed.
-        m_themeEditor.CommitColorPick();
+        m_themeEditor.Revert();
         FinishBindCapture();
         m_showBallchasingToken = false;
         m_confirmReplayUploads = false;

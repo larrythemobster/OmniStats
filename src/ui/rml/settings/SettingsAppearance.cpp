@@ -7,19 +7,21 @@
 #include "core/config/AppVersion.hpp"
 #include "utils/Storage.hpp"
 #include "core/config/StatsApiConfig.hpp"
+#include "core/config/Themes.hpp"
 #include "database/DatabaseManager.hpp"
 #include "network/ExternalUpdaterLauncher.hpp"
 #include "network/mmr/MmrService.hpp"
 #include "ui/Formatting.hpp"
 #include "ui/window/KeyNames.hpp"
 #include "ui/rml/backend/RmlInputWin32.hpp"
-#include "ui/rml/widgets/RmlMmrGraphLines.hpp"
 
 #include "ui/rml/controller/RmlUiHelpers.hpp"
 
 using namespace RmlUiDetail;
 
-std::string SettingsPresenter::RenderAppearance(const ConfigData& config, const std::string& editColorKey, float editColorHue, bool showAdvanced) {
+std::string SettingsPresenter::RenderAppearance(const ConfigData& config, const std::string& editColorKey, float editColorHue, bool showAdvanced,
+                                                bool pending, const std::string& nameDraft, const std::string& importDraft,
+                                                const std::string& message, bool messageError, bool canUndo) {
     auto rangeRow = [&](const char* channel, char component, int value) {
         std::ostringstream html;
         html << "<div class='color-channel'><span class='color-channel-label'>" << channel << "</span>"
@@ -42,7 +44,7 @@ std::string SettingsPresenter::RenderAppearance(const ConfigData& config, const 
         };
         std::ostringstream ed;
         ed << "<div class='color-editor-panel' id='active-color-editor'>"
-           << "<div class='row' style='margin-bottom:6dp'><div class='setting-name grow' style='color:#eef1f5'>Editing "
+           << "<div class='row' style='margin-bottom:6dp'><div class='setting-name grow'>Editing "
            << Escape(ThemeColorLabel(key)) << "</div>"
            << "<button class='ghost compact' data-action='close-color-editor'>Close</button></div>"
            << "<div class='color-picker'>"
@@ -62,18 +64,20 @@ std::string SettingsPresenter::RenderAppearance(const ConfigData& config, const 
            << "</div>";
         return ed.str();
     };
-    auto colorRow = [&](const char* key, const char* label, const ColorRGBA& color) {
+    auto colorRow = [&](const Themes::ColorField& field) {
+        const char* key = field.key;
+        const ColorRGBA& color = config.*(field.member);
         std::ostringstream html;
         const bool isEditing = (editColorKey == key);
-        html << "<div class='setting-row" << (isEditing ? " color-row-active" : "") << "'><div class='setting-info'><div class='setting-name'>" << label
-             << "</div></div>"
+        html << "<div class='theme-color-row'><div class='setting-row"
+             << (isEditing ? " color-row-active" : "") << "'><div class='setting-info'><div class='setting-name'>" << Escape(field.label)
+             << "</div><div class='setting-help'>" << Escape(field.help) << "</div></div>"
              << "<button id='theme-swatch-" << key << "' class='color-dot color-dot-button" << (isEditing ? " active" : "") << "' style='background-color:" << CssColor(color)
-             << "' data-action='edit-color' data-color-key='" << key << "'></button>"
-             << "<input id='theme-hex-" << key << "' type='text' class='text mono' style='width:100dp;margin-left:6dp' data-setting='" << key
-             << "' value='" << CssColor(color) << "'/></div>";
-        if (isEditing) {
-            html << renderColorEditor(key, color);
-        }
+             << "' data-action='edit-color' data-color-key='" << key << "' aria-label='Edit " << Escape(field.label) << "'></button>"
+             << "<input id='theme-hex-" << key << "' type='text' class='text mono theme-hex' data-setting='" << key
+             << "' value='" << CssColor(color) << "'/></div><div id='theme-error-" << key << "' class='theme-field-error'></div>";
+        if (isEditing && editColorKey != "theme_accent") html << renderColorEditor(key, color);
+        html << "</div>";
         return html.str();
     };
 
@@ -108,6 +112,47 @@ std::string SettingsPresenter::RenderAppearance(const ConfigData& config, const 
     };
 
     std::ostringstream out;
+    out << SectionStart("Themes")
+        << "<div class='setting-help section-help'>Choose a starting point, then adjust the accent or individual colors.</div>"
+        << "<div class='theme-presets'>";
+    const auto current = Themes::Read(config);
+    for (const auto& preset : Themes::Presets()) {
+        const auto& p = preset.colors;
+        out << "<button class='theme-preset" << (Themes::Equal(current, p) ? " selected" : "")
+            << "' data-action='theme-preset' data-theme-id='" << Escape(preset.id) << "'>"
+            << "<div class='theme-mini' style='background-color:" << CssColor(p[0]) << ";color:" << CssColor(p[10]) << "'>"
+            << "<div class='theme-mini-roster' style='background-color:" << CssColor(p[4]) << "'>Player <span style='color:" << CssColor(p[11]) << "'>YOU</span></div>"
+            << "<div class='theme-mini-bottom'><span class='theme-mini-button' style='background-color:" << CssColor(p[18])
+            << ";border-color:" << CssColor(p[19]) << ";color:" << CssColor(Themes::Contrast(p[22], p[18]) >= 4.5 ? p[22] : Themes::ReadableText(p[18])) << "'>Play</span>"
+            << "<span class='theme-mini-graph' style='border-color:" << CssColor(p[17]) << ";color:" << CssColor(p[16]) << "'>&#9585;&#9586;&#9585;</span></div></div>"
+            << "<div class='theme-preset-name'>" << Escape(preset.name) << "</div></button>";
+    }
+    out << "</div><div class='setting-row'><div class='setting-info'><div class='setting-name'>Accent</div>"
+        << "<div class='setting-help'>Used for actions, selection and scout tags.</div></div>"
+        << "<button id='theme-accent-swatch' class='color-dot color-dot-button' style='background-color:" << CssColor(config.themeAccent)
+        << "' data-action='edit-color' data-color-key='theme_accent' aria-label='Edit accent color'></button></div>";
+    if (editColorKey == "theme_accent") out << renderColorEditor("theme_accent", config.themeAccent);
+    out << "<div class='theme-apply-row'><span id='theme-draft-status' class='setting-help grow'>"
+        << (pending ? "Unapplied changes. Apply to keep them; closing Settings discards them." : "No unapplied changes.")
+        << "</span></div>"
+        << "<div id='theme-validation-message' class='theme-message" << (messageError ? " error" : "") << "'>" << Escape(message) << "</div><div id='theme-warnings' class='theme-warning'>";
+    for (const auto& warning : Themes::Warnings(config))
+        out << Escape(warning) << " ";
+    out << "</div>";
+    out << ActionRow("Reset colors", "Restore the default colors without changing your layout.",
+                     Button("reset-theme-colors", "Reset colors", "ghost") + (canUndo ? Button("theme-undo-reset", "Undo reset", "ghost") : std::string{}))
+        << "<div class='theme-saved-heading'>Saved themes</div>"
+        << "<div class='theme-input-row'><input type='text' class='text' data-setting='theme_name' value='" << Escape(nameDraft)
+        << "' placeholder='Theme name'/>" << Button("theme-save", "Save", "ghost") << Button("theme-copy", "Copy current theme", "ghost") << "</div>";
+    if (config.custom_themes.empty()) out << "<div class='setting-help'>Save a theme to use it again later.</div>";
+    for (size_t i = 0; i < config.custom_themes.size(); ++i) {
+        out << "<div class='theme-saved-row'><span class='grow'>" << Escape(config.custom_themes[i].name)
+            << "</span><button class='ghost' data-action='theme-load' data-theme-index='" << i << "'>Load</button>"
+            << "<button class='ghost' data-action='theme-delete' data-theme-index='" << i << "'>Delete</button></div>";
+    }
+    out << "<div class='theme-saved-heading'>Import theme</div><div class='setting-help'>Paste a theme code. Imports are previewed until you apply them.</div>"
+        << "<div class='theme-input-row'><input type='text' class='text mono theme-import' data-setting='theme_import' value='" << Escape(importDraft)
+        << "' placeholder='Paste theme code'/>" << Button("theme-import", "Import", "ghost") << "</div>" << SectionEnd();
     out << SectionStart("Scale")
         << SelectRow("ui_scale", "App-wide text size", "Changes text size throughout the dashboard and overlay.", scales, currentScale)
         << SectionEnd();
@@ -127,32 +172,17 @@ std::string SettingsPresenter::RenderAppearance(const ConfigData& config, const 
         << SelectRow("font_display", "Titles", "Card titles, the app name, and recap headlines. Default: Russo One.", fontOptions(config.font_display), config.font_display)
         << SectionEnd();
     out << SectionStart("Colors")
-        << "<div class='setting-help section-help'>Click a swatch to pick a color, or edit the hex value.</div>"
-        << ActionRow("Reset colors", "Restore the default color theme. Reset theme and layout also restores card positions.",
-                     Button("reset-theme-colors", "Reset colors", "ghost") + Button("reset-theme-and-layout", "Reset theme and layout", "ghost"))
-        << colorRow("theme_bg", "Overlay background", config.themeBg)
-        << colorRow("theme_panel", "Settings panels", config.themeSettingsPanel)
-        << colorRow("theme_topbar", "Top bar", config.themeTopbar)
-        << colorRow("theme_graph_panel", "Graph panel", config.themeGraphPanel)
-        << colorRow("theme_roster_card", "Roster card", config.themeRosterCard)
-        << colorRow("theme_roster_card_self", "Roster card (you)", config.themeRosterCardSelf)
-        << colorRow("theme_scout_tag", "Scout badge & tags", config.themeScoutTag)
-        << colorRow("theme_stat_box", "Stat boxes / K/D", config.themeStatBox)
-        << colorRow("theme_match_row", "Previous games row", config.themeMatchRow)
-        << colorRow("theme_match_row_alt", "Previous games row (alt)", config.themeMatchRowAlt)
-        << colorRow("theme_text", "Text", config.themeText)
-        << colorRow("theme_accent", "Accent", config.themeAccent)
-        << colorRow("theme_win", "Win", config.themeWin)
-        << colorRow("theme_loss", "Loss", config.themeLoss)
-        << colorRow("theme_dim", "Dim text", config.themeDim)
-        << colorRow("theme_muted", "Muted info", config.themeMuted)
-        << colorRow("theme_graph", "Graph line", config.themeGraphLine)
-        << colorRow("theme_baseline", "Graph baseline", config.themeGraphBaseline)
-        << SectionEnd();
+        << "<div class='setting-help section-help'>Click a swatch or edit its hex value.</div>";
+    for (const auto& field : Themes::Fields())
+        out << colorRow(field);
+    out << SectionEnd();
 
     return out.str();
 }
 
 std::string RmlUiController::RenderSettingsAppearance() {
-    return m_settingsPresenter->RenderAppearance(m_config, m_themeEditor.m_editColorKey, m_themeEditor.m_editColorHue, m_showAdvancedAppearance);
+    return m_settingsPresenter->RenderAppearance(m_themeEditor.PreviewConfig(), m_themeEditor.m_editColorKey,
+                                                 m_themeEditor.m_editColorHue, m_showAdvancedAppearance, m_themeEditor.Pending(), m_themeEditor.m_nameDraft,
+                                                 m_themeEditor.m_importDraft, m_themeEditor.m_message, m_themeEditor.m_messageError,
+                                                 m_themeEditor.m_resetUndo.has_value());
 }

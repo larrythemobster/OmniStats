@@ -769,68 +769,20 @@ namespace RmlUiDetail {
     }
 
     ColorRGBA* ThemeColorForKey(ConfigData& config, std::string_view key) {
-        if (key == "theme_bg") return &config.themeBg;
-        if (key == "theme_panel") return &config.themeSettingsPanel;
-        if (key == "theme_topbar") return &config.themeTopbar;
-        if (key == "theme_graph_panel") return &config.themeGraphPanel;
-        if (key == "theme_roster_card") return &config.themeRosterCard;
-        if (key == "theme_roster_card_self") return &config.themeRosterCardSelf;
-        if (key == "theme_scout_tag") return &config.themeScoutTag;
-        if (key == "theme_stat_box") return &config.themeStatBox;
-        if (key == "theme_match_row") return &config.themeMatchRow;
-        if (key == "theme_match_row_alt") return &config.themeMatchRowAlt;
-        if (key == "theme_text") return &config.themeText;
-        if (key == "theme_accent") return &config.themeAccent;
-        if (key == "theme_win") return &config.themeWin;
-        if (key == "theme_loss") return &config.themeLoss;
-        if (key == "theme_dim") return &config.themeDim;
-        if (key == "theme_muted") return &config.themeMuted;
-        if (key == "theme_graph") return &config.themeGraphLine;
-        if (key == "theme_baseline") return &config.themeGraphBaseline;
+        for (const auto& field : Themes::Fields())
+            if (key == field.key) return &(config.*field.member);
         return nullptr;
     }
 
     const ColorRGBA* ThemeColorForKey(const ConfigData& config, std::string_view key) {
-        if (key == "theme_bg") return &config.themeBg;
-        if (key == "theme_panel") return &config.themeSettingsPanel;
-        if (key == "theme_topbar") return &config.themeTopbar;
-        if (key == "theme_graph_panel") return &config.themeGraphPanel;
-        if (key == "theme_roster_card") return &config.themeRosterCard;
-        if (key == "theme_roster_card_self") return &config.themeRosterCardSelf;
-        if (key == "theme_scout_tag") return &config.themeScoutTag;
-        if (key == "theme_stat_box") return &config.themeStatBox;
-        if (key == "theme_match_row") return &config.themeMatchRow;
-        if (key == "theme_match_row_alt") return &config.themeMatchRowAlt;
-        if (key == "theme_text") return &config.themeText;
-        if (key == "theme_accent") return &config.themeAccent;
-        if (key == "theme_win") return &config.themeWin;
-        if (key == "theme_loss") return &config.themeLoss;
-        if (key == "theme_dim") return &config.themeDim;
-        if (key == "theme_muted") return &config.themeMuted;
-        if (key == "theme_graph") return &config.themeGraphLine;
-        if (key == "theme_baseline") return &config.themeGraphBaseline;
+        for (const auto& field : Themes::Fields())
+            if (key == field.key) return &(config.*field.member);
         return nullptr;
     }
 
     const char* ThemeColorLabel(std::string_view key) {
-        if (key == "theme_bg") return "Overlay background";
-        if (key == "theme_panel") return "Settings panels";
-        if (key == "theme_topbar") return "Top bar";
-        if (key == "theme_graph_panel") return "Graph panel";
-        if (key == "theme_roster_card") return "Roster card";
-        if (key == "theme_roster_card_self") return "Roster card (you)";
-        if (key == "theme_scout_tag") return "Scout badge & tags";
-        if (key == "theme_stat_box") return "Stat boxes / K/D";
-        if (key == "theme_match_row") return "Previous games row";
-        if (key == "theme_match_row_alt") return "Previous games row (alt)";
-        if (key == "theme_text") return "Text";
-        if (key == "theme_accent") return "Accent";
-        if (key == "theme_win") return "Win";
-        if (key == "theme_loss") return "Loss";
-        if (key == "theme_dim") return "Dim text";
-        if (key == "theme_muted") return "Muted info";
-        if (key == "theme_graph") return "Graph line";
-        if (key == "theme_baseline") return "Graph baseline";
+        for (const auto& field : Themes::Fields())
+            if (key == field.key) return field.label;
         return "Color";
     }
 
@@ -840,35 +792,6 @@ namespace RmlUiDetail {
         colorKey = key.substr(0, separator);
         component = key[separator + 1];
         return component == 'r' || component == 'g' || component == 'b' || component == 'a';
-    }
-    bool SetThemeComponent(ConfigData& config, std::string_view key, const std::string& value) {
-        std::string_view colorKey;
-        char component = 0;
-        if (!ParseThemeComponentKey(key, colorKey, component)) return false;
-        ColorRGBA* color = ThemeColorForKey(config, colorKey);
-        if (!color) return false;
-
-        char* end = nullptr;
-        const long parsed = std::strtol(value.c_str(), &end, 10);
-        if (!end || end == value.c_str() || *end != '\0') return false;
-        const float normalized = static_cast<float>(std::clamp(parsed, 0L, 255L)) / 255.0f;
-        switch (component) {
-        case 'r':
-            color->r = normalized;
-            break;
-        case 'g':
-            color->g = normalized;
-            break;
-        case 'b':
-            color->b = normalized;
-            break;
-        case 'a':
-            color->a = normalized;
-            break;
-        default:
-            return false;
-        }
-        return true;
     }
 
     Hsv RgbToHsv(const ColorRGBA& color) {

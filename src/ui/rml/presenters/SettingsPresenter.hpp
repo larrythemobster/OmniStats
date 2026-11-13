@@ -14,7 +14,9 @@ class SettingsPresenter {
     SettingsPresenter() = default;
 
     std::string RenderGeneral(const ConfigData& config);
-    std::string RenderAppearance(const ConfigData& config, const std::string& editColorKey, float editColorHue, bool showAdvanced = true);
+    std::string RenderAppearance(const ConfigData& config, const std::string& editColorKey, float editColorHue, bool showAdvanced = true,
+                                 bool pending = false, const std::string& nameDraft = {}, const std::string& importDraft = {},
+                                 const std::string& message = {}, bool messageError = false, bool canUndo = false);
     std::string RenderCards(const ConfigData& config, bool showDetails, bool signedIn = false);
     std::string RenderIntegrations(
         const ConfigData& config,
