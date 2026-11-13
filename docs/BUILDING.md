@@ -32,6 +32,14 @@ cmake --build --preset windows-release
 ctest --preset windows-release --output-on-failure
 ```
 
+For Visual Studio 2026, use CMake 4.2 or newer and the matching presets below. These use `out/windows-release-vs26/`, separate from the Visual Studio 2022 build in `out/windows-release/`.
+
+```powershell
+cmake --preset windows-release-vs26
+cmake --build --preset windows-release-vs26
+ctest --preset windows-release-vs26 --output-on-failure
+```
+
 The normal test suite is offline and deterministic. Tracker parsing and worker behavior remain covered without making live third-party requests during tests.
 
 ### Optional live network tests

@@ -3,7 +3,7 @@
   "configurePresets": [
     {
       "name": "windows-release",
-      "displayName": "Windows Release",
+      "displayName": "Windows Release (VS 2022)",
       "generator": "Visual Studio 17 2022",
       "architecture": "x64",
       "binaryDir": "${sourceDir}/out/windows-release",
@@ -18,10 +18,10 @@
     },
     {
       "name": "windows-release-vs26",
-      "displayName": "Windows Release",
+      "displayName": "Windows Release (VS 2026)",
       "generator": "Visual Studio 18 2026",
       "architecture": "x64",
-      "binaryDir": "${sourceDir}/out/windows-release",
+      "binaryDir": "${sourceDir}/out/windows-release-vs26",
       "cacheVariables": {
         "CMAKE_TOOLCHAIN_FILE": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake",
         "VCPKG_TARGET_TRIPLET": "x64-windows-static",
@@ -37,12 +37,25 @@
       "name": "windows-release",
       "configurePreset": "windows-release",
       "configuration": "Release"
+    },
+    {
+      "name": "windows-release-vs26",
+      "configurePreset": "windows-release-vs26",
+      "configuration": "Release"
     }
   ],
   "testPresets": [
     {
       "name": "windows-release",
       "configurePreset": "windows-release",
+      "configuration": "Release",
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "windows-release-vs26",
+      "configurePreset": "windows-release-vs26",
       "configuration": "Release",
       "output": {
         "outputOnFailure": true
