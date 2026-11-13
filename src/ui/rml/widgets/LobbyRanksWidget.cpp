@@ -64,7 +64,7 @@ std::string RenderLobbyRanksImpl(const RmlRenderSnapshot& snap, const ConfigData
             if (std::string_view(pl.key) != "casual" && (tier.empty() || tier == "Unranked") && mmr > 0) {
                 tier = MmrService::GetRankTierForPlaylistMmr(pl.key, mmr);
             }
-            out << "<div class='lobby-rank-cell tooltip-host' style='color:" << CssColor(Format::RankColor(tier)) << "'>";
+            out << "<div class='lobby-rank-cell tooltip-host' data-rank-color='" << CssColor(Format::RankColor(tier)) << "'>";
             if (mmr > 0) {
                 out << "<div class='lobby-rank-value'>";
                 if (tier != "Unranked" && !tier.empty() && std::string_view(pl.key) != "casual") {

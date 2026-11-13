@@ -72,7 +72,7 @@
                         </div>
                         <div class="accounts-cell-mmr" data-for="cell : row.ranks">
                             <div class="mono accounts-mmr-val" data-class-muted="cell.is_stale || !cell.has_mmr">{{cell.mmr}}</div>
-                            <div class="accounts-tier-val" data-style-color="cell.tier_color" data-if="cell.tier != ''">{{cell.tier}}</div>
+                            <div class="accounts-tier-val" data-attr-data-rank-color="cell.tier_color" data-if="cell.tier != ''">{{cell.tier}}</div>
                         </div>
                         <div class="accounts-cell-updated label">{{row.updated_relative}}</div>
                         <div class="accounts-cell-status">
@@ -218,7 +218,7 @@
                             </div>
                             <div class="history-scoreboard-row" data-for="r : detail_ranks">
                                 <div class="accounts-detail-col-playlist value">{{r.playlist_label}}</div>
-                                <div class="accounts-detail-col-tier" data-style-color="r.tier_color">{{r.tier}}</div>
+                                <div class="accounts-detail-col-tier" data-attr-data-rank-color="r.tier_color">{{r.tier}}</div>
                                 <div class="accounts-detail-col-mmr mono">{{r.mmr}}</div>
                                 <div class="accounts-detail-col-matches mono label">{{r.matches_played}}</div>
                                 <div class="accounts-detail-col-source label">{{r.source}}</div>

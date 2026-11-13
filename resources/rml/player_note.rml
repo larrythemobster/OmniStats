@@ -24,7 +24,7 @@
                 <div class="scout-section">
                     <div class="row scout-section-head">
                         <span class="stat-section-title grow">MATCH HISTORY TOGETHER</span>
-                        <span class="label" data-if="scout_rank != ''">Current rank: <span class="value" data-style-color="scout_rank_color">{{scout_rank}}</span></span>
+                        <span class="label" data-if="scout_rank != ''">Current rank: <span class="value" data-attr-data-rank-color="scout_rank_color">{{scout_rank}}</span></span>
                     </div>
                     <div class="muted" data-if="scout_loading">{{scout_status}}</div>
                     <div class="label loss" data-if="!scout_loading && !scout_ready">{{scout_status}}</div>

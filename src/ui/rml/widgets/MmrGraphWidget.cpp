@@ -141,8 +141,7 @@ std::string RenderMmrGraphImpl(bool showCategoryBadge, bool showPanControls, con
         out << "<div class='graph-band' style='left:" << xMin << "%;width:" << (xMax - xMin) << "%;top:" << band.topPct
             << "%;height:" << (band.bottomPct - band.topPct) << "%;background-color:" << CssColor(tint) << "'></div>";
         if (band.bottomPct - band.topPct >= kBandLabelMinPct)
-            out << "<div class='graph-band-label' style='left:" << (xMin + 1.0f) << "%;top:" << (band.topPct + 1.0f)
-                << "%;color:" << CssColor(Format::RankColor(band.label)) << "'>"
+            out << "<div class='graph-band-label' data-rank-color='" << CssColor(Format::RankColor(band.label)) << "' style='left:" << (xMin + 1.0f) << "%;top:" << (band.topPct + 1.0f) << "%'>"
                 << Escape(Format::RankTier(band.label, config.use_roman_numerals)) << "</div>";
     }
     if (bands.empty()) {
@@ -248,8 +247,7 @@ std::string RenderMmrGraphImpl(bool showCategoryBadge, bool showPanControls, con
     // Labels stop short of the plot's right edge so the current point stays clear.
     for (const auto& b : boundaries) {
         if (!b.labeled) continue;
-        out << "<div class='graph-rank-label mono' style='right:" << (100.0f - xMax + 2.0f) << "%;top:" << b.labelTopPct
-            << "%;color:" << CssColor(Format::RankColor(b.boundary.label)) << "'>" << b.boundary.mmr << "</div>";
+        out << "<div class='graph-rank-label mono' data-rank-color='" << CssColor(Format::RankColor(b.boundary.label)) << "' style='right:" << (100.0f - xMax + 2.0f) << "%;top:" << b.labelTopPct << "%'>" << b.boundary.mmr << "</div>";
     }
 
     const float axisTop = yMax + 2.0f;

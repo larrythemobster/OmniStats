@@ -212,7 +212,7 @@
                                                 <span class="label history-sb-met" data-if="p.encounter != ''">{{p.encounter}}</span>
                                             </div>
                                         </div>
-                                        <div class="history-sb-tier" data-style-color="p.tier_color">{{p.tier}}</div>
+                                        <div class="history-sb-tier" data-attr-data-rank-color="p.tier_color">{{p.tier}}</div>
                                         <div class="history-sb-mmr mono">{{p.mmr}}</div>
                                         <div class="history-sb-scr mono">{{p.score}}</div>
                                         <div class="history-sb-g mono">{{p.goals}}</div>
@@ -258,7 +258,7 @@
                                                 <span class="label history-sb-met" data-if="p.encounter != ''">{{p.encounter}}</span>
                                             </div>
                                         </div>
-                                        <div class="history-sb-tier" data-style-color="p.tier_color">{{p.tier}}</div>
+                                        <div class="history-sb-tier" data-attr-data-rank-color="p.tier_color">{{p.tier}}</div>
                                         <div class="history-sb-mmr mono">{{p.mmr}}</div>
                                         <div class="history-sb-scr mono">{{p.score}}</div>
                                         <div class="history-sb-g mono">{{p.goals}}</div>

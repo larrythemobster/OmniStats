@@ -15,6 +15,207 @@
 #include "ui/rml/widgets/RmlMmrGraphLines.hpp"
 
 #include "ui/rml/controller/RmlUiHelpers.hpp"
+#include "core/config/Themes.hpp"
+#include <cctype>
+
+namespace {
+    ColorRGBA MixThemeColor(ColorRGBA a, ColorRGBA b, float t) {
+        t = std::clamp(t, 0.0f, 1.0f);
+        return {a.r + (b.r - a.r) * t, a.g + (b.g - a.g) * t,
+                a.b + (b.b - a.b) * t, a.a + (b.a - a.a) * t};
+    }
+
+    ColorRGBA AccentOn(ColorRGBA accent, ColorRGBA background) {
+        accent.a = 1.0f;
+        background.a = 1.0f;
+        const ColorRGBA ink = Themes::ReadableText(background);
+        for (int i = 0; i < 20 && Themes::Contrast(accent, background) < 4.5; ++i)
+            accent = MixThemeColor(accent, ink, 0.15f);
+        return accent;
+    }
+
+    // Keep packaged state colors intact when the corresponding palette is unchanged.
+    std::string ThemeStyleSheet(std::string_view source, const ConfigData& config, bool light) {
+        static const ConfigData defaults;
+        const RmlUiDetail::Hsv originalAccent = RmlUiDetail::RgbToHsv(defaults.themeAccent);
+        const RmlUiDetail::Hsv chosenAccent = RmlUiDetail::RgbToHsv(config.themeAccent);
+        const auto trim = [](std::string_view text) {
+            while (!text.empty() && std::isspace(static_cast<unsigned char>(text.front())))
+                text.remove_prefix(1);
+            while (!text.empty() && std::isspace(static_cast<unsigned char>(text.back())))
+                text.remove_suffix(1);
+            return text;
+        };
+        std::string result;
+        result.reserve(source.size());
+        std::string_view selector;
+        size_t statement = 0;
+        bool inBlock = false;
+        for (size_t i = 0; i < source.size();) {
+            if (source[i] == '/' && i + 1 < source.size() && source[i + 1] == '*') {
+                const size_t end = source.find("*/", i + 2);
+                const size_t count = end == std::string_view::npos ? source.size() - i : end + 2 - i;
+                result.append(source.substr(i, count));
+                i += count;
+                if (!inBlock) statement = i;
+                continue;
+            }
+            if (source[i] == '{') {
+                selector = source.substr(statement, i - statement);
+                inBlock = true;
+                statement = i + 1;
+            } else if (source[i] == '}') {
+                inBlock = false;
+                statement = i + 1;
+            } else if (source[i] == ';' && inBlock) {
+                statement = i + 1;
+            }
+            if (inBlock && source[i] == '#') {
+                size_t end = i + 1;
+                while (end < source.size() && std::isxdigit(static_cast<unsigned char>(source[end])))
+                    ++end;
+                const size_t digits = end - i - 1;
+                const auto decl = source.substr(statement, i - statement);
+                const auto colon = decl.find(':');
+                const bool picker = selector.find(".color-field") != std::string_view::npos ||
+                                    selector.find(".color-hue") != std::string_view::npos ||
+                                    selector.find(".color-dot") != std::string_view::npos;
+                const bool scrim = selector.find("backdrop") != std::string_view::npos ||
+                                   selector.find(".dashboard-modal") != std::string_view::npos;
+                if ((digits == 6 || digits == 8) && colon != std::string_view::npos && !picker && !scrim) {
+                    const auto hex = [&](size_t p) {
+                        const auto digit = [](char c) { return c <= '9' ? c - '0' : (c | 32) - 'a' + 10; };
+                        return (digit(source[p]) * 16 + digit(source[p + 1])) / 255.0f;
+                    };
+                    ColorRGBA c{hex(i + 1), hex(i + 3), hex(i + 5), digits == 8 ? hex(i + 7) : 1.0f};
+                    const float lo = std::min({c.r, c.g, c.b});
+                    const float hi = std::max({c.r, c.g, c.b});
+                    const auto property = decl.substr(0, colon);
+                    const bool foreground = property.find("color") != std::string_view::npos &&
+                                            property.find("background") == std::string_view::npos &&
+                                            property.find("border") == std::string_view::npos;
+                    const bool shadow = property.find("shadow") != std::string_view::npos;
+                    const bool semantic = selector.find("loss") != std::string_view::npos ||
+                                          selector.find("danger") != std::string_view::npos ||
+                                          selector.find("error") != std::string_view::npos ||
+                                          selector.find("platform-") != std::string_view::npos ||
+                                          selector.find(".blue") != std::string_view::npos ||
+                                          selector.find(".orange") != std::string_view::npos;
+                    const auto name = trim(selector);
+                    const auto prop = trim(property);
+                    std::optional<ColorRGBA> control;
+                    if (name == "button, .button") {
+                        if (prop == "background-color") control = config.themeButtonBg;
+                        if (prop == "border") control = config.themeButtonBorder;
+                    } else if (name == "button:hover, .button:hover") {
+                        if (prop == "background-color") control = config.themeButtonHover;
+                        if (prop == "border-color") {
+                            control = config.themeButtonBorder;
+                            control->r = std::clamp(control->r * 80.0f / 57.0f, 0.0f, 1.0f);
+                            control->g = std::clamp(control->g * 80.0f / 57.0f, 0.0f, 1.0f);
+                            control->b = std::clamp(control->b * 80.0f / 57.0f, 0.0f, 1.0f);
+                        }
+                    } else if (name == "button:active, .button:active" && prop == "background-color") {
+                        control = config.themeButtonPressed;
+                    } else if (name == "input.text, input.password, select") {
+                        if (prop == "background-color") control = config.themeInputBg;
+                        if (prop == "border") control = config.themeInputBorder;
+                        if (prop == "color") control = config.themeInputText;
+                    } else if (name == ".badge" && prop == "background-color") {
+                        control = config.themeBadgeBg;
+                    }
+                    if (control) {
+                        result += RmlUiDetail::CssColor(*control);
+                        i = end;
+                        continue;
+                    }
+                    if (prop.find("border") != std::string_view::npos && hi - lo < 0.13f && !semantic) {
+                        ColorRGBA mapped = config.themeBorder;
+                        if (light) {
+                            mapped.a *= c.a;
+                        } else {
+                            mapped.r = std::clamp(c.r * mapped.r / defaults.themeBorder.r, 0.0f, 1.0f);
+                            mapped.g = std::clamp(c.g * mapped.g / defaults.themeBorder.g, 0.0f, 1.0f);
+                            mapped.b = std::clamp(c.b * mapped.b / defaults.themeBorder.b, 0.0f, 1.0f);
+                            mapped.a = std::clamp(c.a * mapped.a / defaults.themeBorder.a, 0.0f, 1.0f);
+                        }
+                        result += RmlUiDetail::CssColor(mapped);
+                        i = end;
+                        continue;
+                    }
+                    if (light && foreground && hi - lo >= 0.13f) {
+                        ColorRGBA mapped = AccentOn(c, config.themeSettingsPanel);
+                        mapped.a = c.a;
+                        result += RmlUiDetail::CssColor(mapped);
+                        i = end;
+                        continue;
+                    }
+                    const bool red = c.r > 0.45f && c.r > c.g * 1.8f && c.r > c.b * 1.8f && c.g < 0.35f && c.b < 0.4f;
+                    if (red && !semantic) {
+                        RmlUiDetail::Hsv mappedHue = RmlUiDetail::RgbToHsv(c);
+                        mappedHue.h = std::fmod(mappedHue.h + chosenAccent.h - originalAccent.h + 360.0f, 360.0f);
+                        mappedHue.s *= chosenAccent.s;
+                        mappedHue.v = std::clamp(mappedHue.v * chosenAccent.v / originalAccent.v, 0.0f, 1.0f);
+                        ColorRGBA mapped = RmlUiDetail::HsvToRgb(mappedHue, c.a);
+                        if (light && foreground) mapped = AccentOn(mapped, config.themeSettingsPanel);
+                        mapped.a = c.a;
+                        result += RmlUiDetail::CssColor(mapped);
+                        i = end;
+                        continue;
+                    }
+                    if (light && !foreground && !semantic && c.r > c.g * 1.25f && c.r > c.b * 1.15f && hi < 0.35f) {
+                        ColorRGBA mapped = MixThemeColor(config.themeSettingsPanel, config.themeAccent, 0.12f);
+                        mapped.a = c.a;
+                        result += RmlUiDetail::CssColor(mapped);
+                        i = end;
+                        continue;
+                    }
+                    if (!light && hi - lo < 0.13f && !shadow && !semantic) {
+                        ColorRGBA mapped = c;
+                        if (foreground) {
+                            const bool secondary = hi < 0.75f;
+                            const ColorRGBA target = secondary ? config.themeMuted : config.themeText;
+                            const ColorRGBA original = secondary ? defaults.themeMuted : defaults.themeText;
+                            mapped.r *= target.r / original.r;
+                            mapped.g *= target.g / original.g;
+                            mapped.b *= target.b / original.b;
+                        } else if (hi < 0.55f) {
+                            mapped.r += config.themeSettingsPanel.r - defaults.themeSettingsPanel.r;
+                            mapped.g += config.themeSettingsPanel.g - defaults.themeSettingsPanel.g;
+                            mapped.b += config.themeSettingsPanel.b - defaults.themeSettingsPanel.b;
+                        }
+                        mapped.r = std::clamp(mapped.r, 0.0f, 1.0f);
+                        mapped.g = std::clamp(mapped.g, 0.0f, 1.0f);
+                        mapped.b = std::clamp(mapped.b, 0.0f, 1.0f);
+                        result += RmlUiDetail::CssColor(mapped);
+                        i = end;
+                        continue;
+                    }
+                    if (light && hi - lo < 0.13f && !shadow) {
+                        ColorRGBA mapped;
+                        if (foreground) {
+                            mapped = MixThemeColor(config.themeMuted, config.themeText, std::clamp((hi - 0.45f) / 0.5f, 0.0f, 1.0f));
+                        } else if (hi > 0.65f) {
+                            mapped = config.themeText;
+                        } else {
+                            const float adjustment = 0.10f - hi * 0.42f;
+                            mapped = config.themeSettingsPanel;
+                            mapped.r = std::clamp(mapped.r + adjustment, 0.0f, 1.0f);
+                            mapped.g = std::clamp(mapped.g + adjustment, 0.0f, 1.0f);
+                            mapped.b = std::clamp(mapped.b + adjustment, 0.0f, 1.0f);
+                        }
+                        mapped.a = c.a;
+                        result += RmlUiDetail::CssColor(mapped);
+                        i = end;
+                        continue;
+                    }
+                }
+            }
+            result += source[i++];
+        }
+        return result;
+    }
+}
 
 using namespace RmlUiDetail;
 
@@ -24,6 +225,12 @@ using namespace RmlUiDetail;
 // SetInnerRML call.
 void RmlUiController::CaptureBaseStyleSheet() {
     m_baseStyleSheet.reset();
+    m_baseStyleSheetSource.clear();
+    if (const auto file = m_fileInterface.Open("res://omnistats.rcss")) {
+        m_baseStyleSheetSource.resize(m_fileInterface.Length(file));
+        m_baseStyleSheetSource.resize(m_fileInterface.Read(m_baseStyleSheetSource.data(), m_baseStyleSheetSource.size(), file));
+        m_fileInterface.Close(file);
+    }
     if (!m_document) return;
     if (const auto* packagedStyle = m_document->GetStyleSheetContainer()) {
         if (auto emptyStyle = Rml::Factory::InstanceStyleSheetString("#__omnistats_theme_base__ { color: inherit; }"))
@@ -53,6 +260,13 @@ void RmlUiController::UpdateThemeProperties() {
     if (!m_document || !m_baseStyleSheet) return;
     const ConfigData config = m_themeEditor.PreviewConfig();
     const ConfigData& m_config = config;
+    const bool light = Themes::IsLight(config);
+    Rml::SharedPtr<Rml::StyleSheetContainer> baseStyle = m_baseStyleSheet;
+    if (!m_baseStyleSheetSource.empty()) {
+        if (auto mapped = Rml::Factory::InstanceStyleSheetString(ThemeStyleSheet(m_baseStyleSheetSource, config, light))) {
+            if (auto combined = m_baseStyleSheet->CombineStyleSheetContainer(*mapped)) baseStyle = std::move(combined);
+        }
+    }
 
     const std::string bg = CssColor(m_config.themeBg);
     const std::string panel = CssColor(m_config.themeSettingsPanel);
@@ -66,15 +280,29 @@ void RmlUiController::UpdateThemeProperties() {
     const std::string baseline = CssColor(m_config.themeGraphBaseline);
     const std::string topbar = CssColor(m_config.themeTopbar);
     const std::string graphPanel = CssColor(m_config.themeGraphPanel);
-    const auto scaledColor = [](ColorRGBA color, float rgbScale, float alpha = -1.0f) {
-        color.r = std::clamp(color.r * rgbScale, 0.0f, 1.0f);
-        color.g = std::clamp(color.g * rgbScale, 0.0f, 1.0f);
-        color.b = std::clamp(color.b * rgbScale, 0.0f, 1.0f);
+    const auto scaledColor = [light](ColorRGBA color, float rgbScale, float alpha = -1.0f) {
+        if (light && std::min({color.r, color.g, color.b}) > 0.55f && rgbScale != 1.0f) {
+            const float adjustment = (1.0f - rgbScale) * 0.25f;
+            color.r = std::clamp(color.r + adjustment, 0.0f, 1.0f);
+            color.g = std::clamp(color.g + adjustment, 0.0f, 1.0f);
+            color.b = std::clamp(color.b + adjustment, 0.0f, 1.0f);
+        } else {
+            color.r = std::clamp(color.r * rgbScale, 0.0f, 1.0f);
+            color.g = std::clamp(color.g * rgbScale, 0.0f, 1.0f);
+            color.b = std::clamp(color.b * rgbScale, 0.0f, 1.0f);
+        }
         if (alpha >= 0.0f) color.a = std::clamp(alpha, 0.0f, 1.0f);
         return CssColor(color);
     };
-    const std::string accentDark = scaledColor(m_config.themeAccent, 0.28f, 0.95f);
-    const std::string accentMid = scaledColor(m_config.themeAccent, 0.62f, 1.0f);
+    const ColorRGBA accentFill = m_config.themeAccent;
+    const std::string accentDark = CssColor(config.themeSelection);
+    const ColorRGBA accentMidColor{accentFill.r * 0.62f, accentFill.g * 0.62f, accentFill.b * 0.62f, 1.0f};
+    const std::string accentMid = CssColor(accentMidColor);
+    const auto labelOn = [&](ColorRGBA requested, ColorRGBA background) {
+        background = Themes::Composite(background, config.themeSettingsPanel);
+        return CssColor(Themes::Contrast(requested, background) >= 4.5 ? requested : Themes::ReadableText(background));
+    };
+    const std::string accentInk = labelOn(config.themeText, accentMidColor);
 
     // Theme overrides are compiled only when a theme value actually changes.
     // Keeping them in the document stylesheet means structural DOM rebuilds do
@@ -110,9 +338,12 @@ void RmlUiController::UpdateThemeProperties() {
     rule(".card", "background-color", bg);
     rule(".dashboard-shell", "background-color", scaledColor(m_config.themeBg, 0.55f, 1.0f));
     for (const char* selector : {".card", ".card-title", ".value", ".metric-value", ".setting-name", ".setting-title", ".debug-value",
-                                 "button, .button, input.text, input.password, select", "select selectvalue, select selectbox option",
-                                 ".tooltip-bubble"})
+                                 ".tooltip-bubble", ".color-editor-panel", ".setting-section"})
         rule(selector, "color", text);
+    rule("button, .button", "color", CssColor(config.themeButtonText));
+    rule("input.text, input.password, select, select selectvalue, select selectbox option, textarea", "color", CssColor(config.themeInputText));
+    rule("select selectbox, textarea", "background-color", CssColor(config.themeInputBg));
+    rule("select, input.text, input.password, textarea", "border-color", CssColor(config.themeInputBorder));
 
     rule(".settings-window", "background-color", panel);
     rule(".settings-header", "background-color", scaledColor(m_config.themeSettingsPanel, 1.08f, 1.0f));
@@ -139,21 +370,28 @@ void RmlUiController::UpdateThemeProperties() {
     rule(".lobby-rank-header", "background-color", scaledColor(m_config.themeBg, 0.70f, 0.80f));
     rule(".accent", "color", accent);
     for (const char* selector : {".badge.accent", ".accounts-active-label"}) {
-        rule(selector, "color", text);
+        rule(selector, "color", accentInk);
         rule(selector, "background-color", accentMid);
         rule(selector, "border-color", accent);
     }
     rule(".accounts-active-dot", "background-color", accent);
     rule(".overlay-edit", "border-color", accent);
-    rule(".overlay-card.dock-hover-target", "border-color", "#ff0021");
-    rule(".overlay-card.dock-hover-target", "background-color", "#ff002120");
+    rule(".overlay-card.dock-hover-target", "border-color", accent);
+    rule(".overlay-card.dock-hover-target", "background-color", CssColor(MixThemeColor(m_config.themeBg, accentFill, 0.12f)));
     rule(".dashboard-widget.dragging", "border-color", accent);
     rule(".settings-nav button.active", "border-color", accent);
     rule(".settings-nav button.active", "background-color", accentDark);
+    rule(".settings-nav button.active", "color", text);
+    rule(".choice-card.selected", "border-color", accent);
+    rule(".choice-card.selected, .session-row.item.selected", "background-color", accentDark);
+    rule(".session-row.item:hover, .history-row.item:hover, .accounts-row.item:hover, .people-row.item:hover", "background-color", CssColor(config.themeRowHover));
+    rule("select selectbox option:checked", "background-color", accentDark);
+    rule("select selectbox option:hover, select selectbox option:checked", "color", CssColor(config.themeInputText));
     rule(".player-row", "background-color", CssColor(m_config.themeRosterCard));
     rule(".player-row.self", "background-color", CssColor(m_config.themeRosterCardSelf));
     for (const char* selector : {".note-badge", ".chip.chip-tag", ".scout-tag"}) {
         rule(selector, "background-color", CssColor(m_config.themeScoutTag));
+        rule(selector, "color", CssColor(Themes::ReadableText(Themes::Composite(m_config.themeScoutTag, m_config.themeRosterCard))));
         rule(selector, "border-color", scaledColor(m_config.themeScoutTag, 1.35f, 1.0f));
     }
     rule(".note-badge:hover, .scout-tag:hover", "border-color", scaledColor(m_config.themeScoutTag, 1.9f, 1.0f));
@@ -164,8 +402,13 @@ void RmlUiController::UpdateThemeProperties() {
     rule(".match-data.match-even", "background-color", CssColor(m_config.themeMatchRow));
     rule(".match-data.match-odd", "background-color", CssColor(m_config.themeMatchRowAlt));
     rule(".match-data:hover", "background-color", scaledColor(m_config.themeMatchRow, 1.35f, 0.85f));
-    rule("button.primary, .button.primary", "background-color", accentMid);
-    rule("button.primary, .button.primary", "border-color", accent);
+    rule("button.primary, .button.primary", "background-color", CssColor(config.themePrimaryButton));
+    rule("button.primary, .button.primary", "border-color", CssColor(config.themePrimaryBorder));
+    rule("button.primary, .button.primary", "color", labelOn(config.themeButtonText, config.themePrimaryButton));
+    rule("button.primary:hover, .button.primary:hover", "background-color", CssColor(config.themePrimaryHover));
+    rule("button.primary:hover, .button.primary:hover", "color", labelOn(config.themeButtonText, config.themePrimaryHover));
+    rule("button.primary:active, .button.primary:active", "background-color", CssColor(config.themePrimaryPressed));
+    rule("button.primary:active, .button.primary:active", "color", labelOn(config.themeButtonText, config.themePrimaryPressed));
     rule("button.version-update", "color", accent);
     rule("button.version-update:hover", "color", accent);
     rule("button.version-update:hover", "background-color", accentDark);
@@ -174,12 +417,15 @@ void RmlUiController::UpdateThemeProperties() {
     rule("input.text:focus, input.password:focus, select:focus, select:checked", "border-color", accent);
     rule("input.checkbox:checked", "border-color", scaledColor(m_config.themeAccent, 1.6f, 1.0f));
     rule("input.checkbox:checked", "background-color", accent);
+    rule("input.checkbox:checked ~ .toggle-thumb", "background-color", accentInk);
     rule("input.range sliderprogress", "background-color", accentMid);
     rule("input.range sliderbar", "border-color", accent);
     rule("scrollbarvertical sliderbar:active, scrollbarhorizontal sliderbar:active", "background-color", accent);
 
-    const std::string line = scaledColor(m_config.themeText, 1.0f, 0.10f);
-    const std::string lineSoft = scaledColor(m_config.themeText, 1.0f, 0.06f);
+    const std::string line = CssColor(config.themeBorder);
+    ColorRGBA softBorder = config.themeBorder;
+    softBorder.a *= 0.6f;
+    const std::string lineSoft = CssColor(softBorder);
     const std::string accentBright = scaledColor(m_config.themeAccent, 1.6f, 1.0f);
     rule(".view-window", "background-color", panel);
     rule(".view-window", "border-color", line);
@@ -238,7 +484,7 @@ void RmlUiController::UpdateThemeProperties() {
     for (const auto& swatch : kPlatformPalette) {
         const std::string selector = std::string(".") + swatch.className;
         const std::string color = swatch.color;
-        rule(selector, "color", color);
+        if (!light) rule(selector, "color", color);
         rule(".badge" + selector, "border-color", color + "66");
         rule(".badge" + selector, "background-color", color + "1f");
     }
@@ -254,12 +500,23 @@ void RmlUiController::UpdateThemeProperties() {
     rule(".graph-point.neutral, .graph-point-halo.neutral", "background-color", muted);
     rule(".graph-point.estimated", "background-color", std::string("transparent"));
     rule(".graph-point.estimated", "border-color", text);
+    rule(".graph-gridline", "background-color", CssColor(config.themeGraphGrid));
+    rule(".theme-preset.selected", "border-color", accent);
+    rule(".theme-field-error, .theme-message.error, .theme-invalid", "color", loss);
+    rule(".theme-invalid", "border-color", loss);
+    for (const char* tier : {"Unranked", "Bronze", "Silver", "Gold", "Platinum", "Diamond", "Champion", "Grand Champion", "Supersonic Legend"}) {
+        const ColorRGBA rank = Format::RankColor(tier);
+        rule("[data-rank-color='" + CssColor(rank) + "']", "color",
+             CssColor(light ? AccentOn(rank, config.themeSettingsPanel) : rank));
+    }
+    rule(".settings-footer button.ghost", "color", labelOn(config.themeButtonText, config.themeSettingsPanel));
+    rule(".settings-footer button:disabled", "opacity", "0.55");
 
     css << FontOverrideCss();
 
     auto themeStyle = Rml::Factory::InstanceStyleSheetString(css.str());
     if (!themeStyle) return;
-    auto combined = m_baseStyleSheet->CombineStyleSheetContainer(*themeStyle);
+    auto combined = baseStyle->CombineStyleSheetContainer(*themeStyle);
     if (combined) {
         // The view documents link the same packaged RCSS, so one combined
         // sheet serves all of them.

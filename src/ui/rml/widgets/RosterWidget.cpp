@@ -51,7 +51,7 @@ namespace {
 
         const auto rankName = [&](const std::string& label) { return Format::RankTier(label, config.use_roman_numerals); };
         const auto coloredName = [&](const std::string& label) {
-            return "<span class='rank-progress-tier' style='color:" + CssColor(Format::RankColor(label)) + "'>" + Escape(rankName(label)) + "</span>";
+            return "<span class='rank-progress-tier' data-rank-color='" + CssColor(Format::RankColor(label)) + "'>" + Escape(rankName(label)) + "</span>";
         };
         const auto delta = [&](const char* tone, const std::string& value, const std::string& tip, bool alignRight) {
             return std::string("<span class='rank-progress-delta mono tooltip-host ") + tone + "'>" + Escape(value) + "<span class='tooltip-bubble" +
@@ -239,7 +239,7 @@ std::string RmlUiController::RenderPlayerRoster(int team, const char* label) {
         // MMR chip. Without rank crests it also has to name the tier, and when
         // the roster shows the player's best rank it names the playlist that
         // produced it.
-        out << "<span class='chip chip-mmr' style='color:" << CssColor(color) << "'>";
+        out << "<span class='chip chip-mmr' data-rank-color='" << CssColor(color) << "'>";
         if (!config.use_rank_icons)
             out << Escape(mmr > 0 ? Format::RankTier(tier, config.use_roman_numerals) : (p->fetched ? "Unranked" : ranksOn ? "Fetching"
                                                                                                                            : "No rank"))

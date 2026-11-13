@@ -4451,6 +4451,12 @@ TEST_F(RmlUiControllerStateTest, ThemePreviewSurvivesConfigEchoAndOnlyApplyPersi
     const auto light = PreviewTheme(controller);
     EXPECT_FALSE(Themes::Equal(light, saved));
     EXPECT_TRUE(Themes::Equal(Themes::Read(Config::Read()), saved));
+    auto* rank = Document(controller)->QuerySelector(".chip-mmr");
+    ASSERT_NE(rank, nullptr);
+    const auto ink = rank->GetProperty<Rml::Colourb>("color");
+    ConfigData lightConfig;
+    Themes::Apply(lightConfig, light);
+    EXPECT_GE(Themes::Contrast({ink.red / 255.0f, ink.green / 255.0f, ink.blue / 255.0f, 1}, lightConfig.themeSettingsPanel), 4.5);
     Config::Update([](ConfigData& c) { c.use_roman_numerals = !c.use_roman_numerals; }, false);
     controller.Update(Config::Read(), true);
     EXPECT_TRUE(Themes::Equal(PreviewTheme(controller), light));
@@ -4513,6 +4519,12 @@ TEST_F(RmlUiControllerStateTest, ThemeImportResetAndSavedThemesPreserveAppliedCo
     auto* warning = SettingsRoot(controller)->QuerySelector("#theme-error-theme_text");
     ASSERT_NE(warning, nullptr);
     EXPECT_FALSE(warning->GetInnerRML().empty());
+    auto* revert = SettingsRoot(controller)->QuerySelector("[data-action='theme-revert']");
+    ASSERT_NE(revert, nullptr);
+    const auto revertInk = revert->GetProperty<Rml::Colourb>("color");
+    EXPECT_GE(Themes::Contrast({revertInk.red / 255.0f, revertInk.green / 255.0f, revertInk.blue / 255.0f, 1},
+                               Config::Read().themeSettingsPanel),
+              4.5);
     ThemeInput(controller, "theme_accent", "#ffff00");
     action("[data-action='theme-apply']");
     EXPECT_FLOAT_EQ(Config::Read().themeAccent.r, 1);
@@ -4521,4 +4533,66 @@ TEST_F(RmlUiControllerStateTest, ThemeImportResetAndSavedThemesPreserveAppliedCo
     EXPECT_EQ(Config::Read().custom_themes.size(), 1u);
     action("[data-action='theme-delete'][data-theme-index='0']");
     EXPECT_TRUE(Config::Read().custom_themes.empty());
+}
+
+TEST_F(RmlUiControllerStateTest, StandardButtonColorsAndIndependentControlStatesArePreserved) {
+    WarpDevice warp;
+    if (!warp.Create(1280, 800)) GTEST_SKIP() << "WARP not available.";
+    Config::Update([](ConfigData& config) { config.ResetThemeColors(); }, false);
+    auto state = std::make_shared<SessionState>();
+    state->ui.showMenu.store(true);
+    RmlUiController controller(state, nullptr);
+    ASSERT_TRUE(controller.Initialize(nullptr, warp.device.Get(), warp.context.Get(), 1280, 800, 1));
+    SetSettingsPage(controller, 2);
+    controller.Update(Config::Read(), true);
+    auto probes = Document(controller)->CreateElement("div");
+    probes->SetInnerRML("<button id='primary-probe' class='primary'>Primary</button>"
+                        "<button id='secondary-probe'>Secondary</button>"
+                        "<input id='input-probe' class='text' value='Text'/>"
+                        "<div id='panel-probe' class='card'>Panel</div>");
+    Document(controller)->AppendChild(std::move(probes));
+    controller.Render();
+    const auto color = [&](const char* id, const char* property) {
+        return Document(controller)->GetElementById(id)->GetProperty<Rml::Colourb>(property);
+    };
+    EXPECT_EQ(color("primary-probe", "background-color"), Rml::Colourb(73, 0, 0, 255));
+    EXPECT_EQ(color("primary-probe", "border-top-color"), Rml::Colourb(118, 0, 0, 255));
+    EXPECT_EQ(color("secondary-probe", "background-color"), Rml::Colourb(37, 37, 37, 255));
+    EXPECT_EQ(color("secondary-probe", "border-top-color"), Rml::Colourb(57, 57, 57, 255));
+    EXPECT_EQ(color("input-probe", "background-color"), Rml::Colourb(18, 18, 18, 255));
+    EXPECT_EQ(color("panel-probe", "border-top-color"), Rml::Colourb(38, 38, 38, 128));
+    auto* primary = Document(controller)->GetElementById("primary-probe");
+    primary->SetPseudoClass("hover", true);
+    controller.Render();
+    EXPECT_EQ(color("primary-probe", "background-color"), Rml::Colourb(73, 0, 0, 255));
+    primary->SetPseudoClass("hover", false);
+    ThemeInput(controller, "theme_primary_button", "#123456");
+    ThemeInput(controller, "theme_primary_hover", "#245678");
+    ThemeInput(controller, "theme_primary_pressed", "#102040");
+    ThemeInput(controller, "theme_input_bg", "#203040");
+    controller.Render();
+    EXPECT_EQ(color("primary-probe", "background-color"), Rml::Colourb(18, 52, 86, 255));
+    EXPECT_EQ(color("secondary-probe", "background-color"), Rml::Colourb(37, 37, 37, 255));
+    EXPECT_EQ(color("input-probe", "background-color"), Rml::Colourb(32, 48, 64, 255));
+    ThemeInput(controller, "theme_button_bg", "#274156");
+    ThemeInput(controller, "theme_border", "#ff0000");
+    controller.Render();
+    EXPECT_EQ(color("secondary-probe", "background-color"), Rml::Colourb(39, 65, 86, 255));
+    const auto border = color("panel-probe", "border-top-color");
+    EXPECT_GT(border.red, 0);
+    EXPECT_EQ(border.green, 0);
+    EXPECT_EQ(border.blue, 0);
+    EXPECT_EQ(border.alpha, 255);
+    primary->SetPseudoClass("hover", true);
+    controller.Render();
+    EXPECT_EQ(color("primary-probe", "background-color"), Rml::Colourb(36, 86, 120, 255));
+    primary->SetPseudoClass("active", true);
+    controller.Render();
+    EXPECT_EQ(color("primary-probe", "background-color"), Rml::Colourb(16, 32, 64, 255));
+    EXPECT_FLOAT_EQ(Config::Read().themePrimaryButton.r, ConfigData{}.themePrimaryButton.r);
+    Click(controller, SettingsRoot(controller)->QuerySelector("[data-action='theme-revert']"));
+    Config::Update([](ConfigData& config) { config.themeInputBg = {0.2f, 0.3f, 0.4f, 1}; }, false);
+    controller.Update(Config::Read(), true);
+    controller.Render();
+    EXPECT_EQ(color("input-probe", "background-color"), Rml::Colourb(51, 77, 102, 255));
 }

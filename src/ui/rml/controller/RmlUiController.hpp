@@ -344,6 +344,7 @@ class RmlUiController final : public Rml::EventListener {
     Rml::Context* m_context = nullptr;
     Rml::ElementDocument* m_document = nullptr;
     Rml::SharedPtr<Rml::StyleSheetContainer> m_baseStyleSheet;
+    std::string m_baseStyleSheetSource;
     bool m_rmlInitialized = false;
     bool m_rmlInterfacesInstalled = false;
     std::unique_ptr<Rml::ElementInstancer> m_graphLineInstancer;
