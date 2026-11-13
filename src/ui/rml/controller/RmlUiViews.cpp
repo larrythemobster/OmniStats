@@ -850,6 +850,9 @@ bool RmlUiController::HandleViewAction(const std::string& action, Rml::Element* 
     } else if (action == "accounts-close") {
         HideAccounts();
         return true;
+    } else if (action == "accounts-auto-detect") {
+        SelectIdentity("");
+        return true;
     } else if (action == "accounts-refresh-all") {
         if (m_accountsService) {
             size_t count = m_accountsService->RefreshAll();
@@ -864,6 +867,28 @@ bool RmlUiController::HandleViewAction(const std::string& action, Rml::Element* 
     } else if (action == "accounts-refresh-row") {
         const std::string id = Attribute(target, "data-id");
         if (!id.empty()) RefreshAccountRow(id);
+        return true;
+    } else if (action == "accounts-use") {
+        const std::string id = Attribute(target, "data-id");
+        if (!m_accountsService) return true;
+        const auto snapshot = m_accountsService->GetSnapshot();
+        const auto account = std::find_if(snapshot.accounts.begin(), snapshot.accounts.end(), [&](const auto& entry) {
+            return entry.record.primaryId == id;
+        });
+        if (account == snapshot.accounts.end()) return true;
+        std::string selectedId = id;
+        for (const auto& known : m_config.known_primary_ids)
+            if (TrackedAccounts::CanonicalPrimaryId(known) == id) {
+                selectedId = known;
+                break;
+            }
+        for (const auto& [rosterId, player] : m_snap.roster)
+            if (TrackedAccounts::CanonicalPrimaryId(rosterId) == id) {
+                selectedId = rosterId;
+                break;
+            }
+        SelectIdentity(selectedId);
+        ShowToast("Active account: " + TrackedAccounts::DisplayLabel(account->record));
         return true;
     } else if (action == "accounts-column-set") {
         const std::string set = Attribute(target, "data-set");

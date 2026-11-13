@@ -248,6 +248,7 @@ class RmlUiController final : public Rml::EventListener {
     std::string RenderSettingsData();
     std::string RenderSettingsTroubleshooting();
     std::vector<RmlUiDetail::SelectOption> IdentityOptions() const;
+    void SelectIdentity(const std::string& primaryId);
 
     void HandleClick(Rml::Element* target);
     void HandleChange(Rml::Element* target, Rml::Event& event);

@@ -12,6 +12,7 @@
                     <div class="label">{{subtitle}}</div>
                 </div>
                 <div class="row gap-sm">
+                    <button class="ghost compact" data-action="accounts-auto-detect" data-if="has_service">Auto-detect</button>
                     <button class="ghost compact" data-action="accounts-refresh-all" data-if="loaded && rows.size > 0">Refresh all</button>
                     <button class="ghost compact" data-action="accounts-open-import" data-if="has_import_candidates">Import known</button>
                     <button class="primary compact" data-action="accounts-open-add" data-if="has_service">Add account</button>
@@ -78,6 +79,7 @@
                             <span class="accounts-status-badge" data-attr-class="row.status_class">{{row.status_text}}</span>
                         </div>
                         <div class="accounts-cell-actions row gap-xs">
+                            <button class="primary compact accounts-action-btn" data-action="accounts-use" data-attr-data-id="row.primary_id" data-if="!row.is_active">Use</button>
                             <button class="ghost compact accounts-action-btn" data-action="accounts-refresh-row" data-attr-data-id="row.primary_id">Refresh</button>
                             <button class="ghost compact accounts-action-btn" data-action="accounts-open-detail" data-attr-data-id="row.primary_id">&#x22EF;</button>
                         </div>

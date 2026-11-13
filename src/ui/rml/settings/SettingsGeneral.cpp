@@ -4,6 +4,7 @@
 #include <commdlg.h>
 
 #include "core/config/AppVersion.hpp"
+#include "core/accounts/AccountManager.hpp"
 #include "utils/Storage.hpp"
 #include "core/config/StatsApiConfig.hpp"
 #include "database/DatabaseManager.hpp"
@@ -58,9 +59,24 @@ std::vector<SelectOption> RmlUiController::IdentityOptions() const {
         if (selectableIdentity(id)) seen.insert(id);
     for (const auto& [id, p] : m_snap.roster)
         if (selectableIdentity(id)) seen.insert(id);
+    std::unordered_map<std::string, std::string> savedNames;
+    if (m_accountsService) {
+        const auto accounts = m_accountsService->GetSnapshot();
+        for (const auto& account : accounts.accounts)
+            if (!account.record.lastKnownName.empty())
+                savedNames.emplace(account.record.primaryId, account.record.lastKnownName);
+        for (const auto& candidate : m_accountsService->ImportCandidates())
+            if (!candidate.lastKnownName.empty())
+                savedNames.emplace(candidate.identity.primaryId, candidate.lastKnownName);
+    }
     for (const auto& id : seen) {
         std::string label = id;
-        if (auto it = m_snap.roster.find(id); it != m_snap.roster.end() && !it->second.name.empty()) label = it->second.name + " · " + id;
+        if (auto it = m_snap.roster.find(id); it != m_snap.roster.end() && !it->second.name.empty()) {
+            label = it->second.name;
+        } else if (const auto identity = TrackedAccounts::FromPrimaryId(id)) {
+            if (auto name = savedNames.find(identity->primaryId); name != savedNames.end())
+                label = name->second;
+        }
         options.push_back({id, std::move(label)});
     }
     return options;

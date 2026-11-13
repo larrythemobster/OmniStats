@@ -43,6 +43,8 @@ OmniStats is a Windows companion app for Rocket League. Follow your lobby's rank
 
 Use **borderless windowed** mode in Rocket League for the in-game overlay. The second-monitor dashboard also works while the game uses exclusive fullscreen.
 
+To switch the active Rocket League identity in OmniStats, open **Accounts** and click **Use** beside the player's name. The selected row shows **Active**. Choose **Auto-detect** to let the next match identify your account. This does not change Rocket League's signed-in account.
+
 Linux support through Proton is experimental and limited to the second-monitor dashboard. See the [Linux guide](docs/LINUX.md).
 
 ## Screenshots

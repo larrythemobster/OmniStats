@@ -884,6 +884,7 @@ void RmlUiController::RebuildVisibleUi(bool force, bool configChanged) {
             HashAppend(settingsHash, static_cast<uint64_t>(m_state->ui.ballchasingTokenRejected.load(std::memory_order_relaxed)));
         }
         if (m_settingsPage == SettingsPage::Accounts) {
+            HashAppend(settingsHash, m_accountsService ? m_accountsService->Version() : 0);
             // game.version also advances for ordinary match counters. Hash only
             // the identity/rank fields rendered by these settings pages, without
             // sorting IDs or constructing a large temporary fingerprint string.

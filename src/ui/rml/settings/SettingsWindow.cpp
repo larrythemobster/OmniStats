@@ -120,16 +120,21 @@ void RmlUiController::RebuildSettings() {
     case SettingsPage::Controls:
         content << RenderSettingsShortcuts();
         break;
-    case SettingsPage::Accounts:
+    case SettingsPage::Accounts: {
+        const std::string activeId = m_snap.myPrimaryId.empty() ? m_config.last_primary_id : m_snap.myPrimaryId;
+        std::string activeName = "Auto-detect";
+        for (const auto& option : IdentityOptions())
+            if (option.value == activeId) activeName = option.label;
         content << RenderSettingsIntegrations()
                 << SectionStart("Rocket League account")
-                << SelectRow("identity", "Local account", "Automatically detected in your first match.", IdentityOptions(), m_config.last_primary_id)
+                << ActionRow("Active account", activeName, Button("accounts-open", "Choose account", "ghost"))
                 << SectionEnd()
                 << "<div class='settings-disclosure'>"
                 << Button("toggle-rank-details", m_showRankDetails ? "Hide rank options" : "Show rank options", "ghost")
                 << "</div>";
         if (m_showRankDetails) content << RenderSettingsRanks();
         break;
+    }
     case SettingsPage::DataSupport:
         content << RenderSettingsData()
                 << SectionStart("Sessions")

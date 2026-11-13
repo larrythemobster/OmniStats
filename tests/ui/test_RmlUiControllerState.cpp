@@ -27,6 +27,7 @@
 #include <vector>
 
 #include "core/config/Config.hpp"
+#include "core/accounts/AccountManager.hpp"
 #include "network/omninet/OmniNet.hpp"
 #include "ui/config/WidgetSettings.hpp"
 #include "core/state/SessionState.hpp"
@@ -128,6 +129,12 @@ class RmlUiControllerStateTest : public ::testing::Test {
         for (const auto& option : controller.IdentityOptions())
             values.push_back(option.value);
         return values;
+    }
+    std::vector<RmlUiDetail::SelectOption> IdentityChoices(RmlUiController& controller) {
+        return controller.IdentityOptions();
+    }
+    Rml::ElementDocument* AccountsDocument(RmlUiController& controller) {
+        return controller.m_accountsDoc;
     }
     std::string RenderIntegrationSettings(RmlUiController& controller) {
         return controller.RenderSettingsIntegrations();
@@ -4190,4 +4197,83 @@ TEST_F(RmlUiControllerStateTest, CompactTournamentCountdownFitsBothSurfaces) {
         EXPECT_LE(name->GetAbsoluteOffset().x + name->GetOffsetWidth(), time->GetAbsoluteOffset().x);
         EXPECT_LE(time->GetAbsoluteOffset().x + time->GetOffsetWidth(), card->GetAbsoluteOffset().x + card->GetOffsetWidth());
     }
+}
+
+TEST_F(RmlUiControllerStateTest, AccountMenuShowsCapturedNamesAndKeepsIdentityValues) {
+    WarpDevice warp;
+    if (!warp.Create(1280, 800)) GTEST_SKIP() << "WARP not available.";
+    const std::string savedId = "Epic|0123456789abcdef0123456789abcdef|0";
+    const std::string liveId = "Steam|76561198000000001|0";
+    Config::Update([&](ConfigData& c) {
+        c.last_primary_id = savedId;
+        c.known_primary_ids = {savedId, liveId};
+    },
+                   false);
+    auto state = std::make_shared<SessionState>();
+    auto db = std::make_shared<DatabaseManager>(state);
+    ASSERT_TRUE(db->Initialize(":memory:"));
+    auto worker = std::make_shared<WorkQueue>();
+    auto accounts = std::make_shared<AccountManagerService>(db, nullptr, nullptr, worker);
+    accounts->Start();
+    worker->Drain();
+    accounts->ObserveLocalAccount(savedId, "Saved <Player>");
+    accounts->ObserveLocalAccount(liveId, "Old name");
+    worker->Drain();
+    accounts->Stop();
+
+    worker = std::make_shared<WorkQueue>();
+    accounts = std::make_shared<AccountManagerService>(db, nullptr, nullptr, worker);
+    accounts->Start();
+    worker->Drain();
+    state->liveMatch->Update([&](MatchState& ms) {
+        PlayerData player;
+        player.primaryId = liveId;
+        player.name = "Current player";
+        ms.roster[liveId] = player;
+    });
+    RmlUiController controller(state, nullptr, accounts);
+    ASSERT_TRUE(controller.Initialize(nullptr, warp.device.Get(), warp.context.Get(), 1280, 800, 1.0f));
+    SetSettingsPage(controller, 4);
+    state->ui.showMenu.store(true);
+    controller.Update(Config::Read());
+    controller.Render();
+
+    const auto choices = IdentityChoices(controller);
+    ASSERT_EQ(choices.size(), 3u);
+    EXPECT_EQ(choices[0].label, "Auto-detect");
+    EXPECT_EQ(choices[1].value, savedId);
+    EXPECT_EQ(choices[1].label, "Saved <Player>");
+    EXPECT_EQ(choices[2].value, liveId);
+    EXPECT_EQ(choices[2].label, "Current player");
+    EXPECT_NE(SettingsRoot(controller)->GetInnerRML().find("Saved &lt;Player&gt;"), std::string::npos);
+    auto* choose = SettingsRoot(controller)->QuerySelector("[data-action='accounts-open']");
+    ASSERT_NE(choose, nullptr);
+    Click(controller, choose);
+    controller.Update(Config::Read(), false);
+    controller.Render();
+
+    auto* use = AccountsDocument(controller)->QuerySelector("[data-action='accounts-use'][data-id='Steam|76561198000000001']");
+    ASSERT_NE(use, nullptr);
+    ASSERT_TRUE(use->IsVisible());
+    Click(controller, use);
+    controller.Update(Config::Read(), false);
+    controller.Render();
+    EXPECT_EQ(Config::Read().last_primary_id, liveId);
+    EXPECT_EQ(state->liveMatch->GetSnapshot()->myPrimaryId, liveId);
+    auto* active = AccountsDocument(controller)->QuerySelector("[data-action='accounts-open-detail'][data-id='Steam|76561198000000001']");
+    ASSERT_NE(active, nullptr);
+    EXPECT_TRUE(active->QuerySelector(".accounts-active-label")->IsVisible());
+    EXPECT_FALSE(active->QuerySelector("[data-action='accounts-use']")->IsVisible());
+    EXPECT_NE(SettingsRoot(controller)->GetInnerRML().find("Current player"), std::string::npos);
+
+    accounts->ObserveLocalAccount(savedId, "Renamed player");
+    controller.Update(Config::Read(), false);
+    EXPECT_EQ(IdentityChoices(controller)[1].label, "Renamed player");
+    auto* autoDetect = AccountsDocument(controller)->QuerySelector("[data-action='accounts-auto-detect']");
+    ASSERT_NE(autoDetect, nullptr);
+    Click(controller, autoDetect);
+    controller.Update(Config::Read(), false);
+    EXPECT_TRUE(Config::Read().last_primary_id.empty());
+    EXPECT_TRUE(state->liveMatch->GetSnapshot()->myPrimaryId.empty());
+    worker->Drain();
 }

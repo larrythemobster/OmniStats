@@ -530,6 +530,24 @@ void RmlUiController::HandleInput(Rml::Element* target) {
     }
 }
 
+void RmlUiController::SelectIdentity(const std::string& primaryId) {
+    Config::Update([&](ConfigData& c) {
+        c.last_primary_id = primaryId;
+        if (!primaryId.empty() && std::find(c.known_primary_ids.begin(), c.known_primary_ids.end(), primaryId) == c.known_primary_ids.end())
+            c.known_primary_ids.push_back(primaryId);
+    });
+    if (m_state) {
+        m_state->history.Mutate([&](auto& data) {
+            m_state->selectMmrOwnerLocked(primaryId, data);
+        });
+    }
+    m_lastDbFetchPrimaryId.clear();
+    m_lastLifetimeHistoryPrimaryId.clear();
+    m_lastRecentMatchHistoryPrimaryId.clear();
+    m_config = Config::Read();
+    m_deferredSelectRebuild = true;
+}
+
 void RmlUiController::HandleChange(Rml::Element* target, Rml::Event& event) {
     const std::string key = Attribute(target, "data-setting");
     if (key.empty()) return;
@@ -543,6 +561,10 @@ void RmlUiController::HandleChange(Rml::Element* target, Rml::Event& event) {
     }
     std::string value = ControlValue(target);
     const bool checked = EventChecked(event, target);
+    if (key == "identity") {
+        SelectIdentity(value);
+        return;
+    }
 
     if (key == "auto_upload_replays" && checked && !m_config.ballchasing_upload_notice_accepted) {
         m_confirmReplayUploads = true;
@@ -619,10 +641,7 @@ void RmlUiController::HandleChange(Rml::Element* target, Rml::Event& event) {
             c.run_on_startup = checked;
         else if (key == "enable_auto_updates")
             c.enable_auto_updates = checked;
-        else if (key == "identity") {
-            c.last_primary_id = value;
-            if (!value.empty() && std::find(c.known_primary_ids.begin(), c.known_primary_ids.end(), value) == c.known_primary_ids.end()) c.known_primary_ids.push_back(value);
-        } else if (key == "show_session_record")
+        else if (key == "show_session_record")
             c.show_session_record = checked;
         else if (key == "show_session_goals")
             c.show_session_goals = checked;
@@ -819,15 +838,6 @@ void RmlUiController::HandleChange(Rml::Element* target, Rml::Event& event) {
     }
 
     if (key == "run_on_startup") Config::SetWindowsAutoStart(checked);
-    if (key == "identity" && m_state) {
-        m_state->history.Mutate([&](auto& data) {
-            m_state->selectMmrOwnerLocked(value, data);
-        });
-        // Force account-scoped async data to refresh for the newly selected identity.
-        m_lastDbFetchPrimaryId.clear();
-        m_lastLifetimeHistoryPrimaryId.clear();
-        m_lastRecentMatchHistoryPrimaryId.clear();
-    }
     if (key == "mmr_category" && m_state) m_state->ui.rosterMmrCategory.store(StringToMmrCategory(value));
     if (key == "graph_mmr_category" && m_state) m_state->ui.graphMmrCategory.store(StringToMmrCategory(value));
     if (key == "graph_follow_current_playlist" && !checked && m_state) m_state->ui.graphMmrCategory.store(StringToMmrCategory(m_config.graph_mmr_category));
