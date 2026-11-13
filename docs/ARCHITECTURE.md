@@ -77,4 +77,4 @@ The updater runs separately from the client. It verifies signed release manifest
 
 Official builds include a private service module for OmniStats sign-in, ranks, tournament schedules, and diagnostics. Source builds use the public stub and Tracker Network rank lookup.
 
-See [PRIVACY.md](PRIVACY.md) for network destinations and transmitted data, and [../SECURITY.md](../SECURITY.md) for vulnerability reporting and release verification.
+See [PRIVACY.md](PRIVACY.md) for network destinations and transmitted data, and [../.github/SECURITY.md](../.github/SECURITY.md) for vulnerability reporting and release verification.

@@ -36,7 +36,7 @@ The updater checks the downloaded MSI against its published SHA-256 checksum and
 
 ## External services
 
-Required startup diagnostics are sent only after the user accepts the in-app privacy notice. The transmitted fields are documented in [docs/PRIVACY.md](docs/PRIVACY.md).
+Required startup diagnostics are sent only after the user accepts the in-app privacy notice. The transmitted fields are documented in [docs/PRIVACY.md](../docs/PRIVACY.md).
 
 The following features are optional:
 

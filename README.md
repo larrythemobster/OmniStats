@@ -10,7 +10,7 @@
   <a href="https://omnistats.org/"><strong>Download for Windows</strong></a> ·
   <a href="#getting-started">Getting started</a> ·
   <a href="https://discord.gg/4KBW35ApvF">Discord</a> ·
-  <a href="CONTRIBUTING.md">Contributing</a>
+  <a href=".github/CONTRIBUTING.md">Contributing</a>
 </p>
 
 <p align="center">
@@ -65,7 +65,7 @@ The client uses C++20, Direct3D 11, and RmlUi. See the [build guide](docs/BUILDI
 
 Source builds use a public service stub with Tracker Network rank lookup. OmniStats account sign-in, tournament schedules, diagnostics, and crash uploads require the private service module included in official builds.
 
-Read [CONTRIBUTING.md](CONTRIBUTING.md) before opening a PR. For help, join [Discord](https://discord.gg/4KBW35ApvF). Report vulnerabilities privately using the [security policy](SECURITY.md).
+Read [.github/CONTRIBUTING.md](.github/CONTRIBUTING.md) before opening a PR. For help, join [Discord](https://discord.gg/4KBW35ApvF). Report vulnerabilities privately using the [security policy](.github/SECURITY.md).
 
 ## License
 

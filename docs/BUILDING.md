@@ -69,4 +69,14 @@ Debug builds read from the source tree automatically. The hotkey reloads the sty
 | `ENABLE_TSAN` | `OFF` | Enables ThreadSanitizer on supported non-MSVC toolchains. |
 | `ENABLE_COVERAGE` | `OFF` | Enables coverage instrumentation on supported non-MSVC toolchains. |
 
-The supported installer definition is under `installer/wix`. Release binaries should be built and tested from a clean commit before packaging.
+The supported installer definition is under `tools/installer/wix`. Release binaries should be built and tested from a clean commit before packaging.
+
+## Developer tooling
+
+Release signing tools live under `tools/release/`. Signing keys and certificates stay outside the repository. Benchmarks live under `tests/benchmarks/` and build separately from the unit tests when `OMNISTATS_BUILD_BENCHMARKS=ON`.
+
+To enable the staged-file formatting hook, run this from the client repository:
+
+```powershell
+git config core.hooksPath .github/hooks
+```

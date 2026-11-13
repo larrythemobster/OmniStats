@@ -3,6 +3,7 @@
 *.vcxproj text eol=crlf
 *.ps1 text eol=crlf
 *.wxs text eol=crlf
+.github/hooks/* text eol=lf
 *.png binary
 *.ico binary
 *.cache binary

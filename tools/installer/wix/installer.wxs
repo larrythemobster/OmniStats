@@ -16,7 +16,7 @@
     <Property Id="OMNISTATS_AUTOSTART" Value="0" />
 
     <ui:WixUI Id="WixUI_Minimal" />
-    <WixVariable Id="WixUILicenseRtf" Value="installer/wix/license.rtf" />
+    <WixVariable Id="WixUILicenseRtf" Value="tools/installer/wix/license.rtf" />
 
     <StandardDirectory Id="LocalAppDataFolder">
       <Directory Id="INSTALLFOLDER" Name="OmniStats">

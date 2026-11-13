@@ -1,12 +1,12 @@
 param(
-    [string]$KeyPath = (Join-Path $PSScriptRoot "..\..\certs\release-signing.key"),
+    [string]$KeyPath = (Join-Path $PSScriptRoot "..\..\..\certs\release-signing.key"),
     [string]$SignerPath = ""
 )
 
 $ErrorActionPreference = "Stop"
 
 if (-not $SignerPath) {
-    $buildDir = Join-Path $PSScriptRoot "..\out\windows-release"
+    $buildDir = Join-Path $PSScriptRoot "..\..\out\windows-release"
     $found = Get-ChildItem -Path $buildDir -Recurse -Filter OmniStatsReleaseSigner.exe -ErrorAction SilentlyContinue | Select-Object -First 1
     if (-not $found) { throw "OmniStatsReleaseSigner.exe not found under $buildDir. Build the windows-release preset first or pass -SignerPath." }
     $SignerPath = $found.FullName

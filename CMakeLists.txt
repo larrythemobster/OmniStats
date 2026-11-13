@@ -6,7 +6,7 @@ set(VCPKG_TARGET_TRIPLET "x64-windows-static" CACHE STRING "Vcpkg target triplet
 # Use the project-local RmlUi overlay so font rasterization is deterministic.
 # Preserve any caller-provided overlays while ensuring our patched RmlUi port
 # takes precedence. This must be configured before project() loads vcpkg.
-set(_OMNISTATS_VCPKG_OVERLAY "${CMAKE_CURRENT_SOURCE_DIR}/vcpkg-overlay-ports")
+set(_OMNISTATS_VCPKG_OVERLAY "${CMAKE_CURRENT_SOURCE_DIR}/cmake/vcpkg-ports")
 set(_OMNISTATS_VCPKG_OVERLAYS "${_OMNISTATS_VCPKG_OVERLAY}")
 if(VCPKG_OVERLAY_PORTS)
     list(APPEND _OMNISTATS_VCPKG_OVERLAYS ${VCPKG_OVERLAY_PORTS})
@@ -207,7 +207,7 @@ if(OMNISTATS_USE_PRIVATE_SERVICES AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/privat
     add_subdirectory(private)
     message(STATUS "OmniNet backend: private service module")
 else()
-    add_library(omnistats_omninet STATIC "${CMAKE_CURRENT_SOURCE_DIR}/omninet-stub/OmniNetStub.cpp")
+    add_library(omnistats_omninet STATIC "${CMAKE_CURRENT_SOURCE_DIR}/src/stubs/omninet/OmniNetStub.cpp")
     target_include_directories(omnistats_omninet PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/src")
     message(STATUS "OmniNet backend: stub (tracker.gg only, no sign-in/telemetry)")
 endif()
@@ -409,7 +409,7 @@ if(OMNISTATS_BUILD_UPDATER)
     endif()
 endif()
 
-add_executable(OmniStatsReleaseSigner tools/ReleaseSigner.cpp)
+add_executable(OmniStatsReleaseSigner tools/release/ReleaseSigner.cpp)
 target_include_directories(OmniStatsReleaseSigner PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
 target_link_libraries(OmniStatsReleaseSigner PRIVATE unofficial-sodium::sodium)
 
@@ -419,8 +419,9 @@ target_link_libraries(OmniStatsReleaseSigner PRIVATE unofficial-sodium::sodium)
 if(BUILD_TESTING)
     file(GLOB_RECURSE TEST_SOURCES CONFIGURE_DEPENDS "tests/*.cpp")
     file(GLOB_RECURSE FUZZ_SOURCES CONFIGURE_DEPENDS "tests/fuzz/*.cpp")
-    if(FUZZ_SOURCES)
-        list(REMOVE_ITEM TEST_SOURCES ${FUZZ_SOURCES})
+    file(GLOB_RECURSE BENCH_SOURCES CONFIGURE_DEPENDS "tests/benchmarks/*.cpp")
+    if(FUZZ_SOURCES OR BENCH_SOURCES)
+        list(REMOVE_ITEM TEST_SOURCES ${FUZZ_SOURCES} ${BENCH_SOURCES})
     endif()
 
     add_executable(OmniStatsTests ${TEST_SOURCES} "${OMNISTATS_APP_RESOURCE_FILE}")
@@ -469,8 +470,6 @@ if(BUILD_TESTING)
     # -------------------------------------------------------------------------
     # Google Benchmark Target
     # -------------------------------------------------------------------------
-    file(GLOB_RECURSE BENCH_SOURCES CONFIGURE_DEPENDS "benchmarks/*.cpp")
-
     if(BENCH_SOURCES AND OMNISTATS_BUILD_BENCHMARKS)
         add_executable(OmniStatsBenchmarks ${BENCH_SOURCES})
         omnistats_copy_discord_sdk(OmniStatsBenchmarks)
