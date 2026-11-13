@@ -71,6 +71,15 @@ namespace database::repository {
             return false;
         }
 
+        const auto finishFile = [&error](std::ofstream& file, const char* filename) {
+            file.close();
+            if (!file) {
+                error = std::string("Failed to finish export file: ") + filename;
+                return false;
+            }
+            return true;
+        };
+
         nlohmann::json matches = nlohmann::json::array();
         std::ofstream matchesCsv(exportPath + "matches.csv", std::ios::trunc);
         std::ofstream playersCsv(exportPath + "match_players.csv", std::ios::trunc);
@@ -121,6 +130,8 @@ namespace database::repository {
                     "FROM MatchPlayerStats WHERE match_id = ? AND primary_id = ?;";
                 playerStatsStmt = std::make_unique<sqlite::Statement>(db, playerStatsSql);
             } catch (...) {
+                error = "Failed to query match statistics for export.";
+                return false;
             }
         }
 
@@ -130,6 +141,8 @@ namespace database::repository {
                 const char* analyticsSql = "SELECT format_version, data FROM MatchAnalytics WHERE match_id = ?;";
                 analyticsStmt = std::make_unique<sqlite::Statement>(db, analyticsSql);
             } catch (...) {
+                error = "Failed to query match analytics for export.";
+                return false;
             }
         }
 
@@ -277,6 +290,8 @@ namespace database::repository {
                         match["players"].push_back(std::move(player));
                     }
                 } catch (...) {
+                    error = "Failed to query match players for export.";
+                    return false;
                 }
 
                 matches.push_back(std::move(match));
@@ -296,9 +311,11 @@ namespace database::repository {
         if (hasSessionsTable) {
             nlohmann::json sessionsJson = nlohmann::json::array();
             std::ofstream sessionsCsv(exportPath + "sessions.csv", std::ios::trunc);
-            if (sessionsCsv.is_open()) {
-                sessionsCsv << "id,account,started_at,ended_at,wins,losses,source,mmr_change_json,totals_json\n";
+            if (!sessionsCsv.is_open()) {
+                error = "Failed to open session CSV export.";
+                return false;
             }
+            sessionsCsv << "id,account,started_at,ended_at,wins,losses,source,mmr_change_json,totals_json\n";
             const char* sessSql =
                 "SELECT id, account, COALESCE(started_at, 0), COALESCE(ended_at, 0), COALESCE(wins, 0), COALESCE(losses, 0), "
                 "COALESCE(mmr_change_json, '{}'), COALESCE(totals_json, '{}'), COALESCE(source, 'live') "
@@ -330,33 +347,38 @@ namespace database::repository {
                     if (sObj["totals"].is_discarded()) sObj["totals"] = nlohmann::json::object();
                     sessionsJson.push_back(std::move(sObj));
 
-                    if (sessionsCsv.is_open()) {
-                        sessionsCsv << sid << ","
-                                    << CsvEscape(account) << ","
-                                    << startedAt << ","
-                                    << endedAt << ","
-                                    << wins << ","
-                                    << losses << ","
-                                    << CsvEscape(source) << ","
-                                    << CsvEscape(mmrJsonStr) << ","
-                                    << CsvEscape(totalsJsonStr) << "\n";
-                    }
+                    sessionsCsv << sid << ","
+                                << CsvEscape(account) << ","
+                                << startedAt << ","
+                                << endedAt << ","
+                                << wins << ","
+                                << losses << ","
+                                << CsvEscape(source) << ","
+                                << CsvEscape(mmrJsonStr) << ","
+                                << CsvEscape(totalsJsonStr) << "\n";
                 }
             } catch (...) {
+                error = "Failed to query sessions for export.";
+                return false;
             }
 
             std::ofstream sessJsonFile(exportPath + "sessions.json", std::ios::trunc);
-            if (sessJsonFile.is_open()) {
-                sessJsonFile << sessionsJson.dump(2);
+            if (!sessJsonFile.is_open()) {
+                error = "Failed to open session JSON export.";
+                return false;
             }
+            sessJsonFile << sessionsJson.dump(2);
+            if (!finishFile(sessionsCsv, "sessions.csv") || !finishFile(sessJsonFile, "sessions.json")) return false;
         }
 
         if (db.TableExists("ReplayUploads")) {
             nlohmann::json replaysJson = nlohmann::json::array();
             std::ofstream replaysCsv(exportPath + "replay_uploads.csv", std::ios::trunc);
-            if (replaysCsv.is_open()) {
-                replaysCsv << "id,file_path,file_name,match_guid,state,attempts,next_attempt_at,last_http_status,last_error,ballchasing_id,ballchasing_url,created_at,updated_at\n";
+            if (!replaysCsv.is_open()) {
+                error = "Failed to open replay upload CSV export.";
+                return false;
             }
+            replaysCsv << "id,file_path,file_name,match_guid,state,attempts,next_attempt_at,last_http_status,last_error,ballchasing_id,ballchasing_url,created_at,updated_at\n";
             const char* ruSql =
                 "SELECT id, file_path, file_name, COALESCE(match_guid, ''), state, attempts, next_attempt_at, last_http_status, COALESCE(last_error, ''), COALESCE(ballchasing_id, ''), COALESCE(ballchasing_url, ''), created_at, updated_at "
                 "FROM ReplayUploads ORDER BY id ASC;";
@@ -393,29 +415,32 @@ namespace database::repository {
                     rObj["updated_at"] = updatedAt;
                     replaysJson.push_back(std::move(rObj));
 
-                    if (replaysCsv.is_open()) {
-                        replaysCsv << rId << ","
-                                   << CsvEscape(filePath) << ","
-                                   << CsvEscape(fileName) << ","
-                                   << CsvEscape(matchGuid) << ","
-                                   << CsvEscape(state) << ","
-                                   << attempts << ","
-                                   << nextAttemptAt << ","
-                                   << lastHttpStatus << ","
-                                   << CsvEscape(lastError) << ","
-                                   << CsvEscape(ballchasingId) << ","
-                                   << CsvEscape(ballchasingUrl) << ","
-                                   << createdAt << ","
-                                   << updatedAt << "\n";
-                    }
+                    replaysCsv << rId << ","
+                               << CsvEscape(filePath) << ","
+                               << CsvEscape(fileName) << ","
+                               << CsvEscape(matchGuid) << ","
+                               << CsvEscape(state) << ","
+                               << attempts << ","
+                               << nextAttemptAt << ","
+                               << lastHttpStatus << ","
+                               << CsvEscape(lastError) << ","
+                               << CsvEscape(ballchasingId) << ","
+                               << CsvEscape(ballchasingUrl) << ","
+                               << createdAt << ","
+                               << updatedAt << "\n";
                 }
             } catch (...) {
+                error = "Failed to query replay uploads for export.";
+                return false;
             }
 
             std::ofstream ruJsonFile(exportPath + "replay_uploads.json", std::ios::trunc);
-            if (ruJsonFile.is_open()) {
-                ruJsonFile << replaysJson.dump(2);
+            if (!ruJsonFile.is_open()) {
+                error = "Failed to open replay upload JSON export.";
+                return false;
             }
+            ruJsonFile << replaysJson.dump(2);
+            if (!finishFile(replaysCsv, "replay_uploads.csv") || !finishFile(ruJsonFile, "replay_uploads.json")) return false;
         }
 
         if (db.TableExists("TrackedAccounts")) {
@@ -451,6 +476,8 @@ namespace database::repository {
                         ranksByPrimary[pid].push_back(std::move(rObj));
                     }
                 } catch (...) {
+                    error = "Failed to query tracked account ranks for export.";
+                    return false;
                 }
             }
 
@@ -495,12 +522,17 @@ namespace database::repository {
                     accountsJson.push_back(std::move(aObj));
                 }
             } catch (...) {
+                error = "Failed to query tracked accounts for export.";
+                return false;
             }
 
             std::ofstream taJsonFile(exportPath + "tracked_accounts.json", std::ios::trunc);
-            if (taJsonFile.is_open()) {
-                taJsonFile << accountsJson.dump(2);
+            if (!taJsonFile.is_open()) {
+                error = "Failed to open tracked account export.";
+                return false;
             }
+            taJsonFile << accountsJson.dump(2);
+            if (!finishFile(taJsonFile, "tracked_accounts.json")) return false;
         }
 
         if (db.TableExists("TrackedAccountRankObservations")) {
@@ -527,6 +559,7 @@ namespace database::repository {
                 error = "Failed to query account rank observations for export.";
                 return false;
             }
+            if (!finishFile(historyCsv, "tracked_account_rank_observations.csv")) return false;
         }
 
         if (db.TableExists("PlayerNotes")) {
@@ -546,10 +579,17 @@ namespace database::repository {
                                          {"updated_at", nStmt.Get<int64_t>(6)}});
                 }
             } catch (...) {
+                error = "Failed to query player notes for export.";
+                return false;
             }
 
             std::ofstream notesFile(exportPath + "player_notes.json", std::ios::trunc);
-            if (notesFile.is_open()) notesFile << notesJson.dump(2);
+            if (!notesFile.is_open()) {
+                error = "Failed to open player notes export.";
+                return false;
+            }
+            notesFile << notesJson.dump(2);
+            if (!finishFile(notesFile, "player_notes.json")) return false;
         }
 
         if (db.TableExists("PlayerTags")) {
@@ -572,7 +612,13 @@ namespace database::repository {
                 error = "Couldn't query local player tags.";
                 return false;
             }
+            if (!finishFile(tagsCsv, "player_tags.csv")) return false;
         }
+
+        if (!finishFile(matchesCsv, "matches.csv") ||
+            !finishFile(playersCsv, "match_players.csv") ||
+            !finishFile(eventsCsv, "match_events.csv") ||
+            !finishFile(jsonFile, "matches.json")) return false;
 
         error.clear();
         return true;
