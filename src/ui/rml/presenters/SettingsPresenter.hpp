@@ -1,6 +1,7 @@
 #pragma once
 
 #include <memory>
+#include <set>
 #include <string>
 #include "core/config/Config.hpp"
 #include "network/api/DeviceAuthFlow.hpp"
@@ -16,7 +17,8 @@ class SettingsPresenter {
     std::string RenderGeneral(const ConfigData& config);
     std::string RenderAppearance(const ConfigData& config, const std::string& editColorKey, float editColorHue, bool showAdvanced = true,
                                  bool pending = false, const std::string& nameDraft = {}, const std::string& importDraft = {},
-                                 const std::string& message = {}, bool messageError = false, bool canUndo = false);
+                                 const std::string& message = {}, bool messageError = false, bool canUndo = false,
+                                 const std::set<std::string>& openGroups = {});
     std::string RenderCards(const ConfigData& config, bool showDetails, bool signedIn = false);
     std::string RenderIntegrations(
         const ConfigData& config,

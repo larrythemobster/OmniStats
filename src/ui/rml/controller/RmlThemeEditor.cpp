@@ -245,6 +245,8 @@ bool RmlUiController::ThemeEditor::HandleAction(std::string_view action, Rml::El
             preview(colors);
             m_message = "Reset undone.";
         }
+    } else if (action == "theme-toggle-group") {
+        m_openGroups = {Attribute(target, "data-theme-group")};
     } else if (action == "theme-copy") {
         CommitColorPick();
         if (!m_invalidColors.empty())

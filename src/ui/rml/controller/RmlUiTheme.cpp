@@ -501,7 +501,9 @@ void RmlUiController::UpdateThemeProperties() {
     rule(".graph-point.estimated", "background-color", std::string("transparent"));
     rule(".graph-point.estimated", "border-color", text);
     rule(".graph-gridline", "background-color", CssColor(config.themeGraphGrid));
-    rule(".theme-preset.selected", "border-color", accent);
+    rule(".theme-preset.selected, .theme-group-toggle:focus, .theme-group-toggle.active", "border-color", accent);
+    rule(".theme-group-toggle.active", "background-color", CssColor(config.themeSelection));
+    rule(".theme-group-toggle.active", "color", text);
     rule(".theme-field-error, .theme-message.error, .theme-invalid", "color", loss);
     rule(".theme-invalid", "border-color", loss);
     for (const char* tier : {"Unranked", "Bronze", "Silver", "Gold", "Platinum", "Diamond", "Champion", "Grand Champion", "Supersonic Legend"}) {

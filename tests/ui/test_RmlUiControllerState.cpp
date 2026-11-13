@@ -4509,6 +4509,7 @@ TEST_F(RmlUiControllerStateTest, ThemeImportResetAndSavedThemesPreserveAppliedCo
     action("[data-action='theme-import']");
     EXPECT_EQ(Themes::Encode(PreviewTheme(controller)), importedCode);
     action("[data-action='toggle-advanced-appearance']");
+    action("[data-action='theme-toggle-group'][data-theme-group='Text']");
     ThemeInput(controller, "theme_text", "#xyz");
     action("[data-action='theme-apply']");
     EXPECT_TRUE(Themes::Equal(Themes::Read(Config::Read()), applied));
@@ -4595,4 +4596,125 @@ TEST_F(RmlUiControllerStateTest, StandardButtonColorsAndIndependentControlStates
     controller.Update(Config::Read(), true);
     controller.Render();
     EXPECT_EQ(color("input-probe", "background-color"), Rml::Colourb(51, 77, 102, 255));
+}
+
+TEST_F(RmlUiControllerStateTest, AdvancedColorTabsStayHorizontalAndHoverDoesNotDimTheWindow) {
+    for (const auto [width, height] : {std::pair{1280, 800}, std::pair{800, 600}}) {
+        WarpDevice warp;
+        if (!warp.Create(width, height)) GTEST_SKIP() << "WARP not available.";
+        Config::Update([](ConfigData& config) {
+            config.ResetThemeColors();
+            config.ui_scale = 1;
+            config.second_monitor_mode = true;
+        },
+                       false);
+        auto state = std::make_shared<SessionState>();
+        state->ui.showMenu.store(true);
+        RmlUiController controller(state, nullptr);
+        ASSERT_TRUE(controller.Initialize(nullptr, warp.device.Get(), warp.context.Get(), width, height, 1));
+        SetSettingsPage(controller, 2);
+        controller.Update(Config::Read(), true);
+        controller.Render();
+        Click(controller, SettingsRoot(controller)->QuerySelector("[data-action='toggle-advanced-appearance']"));
+        controller.Render();
+        auto* tabs = SettingsRoot(controller)->QuerySelector(".theme-group-tabs");
+        ASSERT_NE(tabs, nullptr);
+        tabs->ScrollIntoView(true);
+        controller.Render();
+        const auto origin = tabs->GetAbsoluteOffset(Rml::BoxArea::Border);
+        float previousRight = origin.x;
+        for (const char* group : {"Surfaces", "Text", "Results", "Graph", "Controls"}) {
+            auto* tab = tabs->QuerySelector(std::string("[data-theme-group='") + group + "']");
+            ASSERT_NE(tab, nullptr) << group;
+            const auto offset = tab->GetAbsoluteOffset(Rml::BoxArea::Border);
+            EXPECT_NEAR(offset.y, origin.y, 1) << width << ": " << group;
+            EXPECT_GE(offset.x + 0.5f, previousRight) << width << ": " << group;
+            EXPECT_GE(tab->GetOffsetHeight(), 40) << width << ": " << group;
+            EXPECT_LE(offset.x + tab->GetOffsetWidth(), origin.x + tabs->GetOffsetWidth() + 0.5f) << width << ": " << group;
+            previousRight = offset.x + tab->GetOffsetWidth();
+        }
+        auto* window = Document(controller)->QuerySelector(".dashboard-shell");
+        ASSERT_NE(window, nullptr);
+        const float opacity = window->GetProperty<float>("opacity");
+        const auto border = window->GetProperty<Rml::Colourb>("border-top-color");
+        auto* swatch = SettingsRoot(controller)->QuerySelector("#theme-swatch-theme_bg");
+        ASSERT_NE(swatch, nullptr);
+        const auto offset = swatch->GetAbsoluteOffset(Rml::BoxArea::Border);
+        RmlContext(controller)->ProcessMouseMove(static_cast<int>(offset.x + swatch->GetOffsetWidth() / 2), static_cast<int>(offset.y + swatch->GetOffsetHeight() / 2), 0);
+        controller.Render();
+        EXPECT_FLOAT_EQ(window->GetProperty<float>("opacity"), opacity);
+        EXPECT_EQ(window->GetProperty<Rml::Colourb>("border-top-color"), border);
+    }
+}
+
+TEST_F(RmlUiControllerStateTest, SharedSurfacesFollowHexSlidersAndPickerWithoutChangingSavedColors) {
+    WarpDevice warp;
+    if (!warp.Create(1280, 800)) GTEST_SKIP() << "WARP not available.";
+    Config::Update([](ConfigData& config) {
+        config.ResetThemeColors();
+        config.ui_scale = 1;
+        config.second_monitor_mode = true;
+    },
+                   false);
+    const auto saved = Themes::Read(Config::Read());
+    auto state = std::make_shared<SessionState>();
+    state->liveMatch->Update([](MatchState& match) {
+        match.myPrimaryId = "Steam|theme";
+        match.myTeam = 0;
+        PlayerData player;
+        player.primaryId = match.myPrimaryId;
+        player.name = "Player";
+        player.team = 0;
+        player.mmr = 1234;
+        player.rankTier = "Champion II";
+        player.playlists["2v2"] = player.mmr;
+        player.playlistTiers["2v2"] = player.rankTier;
+        match.roster[player.primaryId] = player;
+    });
+    state->ui.showMenu.store(true);
+    RmlUiController controller(state, nullptr);
+    ASSERT_TRUE(controller.Initialize(nullptr, warp.device.Get(), warp.context.Get(), 1280, 800, 1));
+    SetSettingsPage(controller, 2);
+    controller.Update(Config::Read(), true);
+    controller.Render();
+    Click(controller, SettingsRoot(controller)->QuerySelector("[data-action='toggle-advanced-appearance']"));
+    controller.Render();
+    ThemeInput(controller, "theme_bg", "#15293d");
+    ThemeInput(controller, "theme_roster_card", "#25374999");
+    controller.Render();
+    auto* panel = Document(controller)->QuerySelector(".settings-window");
+    auto* player = Document(controller)->QuerySelector(".player-row.self");
+    ASSERT_NE(panel, nullptr);
+    ASSERT_NE(player, nullptr);
+    EXPECT_EQ(panel->GetProperty<Rml::Colourb>("background-color"), Rml::Colourb(21, 41, 61, 255));
+    EXPECT_EQ(player->GetProperty<Rml::Colourb>("background-color"), Rml::Colourb(37, 55, 73, 153));
+    Click(controller, SettingsRoot(controller)->QuerySelector("#theme-swatch-theme_roster_card"));
+    controller.Render();
+    ThemeInput(controller, "theme_roster_card:r", "96");
+    auto* slider = SettingsRoot(controller)->QuerySelector("#theme-color-r");
+    ASSERT_NE(slider, nullptr);
+    slider->DispatchEvent("blur", Rml::Dictionary{});
+    controller.Render();
+    EXPECT_EQ(player->GetProperty<Rml::Colourb>("background-color"), Rml::Colourb(96, 55, 73, 153));
+    const auto beforePick = PreviewTheme(controller);
+    auto* field = SettingsRoot(controller)->QuerySelector("#theme-color-field");
+    ASSERT_NE(field, nullptr);
+    field->ScrollIntoView(true);
+    controller.Render();
+    const auto offset = field->GetAbsoluteOffset();
+    RmlContext(controller)->ProcessMouseMove(static_cast<int>(offset.x + field->GetClientWidth() * 0.45f), static_cast<int>(offset.y + field->GetClientHeight() * 0.55f), 0);
+    RmlContext(controller)->ProcessMouseButtonDown(0, 0);
+    RmlContext(controller)->ProcessMouseButtonUp(0, 0);
+    controller.Render();
+    const auto picked = PreviewTheme(controller);
+    EXPECT_NE(picked[4].r, beforePick[4].r);
+    for (size_t index : {5u, 7u, 8u, 9u, 32u}) {
+        EXPECT_FLOAT_EQ(picked[index].r, picked[4].r);
+        EXPECT_FLOAT_EQ(picked[index].g, picked[4].g);
+        EXPECT_FLOAT_EQ(picked[index].b, picked[4].b);
+        EXPECT_FLOAT_EQ(picked[index].a, 153.0f / 255);
+    }
+    EXPECT_TRUE(Themes::Equal(Themes::Read(Config::Read()), saved));
+    Click(controller, SettingsRoot(controller)->QuerySelector("[data-action='theme-apply']"));
+    EXPECT_TRUE(Themes::Equal(Themes::Read(Config::Read()), picked));
 }

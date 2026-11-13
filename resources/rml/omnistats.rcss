@@ -2081,4 +2081,7 @@ body.view-document { pointer-events: none; }
 .theme-message, .theme-field-error, .theme-warning { display: block; font-size: 11dp; }
 .theme-message.error, .theme-field-error { color: #ff6b6b; }
 .theme-warning { margin-top: 4dp; color: #e3a33b; }
+.theme-group-tabs { display: flex; flex-direction: row; flex-wrap: wrap; gap: 6dp; }
+.settings-page .theme-group-toggle { flex: 1 1 0; min-width: 80dp; min-height: 40dp; padding: 4dp 6dp; text-align: center; font-size: 12dp; }
+.theme-group { display: block; margin-top: 5dp; }
 .settings-page input.theme-hex { min-width: 100dp; width: 100dp; margin-left: 6dp; }

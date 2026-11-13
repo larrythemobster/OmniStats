@@ -21,7 +21,8 @@ using namespace RmlUiDetail;
 
 std::string SettingsPresenter::RenderAppearance(const ConfigData& config, const std::string& editColorKey, float editColorHue, bool showAdvanced,
                                                 bool pending, const std::string& nameDraft, const std::string& importDraft,
-                                                const std::string& message, bool messageError, bool canUndo) {
+                                                const std::string& message, bool messageError, bool canUndo,
+                                                const std::set<std::string>& openGroups) {
     auto rangeRow = [&](const char* channel, char component, int value) {
         std::ostringstream html;
         html << "<div class='color-channel'><span class='color-channel-label'>" << channel << "</span>"
@@ -153,6 +154,30 @@ std::string SettingsPresenter::RenderAppearance(const ConfigData& config, const 
     out << "<div class='theme-saved-heading'>Import theme</div><div class='setting-help'>Paste a theme code. Imports are previewed until you apply them.</div>"
         << "<div class='theme-input-row'><input type='text' class='text mono theme-import' data-setting='theme_import' value='" << Escape(importDraft)
         << "' placeholder='Paste theme code'/>" << Button("theme-import", "Import", "ghost") << "</div>" << SectionEnd();
+    out << "<div class='settings-disclosure'>"
+        << Button("toggle-advanced-appearance", showAdvanced ? "Hide advanced colors" : "Show advanced colors", "ghost")
+        << "</div>";
+    if (showAdvanced) {
+        out << SectionStart("Advanced colors")
+            << "<div class='setting-help section-help'>Click a swatch or edit its hex value.</div>";
+        const std::string activeGroup = openGroups.empty() ? "Surfaces" : *openGroups.begin();
+        std::set<std::string> renderedGroups;
+        out << "<div class='theme-group-tabs'>";
+        for (const auto& field : Themes::Fields()) {
+            if (field.linkedTo != nullptr) continue;
+            const std::string group = field.group;
+            if (!renderedGroups.insert(group).second) continue;
+            out << "<button class='theme-group-toggle ghost" << (group == activeGroup ? " active" : "")
+                << "' data-action='theme-toggle-group' data-theme-group='" << Escape(group) << "'>"
+                << Escape(group) << "</button>";
+        }
+        out << "</div><div class='theme-group'>";
+        for (const auto& field : Themes::Fields()) {
+            if (field.linkedTo == nullptr && activeGroup == field.group) out << colorRow(field);
+        }
+        out << "</div>";
+        out << SectionEnd();
+    }
     out << SectionStart("Scale")
         << SelectRow("ui_scale", "App-wide text size", "Changes text size throughout the dashboard and overlay.", scales, currentScale)
         << SectionEnd();
@@ -160,22 +185,13 @@ std::string SettingsPresenter::RenderAppearance(const ConfigData& config, const 
         << SelectRow("speed_units", "Speed units", "", {{"metric", "Kilometers per hour"}, {"imperial", "Miles per hour"}}, config.imperial_units ? "imperial" : "metric")
         << SelectRow("crossbar_display_mode", "Crossbar hit display", "", {{"raw", "Raw Force (UU/s)"}, {"speed", "Speed (MPH/KPH)"}}, config.crossbar_display_mode)
         << ToggleControl("use_roman_numerals", "Use Roman numerals", "I, II, III in rank labels.", config.use_roman_numerals)
-        << SectionEnd()
-        << "<div class='settings-disclosure'>"
-        << Button("toggle-advanced-appearance", showAdvanced ? "Hide fonts and colors" : "Show fonts and colors", "ghost")
-        << "</div>";
-    if (!showAdvanced) return out.str();
+        << SectionEnd();
     out << SectionStart("Fonts")
         << ActionRow("Reset fonts", "Restore Inter, JetBrains Mono, and Russo One.", Button("reset-fonts", "Reset", "ghost"))
         << SelectRow("font_ui", "Text", "Labels, names, and body text. Default: Inter.", fontOptions(config.font_ui), config.font_ui)
         << SelectRow("font_mono", "Numbers", "MMR, scores, graph labels, and stat values. Default: JetBrains Mono.", fontOptions(config.font_mono), config.font_mono)
         << SelectRow("font_display", "Titles", "Card titles, the app name, and recap headlines. Default: Russo One.", fontOptions(config.font_display), config.font_display)
         << SectionEnd();
-    out << SectionStart("Colors")
-        << "<div class='setting-help section-help'>Click a swatch or edit its hex value.</div>";
-    for (const auto& field : Themes::Fields())
-        out << colorRow(field);
-    out << SectionEnd();
 
     return out.str();
 }
@@ -184,5 +200,5 @@ std::string RmlUiController::RenderSettingsAppearance() {
     return m_settingsPresenter->RenderAppearance(m_themeEditor.PreviewConfig(), m_themeEditor.m_editColorKey,
                                                  m_themeEditor.m_editColorHue, m_showAdvancedAppearance, m_themeEditor.Pending(), m_themeEditor.m_nameDraft,
                                                  m_themeEditor.m_importDraft, m_themeEditor.m_message, m_themeEditor.m_messageError,
-                                                 m_themeEditor.m_resetUndo.has_value());
+                                                 m_themeEditor.m_resetUndo.has_value(), m_themeEditor.m_openGroups);
 }

@@ -12,6 +12,7 @@
 #include <limits>
 #include <memory>
 #include <optional>
+#include <set>
 #include <stop_token>
 #include <string>
 #include <string_view>
@@ -183,6 +184,7 @@ class RmlUiController final : public Rml::EventListener {
         bool Pending() const;
         std::optional<Themes::Palette> m_draft;
         std::optional<Themes::Palette> m_resetUndo;
+        std::set<std::string> m_openGroups;
         std::map<std::string, std::string> m_invalidColors;
         std::string m_nameDraft;
         std::string m_importDraft;
