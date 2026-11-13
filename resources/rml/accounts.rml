@@ -21,7 +21,7 @@
             </div>
 
             <div class="callout accounts-provider-banner" data-if="provider_unavailable">
-                <div class="grow">No rank source is set up. Sign in to OmniStats or turn on Tracker Network rank lookup in Settings &#x203A; Services &amp; API.</div>
+                <div class="grow">No rank source is set up. Sign in to OmniStats or turn on Tracker Network rank lookup in Settings &#x203A; Accounts &amp; services.</div>
                 <button class="ghost compact" data-action="open-rank-settings">Open settings</button>
             </div>
 
@@ -205,6 +205,7 @@
                         <span class="accounts-meta-value" data-if="detail_rank_source != ''">{{detail_rank_source}}</span>
                     </div>
 
+                    <div class="history-detail-body">
                     <div class="history-scoreboard-block">
                         <div class="stat-section-title">RANKS BY PLAYLIST</div>
                         <div class="history-scoreboard-table">
@@ -223,6 +224,7 @@
                                 <div class="accounts-detail-col-source label">{{r.source}}</div>
                             </div>
                         </div>
+                    </div>
                     </div>
                 </div>
             </div>

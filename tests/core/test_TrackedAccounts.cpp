@@ -2,6 +2,7 @@
 
 #include "core/accounts/AccountManager.hpp"
 #include "core/config/Config.hpp"
+#include "core/game/PlaylistMetadata.hpp"
 #include "core/config/Constants.hpp"
 #include "core/state/SessionState.hpp"
 #include "core/state/LiveMatchStore.hpp"
@@ -14,6 +15,7 @@
 
 #include <future>
 #include <memory>
+#include <set>
 #include <thread>
 
 using namespace TrackedAccounts;
@@ -111,6 +113,17 @@ TEST(TrackedAccountIdentity, SupportedPlaylistsComeFromPlaylistMetadata) {
     EXPECT_EQ(playlists[2].key, "3v3");
     for (size_t i = 0; i < playlists.size(); ++i)
         EXPECT_EQ(playlists[i].standard, i < 3) << playlists[i].key;
+    std::set<std::string> keys;
+    for (const auto& playlist : playlists)
+        EXPECT_TRUE(keys.insert(playlist.key).second) << playlist.key;
+    for (int id = 0; id < 256; ++id) {
+        const auto* info = PlaylistMetadata::Find(id);
+        if (!info || info->trackerKey[0] == '\0') continue;
+        if (info->playlistClass == PlaylistMetadata::PlaylistClass::Ranked ||
+            info->playlistClass == PlaylistMetadata::PlaylistClass::Tournament) {
+            EXPECT_EQ(keys.count(info->trackerKey), 1u) << info->trackerKey;
+        }
+    }
     for (const char* key : {"hoops", "rumble", "dropshot", "snowday", "heatseeker", "t"}) {
         EXPECT_TRUE(IsSupportedPlaylistKey(key)) << key;
     }

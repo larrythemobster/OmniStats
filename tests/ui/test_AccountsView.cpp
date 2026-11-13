@@ -191,6 +191,38 @@ TEST_F(AccountsViewTest, SingleAccountRenders) {
     service->Stop();
 }
 
+TEST_F(AccountsViewTest, DetailUsesDisplayLabelForUnnamedAccount) {
+    WarpDevice warp;
+    if (!warp.Create(1280, 800)) GTEST_SKIP() << "WARP not available.";
+
+    auto state = std::make_shared<SessionState>();
+    auto db = std::make_shared<DatabaseManager>(state);
+    ASSERT_TRUE(db->Initialize(":memory:"));
+    auto fetcher = std::make_shared<MmrService>(state, db);
+    auto service = std::make_shared<AccountManagerService>(db, fetcher, [this]() { return simulatedTime; }, worker);
+    service->Start();
+    worker->Drain();
+    service->AddManual(TrackedAccounts::Platform::Steam, "76561198000000001", "");
+    worker->Drain();
+
+    RmlUiController controller(state, db, service);
+    ASSERT_TRUE(controller.Initialize(nullptr, warp.device.Get(), warp.context.Get(), 1280, 800, 1.0f));
+    controller.OpenAccounts();
+    controller.Update(Config::Read(), false);
+    controller.Render();
+    ASSERT_EQ(AccountsModel(controller).Rows().size(), 1u);
+    const std::string expected = AccountsModel(controller).Rows()[0].display_label;
+    auto* row = AccountsDocument(controller)->QuerySelector(".accounts-row.item");
+    ASSERT_NE(row, nullptr);
+    Click(controller, row);
+    controller.Render();
+    auto* title = AccountsDocument(controller)->QuerySelector("#accounts-detail-modal .brand-title");
+    ASSERT_NE(title, nullptr);
+    EXPECT_EQ(title->GetInnerRML(), expected);
+    EXPECT_NE(expected, "\xE2\x80\x94");
+    service->Stop();
+}
+
 TEST_F(AccountsViewTest, ManyAccountsRenderAndScroll) {
     WarpDevice warp;
     if (!warp.Create(1280, 800)) GTEST_SKIP() << "WARP not available.";

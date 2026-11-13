@@ -799,7 +799,7 @@ void AccountsView::RebuildDetail() {
     }
 
     const auto& rec = found->record;
-    m_detailNickname = rec.nickname.empty() ? "\xE2\x80\x94" : rec.nickname;
+    m_detailNickname = TrackedAccounts::DisplayLabel(rec);
     m_detailPlatform = TrackedAccounts::PlatformLabel(rec.platform);
     m_detailPlatformClass = PlatformCssClass(rec.platform);
     m_detailLastKnownName = rec.lastKnownName.empty() ? "\xE2\x80\x94" : rec.lastKnownName;

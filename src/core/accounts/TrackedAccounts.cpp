@@ -375,6 +375,7 @@ namespace TrackedAccounts {
                     continue;
                 }
                 const std::string key = info->trackerKey;
+                if (std::any_of(out.begin(), out.end(), [&key](const PlaylistColumn& column) { return column.key == key; })) continue;
                 const bool standard = info->mmrCategory == MmrCategory::OneVOne ||
                                       info->mmrCategory == MmrCategory::TwoVTwo ||
                                       info->mmrCategory == MmrCategory::ThreeVThree;
