@@ -603,6 +603,8 @@ void RmlUiController::HandleChange(Rml::Element* target, Rml::Event& event) {
             if (!checked && IsExtraMmrCategory(StringToMmrCategory(c.rank_progress_mmr_category))) c.rank_progress_mmr_category = "2v2";
         } else if (key == "graph_follow_current_playlist")
             c.graph_follow_current_playlist = checked;
+        else if (key == "graph_default_lifetime")
+            c.graph_default_lifetime = checked;
         else if (key == "graph_mmr_category")
             c.graph_mmr_category = value;
         else if (key == "rank_progress_follow_current_playlist")
@@ -726,6 +728,10 @@ void RmlUiController::HandleChange(Rml::Element* target, Rml::Event& event) {
     if (key == "mmr_category" && m_state) m_state->ui.rosterMmrCategory.store(StringToMmrCategory(value));
     if (key == "graph_mmr_category" && m_state) m_state->ui.graphMmrCategory.store(StringToMmrCategory(value));
     if (key == "graph_follow_current_playlist" && !checked && m_state) m_state->ui.graphMmrCategory.store(StringToMmrCategory(m_config.graph_mmr_category));
+    if (key == "graph_default_lifetime" && m_state) {
+        m_state->history.SetShowLifetimeGraph(checked);
+        m_state->ui.graphOffset.store(0);
+    }
     if (key == "rank_progress_mmr_category" && m_state) m_state->ui.rankProgressMmrCategory.store(StringToMmrCategory(value));
     if (key == "rank_progress_follow_current_playlist" && !checked && m_state) m_state->ui.rankProgressMmrCategory.store(StringToMmrCategory(m_config.rank_progress_mmr_category));
     if (key == "show_extra_playlists" && !checked && m_state) {

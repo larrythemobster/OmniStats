@@ -32,6 +32,7 @@ class InputManager {
         SessionState& state,
         int hotKeyId,
         bool showExtraPlaylists,
+        bool graphDefaultLifetime,
         TelemetryManager* telemetry);
 
     InputManager(std::shared_ptr<SessionState> state, std::shared_ptr<TelemetryManager> telemetry = nullptr);
@@ -93,6 +94,7 @@ class InputManager {
     std::atomic<bool> m_gamepadGraphPanRightRaw{false};
     std::atomic<int> m_gamepadGraphPanRightRawButton{-1};
     std::atomic<bool> m_showExtraPlaylists{true};
+    std::atomic<bool> m_graphDefaultLifetime{false};
 #if OMNISTATS_ENABLE_LOW_LEVEL_HOOK
     std::atomic<bool> m_sessionKeyDown{false};
     std::atomic<bool> m_menuKeyDown{false};

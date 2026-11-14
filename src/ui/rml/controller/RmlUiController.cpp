@@ -750,6 +750,7 @@ void RmlUiController::RebuildVisibleUi(bool force, bool configChanged) {
            << m_config.gamemode_breakdown_scope << '|' << m_config.mmr_category << '|'
            << m_config.auto_switch_mmr_category << '|' << m_config.graph_follow_current_playlist << '|'
            << m_config.graph_mmr_category << '|' << m_config.rank_progress_follow_current_playlist << '|'
+           << m_config.graph_default_lifetime << '|'
            << m_config.rank_progress_mmr_category << '|' << m_config.show_extra_playlists << '|'
            << m_config.ui_scale << '|' << m_config.imperial_units << '|' << m_config.crossbar_display_mode << '|'
            << m_config.use_roman_numerals << '|' << m_config.key_cycle << '|' << m_config.key_expand << '|'

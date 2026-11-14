@@ -36,6 +36,7 @@ std::string SettingsPresenter::RenderRanks(const ConfigData& config, const RmlRe
         << SectionEnd();
 
     out << SectionStart("Personal MMR graph")
+        << ToggleControl("graph_default_lifetime", "Show lifetime graph by default", "Applies to the overlay and dashboard. The graph shortcut still switches views.", config.graph_default_lifetime)
         << ToggleControl("graph_follow_current_playlist", "Follow current playlist", "", config.graph_follow_current_playlist)
         << SelectRow("graph_mmr_category", "Default graph category", "", MmrCategoryOptions(false, config.show_extra_playlists), graphCategory)
         << SectionEnd();

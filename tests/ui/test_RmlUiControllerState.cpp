@@ -32,6 +32,7 @@
 #include "ui/config/WidgetSettings.hpp"
 #include "core/state/SessionState.hpp"
 #include "utils/Storage.hpp"
+#include "platform/InputManager.hpp"
 #include "database/DatabaseManager.hpp"
 #include "ui/rml/controller/RmlUiController.hpp"
 #include "ui/rml/backend/RmlCapture.hpp"
@@ -75,6 +76,7 @@ class RmlUiControllerStateTest : public ::testing::Test {
         Config::Update([](ConfigData& c) {
             c.last_primary_id.clear();
             c.graph_mmr_category = "2v2";
+            c.graph_default_lifetime = false;
             c.show_running_indicator = false;
             c.second_monitor_mode = false;
             c.ballchasing_token.clear();
@@ -4244,6 +4246,81 @@ TEST_F(RmlUiControllerStateTest, DisplayCardToggleWorksWithoutLayoutEditingAndKe
     EXPECT_EQ(Config::Read().overlay_layout.containers.front().id, saved.id);
     EXPECT_FLOAT_EQ(Config::Read().overlay_layout.containers.front().x, saved.x);
     EXPECT_FALSE(state->ui.dashboardLayoutEditMode.load());
+}
+
+TEST_F(RmlUiControllerStateTest, LifetimeGraphDefaultSwitchesBothSurfacesAndAllowsTemporaryOverride) {
+    WarpDevice warp;
+    if (!warp.Create(1280, 900)) GTEST_SKIP() << "WARP not available.";
+
+    for (const bool dashboard : {false, true}) {
+        SCOPED_TRACE(dashboard);
+        Config::Update([dashboard](ConfigData& c) {
+            c.second_monitor_mode = dashboard;
+            c.graph_default_lifetime = false;
+            WidgetSettings::SetEnabled(c, DashboardLayout::WidgetId::MmrGraph, dashboard, true, 1280, 900);
+        },
+                       false);
+        auto state = std::make_shared<SessionState>();
+        state->ui.showMenu.store(true);
+        state->history.Mutate([](auto& history) {
+            history.playlistHistoryY["2v2"] = {1200.0f, 1210.0f};
+            history.lifetimeMmrY = {1500.0f, 1510.0f};
+            history.lifetimeMmrX = {1700000000, 1700000060};
+        });
+        RmlUiController controller(state, nullptr);
+        ASSERT_TRUE(controller.Initialize(nullptr, warp.device.Get(), warp.context.Get(), 1280, 900, 1.0f));
+        SetSettingsPage(controller, 4);
+        controller.Update(Config::Read(), true);
+        auto* details = SettingsRoot(controller)->QuerySelector("[data-action='toggle-rank-details']");
+        ASSERT_NE(details, nullptr);
+        Click(controller, details);
+        const auto graphRoot = [&]() { return dashboard ? DashboardRoot(controller) : OverlayRoot(controller); };
+        ASSERT_NE(graphRoot()->QuerySelector(".graph-wrap"), nullptr);
+        EXPECT_NE(graphRoot()->GetInnerRML().find("1210 MMR"), std::string::npos);
+        EXPECT_EQ(graphRoot()->GetInnerRML().find("1510 MMR"), std::string::npos);
+
+        auto* toggle = SettingsRoot(controller)->QuerySelector("[data-setting='graph_default_lifetime']");
+        ASSERT_NE(toggle, nullptr);
+        state->ui.graphOffset.store(10);
+        Rml::Dictionary parameters;
+        parameters["checked"] = true;
+        toggle->DispatchEvent("change", parameters);
+        controller.Update(Config::Read());
+        controller.Render();
+        EXPECT_TRUE(Config::Read().graph_default_lifetime);
+        EXPECT_EQ(state->ui.graphOffset.load(), 0);
+        EXPECT_NE(graphRoot()->GetInnerRML().find("1510 MMR"), std::string::npos);
+        EXPECT_EQ(graphRoot()->GetInnerRML().find("1210 MMR"), std::string::npos);
+
+        if (const char* dir = std::getenv("OMNISTATS_CAPTURE_DIR"); dir && *dir) {
+            std::filesystem::create_directories(dir);
+            toggle = SettingsRoot(controller)->QuerySelector("[data-setting='graph_default_lifetime']");
+            ASSERT_NE(toggle, nullptr);
+            toggle->ScrollIntoView();
+            const float clear[4] = {0.0f, 0.0f, 0.0f, 1.0f};
+            warp.context->ClearRenderTargetView(warp.target.Get(), clear);
+            controller.Render();
+            std::string error;
+            const auto path = std::filesystem::path(dir) / (dashboard ? "lifetime-default-dashboard.png" : "lifetime-default-overlay.png");
+            EXPECT_TRUE(RmlCapture::SaveBoundRenderTargetRegion(warp.context.Get(), 0, 0, 1280, 900, 0.0f, path.wstring(), error)) << error;
+        }
+
+        InputManager::HandleHotKeyAction(*state, InputManager::HotKeyLifetimeGraph, true, true, nullptr);
+        Config::Update([](ConfigData& c) { c.show_session_goals = !c.show_session_goals; }, false);
+        controller.Update(Config::Read(), true);
+        EXPECT_TRUE(Config::Read().graph_default_lifetime);
+        EXPECT_NE(graphRoot()->GetInnerRML().find("1210 MMR"), std::string::npos);
+        EXPECT_EQ(graphRoot()->GetInnerRML().find("1510 MMR"), std::string::npos);
+
+        toggle = SettingsRoot(controller)->QuerySelector("[data-setting='graph_default_lifetime']");
+        ASSERT_NE(toggle, nullptr);
+        parameters["checked"] = false;
+        toggle->DispatchEvent("change", parameters);
+        controller.Update(Config::Read());
+        EXPECT_FALSE(Config::Read().graph_default_lifetime);
+        EXPECT_NE(graphRoot()->GetInnerRML().find("1210 MMR"), std::string::npos);
+        EXPECT_EQ(graphRoot()->GetInnerRML().find("1510 MMR"), std::string::npos);
+    }
 }
 
 TEST_F(RmlUiControllerStateTest, CompactTournamentCountdownFitsBothSurfaces) {

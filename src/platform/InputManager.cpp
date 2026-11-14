@@ -146,23 +146,19 @@ namespace {
         state.ui.graphOffset.store(newOffset);
     }
 
-    // Inside the session view the expand key cycles:
-    // 1. Session text stats
-    // 2. Session MMR graph
-    // 3. Lifetime MMR graph (plotted with 25 matches and dots)
-    void ExpandActiveView(SessionState& state, TelemetryManager* telemetry) {
+    void ExpandActiveView(SessionState& state, bool graphDefaultLifetime, TelemetryManager* telemetry) {
         if (state.ui.showSessionView.load()) {
             if (!state.ui.showGraphView.load()) {
                 if (telemetry) telemetry->RecordMilestone(TelemetryManager::Milestone::MmrGraphView);
                 state.ui.showGraphView.store(true);
-                state.history.SetShowLifetimeGraph(false);
+                state.history.SetShowLifetimeGraph(graphDefaultLifetime);
                 state.ui.graphOffset.store(0);
-            } else if (!state.history.GetSnapshot()->showLifetimeGraph) {
-                state.history.SetShowLifetimeGraph(true);
+            } else if (state.history.GetSnapshot()->showLifetimeGraph == graphDefaultLifetime) {
+                state.history.SetShowLifetimeGraph(!graphDefaultLifetime);
                 state.ui.graphOffset.store(0);
             } else {
                 state.ui.showGraphView.store(false);
-                state.history.SetShowLifetimeGraph(false);
+                state.history.SetShowLifetimeGraph(graphDefaultLifetime);
                 state.ui.graphOffset.store(0);
             }
         } else if (state.ui.showOverlay.load()) {
@@ -170,12 +166,12 @@ namespace {
         }
     }
 
-    void ToggleSessionView(SessionState& state) {
+    void ToggleSessionView(SessionState& state, bool graphDefaultLifetime) {
         const bool showSessionView = !state.ui.showSessionView.load();
         state.ui.showSessionView.store(showSessionView);
         if (!showSessionView) {
             state.ui.showGraphView.store(false);
-            state.history.SetShowLifetimeGraph(false);
+            state.history.SetShowLifetimeGraph(graphDefaultLifetime);
             state.ui.graphOffset.store(0);
         }
     }
@@ -192,6 +188,7 @@ void InputManager::HandleHotKeyAction(
     SessionState& state,
     int hotKeyId,
     bool showExtraPlaylists,
+    bool graphDefaultLifetime,
     TelemetryManager* telemetry) {
     switch (hotKeyId) {
     case HotKeyMenu:
@@ -201,10 +198,10 @@ void InputManager::HandleHotKeyAction(
         CycleMmrCategory(state, showExtraPlaylists);
         break;
     case HotKeyExpand:
-        ExpandActiveView(state, telemetry);
+        ExpandActiveView(state, graphDefaultLifetime, telemetry);
         break;
     case HotKeySession:
-        ToggleSessionView(state);
+        ToggleSessionView(state, graphDefaultLifetime);
         break;
     case HotKeyDashboardEdit:
         if (state.ui.showMenu.load()) {
@@ -328,6 +325,7 @@ void InputManager::RefreshConfigCache() {
     m_gamepadGraphPanRightRaw.store(conf.gamepad_graph_pan_right_raw, std::memory_order_relaxed);
     m_gamepadGraphPanRightRawButton.store(conf.gamepad_graph_pan_right_raw_button, std::memory_order_relaxed);
     m_showExtraPlaylists.store(conf.show_extra_playlists, std::memory_order_relaxed);
+    m_graphDefaultLifetime.store(conf.graph_default_lifetime, std::memory_order_relaxed);
     m_cachedConfigRevision.store(revision, std::memory_order_release);
 }
 
@@ -473,6 +471,7 @@ void InputManager::KeyboardThreadLoop() {
             state,
             hotKeyId,
             m_showExtraPlaylists.load(std::memory_order_relaxed),
+            m_graphDefaultLifetime.load(std::memory_order_relaxed),
             m_telemetry.get());
     };
 
@@ -578,7 +577,7 @@ LRESULT CALLBACK InputManager::LowLevelKeyboardProc(int nCode, WPARAM wParam,
         }
 
         if (kb->vkCode == keyExpand && wParam == WM_KEYDOWN) {
-            ExpandActiveView(*st, self->m_telemetry.get());
+            ExpandActiveView(*st, self->m_graphDefaultLifetime.load(std::memory_order_relaxed), self->m_telemetry.get());
         }
         if (kb->vkCode == static_cast<DWORD>(self->m_keyLifetimeGraph.load(std::memory_order_relaxed)) && wParam == WM_KEYDOWN) {
             ToggleLifetimeGraph(*st);
@@ -599,7 +598,7 @@ LRESULT CALLBACK InputManager::LowLevelKeyboardProc(int nCode, WPARAM wParam,
                 self->m_sessionKeyDown.store(false, std::memory_order_relaxed);
             } else if ((wParam == WM_KEYDOWN || wParam == WM_SYSKEYDOWN) &&
                        !self->m_sessionKeyDown.exchange(true, std::memory_order_relaxed)) {
-                ToggleSessionView(*st);
+                ToggleSessionView(*st, self->m_graphDefaultLifetime.load(std::memory_order_relaxed));
             }
         }
 
@@ -771,13 +770,13 @@ void InputManager::GamepadThreadLoop() {
                         if (overlayVisible && isPressed(self->m_gamepadExpand.load(std::memory_order_relaxed),
                                                         self->m_gamepadExpandRaw.load(std::memory_order_relaxed),
                                                         self->m_gamepadExpandRawButton.load(std::memory_order_relaxed))) {
-                            ExpandActiveView(*st, self->m_telemetry.get());
+                            ExpandActiveView(*st, self->m_graphDefaultLifetime.load(std::memory_order_relaxed), self->m_telemetry.get());
                         }
 
                         if (overlayVisible && isPressed(self->m_gamepadSession.load(std::memory_order_relaxed),
                                                         self->m_gamepadSessionRaw.load(std::memory_order_relaxed),
                                                         self->m_gamepadSessionRawButton.load(std::memory_order_relaxed))) {
-                            ToggleSessionView(*st);
+                            ToggleSessionView(*st, self->m_graphDefaultLifetime.load(std::memory_order_relaxed));
                         }
 
                         if (isPressed(self->m_gamepadMenu.load(std::memory_order_relaxed),
@@ -847,13 +846,13 @@ void InputManager::GamepadThreadLoop() {
                         if (overlayVisible && isPressed(self->m_gamepadExpand.load(std::memory_order_relaxed),
                                                         self->m_gamepadExpandRaw.load(std::memory_order_relaxed),
                                                         self->m_gamepadExpandRawButton.load(std::memory_order_relaxed))) {
-                            ExpandActiveView(*st, self->m_telemetry.get());
+                            ExpandActiveView(*st, self->m_graphDefaultLifetime.load(std::memory_order_relaxed), self->m_telemetry.get());
                         }
 
                         if (overlayVisible && isPressed(self->m_gamepadSession.load(std::memory_order_relaxed),
                                                         self->m_gamepadSessionRaw.load(std::memory_order_relaxed),
                                                         self->m_gamepadSessionRawButton.load(std::memory_order_relaxed))) {
-                            ToggleSessionView(*st);
+                            ToggleSessionView(*st, self->m_graphDefaultLifetime.load(std::memory_order_relaxed));
                         }
 
                         if (isPressed(self->m_gamepadMenu.load(std::memory_order_relaxed),

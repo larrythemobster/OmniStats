@@ -30,11 +30,13 @@ namespace {
 
         void Dispatch(
             InputManager::HotKeyId hotKeyId,
-            bool showExtraPlaylists = true) {
+            bool showExtraPlaylists = true,
+            bool graphDefaultLifetime = false) {
             InputManager::HandleHotKeyAction(
                 *m_state,
                 hotKeyId,
                 showExtraPlaylists,
+                graphDefaultLifetime,
                 nullptr);
         }
 
@@ -82,24 +84,44 @@ TEST_F(InputManagerActionTest, OneSessionHotkeyActionTogglesExactlyOnce) {
     EXPECT_TRUE(m_state->ui.showSessionView.load());
 }
 
-TEST_F(InputManagerActionTest, F7CyclesSessionGraphLifetimeGraphAndStats) {
+TEST_F(InputManagerActionTest, F7CyclesPreferredGraphOtherGraphAndStats) {
     m_state->ui.showOverlay.store(false);
     m_state->ui.showSessionView.store(true);
 
-    // Step 1: Session Graph
-    Dispatch(InputManager::HotKeyExpand);
-    EXPECT_TRUE(m_state->ui.showGraphView.load());
-    EXPECT_FALSE(m_state->history.GetSnapshot()->showLifetimeGraph);
+    for (const bool lifetime : {false, true}) {
+        SCOPED_TRACE(lifetime);
+        m_state->ui.graphOffset.store(10);
+        Dispatch(InputManager::HotKeyExpand, true, lifetime);
+        EXPECT_TRUE(m_state->ui.showGraphView.load());
+        EXPECT_EQ(m_state->history.GetSnapshot()->showLifetimeGraph, lifetime);
+        EXPECT_EQ(m_state->ui.graphOffset.load(), 0);
 
-    // Step 2: Lifetime Graph
-    Dispatch(InputManager::HotKeyExpand);
-    EXPECT_TRUE(m_state->ui.showGraphView.load());
-    EXPECT_TRUE(m_state->history.GetSnapshot()->showLifetimeGraph);
+        Dispatch(InputManager::HotKeyExpand, true, lifetime);
+        EXPECT_TRUE(m_state->ui.showGraphView.load());
+        EXPECT_EQ(m_state->history.GetSnapshot()->showLifetimeGraph, !lifetime);
 
-    // Step 3: Back to Session Stats
-    Dispatch(InputManager::HotKeyExpand);
-    EXPECT_FALSE(m_state->ui.showGraphView.load());
-    EXPECT_FALSE(m_state->history.GetSnapshot()->showLifetimeGraph);
+        Dispatch(InputManager::HotKeyExpand, true, lifetime);
+        EXPECT_FALSE(m_state->ui.showGraphView.load());
+        EXPECT_EQ(m_state->history.GetSnapshot()->showLifetimeGraph, lifetime);
+    }
+}
+
+TEST_F(InputManagerActionTest, ClosingSessionPanelRestoresPreferredGraphAfterShortcutOverride) {
+    for (const bool lifetime : {false, true}) {
+        SCOPED_TRACE(lifetime);
+        m_state->history.SetShowLifetimeGraph(lifetime);
+        Dispatch(InputManager::HotKeySession, true, lifetime);
+        Dispatch(InputManager::HotKeyExpand, true, lifetime);
+        Dispatch(InputManager::HotKeyLifetimeGraph, true, lifetime);
+        EXPECT_EQ(m_state->history.GetSnapshot()->showLifetimeGraph, !lifetime);
+        m_state->ui.graphOffset.store(10);
+
+        Dispatch(InputManager::HotKeySession, true, lifetime);
+        EXPECT_FALSE(m_state->ui.showSessionView.load());
+        EXPECT_FALSE(m_state->ui.showGraphView.load());
+        EXPECT_EQ(m_state->history.GetSnapshot()->showLifetimeGraph, lifetime);
+        EXPECT_EQ(m_state->ui.graphOffset.load(), 0);
+    }
 }
 
 TEST_F(InputManagerActionTest, LifetimeHotkeySwitchesTheGraphWithoutOpeningCards) {

@@ -273,6 +273,7 @@ TEST_F(ConfigTest, PersistsIndependentMmrSettings) {
         c.auto_switch_mmr_category = false;
         c.graph_mmr_category = "2v2";
         c.graph_follow_current_playlist = true;
+        c.graph_default_lifetime = true;
         c.rank_progress_mmr_category = "1v1";
         c.rank_progress_follow_current_playlist = false;
     });
@@ -283,6 +284,7 @@ TEST_F(ConfigTest, PersistsIndependentMmrSettings) {
         c.auto_switch_mmr_category = true;
         c.graph_mmr_category = "3v3";
         c.graph_follow_current_playlist = false;
+        c.graph_default_lifetime = false;
         c.rank_progress_mmr_category = "3v3";
         c.rank_progress_follow_current_playlist = true;
     },
@@ -294,6 +296,7 @@ TEST_F(ConfigTest, PersistsIndependentMmrSettings) {
     EXPECT_FALSE(loaded.auto_switch_mmr_category);
     EXPECT_EQ(loaded.graph_mmr_category, "2v2");
     EXPECT_TRUE(loaded.graph_follow_current_playlist);
+    EXPECT_TRUE(loaded.graph_default_lifetime);
     EXPECT_EQ(loaded.rank_progress_mmr_category, "1v1");
     EXPECT_FALSE(loaded.rank_progress_follow_current_playlist);
 }

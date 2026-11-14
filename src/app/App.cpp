@@ -79,6 +79,7 @@ int App::Run() {
         graphCategory = MmrCategory::TwoVTwo;
     }
     m_state->ui.graphMmrCategory.store(graphCategory);
+    m_state->history.SetShowLifetimeGraph(startupConf.graph_default_lifetime);
 
     MmrCategory rankProgressCategory = StringToMmrCategory(startupConf.rank_progress_mmr_category);
     if (!startupConf.show_extra_playlists && IsExtraMmrCategory(rankProgressCategory)) {

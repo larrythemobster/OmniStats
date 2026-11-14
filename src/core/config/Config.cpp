@@ -348,6 +348,7 @@ namespace {
             MakeStringField("mmr_category", &ConfigData::mmr_category, def.mmr_category, IsKnownMmrCategory),
             MakeStringField("graph_mmr_category", &ConfigData::graph_mmr_category, def.graph_mmr_category, IsGraphMmrCategory),
             MakeBoolField("graph_follow_current_playlist", &ConfigData::graph_follow_current_playlist, def.graph_follow_current_playlist),
+            MakeBoolField("graph_default_lifetime", &ConfigData::graph_default_lifetime, def.graph_default_lifetime),
             MakeStringField("rank_progress_mmr_category", &ConfigData::rank_progress_mmr_category, def.rank_progress_mmr_category, IsKnownMmrCategory),
             MakeBoolField("rank_progress_follow_current_playlist", &ConfigData::rank_progress_follow_current_playlist, def.rank_progress_follow_current_playlist),
             MakeStringField("last_primary_id", &ConfigData::last_primary_id, def.last_primary_id),
