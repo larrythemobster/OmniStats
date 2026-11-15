@@ -26,6 +26,7 @@ class MatchAnalyticsTracker {
     void OnMatchEnded();
 
     MatchAnalytics Snapshot() const;
+    std::optional<float> LatestKickoffFirstTouchSeconds() const;
 
   private:
     struct SpeedSample {
@@ -59,6 +60,8 @@ class MatchAnalyticsTracker {
     std::optional<double> m_lastSampleAt;
     std::unordered_map<std::string, LastHit> m_lastHit;
     std::optional<double> m_pausedAt;
+    std::optional<double> m_kickoffStartedAt;
+    std::optional<float> m_latestKickoffFirstTouchSeconds;
     std::optional<float> m_lastClock;
     bool m_lastOvertime = false;
     bool m_roundActive = false;

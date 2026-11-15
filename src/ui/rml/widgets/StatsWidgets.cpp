@@ -50,7 +50,7 @@ std::string RmlUiController::RenderLiveMatchStats() {
     std::string fun = "<div class='metric-list'>" + BoundMetricRow("Max goal speed", "match_max_goal_speed") +
                       BoundMetricRow("Last goal speed", "last_goal_speed") +
                       BoundMetricRow("Max ball speed", "match_max_ball_speed") + BoundMetricRow("Hardest crossbar", "match_hardest_crossbar") +
-                      BoundMetricRow("Fastest goal", "match_fastest_goal");
+                      BoundMetricRow("Fastest goal", "match_fastest_goal") + BoundMetricRow("Fastest kickoff hit", "match_kickoff_first_hit");
     if (s.ownGoals > 0) fun += BoundMetricRow("Own goals", "match_own_goals");
     fun += "</div>";
 

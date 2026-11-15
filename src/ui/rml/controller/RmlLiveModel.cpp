@@ -33,6 +33,7 @@ namespace {
         {"match_hardest_crossbar", &LiveValues::match_hardest_crossbar},
         {"match_fastest_goal", &LiveValues::match_fastest_goal},
         {"match_own_goals", &LiveValues::match_own_goals},
+        {"match_kickoff_first_hit", &LiveValues::match_kickoff_first_hit},
         {"session_record", &LiveValues::session_record},
         {"session_goals", &LiveValues::session_goals},
         {"session_saves", &LiveValues::session_saves},
@@ -92,6 +93,9 @@ LiveValues ComputeLiveValues(const RmlRenderSnapshot& snapshot, const ConfigData
                                    : Format::PairSpeed(match.maxImpactForce, match.maxImpactForceSelf, true, "", false);
     v.match_fastest_goal = Format::PairFastest(match.fastestGoalTime, match.fastestGoalTimeSelf);
     v.match_own_goals = Format::PairCount(match.ownGoals, match.ownGoalsSelf);
+    v.match_kickoff_first_hit = match.kickoffFirstTouchSeconds
+                                    ? RmlUiDetail::FormatNumber(*match.kickoffFirstTouchSeconds, 2) + " s"
+                                    : "--";
 
     v.session_record = RmlUiDetail::FormatRecord(session.wins, session.losses);
     v.session_goals = std::to_string(session.goals);

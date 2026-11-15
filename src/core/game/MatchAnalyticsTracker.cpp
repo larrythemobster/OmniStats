@@ -176,6 +176,8 @@ void MatchAnalyticsTracker::OnUpdateState(const TelemetryEvents::UpdateStateEven
 void MatchAnalyticsTracker::OnCountdownBegin() {
     m_roundActive = false;
     m_awaitingFirstTouch = false;
+    m_kickoffStartedAt.reset();
+    m_latestKickoffFirstTouchSeconds.reset();
     for (auto& [id, raw] : m_rawCar) {
         raw.lastBoost.reset();
         raw.respawning = false;
@@ -191,6 +193,8 @@ void MatchAnalyticsTracker::OnRoundStarted(double nowSeconds) {
     for (size_t t = 0; t < 2; ++t)
         m_score[t] = std::max(m_score[t], m_scoreboard[t]);
     m_awaitingFirstTouch = true;
+    m_kickoffStartedAt = nowSeconds;
+    m_latestKickoffFirstTouchSeconds.reset();
     m_kickoffPossessionPending = true;
     KickoffRecord k;
     k.playSeconds = m_data.playSeconds;
@@ -198,13 +202,19 @@ void MatchAnalyticsTracker::OnRoundStarted(double nowSeconds) {
 }
 
 void MatchAnalyticsTracker::OnBallHit(const TelemetryEvents::BallHitEvent& ev, double nowSeconds) {
-    if (ev.hitters.empty()) return;
+    if (ev.hitters.empty() || m_paused) return;
     const float speed = ev.postHitSpeed;
     const std::optional<FieldPoint>& location = ev.location;
     if (!m_paused) m_roundActive = true;
 
     const bool first = m_awaitingFirstTouch;
     m_awaitingFirstTouch = false;
+    if (m_kickoffStartedAt && !m_data.kickoffs.empty()) {
+        const float seconds = static_cast<float>(std::max(0.0, nowSeconds - *m_kickoffStartedAt));
+        m_data.kickoffs.back().firstTouchSeconds = seconds;
+        m_latestKickoffFirstTouchSeconds = seconds;
+        m_kickoffStartedAt.reset();
+    }
     for (const auto& h : ev.hitters) {
         const std::string id = ResolvePlayer(h);
         if (id.empty()) continue;
@@ -288,6 +298,7 @@ void MatchAnalyticsTracker::OnGoalScored(const TelemetryEvents::GoalScoredEvent&
     }
     m_roundActive = false;
     m_awaitingFirstTouch = false;
+    m_kickoffStartedAt.reset();
     GoalRecord g;
     g.playSeconds = m_data.playSeconds;
     g.clockSeconds = m_lastClock;
@@ -358,14 +369,22 @@ void MatchAnalyticsTracker::OnUnpaused(double nowSeconds) {
     if (!m_paused) return;
     m_paused = false;
     if (m_pausedAt) m_data.pausedSeconds += static_cast<float>(std::max(0.0, nowSeconds - *m_pausedAt));
+    if (m_kickoffStartedAt && m_pausedAt)
+        *m_kickoffStartedAt += std::max(0.0, nowSeconds - std::max(*m_pausedAt, *m_kickoffStartedAt));
     m_pausedAt.reset();
     m_lastSampleAt = nowSeconds;
 }
 
 void MatchAnalyticsTracker::OnMatchEnded() {
     m_roundActive = false;
+    m_awaitingFirstTouch = false;
+    m_kickoffStartedAt.reset();
     m_data.endClockSeconds = m_lastClock;
     m_data.endedInOvertime = m_lastOvertime;
+}
+
+std::optional<float> MatchAnalyticsTracker::LatestKickoffFirstTouchSeconds() const {
+    return m_latestKickoffFirstTouchSeconds;
 }
 
 MatchAnalytics MatchAnalyticsTracker::Snapshot() const {

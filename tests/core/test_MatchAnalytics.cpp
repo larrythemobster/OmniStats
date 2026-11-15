@@ -82,6 +82,9 @@ namespace {
         MatchAnalytics Snapshot() const {
             return m_tracker.Snapshot();
         }
+        std::optional<float> LatestKickoffFirstTouchSeconds() const {
+            return m_tracker.LatestKickoffFirstTouchSeconds();
+        }
 
       private:
         MatchAnalyticsTracker m_tracker;
@@ -283,6 +286,118 @@ TEST(MatchAnalyticsTest, KickoffRecordsPossessionAfterThreeSecondsAndQuickGoals)
     const ScorelineSummary s = AnalyzeScoreline(a, 0, false);
     EXPECT_EQ(s.goalsAfterKickoffAgainst, 1);
     EXPECT_EQ(s.goalsAfterKickoffFor, 0);
+}
+
+TEST(MatchAnalyticsTest, KickoffFirstTouchUsesEventTimeAndLatchesAcrossContactFrames) {
+    JsonTracker t;
+    t.OnUpdateState(State({Remote("Steam|1", "Me", 0, 1), Remote("Epic|2", "Opp", 1, 2)}, 300.0f), 1.0);
+    t.OnCountdownBegin();
+    t.OnRoundStarted(10.0);
+    t.OnBallHit(Hit("Opp", 1, 2, 0, 0, 93, 50), 11.237);
+    ASSERT_TRUE(t.LatestKickoffFirstTouchSeconds());
+    EXPECT_NEAR(*t.LatestKickoffFirstTouchSeconds(), 1.237f, 0.0001f);
+    t.OnBallHit(Hit("Opp", 1, 2, 0, 0, 93, 60), 11.250);
+    t.OnBallHit(Hit("Me", 0, 1, 0, 0, 93, 50), 12.0);
+    const auto a = t.Snapshot();
+    ASSERT_EQ(a.kickoffs.size(), 1u);
+    ASSERT_TRUE(a.kickoffs[0].firstTouchSeconds);
+    EXPECT_NEAR(*a.kickoffs[0].firstTouchSeconds, 1.237f, 0.0001f);
+    EXPECT_EQ(a.kickoffs[0].firstTouchId, "Epic|2");
+    EXPECT_NEAR(*t.LatestKickoffFirstTouchSeconds(), 1.237f, 0.0001f);
+}
+
+TEST(MatchAnalyticsTest, KickoffFirstTouchResetsAndRequiresRoundStart) {
+    JsonTracker t;
+    const auto hit = Hit("Me", 0, 1, 0, 0, 93, 50);
+    t.OnBallHit(hit, 2.0);
+    EXPECT_FALSE(t.LatestKickoffFirstTouchSeconds());
+    EXPECT_TRUE(t.Snapshot().kickoffs.empty());
+    t.OnRoundStarted(10.0);
+    t.OnBallHit(hit, 11.0);
+    t.OnCountdownBegin();
+    EXPECT_FALSE(t.LatestKickoffFirstTouchSeconds());
+    t.OnBallHit(hit, 12.0);
+    EXPECT_FALSE(t.LatestKickoffFirstTouchSeconds());
+    t.OnRoundStarted(20.0);
+    EXPECT_FALSE(t.LatestKickoffFirstTouchSeconds());
+    t.OnBallHit(hit, 22.5);
+    const auto a = t.Snapshot();
+    ASSERT_EQ(a.kickoffs.size(), 2u);
+    ASSERT_TRUE(a.kickoffs[0].firstTouchSeconds);
+    ASSERT_TRUE(a.kickoffs[1].firstTouchSeconds);
+    EXPECT_FLOAT_EQ(*a.kickoffs[0].firstTouchSeconds, 1.0f);
+    EXPECT_FLOAT_EQ(*a.kickoffs[1].firstTouchSeconds, 2.5f);
+}
+
+TEST(MatchAnalyticsTest, KickoffFirstTouchDoesNotRequireKnownPlayer) {
+    MatchAnalyticsTracker t;
+    t.OnRoundStarted(4.0);
+    TelemetryEvents::BallHitEvent empty;
+    t.OnBallHit(empty, 4.5);
+    EXPECT_FALSE(t.LatestKickoffFirstTouchSeconds());
+    empty.hitters.emplace_back();
+    t.OnBallHit(empty, 5.75);
+    ASSERT_TRUE(t.LatestKickoffFirstTouchSeconds());
+    EXPECT_FLOAT_EQ(*t.LatestKickoffFirstTouchSeconds(), 1.75f);
+    const auto a = t.Snapshot();
+    ASSERT_TRUE(a.kickoffs[0].firstTouchSeconds);
+    EXPECT_FLOAT_EQ(*a.kickoffs[0].firstTouchSeconds, 1.75f);
+    EXPECT_TRUE(a.kickoffs[0].firstTouchId.empty());
+}
+
+TEST(MatchAnalyticsTest, KickoffFirstTouchExcludesPausesAndIgnoresPausedHits) {
+    JsonTracker t;
+    const auto hit = Hit("Me", 0, 1, 0, 0, 93, 50);
+    t.OnRoundStarted(10.0);
+    t.OnPaused(11.0);
+    t.OnBallHit(hit, 12.0);
+    EXPECT_FALSE(t.LatestKickoffFirstTouchSeconds());
+    t.OnUnpaused(16.0);
+    t.OnPaused(16.5);
+    t.OnUnpaused(18.5);
+    t.OnBallHit(hit, 19.0);
+    ASSERT_TRUE(t.LatestKickoffFirstTouchSeconds());
+    EXPECT_FLOAT_EQ(*t.LatestKickoffFirstTouchSeconds(), 2.0f);
+}
+
+TEST(MatchAnalyticsTest, KickoffFirstTouchIsCancelledByGoalAndMatchEnd) {
+    JsonTracker t;
+    const auto hit = Hit("Me", 0, 1, 0, 0, 93, 50);
+    t.OnRoundStarted(1.0);
+    t.OnGoalScored(Goal("Me", 0, 1));
+    t.OnBallHit(hit, 2.0);
+    EXPECT_FALSE(t.LatestKickoffFirstTouchSeconds());
+    t.OnRoundStarted(3.0);
+    t.OnMatchEnded();
+    t.OnBallHit(hit, 4.0);
+    EXPECT_FALSE(t.LatestKickoffFirstTouchSeconds());
+    const auto a = t.Snapshot();
+    ASSERT_EQ(a.kickoffs.size(), 2u);
+    EXPECT_FALSE(a.kickoffs[0].firstTouchSeconds);
+    EXPECT_FALSE(a.kickoffs[1].firstTouchSeconds);
+    t.OnRoundStarted(5.0);
+    t.OnCountdownBegin();
+    t.OnBallHit(hit, 6.0);
+    EXPECT_FALSE(t.LatestKickoffFirstTouchSeconds());
+    const auto afterCountdown = t.Snapshot();
+    ASSERT_EQ(afterCountdown.kickoffs.size(), 3u);
+    EXPECT_FALSE(afterCountdown.kickoffs[2].firstTouchSeconds);
+}
+
+TEST(MatchAnalyticsTest, KickoffFirstTouchJsonPreservesHundredthsAndMissingValues) {
+    MatchAnalytics a;
+    a.kickoffs.emplace_back();
+    a.kickoffs.back().firstTouchSeconds = 1.237f;
+    a.kickoffs.emplace_back();
+    const auto j = MatchAnalyticsToJson(a);
+    EXPECT_NEAR(j["kickoffs"][0]["firstTouchSeconds"].get<float>(), 1.24f, 0.0001f);
+    EXPECT_FALSE(j["kickoffs"][1].contains("firstTouchSeconds"));
+    const auto parsed = MatchAnalyticsFromJson(json::parse(j.dump()));
+    ASSERT_TRUE(parsed);
+    ASSERT_EQ(parsed->kickoffs.size(), 2u);
+    ASSERT_TRUE(parsed->kickoffs[0].firstTouchSeconds);
+    EXPECT_NEAR(*parsed->kickoffs[0].firstTouchSeconds, 1.24f, 0.0001f);
+    EXPECT_FALSE(parsed->kickoffs[1].firstTouchSeconds);
 }
 
 TEST(MatchAnalyticsTest, StatfeedCountsEveryEventAndTracksDemoVictims) {

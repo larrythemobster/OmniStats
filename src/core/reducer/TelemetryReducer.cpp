@@ -367,7 +367,12 @@ SideEffects TelemetryReducer::ReduceInPlace(MatchState& state,
             if (AcceptsAnalyticsEvent(state, ev.matchGuid, true)) state.analytics.OnGoalScored(ev);
             HandleGoalScored(state, ev, context, effects);
         } else if constexpr (std::is_same_v<T, TelemetryEvents::BallHitEvent>) {
-            if (AcceptsAnalyticsEvent(state, ev.matchGuid)) state.analytics.OnBallHit(ev, context.nowSeconds);
+            if (AcceptsAnalyticsEvent(state, ev.matchGuid)) {
+                state.analytics.OnBallHit(ev, context.nowSeconds);
+                const auto firstTouchSeconds = state.analytics.LatestKickoffFirstTouchSeconds();
+                auto& fastest = state.currentMatch.kickoffFirstTouchSeconds;
+                if (firstTouchSeconds && (!fastest || *firstTouchSeconds < *fastest)) fastest = firstTouchSeconds;
+            }
             HandleBallHit(state, ev, context);
         } else if constexpr (std::is_same_v<T, TelemetryEvents::BoostPickupEvent>) {
             if (AcceptsAnalyticsEvent(state, ev.matchGuid)) state.analytics.OnBoostPickup(ev);

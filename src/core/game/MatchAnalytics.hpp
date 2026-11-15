@@ -105,6 +105,7 @@ struct KickoffRecord {
     float playSeconds = 0.0f;
     std::string firstTouchId;
     int firstTouchTeam = -1;
+    std::optional<float> firstTouchSeconds;
     // Team with possession (last touch) three seconds of play after kickoff.
     int possessionTeam = -1;
     // Team that scored within ten seconds of play after kickoff, if any.

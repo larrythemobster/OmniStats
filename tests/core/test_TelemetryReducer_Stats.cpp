@@ -1026,6 +1026,80 @@ TEST(TelemetryReducerStats, SavedMatchCarriesAnalyticsScopedToThatMatch) {
     EXPECT_EQ(second.saveSnapshot.analytics->FindPlayer("Steam|1")->hits, 0);
 }
 
+TEST(TelemetryReducerStats, KickoffFirstHitKeepsMatchMinimumAcrossCountdowns) {
+    Storage::InitializeEnvironment();
+    auto state = std::make_shared<SessionState>();
+    TelemetryReducer reducer(state);
+    auto now = std::chrono::steady_clock::time_point{std::chrono::seconds(6000)};
+    reducer.SetClockForTests([&]() { return now; });
+    const auto hit = [&](const char* guid, const char* id, int team) {
+        reducer.Reduce(std::string(Constants::EVT_BALL_HIT),
+                       nlohmann::json{{"MatchGuid", guid},
+                                      {"Players", {{{"PrimaryId", id}, {"TeamNum", team}}}},
+                                      {"Ball", {{"PostHitSpeed", 88.0}}}});
+    };
+    StartTimedMatch(reducer, *state, "kickoff-timing");
+    SendClock(reducer, 300.0f, false);
+    EXPECT_FALSE(state->game.currentMatch.kickoffFirstTouchSeconds.has_value());
+
+    now += std::chrono::milliseconds(1000);
+    hit("other-match", "Epic|2", 1);
+    EXPECT_FALSE(state->game.currentMatch.kickoffFirstTouchSeconds.has_value());
+    now += std::chrono::milliseconds(950);
+    hit("kickoff-timing", "Epic|2", 1);
+    ASSERT_TRUE(state->game.currentMatch.kickoffFirstTouchSeconds.has_value());
+    EXPECT_FLOAT_EQ(*state->game.currentMatch.kickoffFirstTouchSeconds, 1.95f);
+    now += std::chrono::milliseconds(100);
+    hit("kickoff-timing", "Steam|1", 0);
+    EXPECT_FLOAT_EQ(*state->game.currentMatch.kickoffFirstTouchSeconds, 1.95f);
+
+    reducer.Reduce(std::string(Constants::EVT_GOAL_SCORED),
+                   nlohmann::json{{"MatchGuid", "kickoff-timing"},
+                                  {"Scorer", {{"PrimaryId", "Steam|1"}, {"TeamNum", 0}}}});
+    reducer.Reduce(std::string(Constants::EVT_COUNTDOWN_BEGIN), {{"MatchGuid", "kickoff-timing"}});
+    ASSERT_TRUE(state->game.currentMatch.kickoffFirstTouchSeconds.has_value());
+    EXPECT_FLOAT_EQ(*state->game.currentMatch.kickoffFirstTouchSeconds, 1.95f);
+    now += std::chrono::seconds(1);
+    hit("kickoff-timing", "Epic|2", 1);
+    ASSERT_TRUE(state->game.currentMatch.kickoffFirstTouchSeconds.has_value());
+    EXPECT_FLOAT_EQ(*state->game.currentMatch.kickoffFirstTouchSeconds, 1.95f);
+    now += std::chrono::seconds(2);
+    reducer.Reduce(std::string(Constants::EVT_ROUND_STARTED), {{"MatchGuid", "kickoff-timing"}});
+    ASSERT_TRUE(state->game.currentMatch.kickoffFirstTouchSeconds.has_value());
+    EXPECT_FLOAT_EQ(*state->game.currentMatch.kickoffFirstTouchSeconds, 1.95f);
+    now += std::chrono::milliseconds(1200);
+    hit("kickoff-timing", "Steam|1", 0);
+    ASSERT_TRUE(state->game.currentMatch.kickoffFirstTouchSeconds.has_value());
+    EXPECT_FLOAT_EQ(*state->game.currentMatch.kickoffFirstTouchSeconds, 1.2f);
+
+    reducer.Reduce(std::string(Constants::EVT_COUNTDOWN_BEGIN), {{"MatchGuid", "kickoff-timing"}});
+    ASSERT_TRUE(state->game.currentMatch.kickoffFirstTouchSeconds.has_value());
+    EXPECT_FLOAT_EQ(*state->game.currentMatch.kickoffFirstTouchSeconds, 1.2f);
+    now += std::chrono::seconds(3);
+    reducer.Reduce(std::string(Constants::EVT_ROUND_STARTED), {{"MatchGuid", "kickoff-timing"}});
+    ASSERT_TRUE(state->game.currentMatch.kickoffFirstTouchSeconds.has_value());
+    EXPECT_FLOAT_EQ(*state->game.currentMatch.kickoffFirstTouchSeconds, 1.2f);
+    now += std::chrono::milliseconds(2340);
+    hit("kickoff-timing", "Epic|2", 1);
+    ASSERT_TRUE(state->game.currentMatch.kickoffFirstTouchSeconds.has_value());
+    EXPECT_FLOAT_EQ(*state->game.currentMatch.kickoffFirstTouchSeconds, 1.2f);
+
+    const auto end = reducer.Reduce(std::string(Constants::EVT_MATCH_ENDED),
+                                    nlohmann::json{{"MatchGuid", "kickoff-timing"}, {"WinnerTeamNum", 0}});
+    ASSERT_TRUE(end.saveMatch);
+    ASSERT_TRUE(end.saveSnapshot.analytics.has_value());
+    const auto& kickoffs = end.saveSnapshot.analytics->kickoffs;
+    ASSERT_EQ(kickoffs.size(), 3u);
+    ASSERT_TRUE(kickoffs[0].firstTouchSeconds.has_value());
+    ASSERT_TRUE(kickoffs[1].firstTouchSeconds.has_value());
+    EXPECT_FLOAT_EQ(*kickoffs[0].firstTouchSeconds, 1.95f);
+    EXPECT_FLOAT_EQ(*kickoffs[1].firstTouchSeconds, 1.2f);
+    ASSERT_TRUE(kickoffs[2].firstTouchSeconds.has_value());
+    EXPECT_FLOAT_EQ(*kickoffs[2].firstTouchSeconds, 2.34f);
+    StartTimedMatch(reducer, *state, "next-kickoff-match");
+    EXPECT_FALSE(state->game.currentMatch.kickoffFirstTouchSeconds.has_value());
+}
+
 TEST(TelemetryReducerStats, GoalReplayEchoOutsideReplayIsNotASecondGoal) {
     Storage::InitializeEnvironment();
     auto state = std::make_shared<SessionState>();

@@ -45,6 +45,7 @@ namespace {
         game.myPrimaryId = "Steam|capture_self";
         game.myTeam = 0;
         game.inMatch = true;
+        game.currentMatch.kickoffFirstTouchSeconds = 1.95f;
 
         PlayerData self;
         self.primaryId = "Steam|capture_self";

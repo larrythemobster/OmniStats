@@ -81,6 +81,7 @@ struct MatchStats {
 
     float fastestGoalTime = 0.0f;
     float fastestGoalTimeSelf = 0.0f;
+    std::optional<float> kickoffFirstTouchSeconds;
     int ownGoals = 0;
     int ownGoalsSelf = 0;
     int boostPickedUp = 0;

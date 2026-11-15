@@ -39,6 +39,8 @@ flowchart LR
 
 `LiveMatchStore` and `HistoryStore` publish immutable snapshots. UI readers consume those snapshots rather than accessing mutable worker state.
 
+Kickoff first-hit timing measures from `RoundStarted` at GO to the first `BallHit` by either team, excluding pauses. Live match stats retain the lowest recorded duration until a new match starts. Per-kickoff durations are saved with analytics and averaged by first-touch team in match history. Older matches and kickoffs without an observed start or hit show no timing.
+
 A session ends on game close when configured, or after two hours of inactivity. Resetting clears session totals without deleting lifetime history or notes. Each playlist's MMR baseline comes from the first rating observed before a session match, never from a post-match rating.
 
 Unconfirmed match results stay out of win/loss records and outcome-based insights until confirmed.

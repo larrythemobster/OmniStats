@@ -162,7 +162,7 @@ int PlayerAnalytics::StatEvent(const std::string& eventName) const {
 }
 
 bool MatchAnalytics::Empty() const {
-    return playSeconds <= 0.0f && players.empty() && goals.empty() && hits.empty();
+    return playSeconds <= 0.0f && players.empty() && goals.empty() && hits.empty() && kickoffs.empty();
 }
 
 bool MatchAnalytics::EndedEarly() const {
@@ -277,11 +277,13 @@ nlohmann::json MatchAnalyticsToJson(const MatchAnalytics& a) {
 
     auto& kickoffs = j["kickoffs"] = nlohmann::json::array();
     for (const auto& k : a.kickoffs) {
-        kickoffs.push_back({{"t", Round1(k.playSeconds)},
-                            {"firstTouchId", k.firstTouchId},
-                            {"firstTouchTeam", k.firstTouchTeam},
-                            {"possessionTeam", k.possessionTeam},
-                            {"goalTeam", k.goalTeam}});
+        nlohmann::json kj{{"t", Round1(k.playSeconds)},
+                          {"firstTouchId", k.firstTouchId},
+                          {"firstTouchTeam", k.firstTouchTeam},
+                          {"possessionTeam", k.possessionTeam},
+                          {"goalTeam", k.goalTeam}};
+        if (k.firstTouchSeconds) kj["firstTouchSeconds"] = std::round(*k.firstTouchSeconds * 100.0f) / 100.0f;
+        kickoffs.push_back(std::move(kj));
     }
 
     auto& timeline = j["possessionTimeline"] = nlohmann::json::array();
@@ -416,6 +418,7 @@ std::optional<MatchAnalytics> MatchAnalyticsFromJson(const nlohmann::json& j) {
             Read(kj, "t", k.playSeconds);
             Read(kj, "firstTouchId", k.firstTouchId);
             Read(kj, "firstTouchTeam", k.firstTouchTeam);
+            ReadOpt(kj, "firstTouchSeconds", k.firstTouchSeconds);
             Read(kj, "possessionTeam", k.possessionTeam);
             Read(kj, "goalTeam", k.goalTeam);
             a.kickoffs.push_back(std::move(k));

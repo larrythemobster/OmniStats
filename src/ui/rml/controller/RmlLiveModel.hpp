@@ -31,6 +31,7 @@ struct LiveValues {
     Rml::String match_hardest_crossbar;
     Rml::String match_fastest_goal;
     Rml::String match_own_goals;
+    Rml::String match_kickoff_first_hit;
 
     Rml::String session_record;
     Rml::String session_goals;

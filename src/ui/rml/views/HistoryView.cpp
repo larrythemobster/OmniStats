@@ -1019,6 +1019,27 @@ void HistoryView::RebuildDetail() {
                        ourFirstTouches > theirFirstTouches ? 1 : ourFirstTouches < theirFirstTouches ? -1
                                                                                                      : 0);
 
+            float ourFirstHitSum = 0.0f, theirFirstHitSum = 0.0f;
+            int ourFirstHitCount = 0, theirFirstHitCount = 0;
+            for (const auto& k : a.kickoffs) {
+                if (!k.firstTouchSeconds) continue;
+                if (k.firstTouchTeam == ourTeam) {
+                    ourFirstHitSum += *k.firstTouchSeconds;
+                    ++ourFirstHitCount;
+                } else if (k.firstTouchTeam == theirTeam) {
+                    theirFirstHitSum += *k.firstTouchSeconds;
+                    ++theirFirstHitCount;
+                }
+            }
+            const float ourFirstHitAvg = ourFirstHitCount ? ourFirstHitSum / ourFirstHitCount : 0.0f;
+            const float theirFirstHitAvg = theirFirstHitCount ? theirFirstHitSum / theirFirstHitCount : 0.0f;
+            addCompare("Avg kickoff first hit",
+                       ourFirstHitCount ? FormatNumber(ourFirstHitAvg, 2) + " s" : "--",
+                       theirFirstHitCount ? FormatNumber(theirFirstHitAvg, 2) + " s" : "--",
+                       !ourFirstHitCount || !theirFirstHitCount ? 0 : ourFirstHitAvg < theirFirstHitAvg ? 1
+                                                                  : ourFirstHitAvg > theirFirstHitAvg   ? -1
+                                                                                                        : 0);
+
             int ourKoGoals = 0, theirKoGoals = 0;
             for (const auto& k : a.kickoffs) {
                 if (k.goalTeam == ourTeam) ourKoGoals++;
