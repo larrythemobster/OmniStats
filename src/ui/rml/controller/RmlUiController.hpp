@@ -451,6 +451,8 @@ class RmlUiController final : public Rml::EventListener {
     bool m_showUpdatePrompt = false;
     bool m_accountPromptPending = false;
     StatsApiPrompt m_statsApiPrompt = StatsApiPrompt::Hidden;
+    bool m_sessionExpired = false;
+    bool m_sessionExpiredPrompt = false;
     bool m_pointerPressed = false;
     std::string m_pendingBallchasingToken;
     std::string m_statsApiPathError;

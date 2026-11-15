@@ -39,7 +39,7 @@ bool RmlUiController::WantsAttention() const {
     // and the host skips Update() while the window is hidden, so the pending
     // flag itself has to keep the window drawn.
     return m_insightsVisible || m_historyVisible || m_accountsVisible || m_playerNoteVisible || m_onboardingVisible ||
-           m_accountPromptPending || m_statsApiPrompt != StatsApiPrompt::Hidden ||
+           m_accountPromptPending || m_statsApiPrompt != StatsApiPrompt::Hidden || m_sessionExpiredPrompt ||
            (m_state && m_state->ui.showSessionRecap.load()) || (m_state && m_state->ui.showMenu.load());
 }
 
@@ -566,7 +566,18 @@ void RmlUiController::SetStatsApiPrompt(StatsApiPrompt state) {
 
 void RmlUiController::RebuildStatsApiPrompt() {
     if (m_statsApiPrompt == StatsApiPrompt::Hidden) {
-        SetRootRml("prompt-root", "");
+        if (!m_sessionExpiredPrompt) {
+            SetRootRml("prompt-root", "");
+            return;
+        }
+        SetRootRml("prompt-root",
+                   "<div class='prompt-backdrop'><div class='card prompt-card'>"
+                   "<div class='row prompt-head'><img class='brand-logo' src='res://images/Logo.png'/><div class='prompt-title grow'>Sign in to OmniStats again</div></div>"
+                   "<div class='prompt-body'>Your session expired or this PC was removed from your account, so player ranks can't load.</div>"
+                   "<div class='prompt-detail'>Your match history is still saved on this PC.</div>"
+                   "<div class='row gap-sm prompt-actions'><div class='grow'></div>" +
+                       Button("session-prompt-close", "Not now", "ghost") + Button("session-sign-in", "Sign in", "primary") +
+                       "</div></div></div>");
         return;
     }
     StatsApiConfig::CheckResult result;
@@ -1043,6 +1054,23 @@ bool RmlUiController::HandleViewAction(const std::string& action, Rml::Element* 
         m_settingsPage = SettingsPage::DataSupport;
         m_showTroubleshooting = true;
         if (m_state) m_state->ui.showMenu.store(true);
+        m_renderDirty = true;
+        return true;
+    } else if (action == "session-prompt-close") {
+        m_sessionExpiredPrompt = false;
+        RebuildStatsApiPrompt();
+        m_renderDirty = true;
+        return true;
+    } else if (action == "session-sign-in") {
+        m_sessionExpiredPrompt = false;
+        RebuildStatsApiPrompt();
+        m_settingsPage = SettingsPage::Accounts;
+        if (m_state) {
+            m_state->ui.showMenu.store(true);
+            m_state->ui.dashboardLayoutEditMode.store(false);
+        }
+        if (m_accountClient) m_accountClient->BeginSignInAsync(true);
+        RebuildSettings();
         m_renderDirty = true;
         return true;
     } else if (action == "open-rank-settings") {

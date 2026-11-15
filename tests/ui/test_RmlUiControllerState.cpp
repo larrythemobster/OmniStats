@@ -2132,6 +2132,127 @@ namespace {
             return true;
         }
     };
+
+    void CaptureKickoffView(WarpDevice& warp, RmlUiController& controller, const char* filename) {
+        if (const char* dir = std::getenv("OMNISTATS_CAPTURE_DIR"); dir && *dir) {
+            std::filesystem::create_directories(dir);
+            const float clear[4] = {0.0f, 0.0f, 0.0f, 1.0f};
+            warp.context->ClearRenderTargetView(warp.target.Get(), clear);
+            controller.Render();
+            std::string error;
+            EXPECT_TRUE(RmlCapture::SaveBoundRenderTargetRegion(warp.context.Get(), 0, 0, 1280, 900, 0.0f,
+                                                                (std::filesystem::path(dir) / filename).wstring(), error))
+                << error;
+        }
+    }
+}
+
+TEST_F(RmlUiControllerStateTest, FastestKickoffLiveValueImprovesAndResetsForNewMatch) {
+    WarpDevice warp;
+    if (!warp.Create(1280, 900)) GTEST_SKIP() << "WARP not available.";
+    Config::Update([](ConfigData& c) {
+        c.second_monitor_mode = true;
+        c.dashboard_layout = DashboardLayout::DefaultLayout();
+        for (auto& widget : c.dashboard_layout.widgets)
+            if (widget.id == DashboardLayout::WidgetId::LiveMatchStats) widget.zone = DashboardLayout::Zone::Left;
+    },
+                   true);
+    auto state = std::make_shared<SessionState>();
+    RmlUiController controller(state, nullptr);
+    ASSERT_TRUE(controller.Initialize(nullptr, warp.device.Get(), warp.context.Get(), 1280, 900, 1.0f));
+    controller.Update(Config::Read(), false);
+    controller.Render();
+
+    const auto valueElement = [&]() -> Rml::Element* {
+        Rml::ElementList rows;
+        Document(controller)->QuerySelectorAll(rows, "[data-widget='live-match'] .metric-row");
+        for (auto* row : rows) {
+            auto* label = row->QuerySelector(".metric-label");
+            if (label && label->GetInnerRML() == "Fastest kickoff hit") return row->QuerySelector(".metric-value");
+        }
+        return nullptr;
+    };
+    auto* value = valueElement();
+    ASSERT_NE(value, nullptr);
+    EXPECT_EQ(value->GetInnerRML(), "--");
+    state->liveMatch->Update([](MatchState& ms) { ms.currentMatch.kickoffFirstTouchSeconds = 1.95f; });
+    controller.Update(Config::Read(), false);
+    controller.Render();
+    EXPECT_EQ(valueElement(), value);
+    EXPECT_EQ(value->GetInnerRML(), "1.95 s");
+    CaptureKickoffView(warp, controller, "kickoff-live.png");
+    state->liveMatch->Update([](MatchState& ms) { ms.currentMatch.kickoffFirstTouchSeconds = 1.2f; });
+    controller.Update(Config::Read(), false);
+    controller.Render();
+    EXPECT_EQ(value->GetInnerRML(), "1.20 s");
+    state->liveMatch->Update([](MatchState& ms) { ms.ResetMatch("Stadium_P"); });
+    controller.Update(Config::Read(), false);
+    controller.Render();
+    value = valueElement();
+    ASSERT_NE(value, nullptr);
+    EXPECT_EQ(value->GetInnerRML(), "--");
+}
+
+TEST_F(RmlUiControllerStateTest, HistoryKickoffFirstHitAveragesMeasuredTeams) {
+    WarpDevice warp;
+    if (!warp.Create(1280, 900)) GTEST_SKIP() << "WARP not available.";
+    auto state = std::make_shared<SessionState>();
+    RmlUiController controller(state, nullptr);
+    ASSERT_TRUE(controller.Initialize(nullptr, warp.device.Get(), warp.context.Get(), 1280, 900, 1.0f));
+    controller.Update(Config::Read(), false);
+    controller.OpenHistory();
+    MatchDetail detail;
+    detail.found = true;
+    detail.hasPlayerStats = true;
+    MatchDetailPlayer local;
+    local.team = 1;
+    detail.ourTeam.push_back(local);
+    detail.analytics.emplace();
+    KickoffRecord ours, oursAgain, theirs, missing;
+    ours.firstTouchTeam = 1;
+    ours.firstTouchSeconds = 1.5f;
+    oursAgain.firstTouchTeam = 1;
+    oursAgain.firstTouchSeconds = 2.4f;
+    theirs.firstTouchTeam = 0;
+    theirs.firstTouchSeconds = 2.5f;
+    missing.firstTouchTeam = 1;
+    detail.analytics->kickoffs = {ours, oursAgain, theirs, missing};
+    auto& view = HistoryModel(controller);
+    ASSERT_TRUE(view.ApplyDetailResult(view.BeginDetail(), detail));
+    controller.Render();
+    const auto compareRow = [&]() -> Rml::Element* {
+        Rml::ElementList rows;
+        HistoryDocument(controller)->QuerySelectorAll(rows, ".history-compare-row");
+        for (auto* row : rows) {
+            auto* label = row->QuerySelector(".history-cmp-label");
+            if (label && label->GetInnerRML() == "Avg kickoff first hit") return row;
+        }
+        return nullptr;
+    };
+    auto* row = compareRow();
+    ASSERT_NE(row, nullptr);
+    auto* ourValue = row->QuerySelector(".history-cmp-our");
+    auto* theirValue = row->QuerySelector(".history-cmp-their");
+    ASSERT_NE(ourValue, nullptr);
+    ASSERT_NE(theirValue, nullptr);
+    EXPECT_EQ(ourValue->GetInnerRML(), "1.95 s");
+    EXPECT_EQ(theirValue->GetInnerRML(), "2.50 s");
+    EXPECT_TRUE(ourValue->IsClassSet("win"));
+    EXPECT_TRUE(theirValue->IsClassSet("loss"));
+    CaptureKickoffView(warp, controller, "kickoff-history.png");
+    detail.analytics->kickoffs = {theirs, missing};
+    ASSERT_TRUE(view.ApplyDetailResult(view.ActiveDetailRequestId(), detail));
+    controller.Render();
+    row = compareRow();
+    ASSERT_NE(row, nullptr);
+    ourValue = row->QuerySelector(".history-cmp-our");
+    theirValue = row->QuerySelector(".history-cmp-their");
+    ASSERT_NE(ourValue, nullptr);
+    ASSERT_NE(theirValue, nullptr);
+    EXPECT_EQ(ourValue->GetInnerRML(), "--");
+    EXPECT_EQ(theirValue->GetInnerRML(), "2.50 s");
+    EXPECT_FALSE(ourValue->IsClassSet("loss"));
+    EXPECT_FALSE(theirValue->IsClassSet("win"));
 }
 
 TEST_F(RmlUiControllerStateTest, FirstRunWizardShowsUntilFinished) {
@@ -3970,6 +4091,73 @@ TEST_F(RmlUiControllerStateTest, AccountLinkPromptWaitsForMigrationAndOffersReco
     ASSERT_NE(root, nullptr);
     EXPECT_NE(root->QuerySelector("[data-action='account-retry-migration']"), nullptr);
     EXPECT_NE(root->QuerySelector("[data-action='account-sign-in']"), nullptr);
+}
+
+TEST_F(RmlUiControllerStateTest, RejectedSessionPromptsUntilUserStartsSignIn) {
+    WarpDevice warp;
+    if (!warp.Create(1280, 900)) GTEST_SKIP() << "WARP not available.";
+    struct Cleanup {
+        ~Cleanup() {
+            OmniNet::SetTransportForTesting({});
+        }
+    } cleanup;
+    OmniNet::SetTransportForTesting([](const OmniNet::Request& request) {
+        OmniNet::Response response;
+        if (request.op == OmniNet::Op::AuthRefresh) {
+            response.status = 401;
+        } else if (request.op == OmniNet::Op::AuthStart) {
+            response.status = 200;
+            response.body = R"({"device_code":"dev","user_code":"CODE-123","verification_uri":"/device?user_code=CODE-123","expires_in":900,"poll_interval":5})";
+        } else {
+            response.status = 428;
+            response.body = R"({"error":{"code":"authorization_pending","message":"Pending"}})";
+        }
+        return response;
+    });
+    Config::Update([](ConfigData& c) {
+        c.second_monitor_mode = true;
+        c.custom_api_enabled = true;
+        c.enable_mmr_tracking = false;
+        c.account_refresh_token = "expired-refresh";
+        c.account_signed_in_name = "Expired";
+    },
+                   true);
+    auto account = std::make_shared<AccountClient>();
+    account->SetOpenUrlForTests([](const std::string&) {});
+    auto state = std::make_shared<SessionState>();
+    RmlUiController controller(state, nullptr, nullptr, nullptr, nullptr, nullptr, account);
+    ASSERT_TRUE(controller.Initialize(nullptr, warp.device.Get(), warp.context.Get(), 1280, 900, 1.0f));
+    controller.Update(Config::Read(), false);
+    controller.Render();
+    EXPECT_EQ(PromptRoot(controller)->QuerySelector("[data-action='session-sign-in']"), nullptr);
+
+    ASSERT_FALSE(account->Refresh());
+    controller.Update(Config::Read(), false);
+    controller.Render();
+    EXPECT_TRUE(controller.WantsAttention());
+    ASSERT_NE(PromptRoot(controller)->QuerySelector("[data-action='session-sign-in']"), nullptr);
+    CaptureKickoffView(warp, controller, "session-expired-prompt.png");
+
+    auto* notNow = PromptRoot(controller)->QuerySelector("[data-action='session-prompt-close']");
+    ASSERT_NE(notNow, nullptr);
+    Click(controller, notNow);
+    controller.Update(Config::Read(), false);
+    controller.Render();
+    EXPECT_EQ(PromptRoot(controller)->QuerySelector(".prompt-card"), nullptr);
+    auto* hintSignIn = DashboardRoot(controller)->QuerySelector(".rank-source-hint [data-action='session-sign-in']");
+    ASSERT_NE(hintSignIn, nullptr);
+    CaptureKickoffView(warp, controller, "session-expired-hint.png");
+
+    Click(controller, hintSignIn);
+    EXPECT_TRUE(state->ui.showMenu.load());
+    for (int i = 0; i < 100 && account->GetStatus().state != AccountAuthState::AwaitingApproval; ++i)
+        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    EXPECT_EQ(account->GetStatus().state, AccountAuthState::AwaitingApproval);
+    controller.Update(Config::Read(), false);
+    controller.Render();
+    EXPECT_EQ(DashboardRoot(controller)->GetInnerRML().find("session expired"), std::string::npos);
+    account->CancelAuthorization();
+    account->Shutdown();
 }
 TEST_F(RmlUiControllerStateTest, OnboardingWizard_StepsTransitionAndSkip) {
     WarpDevice warp;

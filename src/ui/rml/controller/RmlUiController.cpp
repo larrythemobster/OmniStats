@@ -598,7 +598,16 @@ void RmlUiController::RebuildVisibleUi(bool force, bool configChanged) {
             m_lastAccountStatusVersion = accountStatus.version;
             std::string signedOutReason;
             if (m_accountClient && m_accountClient->ConsumeSignedOutNotification(signedOutReason)) {
-                ShowToast(signedOutReason, true);
+                m_sessionExpired = true;
+                m_sessionExpiredPrompt = true;
+                RebuildStatsApiPrompt();
+                m_renderDirty = true;
+            } else if (m_sessionExpired && (accountStatus.state == AccountAuthState::SignedIn ||
+                                            accountStatus.state == AccountAuthState::AwaitingApproval)) {
+                m_sessionExpired = false;
+                m_sessionExpiredPrompt = false;
+                RebuildStatsApiPrompt();
+                m_renderDirty = true;
             }
             if (m_onboardingVisible) RefreshOnboarding();
             if (m_accountPromptPending) CheckAccountLinkPrompt();
@@ -674,6 +683,7 @@ void RmlUiController::RebuildVisibleUi(bool force, bool configChanged) {
     HashAppend(runtimeStructuralHash, static_cast<uint64_t>(m_snap.inMatch));
     HashAppend(runtimeStructuralHash, static_cast<uint64_t>(m_config.second_monitor_mode));
     HashAppend(runtimeStructuralHash, static_cast<uint64_t>(RankSourceAvailable(m_config, m_accountClient && m_accountClient->IsSignedIn())));
+    HashAppend(runtimeStructuralHash, static_cast<uint64_t>(m_sessionExpired));
     HashAppend(runtimeStructuralHash, static_cast<uint64_t>(m_config.show_tournaments && m_accountClient && m_accountClient->IsSignedIn()));
     if (!m_config.second_monitor_mode) {
         for (const auto& container : m_config.overlay_layout.containers) {

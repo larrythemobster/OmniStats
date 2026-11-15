@@ -28,6 +28,11 @@ using namespace RmlUiDetail;
 std::string RmlUiController::RenderRankSourceHint(bool interactive) const {
     if (RankSourceAvailable(m_config, m_accountClient && m_accountClient->IsSignedIn())) return {};
     std::string html = "<div class='rank-source-hint row'>";
+    if (m_sessionExpired) {
+        html += "<div class='grow'>Your OmniStats session expired. Sign in again to load player ranks.</div>";
+        if (interactive) html += "<button class='primary compact' data-action='session-sign-in'>Sign in</button>";
+        return html + "</div>";
+    }
     if (!OmniNet::Available()) {
         html += "<div class='grow'>Ranks are off. Enable Tracker Network rank lookup in Settings &#x203A; Accounts &amp; services.</div>";
     } else {
