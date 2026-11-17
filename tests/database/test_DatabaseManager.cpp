@@ -2,6 +2,7 @@
 #include "TempDirectory.hpp"
 #include "database/DatabaseManager.hpp"
 #include "core/state/SessionState.hpp"
+#include "core/state/LiveMatchStore.hpp"
 #include "core/game/MatchAnalytics.hpp"
 #include <memory>
 #include <filesystem>
@@ -393,8 +394,39 @@ TEST_F(DatabaseManagerTest, UpdatesSavedLocalPlayerMmrByMatchGuid) {
     EXPECT_EQ(matches[0].mmr, 1211);
 }
 
+TEST_F(DatabaseManagerTest, AsyncSaveRefreshesLifetimeGraphForSelectedPlaylist) {
+    const std::string pid = "Steam|lifetime-history";
+    sessionState->liveMatch->SetLocalPrimaryId(pid);
+    sessionState->ui.graphMmrCategory.store(MmrCategory::OneVOne);
+
+    MatchSaveSnapshot snap;
+    snap.arenaName = "DFH Stadium";
+    snap.matchGuid = "lifetime-doubles";
+    snap.playlistId = 11;
+    snap.myTeam = 0;
+    snap.winnerTeam = 0;
+    snap.validResult = true;
+    snap.myPrimaryId = pid;
+    snap.roster[pid] = PlayerData{
+        .primaryId = pid, .name = "Player", .team = 0, .mmr = 1400};
+    dbManager->SaveMatch(snap);
+
+    snap.matchGuid = "lifetime-duel";
+    snap.playlistId = 10;
+    snap.roster[pid].mmr = 1200;
+    dbManager->AsyncSaveMatch(snap);
+    dbManager.reset();
+
+    const auto history = sessionState->history.GetSnapshot();
+    EXPECT_EQ(history->lifetimeMmrY, std::vector<float>{1200.0f});
+    ASSERT_EQ(history->lifetimeMmrX.size(), 1u);
+    EXPECT_GT(history->lifetimeMmrX[0], 0);
+}
+
 TEST_F(DatabaseManagerTest, ConfirmedMmrRefreshReplacesPendingHistoryPlaceholder) {
     const std::string pid = "Steam|pending-history";
+    sessionState->liveMatch->SetLocalPrimaryId(pid);
+    sessionState->ui.graphMmrCategory.store(MmrCategory::OneVOne);
     MatchSaveSnapshot snap;
     snap.arenaName = "DFH Stadium";
     snap.matchGuid = "pending-history-db-guid";
@@ -451,6 +483,7 @@ TEST_F(DatabaseManagerTest, ConfirmedMmrRefreshReplacesPendingHistoryPlaceholder
     EXPECT_EQ(history->recentSavedMatches[0].matchGuid, snap.matchGuid);
     EXPECT_EQ(history->recentSavedMatches[0].mmr, 1211);
     EXPECT_FALSE(history->recentSavedMatches[0].pendingTrackerConfirmation);
+    EXPECT_EQ(history->lifetimeMmrY, std::vector<float>{1211.0f});
 }
 
 TEST_F(DatabaseManagerTest, AsyncSavePublishesOrderedStreakCacheAndLeavesItClean) {

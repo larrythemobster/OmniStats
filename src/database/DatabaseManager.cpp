@@ -215,6 +215,7 @@ void DatabaseManager::AsyncSaveMatch(MatchSaveSnapshot snapshot) {
             GetRecentMatchHistory(primaryId, matches, conf.previous_games_limit);
             if (m_state) {
                 m_state->history.SetRecentSavedMatches(std::move(matches));
+                RefreshLifetimeMmrSync(primaryId);
             }
         },
                       DbJobPriority::Critical)) {
@@ -246,6 +247,7 @@ void DatabaseManager::AsyncUpdateMatchPlayerMmr(std::string matchGuid, std::stri
         GetRecentMatchHistory(primaryId, matches, conf.previous_games_limit);
         if (m_state) {
             m_state->history.SetRecentSavedMatches(std::move(matches));
+            RefreshLifetimeMmrSync(primaryId);
         }
     },
                        DbJobPriority::Critical);
@@ -403,6 +405,21 @@ void DatabaseManager::GetLifetimeMmrHistory(const std::string& primaryId, const 
     }
     std::lock_guard lock(m_writeMutex);
     repository::HistoryRepository::GetLifetimeMmrHistory(m_db, primaryId, playlist, outX, outY);
+}
+
+void DatabaseManager::RefreshLifetimeMmrSync(const std::string& primaryId) {
+    if (!m_state || primaryId.empty()) return;
+    const auto live = m_state->liveMatch ? m_state->liveMatch->GetSnapshot() : nullptr;
+    if (live && !live->myPrimaryId.empty()) {
+        if (primaryId != live->myPrimaryId) return;
+    } else if (primaryId != Config::Read().last_primary_id) {
+        return;
+    }
+
+    std::vector<int64_t> x;
+    std::vector<float> y;
+    GetLifetimeMmrHistory(primaryId, MmrCategoryToString(m_state->ui.graphMmrCategory.load()), x, y);
+    m_state->history.SetLifetimeMmr(std::move(x), std::move(y));
 }
 
 void DatabaseManager::AsyncGetLifetimeMmrHistory(const std::string& primaryId, const std::string& playlist) {
