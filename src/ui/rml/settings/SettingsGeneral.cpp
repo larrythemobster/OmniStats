@@ -35,7 +35,7 @@ std::string SettingsPresenter::RenderGeneral(const ConfigData& config) {
         << ToggleControl("show_running_indicator", "Show running indicator", "A small badge that shows the overlay is running.", config.show_running_indicator)
         << SectionEnd();
     out << SectionStart("Seasons")
-        << ToggleControl("show_season_countdown", "Season countdown", "Shows time left on the dashboard and tournament card.", config.show_season_countdown)
+        << ToggleControl("show_season_countdown", "Season countdown", "Shows time left in the dashboard top bar.", config.show_season_countdown)
         << SelectRow("season_reminder_days", "End-of-season reminder", "A short note between matches when the season is almost over.",
                      {{"0", "Off"}, {"3", "3 days before"}, {"7", "7 days before"}, {"14", "14 days before"}}, std::to_string(config.season_reminder_days))
         << ToggleControl("season_reward_reminders", "Remind me about rewards", "Only when you still need wins for your season rewards.", config.season_reward_reminders)

@@ -99,8 +99,7 @@ std::string RmlUiController::RenderWidget(DashboardLayout::WidgetId id, bool das
         // The overlay keeps the bare bar so it reads as part of the card it is docked to.
         return RenderSelfRankProgress(dashboard);
     case DashboardLayout::WidgetId::Tournaments:
-        return TournamentUi::RenderWidget(m_tournamentService ? *m_tournamentService->Snapshot() : Tournaments::ScheduleSnapshot{}, static_cast<int64_t>(std::time(nullptr)), m_telemetry.get()) +
-               (m_config.show_season_countdown && m_currentSeason ? TournamentUi::RenderSeasonChip(*m_currentSeason, static_cast<int64_t>(std::time(nullptr))) : "");
+        return TournamentUi::RenderWidget(m_tournamentService ? *m_tournamentService->Snapshot() : Tournaments::ScheduleSnapshot{}, static_cast<int64_t>(std::time(nullptr)), m_telemetry.get());
     }
     return {};
 }

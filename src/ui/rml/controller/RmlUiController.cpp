@@ -1442,7 +1442,7 @@ void RmlUiController::RefreshTournaments(bool force) {
         for (auto* widget : widgets) {
             if (Attribute(widget, "data-live-widget") == "tournaments") {
                 const std::string tournament = enabled ? TournamentUi::RenderWidget(*snapshot, now) : "";
-                SetElementRml(widget, tournament + (m_config.show_season_countdown && m_currentSeason ? TournamentUi::RenderSeasonChip(*m_currentSeason, now) : ""), false);
+                SetElementRml(widget, tournament, false);
             }
         }
     }
