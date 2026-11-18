@@ -463,6 +463,10 @@ class RmlUiController final : public Rml::EventListener {
     uint64_t m_tournamentVersion = 0;
     int64_t m_tournamentMinute = -1;
     Tournaments::ReminderTracker m_tournamentReminder;
+    std::string m_tournamentPlayer;
+    int64_t m_tournamentHistoryCheckedAt = 0;
+    int64_t m_lastTournamentWinAt = 0;
+    int64_t m_tournamentAdvancedSlot = 0;
     uint64_t m_seasonSummaryRequestId = 0;
     uint64_t m_lastSeasonSummaryRequestId = 0;
     uint64_t m_lastHistorySeasonRequestId = 0;

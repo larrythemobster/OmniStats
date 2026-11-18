@@ -1,6 +1,7 @@
 #pragma once
 
 #include "core/state/SessionState.hpp"
+#include "core/tournaments/TournamentSchedule.hpp"
 #include "database/sqlite/Connection.hpp"
 #include "database/DatabaseTypes.hpp"
 #include <cstdint>
@@ -17,6 +18,8 @@ namespace database::repository {
         static int GetSchemaVersion(sqlite::Connection& db);
         static void GetLifetimeMmrHistory(sqlite::Connection& db, const std::string& primaryId, const std::string& playlist, std::vector<int64_t>& outX, std::vector<float>& outY);
         static void GetRecentMatchHistory(sqlite::Connection& db, const std::string& primaryId, std::vector<SessionMatchSummary>& outMatches, int limit = kPreviousGamesDefaultLimit);
+        static Tournaments::BracketResult GetTournamentBracketResult(sqlite::Connection& db, const std::string& primaryId,
+                                                                     int64_t startUnix, int64_t secondChanceUnix, std::string_view observedMatchGuid);
         static std::optional<PersonRecord> GetPlayerEncounterRecord(sqlite::Connection& db, const std::string& account, const std::string& primaryId);
         static void GetPeopleRecords(sqlite::Connection& db, const std::string& primaryId, std::vector<PersonRecord>& outPeople);
         static void GetMatchOutcomes(sqlite::Connection& db, const std::string& primaryId, std::vector<MatchOutcome>& outMatches);

@@ -5,6 +5,7 @@ class TelemetryManager;
 #include "ReaderPool.hpp"
 #include "core/accounts/TrackedAccounts.hpp"
 #include "core/game/SeasonCalendar.hpp"
+#include "core/tournaments/TournamentSchedule.hpp"
 #include "core/state/MatchSaveSnapshot.hpp"
 #include "core/state/SessionState.hpp"
 #include "database/sqlite/Connection.hpp"
@@ -65,6 +66,8 @@ class DatabaseManager {
     void AsyncGetLifetimeMmrHistory(const std::string& primaryId, const std::string& playlist);
     void GetRecentMatchHistory(const std::string& primaryId, std::vector<SessionMatchSummary>& outMatches, int limit = kPreviousGamesDefaultLimit);
     void AsyncGetRecentMatchHistory(const std::string& primaryId, int limit = kPreviousGamesDefaultLimit);
+    Tournaments::BracketResult GetTournamentBracketResult(const std::string& primaryId, int64_t startUnix,
+                                                          int64_t secondChanceUnix, std::string_view observedMatchGuid);
     std::optional<PersonRecord> GetPlayerEncounterRecord(const std::string& account, const std::string& primaryId);
     void AsyncGetPlayerEncounterRecord(const std::string& primaryId);
     void GetPeopleRecords(const std::string& primaryId, std::vector<PersonRecord>& outPeople);

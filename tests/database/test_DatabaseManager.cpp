@@ -26,6 +26,33 @@ class DatabaseManagerTest : public ::testing::Test {
     std::shared_ptr<DatabaseManager> dbManager;
 };
 
+TEST_F(DatabaseManagerTest, TournamentBracketUsesOfficialMatchesInWindowAndWaitsForResults) {
+    using Tournaments::BracketResult;
+    const char* seed = R"(
+        INSERT INTO Matches (id, timestamp, win, match_guid, playlist_id, result_pending) VALUES
+            (1, datetime( 999, 'unixepoch'), 1, 'previous-win', 34, 0),
+            (2, datetime(1100, 'unixepoch'), 1, 'custom-win', 22, 0),
+            (3, datetime(1120, 'unixepoch'), 0, 'first-loss', 34, 0),
+            (4, datetime(1140, 'unixepoch'), 0, 'pending', 34, 1),
+            (5, datetime(1150, 'unixepoch'), 1, 'advanced', 34, 0),
+            (6, datetime(1160, 'unixepoch'), 0, 'later-loss', 34, 0),
+            (7, datetime(1900, 'unixepoch'), 1, 'second-chance-win', 34, 0);
+        INSERT INTO MatchPlayers (match_id, primary_id, is_opponent) VALUES
+            (1, 'Steam|lost', 0), (2, 'Steam|lost', 0), (3, 'Steam|lost', 0),
+            (4, 'Steam|pending', 0), (5, 'Steam|advanced', 0), (6, 'Steam|advanced', 0),
+            (7, 'Steam|lost', 0), (5, 'Steam|skipped', 1);
+    )";
+    ASSERT_EQ(sqlite3_exec(dbManager->GetRawDb(), seed, nullptr, nullptr, nullptr), SQLITE_OK);
+    auto result = [&](const std::string& player, std::string_view observed = {}) {
+        return dbManager->GetTournamentBracketResult(player, 1000, 1900, observed);
+    };
+    EXPECT_EQ(result("Steam|lost", "first-loss"), BracketResult::Lost);
+    EXPECT_EQ(result("Steam|lost", "not-yet-saved"), BracketResult::Unknown);
+    EXPECT_EQ(result("Steam|pending", "pending"), BracketResult::Unknown);
+    EXPECT_EQ(result("Steam|advanced", "later-loss"), BracketResult::Advanced);
+    EXPECT_EQ(result("Steam|skipped"), BracketResult::NoMatch);
+}
+
 TEST_F(DatabaseManagerTest, PendingResultsDoNotAffectFullHistoryRecordsOrInsights) {
     const char* seed = R"(
         WITH RECURSIVE ids(id) AS (

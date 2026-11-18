@@ -81,4 +81,6 @@ The updater runs separately from the client. It verifies signed release manifest
 
 Official builds include a private service module for OmniStats sign-in, ranks, tournament schedules, and diagnostics. Source builds use the public stub and Tracker Network rank lookup.
 
+The tournament card counts down to the main bracket, then switches to Second Chance at the main start. Reminders use official tournament results in local match history between the two starts. A win suppresses the reminder. Without a recorded match, a reminder requires a Stats API connection observed since the main start and a five-minute join window.
+
 See the [privacy guide](PRIVACY.md) for network destinations and transmitted data, and the [security policy](../.github/SECURITY.md) for vulnerability reporting and release verification.

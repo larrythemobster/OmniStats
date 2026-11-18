@@ -467,6 +467,17 @@ void DatabaseManager::AsyncGetRecentMatchHistory(const std::string& primaryId, i
                        DbJobPriority::Coalescable, "recent_matches:" + pid + "|" + std::to_string(rowLimit));
 }
 
+Tournaments::BracketResult DatabaseManager::GetTournamentBracketResult(const std::string& primaryId, int64_t startUnix,
+                                                                       int64_t secondChanceUnix, std::string_view observedMatchGuid) {
+    if (m_readerPool.HasPool()) {
+        auto lease = m_readerPool.Acquire();
+        if (lease.IsValid())
+            return repository::HistoryRepository::GetTournamentBracketResult(lease.Get(), primaryId, startUnix, secondChanceUnix, observedMatchGuid);
+    }
+    std::lock_guard lock(m_writeMutex);
+    return repository::HistoryRepository::GetTournamentBracketResult(m_db, primaryId, startUnix, secondChanceUnix, observedMatchGuid);
+}
+
 std::optional<PersonRecord> DatabaseManager::GetPlayerEncounterRecord(const std::string& account, const std::string& primaryId) {
     if (m_readerPool.HasPool()) {
         auto lease = m_readerPool.Acquire();

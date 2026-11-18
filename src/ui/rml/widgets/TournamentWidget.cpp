@@ -7,15 +7,13 @@
 
 namespace TournamentUi {
     namespace {
-        std::string LocalTime(int64_t unixTime, bool date = false) {
+        std::string LocalTime(int64_t unixTime) {
             const auto time = static_cast<time_t>(unixTime);
             tm local{};
             if (localtime_s(&local, &time) != 0) return {};
             char buffer[64]{};
-            std::strftime(buffer, sizeof(buffer), date ? "%a %I:%M %p" : "%I:%M %p", &local);
-            std::string value(buffer);
-            if (!date && !value.empty() && value[0] == '0') value.erase(0, 1);
-            return value;
+            std::strftime(buffer, sizeof(buffer), "%a %I:%M %p", &local);
+            return buffer;
         }
     }
     std::string Countdown(int64_t seconds) {
@@ -42,30 +40,35 @@ namespace TournamentUi {
         case ScheduleStatus::Ready:
             break;
         }
-        const auto* next = Tournaments::NextSlot(snapshot.slots, now, false);
+        const auto next = Tournaments::NextEvent(snapshot.slots, now, false);
         if (!next) return "<span class='label'>No upcoming tournaments.</span>";
         if (telemetry) telemetry->RecordMilestone(TelemetryManager::Milestone::TournamentsView);
-        return "<div class='row tournament-countdown'><span class='tournament-name grow'>" + Escape(next->title) +
-               "</span><span class='tournament-region label'>" + Escape(snapshot.group) +
-               "</span><span class='mono accent tournament-remaining'>" + Countdown(next->startUnix - now) + "</span></div>";
+        std::string out = "<div class='row tournament-countdown'><span class='tournament-name grow'>";
+        if (next.secondChance) out += "Second Chance · ";
+        out += Escape(next.slot->title);
+        out += "</span><span class='tournament-region label'>" + Escape(snapshot.group) +
+               "</span><span class='mono accent tournament-remaining'>" + Countdown(next.Start() - now) + "</span></div>";
+        return out;
     }
 
     std::string RenderTopbar(const Tournaments::ScheduleSnapshot& snapshot, int64_t now, bool standardOnly, int reminderMinutes, TelemetryManager* telemetry) {
         using RmlUiDetail::Escape;
         if (snapshot.status != Tournaments::ScheduleStatus::Ready && snapshot.status != Tournaments::ScheduleStatus::Loading) return {};
-        const auto* next = Tournaments::NextSlot(snapshot.slots, now, standardOnly);
+        const auto next = Tournaments::NextEvent(snapshot.slots, now, standardOnly);
         if (!next) return {};
         if (telemetry) telemetry->RecordMilestone(TelemetryManager::Milestone::TournamentsView);
-        const bool soon = reminderMinutes > 0 && next->startUnix - now <= static_cast<int64_t>(reminderMinutes) * 60;
+        const bool soon = reminderMinutes > 0 && next.Start() - now <= static_cast<int64_t>(reminderMinutes) * 60;
         std::ostringstream out;
         out << "<div class='tournament-topbar tooltip-host" << (soon ? " starting-soon" : "") << "'>"
-            << "<span class='tournament-topbar-title'>" << Escape(next->title) << "</span>"
-            << "<span class='mono accent tournament-remaining'>" << Countdown(next->startUnix - now) << "</span><span class='tooltip-bubble'>";
-        size_t count = 0;
-        for (const auto& slot : snapshot.slots) {
-            if (slot.startUnix <= now) continue;
-            if (count++ == 5) break;
-            out << Escape(LocalTime(slot.startUnix, true)) << " · " << Escape(slot.title) << "<br/>";
+            << "<span class='tournament-topbar-title'>" << Escape(next.slot->title);
+        if (next.secondChance) out << " · Second Chance";
+        out << "</span><span class='mono accent tournament-remaining'>" << Countdown(next.Start() - now) << "</span><span class='tooltip-bubble'>";
+        auto upcoming = next;
+        for (int count = 0; upcoming && count < 5; ++count) {
+            out << Escape(LocalTime(upcoming.Start())) << " · " << Escape(upcoming.slot->title);
+            if (upcoming.secondChance) out << " · Second Chance";
+            out << "<br/>";
+            upcoming = Tournaments::NextEvent(snapshot.slots, upcoming.Start(), standardOnly);
         }
         out << "</span></div>";
         return out.str();

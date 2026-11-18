@@ -1374,13 +1374,54 @@ void RmlUiController::RefreshTournaments(bool force) {
     static const auto emptySchedule = std::make_shared<const Tournaments::ScheduleSnapshot>();
     const auto snapshot = m_tournamentService ? m_tournamentService->Snapshot() : emptySchedule;
     const bool enabled = m_accountClient && m_accountClient->IsSignedIn();
-    if (enabled && !m_onboardingVisible) {
-        const auto* next = Tournaments::NextSlot(snapshot->slots, now, m_config.tournament_reminder_standard_only);
-        if (next && m_tournamentReminder.ShouldFire(*next, now, m_config.tournament_reminder_minutes, m_config.tournament_reminder_standard_only)) {
-            if (m_config.second_monitor_mode) {
-                if (m_config.tournament_sound_cue) PlaySoundW(L"SystemNotification", nullptr, SND_ALIAS | SND_ASYNC | SND_NODEFAULT);
-            } else {
-                ShowToast(next->title + (m_snap.inMatch ? " in " : " tournament starts in ") + TournamentUi::Countdown(next->startUnix - now), false, m_snap.inMatch);
+    const auto live = m_state ? m_state->liveMatch->GetSnapshot() : nullptr;
+    const bool officialMatch = live && live->inMatch && !live->inReplay &&
+                               live->playlistId == Tournaments::kOfficialTournamentPlaylist && !live->localPlayerWasSpectator;
+    const bool possibleTournament = officialMatch || (live && live->inMatch && !live->inReplay && live->playlistId == -1);
+    if (m_tournamentPlayer != m_snap.myPrimaryId) {
+        m_tournamentPlayer = m_snap.myPrimaryId;
+        m_tournamentReminder = {};
+        m_tournamentHistoryCheckedAt = 0;
+        m_lastTournamentWinAt = 0;
+        m_tournamentAdvancedSlot = 0;
+    }
+    m_tournamentReminder.Observe(now, m_state && !m_tournamentPlayer.empty() && m_state->ui.statsApiConnected.load(std::memory_order_relaxed), officialMatch,
+                                 officialMatch ? std::string_view(live->matchGuid) : std::string_view{});
+    if (officialMatch && live->matchFinalized && live->localPlayerWasActive &&
+        (live->matchSummaryMyTeam == 0 || live->matchSummaryMyTeam == 1) &&
+        live->matchSummaryMyTeam == live->matchSummaryWinnerTeam)
+        m_lastTournamentWinAt = now;
+
+    const int leadMinutes = m_config.tournament_reminder_minutes;
+    if (enabled && !m_onboardingVisible && leadMinutes > 0 &&
+        (snapshot->status == Tournaments::ScheduleStatus::Ready || snapshot->status == Tournaments::ScheduleStatus::Loading)) {
+        auto remind = [&](Tournaments::ScheduledEvent event, Tournaments::BracketResult result) {
+            if (!m_tournamentReminder.ShouldFire(event, now, leadMinutes, result)) return;
+            if (m_config.second_monitor_mode && m_config.tournament_sound_cue)
+                PlaySoundW(L"SystemNotification", nullptr, SND_ALIAS | SND_ASYNC | SND_NODEFAULT);
+            if (event.secondChance || !m_config.second_monitor_mode) {
+                const auto title = event.secondChance ? event.slot->title + " Second Chance" : event.Title();
+                ShowToast(title + (m_snap.inMatch ? " in " : " starts in ") + TournamentUi::Countdown(event.Start() - now), false, m_snap.inMatch);
+            }
+        };
+        const bool checkHistory = m_dbManager && !m_tournamentPlayer.empty() && !possibleTournament &&
+                                  m_tournamentHistoryCheckedAt != now;
+        const int64_t horizon = now + static_cast<int64_t>(leadMinutes) * 60;
+        for (const auto& slot : snapshot->slots) {
+            if (slot.startUnix > horizon) break;
+            if (m_config.tournament_reminder_standard_only && !slot.standard) continue;
+            if (slot.startUnix > now) {
+                remind({&slot}, Tournaments::BracketResult::Unknown);
+            } else if (checkHistory && m_lastTournamentWinAt < slot.startUnix &&
+                       m_tournamentAdvancedSlot != slot.startUnix &&
+                       m_tournamentReminder.SecondChanceDue(slot, now, leadMinutes)) {
+                const auto observed = m_tournamentReminder.ObservedMatchSince(slot.startUnix);
+                if (observed && observed->empty()) continue;
+                m_tournamentHistoryCheckedAt = now;
+                const auto result = m_dbManager->GetTournamentBracketResult(m_tournamentPlayer, slot.startUnix,
+                                                                            slot.secondChance->startUnix, observed.value_or(std::string_view{}));
+                if (result == Tournaments::BracketResult::Advanced) m_tournamentAdvancedSlot = slot.startUnix;
+                remind({&slot, &*slot.secondChance}, result);
             }
         }
     }

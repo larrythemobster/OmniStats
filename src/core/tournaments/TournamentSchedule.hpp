@@ -39,13 +39,43 @@ namespace Tournaments {
         uint64_t version = 0;
     };
     bool ParseSchedule(std::string_view body, ScheduleSnapshot& snapshot);
-    const TournamentSlot* NextSlot(const std::vector<TournamentSlot>& slots, int64_t nowUnix, bool standardOnly);
+    struct ScheduledEvent {
+        const TournamentSlot* slot = nullptr;
+        const SecondChance* secondChance = nullptr;
+        explicit operator bool() const {
+            return slot != nullptr;
+        }
+        int64_t Start() const {
+            return secondChance ? secondChance->startUnix : slot->startUnix;
+        }
+        const std::string& Title() const {
+            return secondChance ? secondChance->title : slot->title;
+        }
+    };
+    ScheduledEvent NextEvent(const std::vector<TournamentSlot>& slots, int64_t nowUnix, bool standardOnly);
+    inline constexpr int kOfficialTournamentPlaylist = 34;
+    enum class BracketResult { Unknown,
+                               NoMatch,
+                               Lost,
+                               Advanced };
+
     class ReminderTracker {
       public:
-        bool ShouldFire(const TournamentSlot& slot, int64_t nowUnix, int leadMinutes, bool standardOnly);
+        void Observe(int64_t nowUnix, bool connected, bool inOfficialMatch, std::string_view matchGuid);
+        bool SecondChanceDue(const TournamentSlot& slot, int64_t nowUnix, int leadMinutes) const;
+        bool ShouldFire(ScheduledEvent event, int64_t nowUnix, int leadMinutes, BracketResult result = BracketResult::Unknown);
+        std::optional<std::string_view> ObservedMatchSince(int64_t startUnix) const;
 
       private:
-        std::vector<int64_t> m_fired;
+        struct Fired {
+            int64_t start;
+            bool secondChance;
+        };
+        std::vector<Fired> m_fired;
+        int64_t m_observedSince = 0;
+        int64_t m_lastObservation = 0;
+        int64_t m_lastOfficialMatch = 0;
+        std::string m_lastMatchGuid;
     };
     class TournamentScheduleService {
       public:

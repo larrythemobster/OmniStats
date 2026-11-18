@@ -54,18 +54,61 @@ namespace Tournaments {
         return true;
     }
 
-    const TournamentSlot* NextSlot(const std::vector<TournamentSlot>& slots, int64_t nowUnix, bool standardOnly) {
-        for (const auto& slot : slots)
-            if (slot.startUnix > nowUnix && (!standardOnly || slot.standard)) return &slot;
-        return nullptr;
+    ScheduledEvent NextEvent(const std::vector<TournamentSlot>& slots, int64_t nowUnix, bool standardOnly) {
+        ScheduledEvent next;
+        for (const auto& slot : slots) {
+            if (standardOnly && !slot.standard) continue;
+            if (next && slot.startUnix > next.Start()) break;
+            if (slot.startUnix > nowUnix && (!next || slot.startUnix <= next.Start()))
+                next = {&slot};
+            if (slot.secondChance && slot.secondChance->startUnix > nowUnix &&
+                (!next || slot.secondChance->startUnix < next.Start()))
+                next = {&slot, &*slot.secondChance};
+        }
+        return next;
     }
 
-    bool ReminderTracker::ShouldFire(const TournamentSlot& slot, int64_t nowUnix, int leadMinutes, bool standardOnly) {
-        std::erase_if(m_fired, [nowUnix](int64_t time) { return time <= nowUnix; });
-        if (leadMinutes <= 0 || (standardOnly && !slot.standard) || slot.startUnix <= nowUnix ||
-            slot.startUnix - nowUnix > static_cast<int64_t>(leadMinutes) * 60 ||
-            std::find(m_fired.begin(), m_fired.end(), slot.startUnix) != m_fired.end()) return false;
-        m_fired.push_back(slot.startUnix);
+    void ReminderTracker::Observe(int64_t nowUnix, bool connected, bool inOfficialMatch, std::string_view matchGuid) {
+        if (!connected) {
+            m_observedSince = 0;
+        } else if (m_observedSince == 0 || nowUnix < m_lastObservation || nowUnix - m_lastObservation > 60) {
+            m_observedSince = nowUnix;
+        }
+        m_lastObservation = nowUnix;
+        if (connected && inOfficialMatch) {
+            m_lastOfficialMatch = nowUnix;
+            if (m_lastMatchGuid != matchGuid) m_lastMatchGuid = matchGuid;
+        }
+    }
+
+    std::optional<std::string_view> ReminderTracker::ObservedMatchSince(int64_t startUnix) const {
+        if (m_lastOfficialMatch < startUnix) return std::nullopt;
+        return m_lastMatchGuid;
+    }
+
+    bool ReminderTracker::SecondChanceDue(const TournamentSlot& slot, int64_t nowUnix, int leadMinutes) const {
+        if (!slot.secondChance || leadMinutes <= 0 || nowUnix <= slot.startUnix) return false;
+        const int64_t start = slot.secondChance->startUnix;
+        return start > nowUnix && start - nowUnix <= static_cast<int64_t>(leadMinutes) * 60 &&
+               std::none_of(m_fired.begin(), m_fired.end(), [start](const Fired& fired) {
+                   return fired.start == start && fired.secondChance;
+               });
+    }
+
+    bool ReminderTracker::ShouldFire(ScheduledEvent event, int64_t nowUnix, int leadMinutes, BracketResult result) {
+        constexpr int64_t joinGraceSeconds = 5 * 60;
+        std::erase_if(m_fired, [nowUnix](const Fired& fired) { return fired.start <= nowUnix; });
+        if (!event || leadMinutes <= 0) return false;
+        const int64_t start = event.Start();
+        if (start <= nowUnix || start - nowUnix > static_cast<int64_t>(leadMinutes) * 60) return false;
+        if (event.secondChance && (!SecondChanceDue(*event.slot, nowUnix, leadMinutes) ||
+                                   (result != BracketResult::Lost && (result != BracketResult::NoMatch || m_observedSince == 0 ||
+                                                                      m_observedSince > event.slot->startUnix || nowUnix - event.slot->startUnix < joinGraceSeconds ||
+                                                                      m_lastOfficialMatch >= event.slot->startUnix)))) return false;
+        if (std::any_of(m_fired.begin(), m_fired.end(), [&](const Fired& fired) {
+                return fired.start == start && fired.secondChance == (event.secondChance != nullptr);
+            })) return false;
+        m_fired.push_back({start, event.secondChance != nullptr});
         return true;
     }
     TournamentScheduleService::~TournamentScheduleService() {

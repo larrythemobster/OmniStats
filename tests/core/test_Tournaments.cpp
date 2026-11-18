@@ -25,18 +25,51 @@ TEST(TournamentRegion, IgnoresNonReservationRegions) {
     ASSERT_TRUE(region);
     EXPECT_EQ(region->region, "USW");
 }
-TEST(TournamentSchedule, SelectsFutureStandardSlotsAndRemindsOnce) {
-    std::vector<Tournaments::TournamentSlot> slots{{100, false, "Extra", 2, {}}, {200, true, "Soccar", 3, {}}};
-    EXPECT_EQ(Tournaments::NextSlot(slots, 50, false), &slots[0]);
-    EXPECT_EQ(Tournaments::NextSlot(slots, 50, true), &slots[1]);
-    EXPECT_EQ(Tournaments::NextSlot(slots, 100, false), &slots[1]);
-    EXPECT_EQ(Tournaments::NextSlot(slots, 200, false), nullptr);
-    Tournaments::ReminderTracker tracker;
-    EXPECT_FALSE(tracker.ShouldFire(slots[0], 50, 10, true));
-    EXPECT_FALSE(tracker.ShouldFire(slots[1], 50, 0, true));
-    EXPECT_TRUE(tracker.ShouldFire(slots[1], 50, 10, true));
-    EXPECT_FALSE(tracker.ShouldFire(slots[1], 60, 10, true));
-    EXPECT_FALSE(tracker.ShouldFire(slots[1], 200, 10, true));
+TEST(TournamentSchedule, SelectsMainAndSecondChanceInTimeOrder) {
+    using namespace Tournaments;
+    const std::vector<TournamentSlot> slots{
+        {100, false, "Hoops", 2, SecondChance{"Hoops 2nd Chance", 220}},
+        {200, true, "Soccar", 3, SecondChance{"Soccar 2nd Chance", 1100}},
+    };
+    EXPECT_EQ(NextEvent(slots, 50, false).slot, &slots[0]);
+    EXPECT_EQ(NextEvent(slots, 50, true).slot, &slots[1]);
+    EXPECT_EQ(NextEvent(slots, 100, false).Start(), 200);
+    EXPECT_EQ(NextEvent(slots, 200, false).Start(), 220);
+    EXPECT_EQ(NextEvent(slots, 200, true).Start(), 1100);
+    EXPECT_FALSE(NextEvent(slots, 1100, false));
+}
+
+TEST(TournamentSchedule, RemindsOnceForMainAndEligibleSecondChance) {
+    using namespace Tournaments;
+    const TournamentSlot slot{1000, true, "Soccar", 3, SecondChance{"Soccar 2nd Chance", 1900}};
+    const ScheduledEvent main{&slot};
+    const ScheduledEvent second{&slot, &*slot.secondChance};
+    ReminderTracker tracker;
+    EXPECT_FALSE(tracker.ShouldFire(main, 900, 0));
+    EXPECT_TRUE(tracker.ShouldFire(main, 900, 10));
+    EXPECT_FALSE(tracker.ShouldFire(main, 901, 10));
+    EXPECT_FALSE(tracker.ShouldFire(second, 1300, 10, BracketResult::Advanced));
+    EXPECT_FALSE(tracker.ShouldFire(second, 1300, 10, BracketResult::Unknown));
+    EXPECT_TRUE(tracker.ShouldFire(second, 1301, 10, BracketResult::Lost));
+    EXPECT_FALSE(tracker.ShouldFire(second, 1302, 10, BracketResult::Lost));
+    EXPECT_FALSE(tracker.ShouldFire(second, 1900, 10, BracketResult::Lost));
+}
+
+TEST(TournamentSchedule, SkippedBracketRequiresContinuousObservationAndJoinGrace) {
+    using namespace Tournaments;
+    const TournamentSlot slot{1000, true, "Soccar", 3, SecondChance{"Soccar 2nd Chance", 1900}};
+    const ScheduledEvent second{&slot, &*slot.secondChance};
+    ReminderTracker skipped, gap, played;
+    for (int64_t now = 990; now <= 1290; now += 30) {
+        skipped.Observe(now, true, false, {});
+        gap.Observe(now, now != 1110, false, {});
+        played.Observe(now, true, now == 1230, "round-one");
+    }
+    EXPECT_FALSE(skipped.ShouldFire(second, 1299, 15, BracketResult::NoMatch));
+    EXPECT_TRUE(skipped.ShouldFire(second, 1300, 15, BracketResult::NoMatch));
+    EXPECT_FALSE(gap.ShouldFire(second, 1300, 15, BracketResult::NoMatch));
+    EXPECT_FALSE(played.ShouldFire(second, 1300, 15, BracketResult::NoMatch));
+    EXPECT_EQ(played.ObservedMatchSince(1000), std::optional<std::string_view>{"round-one"});
 }
 TEST(TournamentSchedule, ParsesSecondChanceAndSkipsMalformedSlot) {
     Tournaments::ScheduleSnapshot value;

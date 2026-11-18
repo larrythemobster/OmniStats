@@ -237,6 +237,44 @@ namespace database::repository {
         }
     }
 
+    Tournaments::BracketResult HistoryRepository::GetTournamentBracketResult(sqlite::Connection& db, const std::string& primaryId,
+                                                                             int64_t startUnix, int64_t secondChanceUnix,
+                                                                             std::string_view observedMatchGuid) {
+        using Tournaments::BracketResult;
+        if (!db.IsOpen() || primaryId.empty()) return BracketResult::Unknown;
+        try {
+            sqlite::Statement stmt(db, R"(
+                SELECT m.win, COALESCE(m.result_pending, 0), m.match_guid = ?5
+                FROM Matches m
+                WHERE m.playlist_id = ?1
+                  AND m.timestamp >= datetime(?2, 'unixepoch') AND m.timestamp < datetime(?3, 'unixepoch')
+                  AND EXISTS (SELECT 1 FROM MatchPlayers p WHERE p.match_id = m.id AND p.primary_id = ?4 AND p.is_opponent = 0)
+            )");
+            stmt.Bind(1, Tournaments::kOfficialTournamentPlaylist);
+            stmt.Bind(2, startUnix);
+            stmt.Bind(3, secondChanceUnix);
+            stmt.Bind(4, primaryId);
+            stmt.Bind(5, observedMatchGuid);
+            bool lost = false;
+            bool pending = false;
+            bool observed = observedMatchGuid.empty();
+            while (stmt.Step()) {
+                observed |= stmt.Get<int>(2) != 0;
+                if (stmt.Get<int>(1) != 0 || stmt.IsNull(0))
+                    pending = true;
+                else if (stmt.Get<int>(0) != 0)
+                    return BracketResult::Advanced;
+                else
+                    lost = true;
+            }
+            if (pending || !observed) return BracketResult::Unknown;
+            return lost ? BracketResult::Lost : BracketResult::NoMatch;
+        } catch (const std::exception& e) {
+            std::cerr << "[Database] GetTournamentBracketResult failed: " << e.what() << "\n";
+            return BracketResult::Unknown;
+        }
+    }
+
     std::optional<std::vector<PersonRecord>> HistoryRepository::QueryEncounterRecords(sqlite::Connection& db, const std::string& account,
                                                                                       const std::string& onlyPlayer,
                                                                                       int64_t excludeMatchId) {

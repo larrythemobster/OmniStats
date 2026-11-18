@@ -4520,21 +4520,35 @@ TEST_F(RmlUiControllerStateTest, CompactTournamentCountdownFitsBothSurfaces) {
     Tournaments::ScheduleSnapshot snapshot;
     snapshot.status = Tournaments::ScheduleStatus::Ready;
     snapshot.group = "US";
-    snapshot.slots = {{1000 + 22860, false, "2v2 Pentathlon", 2, {}}};
+    snapshot.slots = {{1000 + 22860, false, "2v2 Pentathlon", 2, Tournaments::SecondChance{"2v2 Pentathlon (2nd Chance)", 1000 + 23760}}};
     const std::string countdown = TournamentUi::RenderWidget(snapshot, 1000);
+    const std::string second = TournamentUi::RenderWidget(snapshot, 1000 + 22860);
+    EXPECT_NE(TournamentUi::RenderTopbar(snapshot, 1000, false, 10).find("Second Chance"), std::string::npos);
     OverlayRoot(controller)->SetInnerRML("<div id='compact-overlay' class='card' style='position:absolute;left:24dp;top:24dp;width:320dp'>" + countdown + "</div>"
                                                                                                                                                           "<div id='compact-dashboard' class='card tournament-dashboard' style='position:absolute;left:400dp;top:24dp'>" +
-                                         countdown + "</div>");
+                                         second + "</div>");
     RmlContext(controller)->Update();
     controller.Render();
+    if (const char* dir = std::getenv("OMNISTATS_CAPTURE_DIR"); dir && *dir) {
+        const auto path = std::filesystem::path(dir) / "tournament-second-chance.png";
+        std::string error;
+        EXPECT_TRUE(RmlCapture::SaveBoundRenderTargetRegion(warp.context.Get(), 0, 0, 760, 110, 0.0f,
+                                                            path.wstring(), error))
+            << error;
+    }
     for (const char* id : {"compact-overlay", "compact-dashboard"}) {
         auto* card = Document(controller)->GetElementById(id);
         ASSERT_NE(card, nullptr);
-        EXPECT_LE(card->GetOffsetHeight(), 50.0f);
+        Rml::ElementList rows;
+        card->QuerySelectorAll(rows, ".row");
+        ASSERT_EQ(rows.size(), 1u);
+        const bool secondChance = std::string_view(id) == "compact-dashboard";
+        EXPECT_EQ(card->GetInnerRML().find("Second Chance") != std::string::npos, secondChance);
         auto* name = card->QuerySelector(".tournament-name");
         auto* time = card->QuerySelector(".tournament-remaining");
         ASSERT_NE(name, nullptr);
         ASSERT_NE(time, nullptr);
+        EXPECT_EQ(time->GetInnerRML(), secondChance ? "15m" : "6h 21m");
         EXPECT_LE(name->GetAbsoluteOffset().x + name->GetOffsetWidth(), time->GetAbsoluteOffset().x);
         EXPECT_LE(time->GetAbsoluteOffset().x + time->GetOffsetWidth(), card->GetAbsoluteOffset().x + card->GetOffsetWidth());
     }
