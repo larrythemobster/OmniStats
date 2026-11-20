@@ -676,6 +676,8 @@ namespace Config {
     static std::atomic<uint64_t> s_revision{1};
     static std::atomic<bool> s_saverRunning{false};
     static std::jthread s_saveThread;
+    // Set when config.json exists but cannot be read, so defaults never overwrite it.
+    static bool s_writeBlocked = false;
 
     ConfigData Read() {
         std::shared_lock<std::shared_mutex> lock(Mutex);
@@ -776,6 +778,18 @@ namespace Config {
         return Storage::GetDataDirectory() + "config.json";
     }
 
+    static std::optional<std::string> ReadConfigText(const std::string& path) {
+        for (int attempt = 0; attempt < 5; ++attempt) {
+            if (attempt > 0) std::this_thread::sleep_for(std::chrono::milliseconds(100));
+            std::ifstream file(fs::path(path), std::ios::binary);
+            if (!file.is_open()) continue;
+            std::ostringstream text;
+            text << file.rdbuf();
+            if (!file.bad()) return text.str();
+        }
+        return std::nullopt;
+    }
+
     void Load() {
         Load(s_secretStore);
     }
@@ -783,7 +797,10 @@ namespace Config {
     void Load(SecretStore& secrets) {
         std::unique_lock<std::shared_mutex> lock(Mutex);
         std::string configFile = GetConfigPath();
-        if (!fs::exists(configFile)) {
+        std::error_code existsEc;
+        const bool exists = fs::exists(configFile, existsEc);
+        if (!exists && !existsEc) {
+            s_writeBlocked = false;
             invalidCustomThemes.reset();
             std::cout << "[Config] No config found. Creating default config.\n";
             Current = ConfigData{};
@@ -793,12 +810,20 @@ namespace Config {
             return;
         }
 
+        const std::optional<std::string> text = exists ? ReadConfigText(configFile) : std::nullopt;
+        if (!text) {
+            std::cout << "[Config] config.json could not be read. Using defaults and leaving the file untouched.\n";
+            s_writeBlocked = true;
+            invalidCustomThemes.reset();
+            Current = ConfigData{};
+            secrets.Reset();
+            s_revision.fetch_add(1, std::memory_order_release);
+            return;
+        }
+        s_writeBlocked = false;
+
         try {
-            nlohmann::json j;
-            {
-                std::ifstream file(configFile);
-                file >> j;
-            }
+            nlohmann::json j = nlohmann::json::parse(*text);
             if (!j.is_object()) throw std::invalid_argument("Configuration must be a JSON object");
 
             Current = ConfigData{};
@@ -946,30 +971,30 @@ namespace Config {
     }
 
     static void SaveInternal(SecretStore& secrets) {
+        if (s_writeBlocked) {
+            std::cerr << "[Config] Not saving: config.json could not be read at startup.\n";
+            return;
+        }
         if (!ValidSavedThemes(Current.custom_themes) || (invalidCustomThemes && !Current.custom_themes.empty())) {
             std::cerr << "[Config] Cannot save invalid custom themes or replace unrecognized saved themes.\n";
             return;
         }
-        nlohmann::json j;
-        const auto& descriptors = GetFieldDescriptors();
-        for (const auto& desc : descriptors) {
-            desc.save(j, Current, secrets);
+        std::string text;
+        try {
+            nlohmann::json j;
+            const auto& descriptors = GetFieldDescriptors();
+            for (const auto& desc : descriptors) {
+                desc.save(j, Current, secrets);
+            }
+            j["controller_default_back_migrated"] = true;
+            text = j.dump(4);
+        } catch (const std::exception& e) {
+            std::cerr << "[Config] Failed to serialize config: " << e.what() << "\n";
+            return;
         }
 
-        j["controller_default_back_migrated"] = true;
-
-        std::string configFile = GetConfigPath();
-        std::string tempFile = configFile + ".tmp";
-        std::ofstream file(tempFile, std::ios::trunc);
-        if (file.is_open()) {
-            file << j.dump(4);
-            file.flush();
-            file.close();
-            if (!MoveFileExA(tempFile.c_str(), configFile.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
-                std::cout << "[Config] Failed to replace config.json. Error=" << GetLastError() << "\n";
-            }
-        } else {
-            std::cout << "[Config] Failed to open temp config for writing.\n";
+        if (!Storage::WriteFileAtomically(fs::path(GetConfigPath()), text)) {
+            std::cout << "[Config] Failed to write config.json. Error=" << GetLastError() << "\n";
         }
     }
 

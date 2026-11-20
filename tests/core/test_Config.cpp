@@ -973,3 +973,24 @@ TEST_F(ConfigTest, FullRealShapedConfigRoundTrip) {
     EXPECT_EQ(reloaded.overlay_layout.containers[0].widgets,
               (std::vector<DashboardLayout::WidgetId>{DashboardLayout::WidgetId::LiveRoster, DashboardLayout::WidgetId::RankProgress}));
 }
+
+TEST_F(ConfigTest, UnreadableConfigIsNeverReplacedWithDefaults) {
+    Config::Update([](ConfigData& c) { c.port = 45678; }, false);
+    Config::Save();
+    const std::filesystem::path path = Storage::GetDataDirectory() + "config.json";
+
+    HANDLE lock = CreateFileW(path.c_str(), GENERIC_READ, FILE_SHARE_DELETE, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+    ASSERT_NE(lock, INVALID_HANDLE_VALUE);
+    Config::Load();
+    CloseHandle(lock);
+
+    EXPECT_FALSE(std::filesystem::exists(path.string() + ".corrupt"));
+    Config::Update([](ConfigData& c) { c.port = 1; }, false);
+    Config::Save();
+    std::ifstream file(path);
+    EXPECT_EQ(nlohmann::json::parse(file).value("port", 0), 45678);
+    file.close();
+
+    Config::Load();
+    EXPECT_EQ(Config::Read().port, 45678);
+}

@@ -4,6 +4,7 @@
 #include <shlobj.h>
 #pragma comment(lib, "ole32.lib")
 #pragma comment(lib, "shell32.lib")
+#include <algorithm>
 #include <filesystem>
 #include <iostream>
 #include <system_error>
@@ -59,6 +60,33 @@ namespace Storage {
             return *userProfile + "\\Documents\\My Games\\Rocket League\\TAGame\\";
         }
         return {};
+    }
+
+    bool WriteFileAtomically(const fs::path& path, std::string_view contents) {
+        fs::path tempPath = path;
+        tempPath += L".tmp";
+        HANDLE file = CreateFileW(tempPath.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+        if (file == INVALID_HANDLE_VALUE) return false;
+
+        bool ok = true;
+        size_t offset = 0;
+        while (ok && offset < contents.size()) {
+            const DWORD chunk = static_cast<DWORD>(std::min<size_t>(contents.size() - offset, 1u << 30));
+            DWORD written = 0;
+            ok = WriteFile(file, contents.data() + offset, chunk, &written, nullptr) && written == chunk;
+            offset += written;
+        }
+        // MOVEFILE_WRITE_THROUGH only flushes the rename; the data must reach disk first.
+        ok = ok && FlushFileBuffers(file);
+        CloseHandle(file);
+
+        ok = ok && MoveFileExW(tempPath.c_str(), path.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH);
+        if (!ok) {
+            const DWORD error = GetLastError();
+            DeleteFileW(tempPath.c_str());
+            SetLastError(error);
+        }
+        return ok;
     }
 
 }
