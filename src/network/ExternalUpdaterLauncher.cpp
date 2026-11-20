@@ -33,6 +33,7 @@ namespace {
     std::mutex g_updateThreadMutex;
     std::thread g_updateThread;
     std::atomic<bool> g_updateCheckInProgress{false};
+    std::atomic<bool> g_cancelUpdateCheck{false};
     std::atomic<ULONGLONG> g_lastUpdateCheckAttemptMs{0};
     std::atomic<ULONGLONG> g_lastSuccessfulUpdateCheckMs{0};
 
@@ -187,12 +188,21 @@ namespace {
             return UpdateCheckResult::Failed;
         }
 
-        const DWORD waitResult = WaitForSingleObject(processHandle, kUpdateCheckTimeoutMs);
+        bool cancelled = false;
+        const ULONGLONG deadline = GetTickCount64() + kUpdateCheckTimeoutMs;
+        DWORD waitResult = WAIT_TIMEOUT;
+        while ((waitResult = WaitForSingleObject(processHandle, 100)) == WAIT_TIMEOUT) {
+            cancelled = g_cancelUpdateCheck.load();
+            if (cancelled || GetTickCount64() >= deadline) break;
+        }
         if (waitResult != WAIT_OBJECT_0) {
-            std::cout << "[UpdaterLauncher] Installed updater check timed out.\n";
+            std::cout << "[UpdaterLauncher] Installed updater check " << (cancelled ? "cancelled" : "timed out") << ".\n";
+            TerminateProcess(processHandle, 1);
             CloseHandle(processHandle);
             DeleteFileA(resultPath.c_str());
-            if (auto telemetry = s_telemetry.load()) telemetry->RecordUpdaterEvent("update_check_failed", "", "timeout", AppVersion::Current);
+            if (auto telemetry = s_telemetry.load(); telemetry && !cancelled) {
+                telemetry->RecordUpdaterEvent("update_check_failed", "", "timeout", AppVersion::Current);
+            }
             return UpdateCheckResult::Failed;
         }
 
@@ -415,7 +425,10 @@ namespace ExternalUpdaterLauncher {
     }
 
     void ShutdownBackgroundTasks() {
+        g_cancelUpdateCheck.store(true);
         JoinBackgroundThread();
+        g_cancelUpdateCheck.store(false);
+        s_telemetry.store(nullptr);
     }
 
 } // namespace ExternalUpdaterLauncher
