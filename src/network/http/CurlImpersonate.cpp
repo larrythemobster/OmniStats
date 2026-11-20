@@ -62,50 +62,6 @@ CurlImpersonate::~CurlImpersonate() {
     }
 }
 
-CurlImpersonate::CurlImpersonate(CurlImpersonate&& other) noexcept
-    : easy_init(other.easy_init),
-      easy_cleanup(other.easy_cleanup),
-      easy_setopt(other.easy_setopt),
-      easy_perform(other.easy_perform),
-      easy_getinfo(other.easy_getinfo),
-      easy_escape(other.easy_escape),
-      free_ptr(other.free_ptr),
-      slist_append(other.slist_append),
-      slist_free_all(other.slist_free_all),
-      easy_impersonate(other.easy_impersonate),
-      m_hDll(other.m_hDll),
-      m_hZlib(other.m_hZlib),
-      m_loaded(other.m_loaded),
-      m_attempted(other.m_attempted) {
-    other.m_hDll = nullptr;
-    other.m_hZlib = nullptr;
-    other.m_loaded = false;
-}
-
-CurlImpersonate& CurlImpersonate::operator=(CurlImpersonate&& other) noexcept {
-    if (this == &other) return *this;
-    if (m_hDll) FreeLibrary(m_hDll);
-    if (m_hZlib) FreeLibrary(m_hZlib);
-    easy_init = other.easy_init;
-    easy_cleanup = other.easy_cleanup;
-    easy_setopt = other.easy_setopt;
-    easy_perform = other.easy_perform;
-    easy_getinfo = other.easy_getinfo;
-    easy_escape = other.easy_escape;
-    free_ptr = other.free_ptr;
-    slist_append = other.slist_append;
-    slist_free_all = other.slist_free_all;
-    easy_impersonate = other.easy_impersonate;
-    m_hDll = other.m_hDll;
-    m_hZlib = other.m_hZlib;
-    m_loaded = other.m_loaded;
-    m_attempted = other.m_attempted;
-    other.m_hDll = nullptr;
-    other.m_hZlib = nullptr;
-    other.m_loaded = false;
-    return *this;
-}
-
 std::string CurlImpersonate::GetDLLPath() {
     return AbsolutePath(Storage::GetDataDirectory() + std::string(CurlRuntime::kLibcurlDllName));
 }
@@ -115,7 +71,9 @@ std::string CurlImpersonate::GetZlibPath() {
 }
 
 bool CurlImpersonate::EnsureAvailable() {
-    if (m_loaded) return true;
+    if (m_loaded.load(std::memory_order_acquire)) return true;
+    std::lock_guard lock(m_loadMutex);
+    if (m_loaded.load(std::memory_order_relaxed)) return true;
     if (m_attempted) return false;
     m_attempted = true;
     return LoadDLL();
@@ -140,6 +98,8 @@ bool CurlImpersonate::LoadDLL() {
     m_hDll = LoadFromOwnDirectory(dllPath);
     if (!m_hDll) {
         std::cout << "[CurlImpersonate] Failed to load DLL: " << GetLastError() << "\n";
+        FreeLibrary(m_hZlib);
+        m_hZlib = nullptr;
         return false;
     }
 
@@ -158,10 +118,12 @@ bool CurlImpersonate::LoadDLL() {
         std::cout << "[CurlImpersonate] Failed to load required functions!\n";
         FreeLibrary(m_hDll);
         m_hDll = nullptr;
+        FreeLibrary(m_hZlib);
+        m_hZlib = nullptr;
         return false;
     }
 
-    m_loaded = true;
+    m_loaded.store(true, std::memory_order_release);
     std::cout << "[CurlImpersonate] DLL loaded successfully.\n";
     return true;
 }

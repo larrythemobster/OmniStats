@@ -1,6 +1,8 @@
 #pragma once
 
+#include <atomic>
 #include <curl/curl.h>
+#include <mutex>
 #include <string>
 #include <windows.h>
 
@@ -45,11 +47,9 @@ class CurlImpersonate {
 
     CurlImpersonate(const CurlImpersonate&) = delete;
     CurlImpersonate& operator=(const CurlImpersonate&) = delete;
-    CurlImpersonate(CurlImpersonate&&) noexcept;
-    CurlImpersonate& operator=(CurlImpersonate&&) noexcept;
     // Returns true if the DLL is loaded and ready
     bool IsReady() const {
-        return m_loaded;
+        return m_loaded.load(std::memory_order_acquire);
     }
 
     // Verifies that the required runtime DLLs are present and compatible.
@@ -67,7 +67,7 @@ class CurlImpersonate {
     pfn_curl_easy_impersonate easy_impersonate = nullptr;
 
     void SetReadyForTests(bool ready) {
-        m_loaded = ready;
+        m_loaded.store(ready, std::memory_order_release);
     }
 
     bool LoadDLL();
@@ -76,6 +76,7 @@ class CurlImpersonate {
 
     HMODULE m_hDll = nullptr;
     HMODULE m_hZlib = nullptr;
-    bool m_loaded = false;
+    std::mutex m_loadMutex;
+    std::atomic<bool> m_loaded{false};
     bool m_attempted = false;
 };
