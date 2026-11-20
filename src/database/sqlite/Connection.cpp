@@ -24,7 +24,8 @@ namespace database::sqlite {
 
     void Connection::Close() {
         if (m_owns && m_db) {
-            sqlite3_close(m_db);
+            // close_v2 defers the close until outstanding statements finalize instead of failing with SQLITE_BUSY.
+            sqlite3_close_v2(m_db);
             m_db = nullptr;
         }
     }
