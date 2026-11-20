@@ -80,6 +80,7 @@ class Overlay {
     bool m_lastSecondMonitorMode = false;
     bool m_setupWindow = false;
     bool m_timerPeriodSet = false;
+    bool m_inSizeMove = false;
     std::function<void()> m_consentHandler;
 
     std::atomic<bool> m_resizePending{false};

@@ -76,14 +76,25 @@ LRESULT WINAPI WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                 overlay->m_pendingWidth.store(width, std::memory_order_relaxed);
                 overlay->m_pendingHeight.store(height, std::memory_order_relaxed);
                 overlay->m_resizePending.store(true, std::memory_order_release);
-                overlay->SaveSecondMonitorWindowBounds();
+                if (!overlay->m_inSizeMove) overlay->SaveSecondMonitorWindowBounds();
             }
         }
         return 0;
 
+    case WM_ENTERSIZEMOVE:
+        if (overlay) overlay->m_inSizeMove = true;
+        return 0;
+
     case WM_MOVE:
+        // During a drag, save once on WM_EXITSIZEMOVE instead of rewriting config for every pixel.
+        if (overlay && !overlay->m_inSizeMove) overlay->SaveSecondMonitorWindowBounds();
+        return 0;
+
     case WM_EXITSIZEMOVE:
-        if (overlay) overlay->SaveSecondMonitorWindowBounds();
+        if (overlay) {
+            overlay->m_inSizeMove = false;
+            overlay->SaveSecondMonitorWindowBounds();
+        }
         return 0;
 
     case WM_DISPLAYCHANGE:
