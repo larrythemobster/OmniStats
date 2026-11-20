@@ -251,7 +251,7 @@ bool Overlay::Initialize() {
     m_foreground = std::make_unique<ForegroundDetector>();
     m_foreground->Initialize(m_hwnd);
 
-    timeBeginPeriod(1);
+    m_timerPeriodSet = timeBeginPeriod(1) == TIMERR_NOERROR;
     ShowWindow(m_hwnd, SW_SHOWDEFAULT);
     UpdateWindow(m_hwnd);
     return true;
@@ -486,7 +486,10 @@ void Overlay::ShutdownBackgroundTasks() {
 }
 
 void Overlay::Shutdown() {
-    timeEndPeriod(1);
+    if (m_timerPeriodSet) {
+        timeEndPeriod(1);
+        m_timerPeriodSet = false;
+    }
     if (m_foreground) {
         m_foreground->Shutdown();
         m_foreground.reset();

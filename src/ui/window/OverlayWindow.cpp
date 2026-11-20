@@ -64,11 +64,11 @@ bool OverlayWindow::Create(HICON appIconBig, HICON appIconSmall, WNDPROC wndProc
 void OverlayWindow::Destroy() {
     if (m_hwnd) {
         DestroyWindow(m_hwnd);
-        if (m_classRegistered) {
-            UnregisterClassW(m_wc.lpszClassName, m_wc.hInstance);
-            m_classRegistered = false;
-        }
         m_hwnd = nullptr;
+    }
+    if (m_classRegistered) {
+        UnregisterClassW(m_wc.lpszClassName, m_wc.hInstance);
+        m_classRegistered = false;
     }
 }
 

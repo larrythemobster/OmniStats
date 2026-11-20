@@ -79,6 +79,7 @@ class Overlay {
     float m_dpiScale = 1.0f;
     bool m_lastSecondMonitorMode = false;
     bool m_setupWindow = false;
+    bool m_timerPeriodSet = false;
     std::function<void()> m_consentHandler;
 
     std::atomic<bool> m_resizePending{false};
