@@ -9,6 +9,9 @@
 
 namespace Http {
 
+    inline constexpr size_t kMaxResponseBodyBytes = 16 * 1024 * 1024;
+    inline constexpr long kMaxRedirects = 5;
+
     enum class Method {
         Get,
         Post,

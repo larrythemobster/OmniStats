@@ -25,10 +25,14 @@ namespace fs = std::filesystem;
 static constexpr int64_t kMatchResultWaitLimitSeconds = 30 * 60;
 
 static size_t CurlWriteCallback(void* contents, size_t size, size_t nmemb, void* userp) {
+    constexpr size_t kMaxResponseBytes = 1024 * 1024;
+    const size_t total = size * nmemb;
     if (userp) {
-        static_cast<std::string*>(userp)->append(static_cast<char*>(contents), size * nmemb);
+        auto* response = static_cast<std::string*>(userp);
+        if (response->size() + total > kMaxResponseBytes) return 0;
+        response->append(static_cast<char*>(contents), total);
     }
-    return size * nmemb;
+    return total;
 }
 
 static size_t CurlHeaderCallback(char* buffer, size_t size, size_t nitems, void* userdata) {
@@ -395,7 +399,13 @@ void ReplayUploader::UploadReplayRecord(int64_t id, const std::string& path, con
     headers = curl_slist_append(headers, auth.c_str());
 
     curl_mime* mime = curl_mime_init(curl);
-    curl_mimepart* part = curl_mime_addpart(mime);
+    curl_mimepart* part = mime ? curl_mime_addpart(mime) : nullptr;
+    if (!part || !headers) {
+        curl_mime_free(mime);
+        curl_slist_free_all(headers);
+        curl_easy_cleanup(curl);
+        return;
+    }
     curl_mime_name(part, "file");
     curl_mime_filedata(part, path.c_str());
 
@@ -416,8 +426,8 @@ void ReplayUploader::UploadReplayRecord(int64_t id, const std::string& path, con
     curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 1L);
     curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 2L);
     curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 0L);
-    curl_easy_setopt(curl, CURLOPT_PROTOCOLS, CURLPROTO_HTTPS);
-    curl_easy_setopt(curl, CURLOPT_REDIR_PROTOCOLS, CURLPROTO_HTTPS);
+    curl_easy_setopt(curl, CURLOPT_PROTOCOLS_STR, "https");
+    curl_easy_setopt(curl, CURLOPT_REDIR_PROTOCOLS_STR, "https");
     curl_easy_setopt(curl, CURLOPT_XFERINFOFUNCTION, ProgressCallback);
     curl_easy_setopt(curl, CURLOPT_XFERINFODATA, &m_running);
     curl_easy_setopt(curl, CURLOPT_NOPROGRESS, 0L);

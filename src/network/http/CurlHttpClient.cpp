@@ -15,8 +15,10 @@ namespace Http {
 
         size_t WriteCallback(void* contents, size_t size, size_t nmemb, void* userp) {
             auto* str = static_cast<std::string*>(userp);
-            str->append(static_cast<const char*>(contents), size * nmemb);
-            return size * nmemb;
+            const size_t total = size * nmemb;
+            if (str->size() + total > kMaxResponseBodyBytes) return 0;
+            str->append(static_cast<const char*>(contents), total);
+            return total;
         }
 
         size_t HeaderCallback(char* buffer, size_t size, size_t nitems, void* userdata) {
@@ -97,6 +99,9 @@ namespace Http {
 
         curl_easy_setopt(curl, CURLOPT_TIMEOUT_MS, static_cast<long>(request.timeout.count()));
         curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, request.followLocation ? 1L : 0L);
+        curl_easy_setopt(curl, CURLOPT_MAXREDIRS, kMaxRedirects);
+        curl_easy_setopt(curl, CURLOPT_PROTOCOLS_STR, "http,https");
+        curl_easy_setopt(curl, CURLOPT_REDIR_PROTOCOLS_STR, "https");
         curl_easy_setopt(curl, CURLOPT_ACCEPT_ENCODING, "");
 
         switch (request.method) {
