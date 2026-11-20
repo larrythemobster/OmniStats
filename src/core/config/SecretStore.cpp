@@ -38,16 +38,13 @@ bool SecretStore::IsHexString(std::string_view s) {
 
 std::string SecretStore::HexToString(std::string_view input) {
     if (!IsHexString(input)) return "";
+    const auto nibble = [](char c) {
+        return static_cast<unsigned char>(c <= '9' ? c - '0' : (c | 0x20) - 'a' + 10);
+    };
     std::string output;
-    output.reserve(input.length() / 2);
-    try {
-        for (size_t i = 0; i < input.length(); i += 2) {
-            std::string part(input.substr(i, 2));
-            char chr = static_cast<char>(std::stoul(part, nullptr, 16));
-            output.push_back(chr);
-        }
-    } catch (...) {
-        return "";
+    output.resize(input.length() / 2);
+    for (size_t i = 0; i < output.size(); ++i) {
+        output[i] = static_cast<char>((nibble(input[2 * i]) << 4) | nibble(input[2 * i + 1]));
     }
     return output;
 }
