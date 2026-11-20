@@ -943,6 +943,17 @@ TEST(TelemetryReducerMatchValidation, HeatseekerManualSelectionInfersHeatseekerO
     EXPECT_EQ(gamemode, "heatseeker");
 }
 
+TEST(TelemetryReducerMatchValidation, OnlySnowDayArenasInferSnowDay) {
+    EXPECT_EQ(GamemodeUtils::InferFromArenaName("stadium_winter_p"), "snowday");
+    EXPECT_EQ(GamemodeUtils::InferFromArenaName("utopiastadium_snow_p"), "snowday");
+    EXPECT_EQ(GamemodeUtils::InferFromArenaName("DFH Stadium (Snowy)"), "snowday");
+    EXPECT_EQ(GamemodeUtils::InferFromArenaName("throwbackhockey_p"), "snowday");
+
+    EXPECT_EQ(GamemodeUtils::InferFromArenaName("park_snowy_p"), "Unknown");
+    EXPECT_EQ(GamemodeUtils::InferFromArenaName("eurostadium_snownight_p"), "Unknown");
+    EXPECT_EQ(GamemodeUtils::InferFromSnapshot(4, 4, MmrCategory::Best, "Mannfield (Snowy)"), "2v2");
+}
+
 TEST(TelemetryReducerMatchValidation, DisconnectAfterValidStartCounts) {
     Storage::InitializeEnvironment();
     auto state = std::make_shared<SessionState>();

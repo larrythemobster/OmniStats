@@ -45,7 +45,13 @@ namespace GamemodeUtils {
         if (key.find("hoops") != std::string::npos || key.find("dunkhouse") != std::string::npos) return "hoops";
         if (key.find("dropshot") != std::string::npos || key.find("shattershot") != std::string::npos ||
             key.find("core707") != std::string::npos) return "dropshot";
-        if (key.find("snow") != std::string::npos || key.find("hockey") != std::string::npos) return "snowday";
+        // Snow Day only uses the snowy DFH Stadium and Utopia Coliseum; other snowy arenas are Soccar maps.
+        static constexpr std::string_view kSnowDayArenaPrefixes[] = {
+            "stadiumwinter", "dfhstadiumsnowy", "utopiastadiumsnow", "utopiacoliseumsnowy", "throwbackstadiumsnowy"};
+        for (const std::string_view prefix : kSnowDayArenaPrefixes) {
+            if (key.starts_with(prefix)) return "snowday";
+        }
+        if (key.find("snowday") != std::string::npos || key.find("hockey") != std::string::npos) return "snowday";
 
         return "Unknown";
     }
