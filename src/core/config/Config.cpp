@@ -283,7 +283,7 @@ namespace {
         for (const auto& item : value) {
             if (!item.is_object() || !item.contains("name") || !item["name"].is_string() ||
                 !item.contains("colors") || !item["colors"].is_array() ||
-                (item["colors"].size() != 18 && item["colors"].size() != Themes::Palette{}.size())) return false;
+                (item["colors"].size() != Themes::kLegacyPaletteSize && item["colors"].size() != Themes::Palette{}.size())) return false;
             Themes::SavedTheme saved{};
             saved.name = item["name"].get<std::string>();
             for (size_t i = 0; i < item["colors"].size(); ++i) {
@@ -296,7 +296,7 @@ namespace {
                 }
                 saved.colors[i] = {color[0].get<float>(), color[1].get<float>(), color[2].get<float>(), color[3].get<float>()};
             }
-            if (item["colors"].size() == 18) {
+            if (item["colors"].size() == Themes::kLegacyPaletteSize) {
                 ConfigData config{};
                 Themes::Apply(config, saved.colors);
                 Themes::CompleteLegacy(config);
@@ -415,13 +415,13 @@ namespace {
              [](const nlohmann::json& j, ConfigData& cfg, SecretStore&, bool&, bool&) {
                  if (!j.contains("theme") || !j["theme"].is_object()) return;
                  const auto fields = Themes::Fields();
-                 for (size_t i = 0; i < 18; ++i) {
+                 for (size_t i = 0; i < Themes::kLegacyPaletteSize; ++i) {
                      const auto& field = fields[i];
                      const auto key = ThemeDiskKey(field.key);
                      if (j["theme"].contains(key)) cfg.*field.member = JsonToColor(j["theme"][key], cfg.*field.member);
                  }
                  Themes::CompleteLegacy(cfg);
-                 for (size_t i = 18; i < fields.size(); ++i) {
+                 for (size_t i = Themes::kLegacyPaletteSize; i < fields.size(); ++i) {
                      const auto& field = fields[i];
                      const auto key = ThemeDiskKey(field.key);
                      if (j["theme"].contains(key)) cfg.*field.member = JsonToColor(j["theme"][key], cfg.*field.member);

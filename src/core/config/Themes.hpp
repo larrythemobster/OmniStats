@@ -14,6 +14,9 @@ struct ConfigData;
 
 namespace Themes {
     using Palette = std::array<ColorRGBA, 35>;
+    // v1 themes stored only the first 18 palette entries; CompleteLegacy derives the rest.
+    inline constexpr size_t kLegacyPaletteSize = 18;
+    static_assert(kLegacyPaletteSize < std::tuple_size_v<Palette>);
     struct SavedTheme {
         std::string name;
         Palette colors;

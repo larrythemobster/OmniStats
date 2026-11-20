@@ -190,7 +190,7 @@ namespace Themes {
             return false;
         }
         const auto prefix = legacy ? v1 : v2;
-        const size_t count = legacy ? 18 : colors.size();
+        const size_t count = legacy ? kLegacyPaletteSize : colors.size();
         if (code.size() != prefix.size() + count * 8) {
             error = "Invalid theme code length";
             return false;
