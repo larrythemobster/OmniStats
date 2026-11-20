@@ -1,16 +1,4 @@
 #pragma once
-
-#ifndef WIN32_LEAN_AND_MEAN
-#define WIN32_LEAN_AND_MEAN
-#endif
-#ifndef NOMINMAX
-#define NOMINMAX
-#endif
-#include <windows.h>
-#ifdef small
-#undef small
-#endif
-
 #include <functional>
 #include <string>
 #include <string_view>
@@ -23,17 +11,18 @@ class SecretStore {
     struct CryptResult {
         bool success = false;
         std::string value;
-        DWORD errorCode = 0;
+        unsigned long errorCode = 0;
     };
 
     struct DecryptResult {
         bool success = false;
         std::string value;
         bool needsReencryption = false;
-        DWORD errorCode = 0;
+        unsigned long errorCode = 0;
     };
 
-    using CryptFunction = std::function<bool(const std::string&, std::string&, DWORD&)>;
+    // unsigned long is DWORD's type, without pulling <windows.h> into every includer.
+    using CryptFunction = std::function<bool(const std::string&, std::string&, unsigned long&)>;
 
     explicit SecretStore(CryptFunction protect = {}, CryptFunction unprotect = {});
 

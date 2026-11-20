@@ -4,7 +4,6 @@
 #include <vector>
 #include <array>
 #include <cstdint>
-#include <nlohmann/json.hpp>
 #include "core/state/MatchSaveSnapshot.hpp"
 #include "core/state/DiscordPresenceSnapshot.hpp"
 
