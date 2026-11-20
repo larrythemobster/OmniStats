@@ -345,7 +345,7 @@ void Overlay::RunLoop() {
         if (m_resizePending.exchange(false, std::memory_order_acq_rel)) {
             const int width = m_pendingWidth.load(std::memory_order_relaxed);
             const int height = m_pendingHeight.load(std::memory_order_relaxed);
-            if (width > 0 && height > 0) ResizeSwapChain(width, height);
+            if (width > 0 && height > 0 && !ResizeSwapChain(width, height)) break;
         }
 
         if (!m_d3d11 || !m_d3d11->RenderTargetView() || !m_rmlUi) {
@@ -573,16 +573,18 @@ void Overlay::HandleDpiChanged(UINT dpi, const RECT* suggestedRect) {
     if (m_rmlUi) m_rmlUi->SetDpiScale(m_dpiScale);
 }
 
-void Overlay::ResizeSwapChain(int width, int height) {
-    if (!m_d3d11) return;
+bool Overlay::ResizeSwapChain(int width, int height) {
+    if (!m_d3d11) return true;
     const HRESULT hr = m_d3d11->ResizeBuffers(width, height);
     if (hr == DXGI_ERROR_DEVICE_REMOVED || hr == DXGI_ERROR_DEVICE_RESET || hr == DXGI_ERROR_DEVICE_HUNG) {
-        (void)HandleDeviceLost("ResizeBuffers", hr);
-    } else if (FAILED(hr)) {
+        return HandleDeviceLost("ResizeBuffers", hr);
+    }
+    if (FAILED(hr)) {
         std::cout << "[D3D11] Resize failed for " << width << "x" << height << ": 0x" << std::hex << hr << std::dec << "\n";
     } else if (m_rmlUi) {
         m_rmlUi->Resize(width, height, m_dpiScale);
     }
+    return true;
 }
 
 bool Overlay::RecreateD3DDevice() {

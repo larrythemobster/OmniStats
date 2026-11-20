@@ -41,7 +41,8 @@ class Overlay {
     void Shutdown();
     void ShutdownBackgroundTasks();
     void UpdateWindowStyle();
-    void ResizeSwapChain(int width, int height);
+    // False when the device was lost and could not be recreated.
+    bool ResizeSwapChain(int width, int height);
     // Runs once on the UI thread after the user accepts the current Privacy Policy and Terms.
     void SetConsentHandler(std::function<void()> handler) {
         m_consentHandler = std::move(handler);
