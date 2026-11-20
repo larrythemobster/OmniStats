@@ -207,6 +207,18 @@ TEST_F(StatsApiConfigTest, VerifyIgnoresKeysOutsideExporterSection) {
     EXPECT_EQ(res.status, StatsApiConfig::Status::MissingPacketSendRate);
 }
 
+TEST_F(StatsApiConfigTest, VerifyReadsExporterSectionAfterUtf8Bom) {
+    WriteFile("\xEF\xBB\xBF[TAGame.MatchStatsExporter_TA]\r\nPacketSendRate=30\r\nPort=49123\r\n");
+    const auto res = StatsApiConfig::VerifyConfig(testFilePath.string(), 49123);
+    EXPECT_EQ(res.status, StatsApiConfig::Status::Valid);
+}
+
+TEST_F(StatsApiConfigTest, VerifyRejectsPortWithTrailingGarbage) {
+    WriteFile("[TAGame.MatchStatsExporter_TA]\r\nPacketSendRate=30\r\nPort=49123abc\r\n");
+    const auto res = StatsApiConfig::VerifyConfig(testFilePath.string(), 49123);
+    EXPECT_EQ(res.status, StatsApiConfig::Status::MissingPort);
+}
+
 TEST_F(StatsApiConfigTest, TAStatsApiOverridesDefaultForVerifyAndRepair) {
     const std::string defaultContent = "[TAGame.MatchStatsExporter_TA]\r\nPacketSendRate=30\r\nPort=49123\r\n";
     WriteFile(defaultContent);

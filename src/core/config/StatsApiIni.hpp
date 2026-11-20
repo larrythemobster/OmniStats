@@ -2,7 +2,10 @@
 
 #include <algorithm>
 #include <cctype>
+#include <charconv>
+#include <cmath>
 #include <filesystem>
+#include <type_traits>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -24,6 +27,23 @@ namespace StatsApiIni {
         if (first == std::string_view::npos) return {};
         const auto last = text.find_last_not_of(" \t\r\n");
         return std::string(text.substr(first, last - first + 1));
+    }
+
+    // Notepad and other editors can save the file with a UTF-8 BOM in front of the first section header.
+    inline std::string TrimLine(std::string_view raw) {
+        if (raw.starts_with("\xEF\xBB\xBF")) raw.remove_prefix(3);
+        return Trim(raw);
+    }
+
+    template <typename T>
+    inline std::optional<T> ParseNumber(const std::string& text) {
+        T value{};
+        const auto [end, ec] = std::from_chars(text.data(), text.data() + text.size(), value);
+        if (ec != std::errc{} || end != text.data() + text.size()) return std::nullopt;
+        if constexpr (std::is_floating_point_v<T>) {
+            if (!std::isfinite(value)) return std::nullopt;
+        }
+        return value;
     }
 
     inline std::string Lower(std::string text) {
@@ -60,7 +80,7 @@ namespace StatsApiIni {
         ExporterValues values;
         bool inExporter = false;
         for (const auto& raw : lines) {
-            const std::string line = Trim(raw);
+            const std::string line = TrimLine(raw);
             if (line.empty() || line.front() == ';' || line.front() == '#') continue;
             if (const auto section = SectionName(line)) {
                 inExporter = IsExporterSection(*section);
@@ -71,12 +91,10 @@ namespace StatsApiIni {
             if (eq == std::string::npos) continue;
             const std::string key = Lower(Trim(std::string_view(line).substr(0, eq)));
             const std::string value = Trim(std::string_view(line).substr(eq + 1));
-            try {
-                if (key == "packetsendrate")
-                    values.packetSendRate = std::stof(value);
-                else if (key == "port")
-                    values.port = std::stoi(value);
-            } catch (...) {
+            if (key == "packetsendrate") {
+                if (const auto rate = ParseNumber<float>(value)) values.packetSendRate = *rate;
+            } else if (key == "port") {
+                if (const auto port = ParseNumber<int>(value)) values.port = *port;
             }
         }
         return values;
@@ -103,7 +121,7 @@ namespace StatsApiIni {
         };
 
         for (const auto& raw : lines) {
-            const std::string line = Trim(raw);
+            const std::string line = TrimLine(raw);
             if (const auto section = SectionName(line)) {
                 if (inExporter) closeSection();
                 inExporter = IsExporterSection(*section);
