@@ -52,9 +52,11 @@ namespace AppShell {
         HANDLE g_singleInstanceMutex = NULL;
 
         LONG WINAPI GlobalUnhandledExceptionFilter(struct _EXCEPTION_POINTERS* exceptionInfo) {
-            ScopedWinHandle hFile(CreateFileW(g_crashDumpPath, GENERIC_WRITE, 0, NULL,
-                                              CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL));
-            if (hFile) {
+            if (g_crashDumpPath[0] == L'\0') return EXCEPTION_EXECUTE_HANDLER;
+            const HANDLE rawFile = CreateFileW(g_crashDumpPath, GENERIC_WRITE, 0, NULL,
+                                               CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+            if (rawFile != INVALID_HANDLE_VALUE) {
+                ScopedWinHandle hFile(rawFile);
                 MINIDUMP_EXCEPTION_INFORMATION mdei;
                 mdei.ThreadId = GetCurrentThreadId();
                 mdei.ExceptionPointers = exceptionInfo;
@@ -72,10 +74,12 @@ namespace AppShell {
         [[noreturn]] void RecordFatalTermination(const char* reason) {
             static volatile LONG handling = 0;
             if (InterlockedExchange(&handling, 1) == 0) {
-                DWORD written = 0;
-                WriteFile(g_fatalLogHandle, "[Fatal] ", 8, &written, nullptr);
-                WriteFile(g_fatalLogHandle, reason, static_cast<DWORD>(std::strlen(reason)), &written, nullptr);
-                WriteFile(g_fatalLogHandle, "\n", 1, &written, nullptr);
+                if (g_fatalLogHandle != INVALID_HANDLE_VALUE && g_fatalLogHandle != nullptr) {
+                    DWORD written = 0;
+                    WriteFile(g_fatalLogHandle, "[Fatal] ", 8, &written, nullptr);
+                    WriteFile(g_fatalLogHandle, reason, static_cast<DWORD>(std::strlen(reason)), &written, nullptr);
+                    WriteFile(g_fatalLogHandle, "\n", 1, &written, nullptr);
+                }
                 CONTEXT context{};
                 RtlCaptureContext(&context);
                 EXCEPTION_RECORD record{};
@@ -132,7 +136,9 @@ namespace AppShell {
         Storage::InitializeEnvironment();
 
         std::string crashFile = Storage::GetDataDirectory() + "crash_pending.dmp";
-        MultiByteToWideChar(CP_UTF8, 0, crashFile.c_str(), -1, g_crashDumpPath, MAX_PATH);
+        if (MultiByteToWideChar(CP_UTF8, 0, crashFile.c_str(), -1, g_crashDumpPath, MAX_PATH) == 0) {
+            g_crashDumpPath[0] = L'\0';
+        }
 
         LogRotation::RotateLogs(Storage::GetDataDirectory(), Storage::APP_NAME + std::string("_log.txt"), 5);
 
