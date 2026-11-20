@@ -268,11 +268,13 @@ void InputManager::Stop() {
         m_hook = nullptr;
     }
 #endif
+    bool gamepadThreadStopped = true;
     if (m_gamepadThread.joinable()) {
         HANDLE hGamepad = reinterpret_cast<HANDLE>(m_gamepadThread.native_handle());
         if (hGamepad && WaitForSingleObject(hGamepad, 2000) != WAIT_OBJECT_0) {
             std::cout << "[InputManager] Warning: Gamepad thread did not stop within timeout; detaching.\n";
             m_gamepadThread.detach();
+            gamepadThreadStopped = false;
         } else {
             m_gamepadThread.join();
         }
@@ -282,7 +284,8 @@ void InputManager::Stop() {
         m_overlayHolds = {};
         if (m_state) m_state->ui.showOverlay.store(false, std::memory_order_relaxed);
     }
-    SDL_QuitSubSystem(SDL_INIT_GAMECONTROLLER | SDL_INIT_JOYSTICK);
+    // A detached gamepad thread may still hold open SDL controllers; tearing SDL down would free them under it.
+    if (gamepadThreadStopped) SDL_QuitSubSystem(SDL_INIT_GAMECONTROLLER | SDL_INIT_JOYSTICK);
     g_instance.store(nullptr, std::memory_order_release);
 }
 
