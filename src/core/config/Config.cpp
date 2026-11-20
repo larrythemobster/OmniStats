@@ -688,7 +688,24 @@ namespace Config {
         return s_revision.load(std::memory_order_acquire);
     }
 
+    struct SerializedConfig {
+        uint64_t sequence = 0;
+        std::string path;
+        std::string text;
+    };
+    static std::optional<SerializedConfig> SerializeLocked(SecretStore& secrets = s_secretStore);
+    static void WriteSerialized(const SerializedConfig& config);
     static void SaveInternal(SecretStore& secrets = s_secretStore);
+
+    // Serialize under an exclusive Mutex, then write without it so readers are not blocked on disk I/O.
+    static void SaveOutsideLock(SecretStore& secrets = s_secretStore) {
+        std::optional<SerializedConfig> serialized;
+        {
+            std::unique_lock<std::shared_mutex> lock(Mutex);
+            serialized = SerializeLocked(secrets);
+        }
+        if (serialized) WriteSerialized(*serialized);
+    }
 
     static void MarkPendingSave() {
         {
@@ -722,10 +739,7 @@ namespace Config {
 
                 if (s_pendingSave.exchange(false)) {
                     lock.unlock();
-                    {
-                        std::unique_lock<std::shared_mutex> configLock(Mutex);
-                        SaveInternal();
-                    }
+                    SaveOutsideLock();
                     lock.lock();
                 }
             }
@@ -743,8 +757,7 @@ namespace Config {
             s_saveThread.join();
         }
         if (s_pendingSave.exchange(false)) {
-            std::unique_lock<std::shared_mutex> lock(Mutex);
-            SaveInternal();
+            SaveOutsideLock();
         }
     }
 
@@ -970,16 +983,20 @@ namespace Config {
         }
     }
 
-    static void SaveInternal(SecretStore& secrets) {
+    static uint64_t s_serializedSequence = 0;
+    static std::mutex s_fileMutex;
+    static uint64_t s_writtenSequence = 0;
+
+    static std::optional<SerializedConfig> SerializeLocked(SecretStore& secrets) {
         if (s_writeBlocked) {
             std::cerr << "[Config] Not saving: config.json could not be read at startup.\n";
-            return;
+            return std::nullopt;
         }
         if (!ValidSavedThemes(Current.custom_themes) || (invalidCustomThemes && !Current.custom_themes.empty())) {
             std::cerr << "[Config] Cannot save invalid custom themes or replace unrecognized saved themes.\n";
-            return;
+            return std::nullopt;
         }
-        std::string text;
+        SerializedConfig serialized;
         try {
             nlohmann::json j;
             const auto& descriptors = GetFieldDescriptors();
@@ -987,25 +1004,36 @@ namespace Config {
                 desc.save(j, Current, secrets);
             }
             j["controller_default_back_migrated"] = true;
-            text = j.dump(4);
+            serialized.text = j.dump(4);
         } catch (const std::exception& e) {
             std::cerr << "[Config] Failed to serialize config: " << e.what() << "\n";
-            return;
+            return std::nullopt;
         }
+        serialized.sequence = ++s_serializedSequence;
+        serialized.path = GetConfigPath();
+        return serialized;
+    }
 
-        if (!Storage::WriteFileAtomically(fs::path(GetConfigPath()), text)) {
+    static void WriteSerialized(const SerializedConfig& config) {
+        std::lock_guard<std::mutex> lock(s_fileMutex);
+        // A save serialized earlier may reach the file lock after a newer one.
+        if (config.sequence <= s_writtenSequence) return;
+        s_writtenSequence = config.sequence;
+        if (!Storage::WriteFileAtomically(fs::path(config.path), config.text)) {
             std::cout << "[Config] Failed to write config.json. Error=" << GetLastError() << "\n";
         }
     }
 
+    static void SaveInternal(SecretStore& secrets) {
+        if (const auto serialized = SerializeLocked(secrets)) WriteSerialized(*serialized);
+    }
+
     void Save() {
-        std::unique_lock<std::shared_mutex> lock(Mutex);
-        SaveInternal();
+        SaveOutsideLock();
     }
 
     void Save(SecretStore& secrets) {
-        std::unique_lock<std::shared_mutex> lock(Mutex);
-        SaveInternal(secrets);
+        SaveOutsideLock(secrets);
     }
 
     void RequestSave() {
