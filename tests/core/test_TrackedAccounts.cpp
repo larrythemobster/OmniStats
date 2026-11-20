@@ -103,6 +103,19 @@ TEST(TrackedAccountIdentity, NormalizesLabelsWithoutSplittingUtf8) {
     const std::string clamped = NormalizeLabel(longName, kMaxNicknameLength);
     EXPECT_EQ(clamped.size(), kMaxNicknameLength * accented.size());
     EXPECT_EQ(NormalizeLabel("bad\xFF\xFEname", 40), "badname");
+    EXPECT_EQ(NormalizeLabel("ab\xED\xA0\x80"
+                             "cd",
+                             40),
+              "abcd");
+    EXPECT_EQ(NormalizeLabel("ab\xE0\x80\xAF"
+                             "cd",
+                             40),
+              "abcd");
+    EXPECT_EQ(NormalizeLabel("ab\xF4\x90\x80\x80"
+                             "cd",
+                             40),
+              "abcd");
+    EXPECT_EQ(NormalizeLabel("\xE2\x82\xAC\xF0\x9F\x98\x80", 40), "\xE2\x82\xAC\xF0\x9F\x98\x80");
 }
 
 TEST(TrackedAccountIdentity, SupportedPlaylistsComeFromPlaylistMetadata) {

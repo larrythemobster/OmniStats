@@ -294,6 +294,12 @@ namespace TrackedAccounts {
             for (size_t k = 1; k < length; ++k) {
                 if ((static_cast<unsigned char>(text[i + k]) & 0xC0) != 0x80) valid = false;
             }
+            if (length > 2) {
+                // Overlong forms, UTF-16 surrogates and code points above U+10FFFF are invalid UTF-8.
+                const unsigned char second = static_cast<unsigned char>(text[i + 1]);
+                if ((lead == 0xE0 && second < 0xA0) || (lead == 0xED && second > 0x9F) ||
+                    (lead == 0xF0 && second < 0x90) || (lead == 0xF4 && second > 0x8F)) valid = false;
+            }
             if (!valid) {
                 ++i;
                 continue;
