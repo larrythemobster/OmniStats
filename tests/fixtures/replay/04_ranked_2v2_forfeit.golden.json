@@ -239,62 +239,13 @@
         "player_count": 0,
         "playlist_id": 11,
         "result_pending": 0,
-        "session_id": 1,
+        "session_id": null,
         "their_score": 3,
         "timestamp": "<normalized_timestamp>",
         "win": 0
       }
     ],
-    "Sessions": [
-      {
-        "account": "steam|76561198000000001",
-        "ended_at": "<normalized_timestamp>",
-        "id": 1,
-        "losses": 1,
-        "mmr_change_json": {},
-        "source": "backfill",
-        "started_at": "<normalized_timestamp>",
-        "totals_json": {
-          "assists": 0,
-          "assistsTotal": 0,
-          "boostPickedUp": 0,
-          "crossbars": 0,
-          "crossbarsTotal": 0,
-          "demoed": 0,
-          "demos": 0,
-          "demosTotal": 0,
-          "fastestGoalTime": 0.0,
-          "fastestGoalTimeSelf": 0.0,
-          "gamemodes": {
-            "2v2": {
-              "losses": 1,
-              "total": 1,
-              "wins": 0
-            }
-          },
-          "goalParticipations": 0,
-          "goals": 0,
-          "losses": 1,
-          "maxBallSpeed": 0.0,
-          "maxBallSpeedSelf": 0.0,
-          "maxGoalSpeed": 0.0,
-          "maxGoalSpeedSelf": 0.0,
-          "maxImpactForce": 0.0,
-          "maxImpactForceSelf": 0.0,
-          "ownGoals": 0,
-          "ownGoalsSelf": 0,
-          "saves": 0,
-          "savesTotal": 0,
-          "sessionGeneration": 0,
-          "shots": 0,
-          "shotsTotal": 0,
-          "teamGoals": 0,
-          "totalMmrChange": 0.0,
-          "wins": 0
-        },
-        "wins": 0
-      }
-    ]
+    "Sessions": []
   },
   "emitted_side_effects": [
     {
