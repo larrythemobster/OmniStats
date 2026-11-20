@@ -102,15 +102,29 @@ namespace HttpSecurity {
         return result;
     }
 
+    static bool IsIPv4Loopback(std::string_view host) {
+        int octets = 0;
+        int firstOctet = -1;
+        while (true) {
+            const size_t dot = host.find('.');
+            const std::string_view part = host.substr(0, dot);
+            if (part.empty() || part.size() > 3 ||
+                !std::all_of(part.begin(), part.end(), [](char c) { return c >= '0' && c <= '9'; })) {
+                return false;
+            }
+            const int value = std::stoi(std::string(part));
+            if (value > 255) return false;
+            if (octets == 0) firstOctet = value;
+            ++octets;
+            if (dot == std::string_view::npos) break;
+            host.remove_prefix(dot + 1);
+        }
+        return octets == 4 && firstOctet == 127;
+    }
+
     bool IsLoopbackHost(std::string_view host) {
         const std::string lower = ToLower(Trim(host));
-        if (lower == "localhost" || lower == "127.0.0.1" || lower == "::1" || lower == "[::1]") {
-            return true;
-        }
-        if (lower.rfind("127.", 0) == 0) {
-            return true;
-        }
-        return false;
+        return lower == "localhost" || lower == "::1" || lower == "[::1]" || IsIPv4Loopback(lower);
     }
 
     bool IsAllowedSensitiveUrl(const ParsedUrl& url, std::string* outError) {

@@ -50,6 +50,10 @@ TEST(HttpSecurityTest, LoopbackHostDetection) {
     EXPECT_FALSE(IsLoopbackHost("api.omnistats.org"));
     EXPECT_FALSE(IsLoopbackHost("192.168.1.100"));
     EXPECT_FALSE(IsLoopbackHost("example.com"));
+    EXPECT_FALSE(IsLoopbackHost("127.attacker.com"));
+    EXPECT_FALSE(IsLoopbackHost("127.0.0.1.attacker.com"));
+    EXPECT_FALSE(IsLoopbackHost("127.0.0.256"));
+    EXPECT_FALSE(IsLoopbackHost("127.0.1"));
 }
 
 TEST(HttpSecurityTest, SensitiveUrlPolicyEnforcement) {
