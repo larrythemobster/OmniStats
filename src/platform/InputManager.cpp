@@ -752,7 +752,9 @@ void InputManager::GamepadThreadLoop() {
 
                     bool buttonHeld = false;
                     if (gamepadOverlayRaw) {
-                        buttonHeld = currentRawControllerStates[gamepadOverlayRawButton];
+                        if (gamepadOverlayRawButton >= 0 && gamepadOverlayRawButton < 256) {
+                            buttonHeld = currentRawControllerStates[gamepadOverlayRawButton];
+                        }
                     } else if (gamepadOverlay >= 0 && gamepadOverlay < MAX_TRACKED_BUTTONS) {
                         buttonHeld = currentStates[gamepadOverlay];
                     }
