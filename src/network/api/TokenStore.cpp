@@ -164,13 +164,23 @@ bool TokenStore::Refresh(DeviceIdentity& identity,
         generation = m_authGeneration;
     }
 
+    bool finished = false;
     auto finish = [&](bool ok) {
         std::lock_guard<std::mutex> lock(m_mutex);
         m_lastRefreshSucceeded = ok;
         m_refreshInFlight = false;
+        finished = true;
         m_refreshCv.notify_all();
         return ok;
     };
+    // Waiters block until the in-flight flag clears, so an exception must still release them.
+    struct FinishOnUnwind {
+        decltype(finish)& finish;
+        const bool& finished;
+        ~FinishOnUnwind() {
+            if (!finished) finish(false);
+        }
+    } finishOnUnwind{finish, finished};
 
     const ConfigData conf = Config::Read();
     if (conf.account_refresh_token.empty()) {

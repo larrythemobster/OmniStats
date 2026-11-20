@@ -17,6 +17,8 @@
 #include <condition_variable>
 #include <atomic>
 #include <fstream>
+#include <future>
+#include <stdexcept>
 #include <mutex>
 #include <string>
 #include <thread>
@@ -744,6 +746,29 @@ TEST_F(AccountClientTest, KeyGenerationAndPersistence) {
     ASSERT_TRUE(identity.EnsureDeviceKey(&key2));
     EXPECT_EQ(key1.publicId, key2.publicId);
     EXPECT_EQ(key1.publicKeyBase64Url, key2.publicKeyBase64Url);
+}
+
+TEST_F(AccountClientTest, RefreshThatThrowsDoesNotBlockLaterRefreshes) {
+    Config::Update([](ConfigData& c) { c.account_refresh_token = "stored_refresh_token"; });
+    OmniNet::SetTransportForTesting([](const OmniNet::Request&) {
+        OmniNet::Response response;
+        response.status = 401;
+        return response;
+    });
+
+    TokenStore store;
+    DeviceIdentity identity;
+    EXPECT_THROW(store.Refresh(identity, nullptr, nullptr, [] { throw std::runtime_error("rejected"); }),
+                 std::runtime_error);
+
+    OmniNet::SetTransportForTesting([](const OmniNet::Request&) {
+        OmniNet::Response response;
+        response.status = 503;
+        return response;
+    });
+    auto second = std::async(std::launch::async, [&] { return store.Refresh(identity); });
+    ASSERT_EQ(second.wait_for(std::chrono::seconds(5)), std::future_status::ready);
+    EXPECT_FALSE(second.get());
 }
 
 TEST_F(AccountClientTest, TokenPersistenceAndMemoryCaching) {
