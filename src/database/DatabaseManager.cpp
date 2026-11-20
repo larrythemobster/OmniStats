@@ -40,6 +40,10 @@ DatabaseManager::DatabaseManager(std::shared_ptr<SessionState> state, DatabaseHo
 
                 job = std::move(m_jobs.front());
                 m_jobs.pop_front();
+                // Release the key before running so a request made during this run queues a fresh job.
+                if (job.priority == DbJobPriority::Coalescable && !job.coalesceKey.empty()) {
+                    m_pendingCoalescedJobs.erase(job.coalesceKey);
+                }
             }
 
             try {
@@ -48,11 +52,6 @@ DatabaseManager::DatabaseManager(std::shared_ptr<SessionState> state, DatabaseHo
                 std::cerr << "[DatabaseManager] Job Exception: " << e.what() << "\n";
             } catch (...) {
                 std::cerr << "[DatabaseManager] Job Exception: Unknown\n";
-            }
-
-            if (job.priority == DbJobPriority::Coalescable && !job.coalesceKey.empty()) {
-                std::lock_guard lock(m_queueMutex);
-                m_pendingCoalescedJobs.erase(job.coalesceKey);
             }
         }
     });
