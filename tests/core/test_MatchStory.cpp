@@ -447,3 +447,39 @@ TEST(MatchStoryTest, LegacyMatchFallback) {
     EXPECT_EQ(story[0], "Won in overtime (+1:25).");
     EXPECT_EQ(story[1], "Hit the crossbar 3 times.");
 }
+
+TEST(MatchStoryTest, UsesRosterIdentityBeforeFirstCarWhenAccountIdIsMissing) {
+    MatchDetail detail;
+    detail.found = true;
+    detail.win = true;
+    detail.ourScore = 1;
+    detail.theirScore = 0;
+
+    MatchAnalytics analytics;
+    analytics.playSeconds = 300.0f;
+    analytics.possessionSeconds = {150.0f, 150.0f};
+    PlayerAnalytics teammate;
+    teammate.primaryId = "Steam|mate";
+    teammate.team = 0;
+    teammate.hits = 30;
+    teammate.car.emplace();
+    analytics.players.push_back(teammate);
+    PlayerAnalytics me;
+    me.primaryId = "Steam|me";
+    me.team = 0;
+    me.hits = 5;
+    me.car.emplace();
+    analytics.players.push_back(me);
+    detail.analytics = analytics;
+
+    MatchDetailPlayer rosterMate;
+    rosterMate.primaryId = "Steam|mate";
+    detail.ourTeam.push_back(rosterMate);
+    MatchDetailPlayer rosterMe;
+    rosterMe.primaryId = "Steam|me";
+    rosterMe.isMe = true;
+    detail.ourTeam.push_back(rosterMe);
+
+    const auto story = MatchStory::BuildMatchStory(detail);
+    EXPECT_NE(std::find(story.begin(), story.end(), "Accounted for only 14% of your team's touches."), story.end());
+}

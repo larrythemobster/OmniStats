@@ -30,7 +30,7 @@ namespace MatchStory {
     std::vector<std::string> BuildMatchStory(const MatchDetail& detail) {
         std::vector<StoryCandidate> candidates;
 
-        int myTeam = 0;
+        int myTeam = -1;
         if (!detail.ourTeam.empty()) {
             myTeam = detail.ourTeam.front().team;
         } else if (detail.analytics.has_value()) {
@@ -39,7 +39,7 @@ namespace MatchStory {
                     if (meP->team == 0 || meP->team == 1) myTeam = meP->team;
                 }
             }
-            if (myTeam == 0) {
+            if (myTeam == -1) {
                 for (const auto& p : detail.analytics->players) {
                     if (p.car.has_value() && (p.team == 0 || p.team == 1)) {
                         myTeam = p.team;
@@ -48,6 +48,7 @@ namespace MatchStory {
                 }
             }
         }
+        if (myTeam != 1) myTeam = 0;
 
         if (detail.analytics.has_value() && !detail.analytics->Empty()) {
             const auto& a = *detail.analytics;
@@ -175,18 +176,18 @@ namespace MatchStory {
             if (!detail.accountPrimaryId.empty()) {
                 me = a.FindPlayer(detail.accountPrimaryId);
             }
-            if (!me) {
-                for (const auto& p : a.players) {
-                    if (p.car.has_value()) {
-                        me = &p;
-                        break;
-                    }
-                }
-            }
             if (!me && !detail.ourTeam.empty()) {
                 for (const auto& p : detail.ourTeam) {
                     if (p.isMe) {
                         me = a.FindPlayer(p.primaryId);
+                        break;
+                    }
+                }
+            }
+            if (!me) {
+                for (const auto& p : a.players) {
+                    if (p.car.has_value()) {
+                        me = &p;
                         break;
                     }
                 }
