@@ -765,6 +765,8 @@ void RmlUiController::RebuildVisibleUi(bool force, bool configChanged) {
            << m_config.ui_scale << '|' << m_config.imperial_units << '|' << m_config.crossbar_display_mode << '|'
            << m_config.use_roman_numerals << '|' << m_config.key_cycle << '|' << m_config.key_expand << '|'
            << m_config.key_session << '|';
+        for (const int percent : m_config.card_text_percent)
+            fp << percent << ';';
         fp << m_config.overlay_layout.version << '|' << m_config.overlay_layout.toolboxOpen << '|';
         for (auto widget : m_config.overlay_layout.disabledWidgets)
             fp << "disabled:" << static_cast<int>(widget) << ';';

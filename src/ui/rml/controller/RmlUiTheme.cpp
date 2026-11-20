@@ -17,6 +17,9 @@
 #include "ui/rml/controller/RmlUiHelpers.hpp"
 #include "core/config/Themes.hpp"
 #include <cctype>
+#include <charconv>
+#include <map>
+#include <regex>
 
 namespace {
     ColorRGBA MixThemeColor(ColorRGBA a, ColorRGBA b, float t) {
@@ -32,6 +35,40 @@ namespace {
         for (int i = 0; i < 20 && Themes::Contrast(accent, background) < 4.5; ++i)
             accent = MixThemeColor(accent, ink, 0.15f);
         return accent;
+    }
+
+    std::string CardTextStyleSheet(const std::string& source) {
+        static const std::regex absoluteFontSize(R"(\bfont-size:\s*([0-9]+(?:\.[0-9]+)?)dp\b)");
+        std::map<std::string, float> sizes;
+        std::string css;
+        css.reserve(source.size());
+        auto tail = source.cbegin();
+        for (std::sregex_iterator match(source.begin(), source.end(), absoluteFontSize), end; match != end; ++match) {
+            const auto number = (*match)[1].str();
+            float size = 0.0f;
+            if (std::from_chars(number.data(), number.data() + number.size(), size).ec != std::errc{}) continue;
+            std::string key = "--card-font-" + number;
+            std::replace(key.begin(), key.end(), '.', '_');
+            sizes.try_emplace(key, size);
+            css.append(tail, (*match)[0].first);
+            css.append("font-size: var(").append(key).append(", ").append(number).append("dp)");
+            tail = (*match)[0].second;
+        }
+        css.append(tail, source.cend());
+
+        std::ostringstream overrides;
+        for (const int percent : ConfigData::CardTextPercentOptions) {
+            if (percent == 100) continue;
+            const float scale = percent / 100.0f;
+            const float columnScale = std::max(scale, 1.0f);
+            overrides << "\n.card-text-" << percent << " {font-size:" << 15.0f * scale << "dp;";
+            for (const auto& [key, size] : sizes)
+                overrides << key << ':' << size * scale << "dp;";
+            overrides << "--card-lobby-name-width:" << 135.0f * columnScale << "dp;"
+                      << "--card-lobby-rank-width:" << 68.0f * columnScale << "dp;}\n";
+        }
+        css += overrides.str();
+        return css;
     }
 
     // Keep packaged state colors intact when the corresponding palette is unchanged.
@@ -230,6 +267,7 @@ void RmlUiController::CaptureBaseStyleSheet() {
         m_baseStyleSheetSource.resize(m_fileInterface.Length(file));
         m_baseStyleSheetSource.resize(m_fileInterface.Read(m_baseStyleSheetSource.data(), m_baseStyleSheetSource.size(), file));
         m_fileInterface.Close(file);
+        m_baseStyleSheetSource = CardTextStyleSheet(m_baseStyleSheetSource);
     }
     if (!m_document) return;
     if (const auto* packagedStyle = m_document->GetStyleSheetContainer()) {

@@ -154,20 +154,14 @@ std::string RmlUiController::RenderOverlayContainer(const OverlayLayout::Contain
 
     OverlayLayout::ContainerConfig visibleContainer = container;
     visibleContainer.widgets = widgets;
-    auto [minW, minH] = OverlayContainerMinSize(visibleContainer, m_dpiScale, &m_config);
-    auto [w, h] = OverlayContainerSize(visibleContainer, m_dpiScale, &m_config);
+    const auto [minW, minH] = OverlayContainerMinSize(visibleContainer, m_dpiScale, &m_config);
+    const auto [w, h] = OverlayContainerSize(visibleContainer, m_dpiScale, &m_config);
+    const auto lobby = DashboardLayout::WidgetId::LobbyRanks;
+    const bool scaledLobby = m_config.CardTextPercent(lobby) > 100 &&
+                             std::find(widgets.begin(), widgets.end(), lobby) != widgets.end();
 
     const float dpi = SanitizedScale(m_dpiScale);
     const float rmlScale = dpi * SanitizedUiScale(m_config.ui_scale);
-
-    // Lobby Ranks is a fixed-column compact table. Protect enough horizontal
-    // room for the identity column and every enabled playlist so flex layout
-    // never has to collapse the player's name or overlap rank/MMR text.
-    if (std::find(widgets.begin(), widgets.end(), DashboardLayout::WidgetId::LobbyRanks) != widgets.end()) {
-        const float lobbyContentMinDp = LobbyRanksContentMinDp(m_config);
-        minW = std::max(minW, lobbyContentMinDp * rmlScale);
-        w = std::max(w, minW);
-    }
 
     // The legacy layout manager persisted explicit undersized dimensions after
     // clamping them. Keep that compatibility so old/corrupt layouts repair
@@ -176,7 +170,7 @@ std::string RmlUiController::RenderOverlayContainer(const OverlayLayout::Contain
     const float uiScale = SanitizedUiScale(m_config.ui_scale);
     const float minWStored = minW / uiScale;
     const float minHStored = minH / uiScale;
-    const bool clampStoredWidth = container.w > 1.0f && container.w < minWStored;
+    const bool clampStoredWidth = !scaledLobby && container.w > 1.0f && container.w < minWStored;
     const bool clampStoredHeight = container.h > 1.0f && container.h < minHStored;
     if (clampStoredWidth || clampStoredHeight) {
         const std::string containerId = container.id;
@@ -212,6 +206,7 @@ std::string RmlUiController::RenderOverlayContainer(const OverlayLayout::Contain
     out << " style='left:" << toDp(x) << "dp;top:" << toDp(y) << "dp;width:" << toDp(w) << "dp;'>";
     for (size_t i = 0; i < widgets.size(); ++i) {
         const auto widget = widgets[i];
+        out << "<div class='card-text-" << m_config.CardTextPercent(widget) << "'>";
         if (editMode && widgets.size() > 1) {
             out << "<div class='row overlay-widget-title overlay-widget-handle' data-action='overlay-widget-drag' data-container='" << Escape(container.id)
                 << "' data-widget='" << WidgetDomId(widget) << "' style='margin-top:" << (i ? 8 : 2) << "dp'>"
@@ -228,7 +223,10 @@ std::string RmlUiController::RenderOverlayContainer(const OverlayLayout::Contain
                                         widgets[i + 1] == DashboardLayout::WidgetId::RankProgress;
         const bool progressAfterRoster = !editMode && widget == DashboardLayout::WidgetId::RankProgress && i > 0 &&
                                          widgets[i - 1] == DashboardLayout::WidgetId::LiveRoster;
-        if ((widget == DashboardLayout::WidgetId::LiveRoster && !rosterThenProgress) || progressAfterRoster) out << RenderRosterFooter();
+        out << "</div>";
+        if ((widget == DashboardLayout::WidgetId::LiveRoster && !rosterThenProgress) || progressAfterRoster)
+            out << "<div class='card-text-" << m_config.CardTextPercent(DashboardLayout::WidgetId::LiveRoster)
+                << "'>" << RenderRosterFooter() << "</div>";
     }
     if (editMode) out << "<div class='overlay-resize' data-action='overlay-resize' data-container='" << Escape(container.id) << "'></div>";
     out << "</div>";
@@ -341,8 +339,8 @@ void RmlUiController::RebuildDashboard() {
                 z << "<div class='dashboard-drop-slot' data-zone='" << ZoneName(zone)
                   << "' data-drop-index='" << index << "'><span class='drop-hint'>── Drop here ──</span></div>";
             }
-            z << "<div class='dashboard-widget' data-widget='" << id << "' data-zone='" << ZoneName(zone)
-              << "' data-order='" << index << "'>"
+            z << "<div class='dashboard-widget card-text-" << m_config.CardTextPercent(placement.id)
+              << "' data-widget='" << id << "' data-zone='" << ZoneName(zone) << "' data-order='" << index << "'>"
               << "<div class='dashboard-widget-title' data-action='dashboard-drag' data-widget='" << id << "'><span class='name'>" << Escape(DashboardLayout::GetWidgetDisplayName(placement.id)) << "</span>";
             if (editMode) z << "<span class='badge'>DRAG</span>";
             z << "</div>";

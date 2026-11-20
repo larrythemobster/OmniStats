@@ -248,7 +248,7 @@ div.value { display: block; }
 .lobby-rank-row .player-name {
     flex-grow: 0;
     flex-shrink: 0;
-    width: 135dp;
+    width: var(--card-lobby-name-width, 135dp);
     min-width: 125dp;
     padding-right: 6dp;
     font-size: 11dp;
@@ -274,7 +274,7 @@ div.value { display: block; }
     justify-content: center;
     flex-grow: 1;
     flex-shrink: 0;
-    width: 68dp;
+    width: var(--card-lobby-rank-width, 68dp);
     min-width: 60dp;
     overflow: hidden;
     padding: 0 2dp;
@@ -302,6 +302,7 @@ div.value { display: block; }
 
 .lobby-rank-heading { display: block; width: 100%; text-align: center; }
 .lobby-rank-header .player-name .lobby-rank-heading { text-align: left; }
+.dashboard-widget .lobby-rank-table { overflow-x: auto; }
 .overlay-card { position: absolute; pointer-events: none; min-width: 220dp; }
 .overlay-card.interactive { pointer-events: auto; cursor: move; }
 .overlay-card.interactive * { cursor: move; }
@@ -865,6 +866,7 @@ button:disabled { color: #686868; background-color: #191919; border-color: #2929
 .setting-path { display: block; margin: -2dp 0 6dp 0; color: #707987; font-size: 10dp; }
 .setting-actions { flex-shrink: 0; }
 .settings-disclosure { display: flex; flex-direction: row; margin: -6dp 0 22dp 0; }
+.card-options-disclosure { margin: 12dp 0 14dp 0; }
 .settings-page select { min-width: 180dp; max-width: 270dp; font-size: 11.5dp; height: 26dp; }
 .settings-page input.text, .settings-page input.password { min-width: 190dp; max-width: 320dp; font-size: 11.5dp; height: 26dp; }
 .settings-page button, .settings-page .button { font-size: 11.5dp; }

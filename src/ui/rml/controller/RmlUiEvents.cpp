@@ -85,7 +85,7 @@ void RmlUiController::HandleClick(Rml::Element* target) {
         if (action == "toggle-rank-details") expanded = m_showRankDetails = !m_showRankDetails;
         if (action == "toggle-troubleshooting") expanded = m_showTroubleshooting = !m_showTroubleshooting;
         RebuildSettings();
-        if (expanded) {
+        if (expanded && action != "toggle-card-details") {
             if (auto* root = Root("settings-root")) {
                 const std::string selector = "[data-action='" + action + "']";
                 if (auto* button = root->QuerySelector(selector)) {
@@ -479,6 +479,11 @@ void RmlUiController::HandleChange(Rml::Element* target, Rml::Event& event) {
         return;
     }
     std::string value = ControlValue(target);
+    if (key == "card_text_widget") {
+        m_cardTextWidget = WidgetFromDom(value);
+        m_deferredSelectRebuild = true;
+        return;
+    }
     const bool checked = EventChecked(event, target);
     if (key == "identity") {
         SelectIdentity(value);
@@ -508,6 +513,8 @@ void RmlUiController::HandleChange(Rml::Element* target, Rml::Event& event) {
             const auto widget = WidgetFromDom(key.substr(15));
             if (widget != DashboardLayout::WidgetId::Tournaments || signedIn)
                 WidgetSettings::SetEnabled(c, widget, c.second_monitor_mode, checked, static_cast<float>(m_width), static_cast<float>(m_height));
+        } else if (key == "widget_text_percent") {
+            c.card_text_percent[static_cast<size_t>(m_cardTextWidget)] = ConfigData::NormalizeCardTextPercent(std::atoi(value.c_str()));
         } else if (key == "display_mode")
             c.second_monitor_mode = value == "dashboard";
         else if (key == "tournament_region")

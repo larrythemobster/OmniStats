@@ -73,6 +73,8 @@ RmlUi documents remain loaded between frames. Presenters use version counters an
 
 The overlay is a transparent, click-through window for borderless gameplay. The dashboard is a separate second-monitor window. Both use the Direct3D 11 backend; foreground changes use a WinEvent hook rather than polling every frame.
 
+In **Settings → Appearance → Scale**, choose a **Card** and adjust **Card text size**. The percentage multiplies the app-wide text size and applies to that card in both display modes without changing the other cards.
+
 Release builds embed markup, styles, fonts, and images. See the [build guide](BUILDING.md#editing-the-ui-without-rebuilding) for local UI iteration.
 
 ## Updates and external services

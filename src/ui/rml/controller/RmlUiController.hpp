@@ -444,6 +444,7 @@ class RmlUiController final : public Rml::EventListener {
     bool m_showBallchasingToken = false;
     bool m_showCardDetails = false;
     bool m_showAdvancedAppearance = false;
+    DashboardLayout::WidgetId m_cardTextWidget = DashboardLayout::WidgetId::LiveRoster;
     bool m_showRankDetails = false;
     bool m_showTroubleshooting = false;
     bool m_confirmReplayUploads = false;

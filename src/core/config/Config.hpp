@@ -1,4 +1,5 @@
 #pragma once
+#include <array>
 #include <string>
 #include <cstdint>
 #ifndef WIN32_LEAN_AND_MEAN
@@ -216,6 +217,23 @@ struct ConfigData {
     int second_monitor_h = 768;
 
     float ui_scale = 1.0f;
+    static constexpr std::array CardTextPercentOptions{75, 85, 100, 110, 125, 150};
+    using CardTextSizes = std::array<int, static_cast<size_t>(DashboardLayout::WidgetId::Tournaments) + 1>;
+    CardTextSizes card_text_percent = [] {
+        CardTextSizes sizes{};
+        sizes.fill(100);
+        return sizes;
+    }();
+
+    static constexpr int NormalizeCardTextPercent(int percent) {
+        for (const int option : CardTextPercentOptions)
+            if (option == percent) return percent;
+        return 100;
+    }
+
+    int CardTextPercent(DashboardLayout::WidgetId widget) const {
+        return NormalizeCardTextPercent(card_text_percent[static_cast<size_t>(widget)]);
+    }
     // Font family per text role; empty keeps the bundled default (Inter,
     // JetBrains Mono, Russo One). Values are bundled or installed family names.
     std::string font_ui;

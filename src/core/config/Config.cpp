@@ -515,6 +515,25 @@ namespace {
             MakeIntField("second_monitor_h", &ConfigData::second_monitor_h, def.second_monitor_h),
 
             MakeFloatField("ui_scale", &ConfigData::ui_scale, def.ui_scale),
+            {"card_text_percent",
+             [](const nlohmann::json& j, ConfigData& cfg, SecretStore&, bool&, bool&) {
+                 const auto field = j.find("card_text_percent");
+                 if (field == j.end() || !field->is_object()) return;
+                 for (size_t i = 0; i < cfg.card_text_percent.size(); ++i) {
+                     const auto entry = field->find(DashboardLayout::ToConfigString(static_cast<DashboardLayout::WidgetId>(i)));
+                     if (entry != field->end() && entry->is_number_integer() && *entry >= 75 && *entry <= 150)
+                         cfg.card_text_percent[i] = ConfigData::NormalizeCardTextPercent(entry->get<int>());
+                 }
+             },
+             [](nlohmann::json& j, const ConfigData& cfg, SecretStore&) {
+                 auto sizes = nlohmann::json::object();
+                 for (size_t i = 0; i < cfg.card_text_percent.size(); ++i) {
+                     const auto widget = static_cast<DashboardLayout::WidgetId>(i);
+                     if (const int percent = cfg.CardTextPercent(widget); percent != 100)
+                         sizes[DashboardLayout::ToConfigString(widget)] = percent;
+                 }
+                 j["card_text_percent"] = std::move(sizes);
+             }},
             MakeStringField("font_ui", &ConfigData::font_ui, def.font_ui),
             MakeStringField("font_mono", &ConfigData::font_mono, def.font_mono),
             MakeStringField("font_display", &ConfigData::font_display, def.font_display),

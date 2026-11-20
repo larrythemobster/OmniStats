@@ -3402,6 +3402,126 @@ TEST_F(RmlUiControllerStateTest, DeferredSelectRebuildSurvivesBlockedUpdateUntil
     EXPECT_NE(SettingsRoot(controller)->QuerySelector("[data-setting='widget_vis_seconds:live-roster']"), nullptr);
 }
 
+TEST_F(RmlUiControllerStateTest, CardTextSizeScalesOnlyTheSelectedCardAcrossDisplayModes) {
+    using Id = DashboardLayout::WidgetId;
+    WarpDevice warp;
+    if (!warp.Create(1280, 900)) GTEST_SKIP() << "WARP not available.";
+
+    Config::Update([](ConfigData& c) {
+        c.ui_scale = 1.0f;
+        c.card_text_percent.fill(100);
+        c.show_lobby_ranks_overlay = true;
+        c.show_lobby_rank_2v2 = true;
+        c.show_lobby_rank_tourny = true;
+        c.show_session_record = true;
+        OverlayLayout::ContainerConfig stack;
+        stack.id = "text-size-stack";
+        stack.x = 670.0f;
+        stack.y = 24.0f;
+        stack.widgets = {Id::LobbyRanks, Id::SessionStats};
+        stack.visibility.mode = OverlayLayout::Visibility::Always;
+        c.overlay_layout.containers = {stack};
+        c.overlay_layout.disabledWidgets.clear();
+        c.dashboard_layout.widgets = {
+            {Id::LobbyRanks, DashboardLayout::Zone::Top, 0},
+            {Id::SessionStats, DashboardLayout::Zone::Top, 1}};
+    },
+                   true);
+
+    auto state = std::make_shared<SessionState>();
+    state->ui.showMenu.store(true);
+    state->ui.showOverlay.store(true);
+    state->liveMatch->Update([](MatchState& match) {
+        match.inMatch = true;
+        PlayerData player;
+        player.primaryId = "Steam|76561198000000001|0";
+        player.name = "Tournament player";
+        player.playlists = {{"2v2", 1250}, {"t", 1010}};
+        player.playlistTiers = {{"2v2", "Champion II Div II"}, {"t", "Diamond II Div III"}};
+        player.fetched = true;
+        match.roster.emplace(player.primaryId, std::move(player));
+    });
+    RmlUiController controller(state, nullptr);
+    ASSERT_TRUE(controller.Initialize(nullptr, warp.device.Get(), warp.context.Get(), 1280, 900, 1.0f));
+    controller.Update(Config::Read());
+    controller.Render();
+
+    const auto lobbyText = [](Rml::Element* root) { return root->QuerySelector(".lobby-rank-cell"); };
+    const auto sessionText = [](Rml::Element* root) {
+        return root->QuerySelector("[data-live-widget='session'] .metric-label");
+    };
+    auto* overlay = OverlayRoot(controller);
+    ASSERT_NE(lobbyText(overlay), nullptr);
+    ASSERT_NE(sessionText(overlay), nullptr);
+    const float lobbyFont = lobbyText(overlay)->GetComputedValues().font_size();
+    const float lobbyColumn = lobbyText(overlay)->GetOffsetWidth();
+    const float sessionFont = sessionText(overlay)->GetComputedValues().font_size();
+
+    const auto capture = [&](const char* name) {
+        if (const char* dir = std::getenv("OMNISTATS_CAPTURE_DIR"); dir && *dir) {
+            std::filesystem::create_directories(dir);
+            const float clear[4] = {0.0f, 0.0f, 0.0f, 1.0f};
+            warp.context->ClearRenderTargetView(warp.target.Get(), clear);
+            controller.Render();
+            std::string error;
+            EXPECT_TRUE(RmlCapture::SaveBoundRenderTargetRegion(warp.context.Get(), 0, 0, 1280, 900, 0.0f,
+                                                                (std::filesystem::path(dir) / name).wstring(), error))
+                << error;
+        }
+    };
+    auto* details = SettingsRoot(controller)->QuerySelector("[data-action='toggle-card-details']");
+    ASSERT_NE(details, nullptr);
+    details->DispatchEvent("click", {});
+    if (std::getenv("OMNISTATS_CAPTURE_DIR")) {
+        auto* page = SettingsRoot(controller)->QuerySelector(".settings-page");
+        details = page->QuerySelector("[data-action='toggle-card-details']");
+        details->ScrollIntoView(true);
+        page->SetScrollTop(std::max(0.0f, page->GetScrollTop() - 80.0f));
+    }
+    capture("card-options-display.png");
+
+    auto* appearance = SettingsRoot(controller)->QuerySelector("[data-action='settings-page'][data-page='2']");
+    ASSERT_NE(appearance, nullptr);
+    appearance->DispatchEvent("click", {});
+    const auto select = [&](const char* selector) {
+        return dynamic_cast<Rml::ElementFormControl*>(SettingsRoot(controller)->QuerySelector(selector));
+    };
+    auto* card = select("[data-setting='card_text_widget']");
+    ASSERT_NE(card, nullptr);
+    card->SetValue("lobby-ranks");
+    controller.Update(Config::Read(), false);
+    auto* scale = select("[data-setting='widget_text_percent']");
+    ASSERT_NE(scale, nullptr);
+    scale->SetValue("150");
+    controller.Update(Config::Read(), true, Config::Revision());
+    controller.Render();
+
+    ASSERT_NE(lobbyText(overlay), nullptr);
+    ASSERT_NE(sessionText(overlay), nullptr);
+    EXPECT_NEAR(lobbyText(overlay)->GetComputedValues().font_size(), lobbyFont * 1.5f, 0.01f);
+    EXPECT_GT(lobbyText(overlay)->GetOffsetWidth(), lobbyColumn);
+    EXPECT_FLOAT_EQ(sessionText(overlay)->GetComputedValues().font_size(), sessionFont);
+
+    capture("card-text-size-appearance.png");
+    card = select("[data-setting='card_text_widget']");
+    ASSERT_NE(card, nullptr);
+    card->SetValue("session");
+    controller.Update(Config::Read(), false);
+    scale = select("[data-setting='widget_text_percent']");
+    ASSERT_NE(scale, nullptr);
+    EXPECT_EQ(scale->GetValue(), "100");
+
+    Config::Save();
+    Config::Load();
+    auto dashboard = Config::Read();
+    dashboard.second_monitor_mode = true;
+    state->ui.showMenu.store(false);
+    controller.Update(dashboard);
+    controller.Render();
+    ASSERT_NE(lobbyText(DashboardRoot(controller)), nullptr);
+    EXPECT_NEAR(lobbyText(DashboardRoot(controller))->GetComputedValues().font_size(), lobbyFont * 1.5f, 0.01f);
+}
+
 TEST_F(RmlUiControllerStateTest, EscapeNeutralizesDataBindingBraces) {
     EXPECT_EQ(EscapeText("{{match_saves}}"), "&#123;&#123;match_saves&#125;&#125;");
     EXPECT_EQ(EscapeText("<b>&'\""), "&lt;b&gt;&amp;&#39;&quot;");

@@ -882,12 +882,8 @@ namespace RmlUiDetail {
 
     float LobbyRanksContentMinDp(const ConfigData& config) {
         const int columns = EnabledLobbyRankColumns(config);
-        // Keep a protected identity column plus one column per enabled playlist,
-        // matching the compact .lobby-rank-* metrics in the stylesheet:
-        // 135dp identity column + 4dp row padding + 22dp card padding/border + 4dp tolerance
-        // = 165dp base, plus 68dp per enabled playlist column (rank/rating pair
-        // plus the games-played gutter).
-        return 165.0f + 68.0f * static_cast<float>(columns);
+        const float columnScale = std::max(1.0f, config.CardTextPercent(DashboardLayout::WidgetId::LobbyRanks) / 100.0f);
+        return 30.0f + (135.0f + 68.0f * static_cast<float>(columns)) * columnScale;
     }
 
     std::pair<float, float> OverlayWidgetDefaultSize(DashboardLayout::WidgetId widget, float dpiScale) {

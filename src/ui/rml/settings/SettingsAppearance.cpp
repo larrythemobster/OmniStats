@@ -22,7 +22,7 @@ using namespace RmlUiDetail;
 std::string SettingsPresenter::RenderAppearance(const ConfigData& config, const std::string& editColorKey, float editColorHue, bool showAdvanced,
                                                 bool pending, const std::string& nameDraft, const std::string& importDraft,
                                                 const std::string& message, bool messageError, bool canUndo,
-                                                const std::set<std::string>& openGroups) {
+                                                const std::set<std::string>& openGroups, DashboardLayout::WidgetId cardTextWidget) {
     auto rangeRow = [&](const char* channel, char component, int value) {
         std::ostringstream html;
         html << "<div class='color-channel'><span class='color-channel-label'>" << channel << "</span>"
@@ -95,6 +95,25 @@ std::string SettingsPresenter::RenderAppearance(const ConfigData& config, const 
         scales.push_back({choice.value, choice.label});
         if (std::fabs(config.ui_scale - choice.scale) < .01f) currentScale = choice.value;
     }
+    static const auto cards = [] {
+        std::vector<SelectOption> options;
+        options.reserve(ConfigData::CardTextSizes{}.size());
+        for (size_t i = 0; i < ConfigData::CardTextSizes{}.size(); ++i) {
+            const auto widget = static_cast<DashboardLayout::WidgetId>(i);
+            options.push_back({WidgetDomId(widget), DashboardLayout::GetWidgetDisplayName(widget)});
+        }
+        std::sort(options.begin(), options.end(), [](const auto& a, const auto& b) { return a.label < b.label; });
+        return options;
+    }();
+    static const auto cardTextSizes = [] {
+        std::vector<SelectOption> options;
+        options.reserve(ConfigData::CardTextPercentOptions.size());
+        for (const int percent : ConfigData::CardTextPercentOptions) {
+            const auto value = std::to_string(percent);
+            options.push_back({value, value + "%"});
+        }
+        return options;
+    }();
 
     auto fontOptions = [&](const std::string& current) {
         static constexpr const char* kBundled[] = {"Inter", "JetBrains Mono", "Russo One"};
@@ -113,6 +132,12 @@ std::string SettingsPresenter::RenderAppearance(const ConfigData& config, const 
     };
 
     std::ostringstream out;
+    out << SectionStart("Scale")
+        << SelectRow("ui_scale", "App-wide text size", "Changes text size throughout the dashboard and overlay.", scales, currentScale)
+        << SelectRow("card_text_widget", "Card", "Choose which card to adjust.", cards, WidgetDomId(cardTextWidget))
+        << SelectRow("widget_text_percent", "Card text size", "Relative to the app-wide size. Applies to this card in both display modes.",
+                     cardTextSizes, std::to_string(config.CardTextPercent(cardTextWidget)))
+        << SectionEnd();
     out << SectionStart("Themes")
         << "<div class='setting-help section-help'>Choose a starting point, then adjust the accent or individual colors.</div>"
         << "<div class='theme-presets'>";
@@ -178,9 +203,6 @@ std::string SettingsPresenter::RenderAppearance(const ConfigData& config, const 
         out << "</div>";
         out << SectionEnd();
     }
-    out << SectionStart("Scale")
-        << SelectRow("ui_scale", "App-wide text size", "Changes text size throughout the dashboard and overlay.", scales, currentScale)
-        << SectionEnd();
     out << SectionStart("Units and formatting")
         << SelectRow("speed_units", "Speed units", "", {{"metric", "Kilometers per hour"}, {"imperial", "Miles per hour"}}, config.imperial_units ? "imperial" : "metric")
         << SelectRow("crossbar_display_mode", "Crossbar hit display", "", {{"raw", "Raw Force (UU/s)"}, {"speed", "Speed (MPH/KPH)"}}, config.crossbar_display_mode)
@@ -200,5 +222,5 @@ std::string RmlUiController::RenderSettingsAppearance() {
     return m_settingsPresenter->RenderAppearance(m_themeEditor.PreviewConfig(), m_themeEditor.m_editColorKey,
                                                  m_themeEditor.m_editColorHue, m_showAdvancedAppearance, m_themeEditor.Pending(), m_themeEditor.m_nameDraft,
                                                  m_themeEditor.m_importDraft, m_themeEditor.m_message, m_themeEditor.m_messageError,
-                                                 m_themeEditor.m_resetUndo.has_value(), m_themeEditor.m_openGroups);
+                                                 m_themeEditor.m_resetUndo.has_value(), m_themeEditor.m_openGroups, m_cardTextWidget);
 }

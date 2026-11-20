@@ -35,6 +35,9 @@ std::string SettingsPresenter::RenderCards(const ConfigData& config, bool showDe
         DashboardLayout::WidgetId::DemoTracker, DashboardLayout::WidgetId::StreaksStats,
         DashboardLayout::WidgetId::GamemodeBreakdown};
     if (!dashboard) cards.insert(cards.begin(), DashboardLayout::WidgetId::Tournaments);
+    out << "<div class='settings-disclosure card-options-disclosure'>"
+        << Button("toggle-card-details", showDetails ? "Hide card options" : "Show card options", "ghost")
+        << "</div>";
     out << "<div class='row card-list-head'><span class='grow'>Card</span>";
     if (!dashboard) out << "<span class='card-head-rule'>Show when</span>";
     out << "<span class='card-head-toggle'>On</span></div>";
@@ -66,16 +69,14 @@ std::string SettingsPresenter::RenderCards(const ConfigData& config, bool showDe
                                        vis.mode == OverlayLayout::Visibility::MenusOnly ||
                                        vis.mode == OverlayLayout::Visibility::AfterEvent;
             out << "<div class='display-card-options'>";
-            if (keyHeldOption) out << ToggleControl("widget_vis_key_held:" + dom, "Also show while key held", "", vis.alsoWhileKeyHeld);
+            if (keyHeldOption)
+                out << ToggleControl("widget_vis_key_held:" + dom, "Also show while key held", "", vis.alsoWhileKeyHeld);
             out << ToggleControl("widget_vis_hide_replay:" + dom, "Hide during goal replays", "", vis.hideDuringReplay)
                 << "</div>";
         }
         out << "</div>";
     }
-    out << SectionEnd()
-        << "<div class='settings-disclosure'>"
-        << Button("toggle-card-details", showDetails ? "Hide card options" : "Show card options", "ghost")
-        << "</div>";
+    out << SectionEnd();
     if (!showDetails) return out.str();
 
     out << SectionStart("Session card")
