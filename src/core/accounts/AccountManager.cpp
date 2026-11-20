@@ -212,6 +212,8 @@ void AccountManagerService::RequestHistory(std::vector<std::string> accountIds,
             {
                 std::lock_guard<std::mutex> lock(m_mutex);
                 if (request != m_historyGeneration) return;
+                // An account removed while this query ran must not reappear in the graph.
+                std::erase_if(results, [&](const auto& series) { return !FindLocked(series.primaryId); });
                 m_history.series = std::move(results);
                 m_history.loading = false;
                 m_history.loaded = true;
@@ -307,6 +309,8 @@ bool AccountManagerService::Remove(const std::string& primaryId) {
                                      [&](const AccountView& view) { return view.record.primaryId == primaryId; });
         if (it == m_accounts.end()) return false;
         m_accounts.erase(it);
+        std::erase(m_history.accountIds, primaryId);
+        std::erase_if(m_history.series, [&](const auto& series) { return series.primaryId == primaryId; });
         m_pending.erase(primaryId);
         m_lastManualRefresh.erase(primaryId);
         m_seenThisRun.erase(primaryId);
