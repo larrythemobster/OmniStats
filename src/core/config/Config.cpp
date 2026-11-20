@@ -1042,19 +1042,23 @@ namespace Config {
 
     void SetWindowsAutoStart(bool enable) {
         HKEY hKey;
-        const char* keyPath = "Software\\Microsoft\\Windows\\CurrentVersion\\Run";
-        if (RegOpenKeyExA(HKEY_CURRENT_USER, keyPath, 0, KEY_SET_VALUE, &hKey) == ERROR_SUCCESS) {
-            if (enable) {
-                char exePath[MAX_PATH];
-                if (GetModuleFileNameA(NULL, exePath, MAX_PATH)) {
-                    std::string pathStr = "\"" + std::string(exePath) + "\"";
-                    RegSetValueExA(hKey, "OmniStats", 0, REG_SZ, reinterpret_cast<const BYTE*>(pathStr.c_str()), static_cast<DWORD>(pathStr.length() + 1));
-                }
-            } else {
-                RegDeleteValueA(hKey, "OmniStats");
+        if (RegOpenKeyExW(HKEY_CURRENT_USER, L"Software\\Microsoft\\Windows\\CurrentVersion\\Run", 0, KEY_SET_VALUE, &hKey) != ERROR_SUCCESS) return;
+        if (enable) {
+            std::wstring exePath(MAX_PATH, L'\0');
+            DWORD length = 0;
+            while ((length = GetModuleFileNameW(nullptr, exePath.data(), static_cast<DWORD>(exePath.size()))) == exePath.size()) {
+                exePath.resize(exePath.size() * 2);
             }
-            RegCloseKey(hKey);
+            if (length > 0) {
+                exePath.resize(length);
+                const std::wstring command = L"\"" + exePath + L"\"";
+                RegSetValueExW(hKey, L"OmniStats", 0, REG_SZ, reinterpret_cast<const BYTE*>(command.c_str()),
+                               static_cast<DWORD>((command.size() + 1) * sizeof(wchar_t)));
+            }
+        } else {
+            RegDeleteValueW(hKey, L"OmniStats");
         }
+        RegCloseKey(hKey);
     }
 
 } // namespace Config

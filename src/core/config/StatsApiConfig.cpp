@@ -41,27 +41,33 @@ namespace StatsApiConfig {
         return "Unknown status.";
     }
 
+    static std::string ReadRegistryString(HKEY root, const std::wstring& subKey, const wchar_t* valueName, REGSAM view) {
+        HKEY key = nullptr;
+        if (RegOpenKeyExW(root, subKey.c_str(), 0, KEY_READ | view, &key) != ERROR_SUCCESS) return {};
+        std::wstring value;
+        DWORD bytes = 0;
+        // RegGetValueW checks the type is REG_SZ and NUL-terminates the result.
+        if (RegGetValueW(key, nullptr, valueName, RRF_RT_REG_SZ, nullptr, nullptr, &bytes) == ERROR_SUCCESS && bytes >= sizeof(wchar_t)) {
+            value.resize(bytes / sizeof(wchar_t));
+            if (RegGetValueW(key, nullptr, valueName, RRF_RT_REG_SZ, nullptr, value.data(), &bytes) == ERROR_SUCCESS) {
+                value.resize(wcsnlen(value.c_str(), value.size()));
+            } else {
+                value.clear();
+            }
+        }
+        RegCloseKey(key);
+        if (value.empty()) return {};
+        const int length = WideCharToMultiByte(CP_UTF8, 0, value.data(), static_cast<int>(value.size()), nullptr, 0, nullptr, nullptr);
+        std::string utf8(static_cast<size_t>(std::max(length, 0)), '\0');
+        if (length > 0) WideCharToMultiByte(CP_UTF8, 0, value.data(), static_cast<int>(value.size()), utf8.data(), length, nullptr, nullptr);
+        return utf8;
+    }
+
     static std::string GetUninstallInstallLocation(const std::string& appId) {
-        std::string subKey = "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\Steam App " + appId;
-        HKEY hKey;
-        char szValue[512];
-        DWORD dwSize = sizeof(szValue);
-        if (RegOpenKeyExA(HKEY_LOCAL_MACHINE, subKey.c_str(), 0, KEY_READ | KEY_WOW64_64KEY, &hKey) == ERROR_SUCCESS) {
-            if (RegQueryValueExA(hKey, "InstallLocation", nullptr, nullptr, (LPBYTE)szValue, &dwSize) == ERROR_SUCCESS) {
-                RegCloseKey(hKey);
-                return szValue;
-            }
-            RegCloseKey(hKey);
-        }
-        dwSize = sizeof(szValue);
-        if (RegOpenKeyExA(HKEY_LOCAL_MACHINE, subKey.c_str(), 0, KEY_READ | KEY_WOW64_32KEY, &hKey) == ERROR_SUCCESS) {
-            if (RegQueryValueExA(hKey, "InstallLocation", nullptr, nullptr, (LPBYTE)szValue, &dwSize) == ERROR_SUCCESS) {
-                RegCloseKey(hKey);
-                return szValue;
-            }
-            RegCloseKey(hKey);
-        }
-        return "";
+        const std::wstring subKey = L"SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\Steam App " + std::wstring(appId.begin(), appId.end());
+        std::string location = ReadRegistryString(HKEY_LOCAL_MACHINE, subKey, L"InstallLocation", KEY_WOW64_64KEY);
+        if (location.empty()) location = ReadRegistryString(HKEY_LOCAL_MACHINE, subKey, L"InstallLocation", KEY_WOW64_32KEY);
+        return location;
     }
 
     static std::string EnvVar(const char* name) {
@@ -272,24 +278,9 @@ namespace StatsApiConfig {
         }
 
         // 2. Try Steam Path Registry Key + libraryfolders.vdf
-        std::string steamPath = "";
-        HKEY hKey;
-        char szValue[512];
-        DWORD dwSize = sizeof(szValue);
-        if (RegOpenKeyExA(HKEY_CURRENT_USER, "Software\\Valve\\Steam", 0, KEY_READ, &hKey) == ERROR_SUCCESS) {
-            if (RegQueryValueExA(hKey, "SteamPath", nullptr, nullptr, (LPBYTE)szValue, &dwSize) == ERROR_SUCCESS) {
-                steamPath = szValue;
-            }
-            RegCloseKey(hKey);
-        }
+        std::string steamPath = ReadRegistryString(HKEY_CURRENT_USER, L"Software\\Valve\\Steam", L"SteamPath", 0);
         if (steamPath.empty()) {
-            dwSize = sizeof(szValue);
-            if (RegOpenKeyExA(HKEY_LOCAL_MACHINE, "SOFTWARE\\Valve\\Steam", 0, KEY_READ | KEY_WOW64_32KEY, &hKey) == ERROR_SUCCESS) {
-                if (RegQueryValueExA(hKey, "InstallPath", nullptr, nullptr, (LPBYTE)szValue, &dwSize) == ERROR_SUCCESS) {
-                    steamPath = szValue;
-                }
-                RegCloseKey(hKey);
-            }
+            steamPath = ReadRegistryString(HKEY_LOCAL_MACHINE, L"SOFTWARE\\Valve\\Steam", L"InstallPath", KEY_WOW64_32KEY);
         }
 
         if (!steamPath.empty()) {
