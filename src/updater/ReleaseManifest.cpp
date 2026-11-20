@@ -25,9 +25,7 @@ bool ReleaseManifestVerifier::ParseManifest(const std::string& jsonStr, ReleaseM
         }
 
         outManifest.version = UpdaterCommon::Trim(j["version"].get<std::string>());
-        outManifest.msi_sha256 = UpdaterCommon::Trim(j["msi_sha256"].get<std::string>());
-        std::transform(outManifest.msi_sha256.begin(), outManifest.msi_sha256.end(),
-                       outManifest.msi_sha256.begin(), ::tolower);
+        outManifest.msi_sha256 = UpdaterCommon::ToLowerAscii(UpdaterCommon::Trim(j["msi_sha256"].get<std::string>()));
         outManifest.msi_url = UpdaterCommon::Trim(j["msi_url"].get<std::string>());
 
         if (outManifest.version.empty() || outManifest.msi_sha256.length() != 64 || outManifest.msi_url.empty()) {

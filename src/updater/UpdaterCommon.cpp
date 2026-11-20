@@ -48,6 +48,13 @@ namespace UpdaterCommon {
         return str.substr(first, (last - first + 1));
     }
 
+    std::string ToLowerAscii(std::string str) {
+        for (char& c : str) {
+            if (c >= 'A' && c <= 'Z') c = static_cast<char>(c - 'A' + 'a');
+        }
+        return str;
+    }
+
     bool IsNewerVersion(const std::string& current, const std::string& latest) {
         size_t cur = 0, lat = 0;
         while (cur < current.size() || lat < latest.size()) {
@@ -105,9 +112,7 @@ namespace UpdaterCommon {
         if (cleanExpected.length() >= 64) {
             cleanExpected = cleanExpected.substr(0, 64);
         }
-        std::transform(cleanExpected.begin(), cleanExpected.end(), cleanExpected.begin(), ::tolower);
-        std::transform(localHash.begin(), localHash.end(), localHash.begin(), ::tolower);
-        return localHash == cleanExpected;
+        return ToLowerAscii(localHash) == ToLowerAscii(cleanExpected);
     }
 
     static std::string CalculateBufferSha256(const BYTE* data, DWORD len) {
@@ -302,24 +307,19 @@ namespace UpdaterCommon {
             std::cout << "[Updater] Certificate revocation status is unknown; signature and certificate pin are still required.\n";
         }
 
-        std::string actualCertSha = signature.certSha256;
-        std::transform(actualCertSha.begin(), actualCertSha.end(), actualCertSha.begin(), ::tolower);
+        const std::string actualCertSha = ToLowerAscii(signature.certSha256);
 
         // Accept either current pinned cert or next rotated cert
         bool certMatches = false;
         if (!currentPin.empty()) {
-            std::string cleanCurrent = currentPin;
-            std::transform(cleanCurrent.begin(), cleanCurrent.end(), cleanCurrent.begin(), ::tolower);
-            if (actualCertSha == cleanCurrent) {
+            if (actualCertSha == ToLowerAscii(currentPin)) {
                 certMatches = true;
                 std::cout << "[Updater] MSI verified against current pinned certificate.\n";
             }
         }
 
         if (!certMatches && !nextPin.empty()) {
-            std::string cleanNext = nextPin;
-            std::transform(cleanNext.begin(), cleanNext.end(), cleanNext.begin(), ::tolower);
-            if (actualCertSha == cleanNext) {
+            if (actualCertSha == ToLowerAscii(nextPin)) {
                 certMatches = true;
                 std::cout << "[Updater] MSI verified against next (rotated) pinned certificate.\n";
             }

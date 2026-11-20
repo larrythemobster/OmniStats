@@ -32,7 +32,7 @@ namespace {
             const std::string begin = std::string(folder) + "/";
             if (source.rfind(begin, 0) != 0 || source.size() <= begin.size() + 4 || source.substr(source.size() - 4) != ".png") return {};
             const std::string index = source.substr(begin.size(), source.size() - begin.size() - 4);
-            if (index.empty() || !std::all_of(index.begin(), index.end(), ::isdigit)) return {};
+            if (index.empty() || !std::all_of(index.begin(), index.end(), [](char c) { return c >= '0' && c <= '9'; })) return {};
             return std::string(resourcePrefix) + index;
         };
 

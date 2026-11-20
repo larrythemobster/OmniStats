@@ -163,7 +163,8 @@ namespace MmrServiceDetail {
         rawPlat.erase(0, rawPlat.find_first_not_of(" \t\r\n"));
         rawPlat.erase(rawPlat.find_last_not_of(" \t\r\n") + 1);
         std::string platLower = rawPlat;
-        std::transform(platLower.begin(), platLower.end(), platLower.begin(), ::tolower);
+        std::transform(platLower.begin(), platLower.end(), platLower.begin(),
+                       [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
 
         std::string platform;
         if (platLower == "epic" || platLower == "epicgames")
