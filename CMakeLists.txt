@@ -53,7 +53,7 @@ set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 if(MSVC)
     add_compile_options(/MP /W4)
 endif()
-option(OMNISTATS_WARNINGS_AS_ERRORS "Treat compiler warnings as errors in OmniStats, OmniStatsUpdater and OmniStatsTests" ON)
+option(OMNISTATS_WARNINGS_AS_ERRORS "Treat compiler warnings as errors in every OmniStats executable target" ON)
 
 # Find the packages defined in vcpkg.json
 find_package(nlohmann_json CONFIG REQUIRED)
@@ -412,6 +412,9 @@ endif()
 add_executable(OmniStatsReleaseSigner tools/release/ReleaseSigner.cpp)
 target_include_directories(OmniStatsReleaseSigner PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
 target_link_libraries(OmniStatsReleaseSigner PRIVATE unofficial-sodium::sodium)
+if(MSVC)
+    target_compile_options(OmniStatsReleaseSigner PRIVATE $<$<BOOL:${OMNISTATS_WARNINGS_AS_ERRORS}>:/WX>)
+endif()
 
 # -----------------------------------------------------------------------------
 # Test Target (OmniStatsTests.exe)
@@ -491,6 +494,7 @@ if(BUILD_TESTING)
         )
         if(MSVC)
             target_compile_options(OmniStatsBenchmarks PRIVATE
+                $<$<BOOL:${OMNISTATS_WARNINGS_AS_ERRORS}>:/WX>
                 $<$<CONFIG:Release>:/O2>
                 $<$<CONFIG:Release>:/GF>
                 $<$<CONFIG:Release>:/Gy>
