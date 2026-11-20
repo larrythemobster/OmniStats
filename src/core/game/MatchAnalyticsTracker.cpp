@@ -13,7 +13,6 @@ namespace {
     constexpr float kGoalLineY = 5000.0f;
     constexpr float kUuToKph = 0.036f;
     constexpr float kBoostSpeedKph = 1400.0f * kUuToKph;
-    constexpr float kSupersonicKph = 2200.0f * kUuToKph;
     // Raw maxima above these can only be uu/s; the Stats API docs and observed payloads disagree on units.
     constexpr float kCarRawUuThreshold = 150.0f;
     constexpr float kBallRawUuThreshold = 400.0f;
@@ -131,7 +130,7 @@ void MatchAnalyticsTracker::OnUpdateState(const TelemetryEvents::UpdateStateEven
         }
         car.sampledSeconds += dt;
 
-        raw.speedSamples.push_back({pj.speed, dt, pj.bSupersonic.value_or(false) ? 1 : 0});
+        raw.speedSamples.push_back({pj.speed, dt, pj.bSupersonic.value_or(false)});
         if (pj.bOnWall) {
             car.wallSeconds += dt;
         } else if (pj.bOnGround) {
@@ -417,8 +416,7 @@ MatchAnalytics MatchAnalyticsTracker::Snapshot() const {
             const float kph = SpeedKph(s.raw, uu);
             car.distance += kph / kUuToKph * s.seconds;
             car.maxSpeed = std::max(car.maxSpeed, kph);
-            const bool supersonic = s.supersonic == -1 ? kph >= kSupersonicKph : s.supersonic == 1;
-            if (supersonic) {
+            if (s.supersonic) {
                 car.supersonicSeconds += s.seconds;
             } else if (kph >= kBoostSpeedKph) {
                 car.boostSpeedSeconds += s.seconds;

@@ -7,24 +7,7 @@
 #include <nlohmann/json.hpp>
 
 namespace {
-    constexpr float kFieldThirdY = 5120.0f / 3.0f;
-    constexpr float kAerialHitZ = 300.0f;
-    constexpr float kCrossbarZ = 642.775f;
-    constexpr float kHardHitKph = 100.0f;
-    // Tuned on recorded online matches: closest match to the game's Touches stat.
-    constexpr double kTouchMergeSeconds = 0.03;
-    constexpr float kGoalLineY = 5000.0f;
     constexpr float kUuToKph = 0.036f;
-    constexpr float kBoostSpeedKph = 1400.0f * kUuToKph;
-    constexpr float kSupersonicKph = 2200.0f * kUuToKph;
-    // Raw maxima above these can only be uu/s; the Stats API docs and observed payloads disagree on units.
-    constexpr float kCarRawUuThreshold = 150.0f;
-    constexpr float kBallRawUuThreshold = 400.0f;
-    constexpr float kMaxSampleSeconds = 0.5f;
-    constexpr float kKickoffPossessionSeconds = 3.0f;
-    constexpr float kKickoffGoalSeconds = 10.0f;
-    constexpr int kSmallPadBoost = 12;
-    constexpr float kMidfieldPadY = 100.0f;
 
     const nlohmann::json* Child(const nlohmann::json& j, const char* key) {
         if (!j.is_object()) return nullptr;
@@ -32,56 +15,13 @@ namespace {
         return it == j.end() ? nullptr : &*it;
     }
 
-    std::optional<float> Number(const nlohmann::json& j, const char* key) {
-        const auto* v = Child(j, key);
-        if (!v || !v->is_number()) return std::nullopt;
-        const float f = v->get<float>();
-        return std::isfinite(f) ? std::optional<float>(f) : std::nullopt;
-    }
-
-    std::optional<int> Integer(const nlohmann::json& j, const char* key) {
-        const auto* v = Child(j, key);
-        if (!v || !v->is_number()) return std::nullopt;
-        return static_cast<int>(std::lround(v->get<double>()));
-    }
-
-    std::optional<bool> Bool(const nlohmann::json& j, const char* key) {
-        const auto* v = Child(j, key);
-        if (!v || !v->is_boolean()) return std::nullopt;
-        return v->get<bool>();
-    }
-
     std::string String(const nlohmann::json& j, const char* key) {
         const auto* v = Child(j, key);
         return v && v->is_string() ? v->get<std::string>() : std::string{};
     }
 
-    std::optional<FieldPoint> Point(const nlohmann::json& j, const char* key) {
-        const auto* v = Child(j, key);
-        if (!v || !v->is_object()) return std::nullopt;
-        const auto x = Number(*v, "X");
-        const auto y = Number(*v, "Y");
-        const auto z = Number(*v, "Z");
-        if (!x || !y || !z) return std::nullopt;
-        return FieldPoint{*x, *y, *z};
-    }
-
-    std::string NormalizeId(const std::string& id, const std::string& name) {
-        if (id == "Unknown" || id.rfind("Unknown|", 0) == 0) return "Unknown|" + name;
-        return id;
-    }
-
-    int TeamOf(const nlohmann::json& j) {
-        const auto team = Integer(j, "TeamNum");
-        return team && (*team == 0 || *team == 1) ? *team : -1;
-    }
-
     float Round1(float v) {
         return std::round(v * 10.0f) / 10.0f;
-    }
-
-    float SpeedKph(float raw, bool rawIsUu) {
-        return rawIsUu ? raw * kUuToKph : raw;
     }
 
     template <typename T>

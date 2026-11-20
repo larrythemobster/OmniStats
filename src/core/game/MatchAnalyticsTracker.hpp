@@ -32,7 +32,7 @@ class MatchAnalyticsTracker {
     struct SpeedSample {
         float raw = 0.0f;
         float seconds = 0.0f;
-        int supersonic = -1; // -1 when the flag was absent
+        bool supersonic = false;
     };
     struct RawCarState {
         std::vector<SpeedSample> speedSamples;
