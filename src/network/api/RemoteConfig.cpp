@@ -653,10 +653,7 @@ void RemoteConfig::SaveCachedConfigLocked(const RemoteConfigData& config, int64_
         const nlohmann::json wrapper = {
             {"fetched_at", fetchedAt},
             {"config", SerializeConfigJson(config)}};
-        std::ofstream out(path, std::ios::trunc);
-        if (out.is_open()) {
-            out << wrapper.dump(2);
-        }
+        (void)Storage::WriteFileAtomically(fsPath, wrapper.dump(2));
     } catch (...) {
     }
 }
@@ -702,10 +699,7 @@ void RemoteConfig::SaveDismissedLocked() const {
             arr.push_back(id);
         }
         const nlohmann::json wrapper = {{"dismissed", std::move(arr)}};
-        std::ofstream out(path, std::ios::trunc);
-        if (out.is_open()) {
-            out << wrapper.dump();
-        }
+        (void)Storage::WriteFileAtomically(fsPath, wrapper.dump());
     } catch (...) {
     }
 }
