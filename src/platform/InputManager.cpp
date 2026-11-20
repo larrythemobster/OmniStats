@@ -666,6 +666,8 @@ void InputManager::GamepadThreadLoop() {
         if (controller == nullptr && fallbackJoystick == nullptr &&
             std::chrono::duration_cast<std::chrono::seconds>(now - lastScan).count() >= 2) {
             lastScan = now;
+            // Device indices stay valid only while the joystick list is locked.
+            SDL_LockJoysticks();
             int deviceCount = SDL_NumJoysticks();
             bool deviceListChanged = deviceCount != lastLoggedDeviceCount;
             if (deviceListChanged) {
@@ -692,6 +694,7 @@ void InputManager::GamepadThreadLoop() {
                     }
                 }
             }
+            SDL_UnlockJoysticks();
         }
 
         if (self && self->m_state) {
