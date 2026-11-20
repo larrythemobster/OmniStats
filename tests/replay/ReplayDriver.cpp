@@ -471,6 +471,8 @@ namespace omnistats::replay {
         result.goldenJson = result.goldenObj.dump(2);
         result.success = true;
 
+        ctx.mmrFetcher.reset();
+        ctx.dbManager.reset();
         mmrFetcher.reset();
         dbManager.reset();
 
