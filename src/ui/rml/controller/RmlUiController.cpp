@@ -1400,7 +1400,7 @@ void RmlUiController::RefreshTournaments(bool force) {
         auto remind = [&](Tournaments::ScheduledEvent event, Tournaments::BracketResult result) {
             if (!m_tournamentReminder.ShouldFire(event, now, leadMinutes, result)) return;
             if (m_config.second_monitor_mode && m_config.tournament_sound_cue)
-                PlaySoundW(L"SystemNotification", nullptr, SND_ALIAS | SND_ASYNC | SND_NODEFAULT);
+                PlaySoundW(L"TOURNAMENT_NOTIFICATION", GetModuleHandleW(nullptr), SND_RESOURCE | SND_ASYNC | SND_NODEFAULT);
             if (event.secondChance || !m_config.second_monitor_mode) {
                 const auto title = event.secondChance ? event.slot->title + " Second Chance" : event.Title();
                 ShowToast(title + (m_snap.inMatch ? " in " : " starts in ") + TournamentUi::Countdown(event.Start() - now), false, m_snap.inMatch);
