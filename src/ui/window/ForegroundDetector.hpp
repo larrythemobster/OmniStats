@@ -24,19 +24,18 @@ class ForegroundDetector {
     ForegroundDetector(const ForegroundDetector&) = delete;
     ForegroundDetector& operator=(const ForegroundDetector&) = delete;
 
-    bool Initialize(HWND overlayHwnd);
+    void Initialize(HWND overlayHwnd);
     void Shutdown();
-
-    void OnForegroundChanged(HWND newForeground);
 
     bool IsRocketLeagueActive() noexcept;
     HWND CachedRocketLeagueWindow() noexcept;
 
   private:
+    void SyncForeground();
     void UpdateFromHwnd(HWND hwnd);
 
     HWND m_overlayHwnd = nullptr;
-    HWINEVENTHOOK m_hook = nullptr;
+    HWND m_lastForegroundHwnd = nullptr;
     HWND m_cachedRlHwnd = nullptr;
     std::chrono::steady_clock::time_point m_lastFindWindow{};
     ForegroundKind m_foregroundKind = ForegroundKind::None;

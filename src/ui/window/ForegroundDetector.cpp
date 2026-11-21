@@ -1,27 +1,12 @@
 #include "ui/window/ForegroundDetector.hpp"
 
 namespace {
-    ForegroundDetector* s_activeDetector = nullptr;
-
     HWND FindRocketLeagueWindow() {
         HWND hwnd = FindWindowA("LaunchUnrealUWindowsClient", nullptr);
         if (!hwnd) hwnd = FindWindowA(nullptr, "Rocket League (64-bit, DX11)");
         if (!hwnd) hwnd = FindWindowA(nullptr, "Rocket League (32-bit, DX11)");
         if (!hwnd) hwnd = FindWindowA(nullptr, "Rocket League");
         return hwnd;
-    }
-
-    void CALLBACK WinEventProc(
-        HWINEVENTHOOK /*hWinEventHook*/,
-        DWORD event,
-        HWND hwnd,
-        LONG /*idObject*/,
-        LONG /*idChild*/,
-        DWORD /*idEventThread*/,
-        DWORD /*dwmsEventTime*/) {
-        if (event == EVENT_SYSTEM_FOREGROUND && s_activeDetector) {
-            s_activeDetector->OnForegroundChanged(hwnd);
-        }
     }
 }
 
@@ -60,44 +45,34 @@ ForegroundKind ClassifyForegroundWindow(
     return ForegroundKind::Other;
 }
 
-bool ForegroundDetector::Initialize(HWND overlayHwnd) {
+void ForegroundDetector::Initialize(HWND overlayHwnd) {
     Shutdown();
     m_overlayHwnd = overlayHwnd;
-    s_activeDetector = this;
     m_lastFindWindow = std::chrono::steady_clock::now();
     m_cachedRlHwnd = FindRocketLeagueWindow();
-    m_hook = SetWinEventHook(
-        EVENT_SYSTEM_FOREGROUND,
-        EVENT_SYSTEM_FOREGROUND,
-        nullptr,
-        &WinEventProc,
-        0,
-        0,
-        WINEVENT_OUTOFCONTEXT);
-    UpdateFromHwnd(GetForegroundWindow());
-    return m_hook != nullptr;
+    SyncForeground();
 }
 
 void ForegroundDetector::Shutdown() {
-    if (m_hook) {
-        UnhookWinEvent(m_hook);
-        m_hook = nullptr;
-    }
-    if (s_activeDetector == this) {
-        s_activeDetector = nullptr;
-    }
     m_overlayHwnd = nullptr;
     m_cachedRlHwnd = nullptr;
     m_lastFindWindow = {};
+    m_lastForegroundHwnd = nullptr;
     m_foregroundKind = ForegroundKind::None;
     m_isRLActive = false;
     m_lastExternalForegroundWasRL = false;
 }
 
-void ForegroundDetector::OnForegroundChanged(HWND newForeground) {
-    UpdateFromHwnd(newForeground);
+void ForegroundDetector::SyncForeground() {
+    // EVENT_SYSTEM_FOREGROUND hooks miss activations the overlay itself causes, so poll the live foreground.
+    const HWND fg = GetForegroundWindow();
+    if (fg == m_lastForegroundHwnd) return;
+    m_lastForegroundHwnd = fg;
+    UpdateFromHwnd(fg);
 }
+
 bool ForegroundDetector::IsRocketLeagueActive() noexcept {
+    SyncForeground();
     const HWND rlHwnd = CachedRocketLeagueWindow();
     const bool unavailable = !rlHwnd || IsIconic(rlHwnd);
     m_isRLActive = ResolveRocketLeagueFocus(m_foregroundKind, unavailable, m_lastExternalForegroundWasRL);
