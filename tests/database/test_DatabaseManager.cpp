@@ -863,6 +863,37 @@ TEST_F(DatabaseManagerTest, MergeDatabaseDeduplicatesMatches) {
     RemoveTestDbFiles(sourcePath);
 }
 
+TEST_F(DatabaseManagerTest, MergeDatabaseRollsBackWhenReplayCopyFails) {
+    const std::string sourcePath = (tempDir.path / "test_source_bad_replays.db").string();
+    RemoveTestDbFiles(sourcePath);
+    const std::string pid = "Steam|rollback_user";
+    {
+        auto sourceDb = std::make_shared<DatabaseManager>(sessionState);
+        ASSERT_TRUE(sourceDb->Initialize(sourcePath));
+        MatchSaveSnapshot match;
+        match.arenaName = "DFH Stadium";
+        match.matchGuid = "rollback_guid";
+        match.myTeam = 0;
+        match.winnerTeam = 0;
+        match.validResult = true;
+        match.myPrimaryId = pid;
+        match.gamemode = "1v1";
+        match.roster[pid] = PlayerData{.primaryId = pid, .name = "Player1", .team = 0, .mmr = 1000};
+        sourceDb->SaveMatch(match);
+        ASSERT_EQ(sqlite3_exec(sourceDb->GetRawDb(),
+                               "DROP TABLE ReplayUploads; CREATE TABLE ReplayUploads (id INTEGER PRIMARY KEY);",
+                               nullptr, nullptr, nullptr),
+                  SQLITE_OK);
+    }
+
+    const auto result = dbManager->MergeDatabase(sourcePath);
+    EXPECT_FALSE(result.success);
+    int wins = 0, losses = 0, games = 0;
+    dbManager->GetGamemodeStats(pid, "1v1", wins, losses, games);
+    EXPECT_EQ(games, 0);
+    RemoveTestDbFiles(sourcePath);
+}
+
 TEST_F(DatabaseManagerTest, MergeDatabaseHandlesLegacySchema) {
     std::string legacyPath = (tempDir.path / "test_legacy_schema.db").string();
     RemoveTestDbFiles(legacyPath);

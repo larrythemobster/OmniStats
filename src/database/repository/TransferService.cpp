@@ -770,6 +770,20 @@ namespace database::repository {
                     db, "INSERT OR REPLACE INTO MatchAnalytics (match_id, format_version, data) VALUES (?, ?, ?);");
             }
 
+            std::unique_ptr<sqlite::Statement> selectEventsStmt;
+            std::unique_ptr<sqlite::Statement> insertEventsStmt;
+            if (copyEvents) {
+                selectEventsStmt = std::make_unique<sqlite::Statement>(
+                    srcDb,
+                    "SELECT event_type,observed_at_ms,match_clock_seconds,actor_id,actor_name,secondary_id,secondary_name,"
+                    "team,value,ball_speed,source,event_key,format_version FROM MatchEvents WHERE match_id=? ORDER BY id LIMIT 512;");
+                insertEventsStmt = std::make_unique<sqlite::Statement>(
+                    db,
+                    "INSERT OR IGNORE INTO MatchEvents (match_id,event_type,observed_at_ms,match_clock_seconds,actor_id,actor_name,"
+                    "secondary_id,secondary_name,team,value,ball_speed,source,event_key,format_version,match_guid) "
+                    "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?);");
+            }
+
             while (selectMatchesStmt.Step()) {
                 int64_t oldMatchId = selectMatchesStmt.Get<int64_t>(0);
                 std::string timestamp = selectMatchesStmt.Get<std::string>(1);
@@ -856,28 +870,22 @@ namespace database::repository {
                     result.playersImported++;
                 }
 
-                if (copyEvents) {
-                    try {
-                        const char* fromSql = "SELECT event_type,observed_at_ms,match_clock_seconds,actor_id,actor_name,secondary_id,secondary_name,team,value,ball_speed,source,event_key,format_version FROM MatchEvents WHERE match_id=? ORDER BY id LIMIT 512;";
-                        const char* toSql = "INSERT OR IGNORE INTO MatchEvents (match_id,event_type,observed_at_ms,match_clock_seconds,actor_id,actor_name,secondary_id,secondary_name,team,value,ball_speed,source,event_key,format_version,match_guid) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?);";
-                        sqlite::Statement from(srcDb, fromSql);
-                        sqlite::Statement to(db, toSql);
-                        from.Bind(1, oldMatchId);
-                        while (from.Step()) {
-                            to.Reset();
-                            to.Bind(1, newMatchId);
-                            for (int col = 0; col < 13; ++col) {
-                                int dst = col + 2;
-                                if (from.IsNull(col)) {
-                                    to.BindNull(dst);
-                                } else {
-                                    to.Bind(dst, from.Get<std::string>(col));
-                                }
+                if (selectEventsStmt && insertEventsStmt) {
+                    selectEventsStmt->Reset();
+                    selectEventsStmt->Bind(1, oldMatchId);
+                    while (selectEventsStmt->Step()) {
+                        insertEventsStmt->Reset();
+                        insertEventsStmt->Bind(1, newMatchId);
+                        for (int col = 0; col < 13; ++col) {
+                            const int dst = col + 2;
+                            if (selectEventsStmt->IsNull(col)) {
+                                insertEventsStmt->BindNull(dst);
+                            } else {
+                                insertEventsStmt->Bind(dst, selectEventsStmt->Get<std::string>(col));
                             }
-                            to.Bind(15, matchGuid);
-                            to.Execute();
                         }
-                    } catch (...) {
+                        insertEventsStmt->Bind(15, matchGuid);
+                        insertEventsStmt->Execute();
                     }
                 }
 
@@ -957,25 +965,22 @@ namespace database::repository {
                 const char* insReplaySql =
                     "INSERT OR IGNORE INTO ReplayUploads (file_path, file_name, match_guid, state, attempts, next_attempt_at, last_http_status, last_error, ballchasing_id, ballchasing_url, created_at, updated_at) "
                     "VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12);";
-                try {
-                    sqlite::Statement selReplayStmt(srcDb, selReplaySql);
-                    sqlite::Statement insReplayStmt(db, insReplaySql);
-                    while (selReplayStmt.Step()) {
-                        insReplayStmt.Reset();
-                        for (int i = 0; i < 12; ++i) {
-                            if (selReplayStmt.IsNull(i)) {
-                                insReplayStmt.BindNull(i + 1);
-                            } else if (i == 4 || i == 6) {
-                                insReplayStmt.Bind(i + 1, selReplayStmt.Get<int>(i));
-                            } else if (i == 5 || i == 10 || i == 11) {
-                                insReplayStmt.Bind(i + 1, selReplayStmt.Get<int64_t>(i));
-                            } else {
-                                insReplayStmt.Bind(i + 1, selReplayStmt.Get<std::string>(i));
-                            }
+                sqlite::Statement selReplayStmt(srcDb, selReplaySql);
+                sqlite::Statement insReplayStmt(db, insReplaySql);
+                while (selReplayStmt.Step()) {
+                    insReplayStmt.Reset();
+                    for (int i = 0; i < 12; ++i) {
+                        if (selReplayStmt.IsNull(i)) {
+                            insReplayStmt.BindNull(i + 1);
+                        } else if (i == 4 || i == 6) {
+                            insReplayStmt.Bind(i + 1, selReplayStmt.Get<int>(i));
+                        } else if (i == 5 || i == 10 || i == 11) {
+                            insReplayStmt.Bind(i + 1, selReplayStmt.Get<int64_t>(i));
+                        } else {
+                            insReplayStmt.Bind(i + 1, selReplayStmt.Get<std::string>(i));
                         }
-                        insReplayStmt.Execute();
                     }
-                } catch (...) {
+                    insReplayStmt.Execute();
                 }
             }
 
