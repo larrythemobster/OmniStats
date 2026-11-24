@@ -21,7 +21,7 @@ namespace database::store {
         std::shared_ptr<const HistoryViewSnapshot> GetSnapshot() const;
 
         void RequestQuery(uint64_t reqId);
-        // `append` adds to the loaded rows.
+        // Results older than the latest request are dropped; `append` adds to the loaded rows.
         void PublishQueryResult(uint64_t reqId, std::vector<MatchRow> inRows, int totalCount, bool append);
         void RequestDetail(uint64_t detailReqId);
         void PublishDetailResult(uint64_t detailReqId, std::optional<MatchDetail> detailResult);

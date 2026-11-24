@@ -36,6 +36,7 @@ namespace database::store {
 
     void HistoryViewStore::PublishQueryResult(uint64_t reqId, std::vector<MatchRow> inRows, int totalCount, bool append) {
         std::lock_guard lock(m_mutex);
+        if (reqId < m_requestId) return;
         m_requestId = reqId;
         m_loading = false;
         m_total = totalCount;
@@ -60,6 +61,7 @@ namespace database::store {
 
     void HistoryViewStore::PublishDetailResult(uint64_t detailReqId, std::optional<MatchDetail> detailResult) {
         std::lock_guard lock(m_mutex);
+        if (detailReqId < m_detailRequestId) return;
         m_detailRequestId = detailReqId;
         m_detailLoading = false;
         m_detail = std::move(detailResult);

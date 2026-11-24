@@ -728,10 +728,6 @@ void DatabaseManager::AsyncQueryMatches(MatchQuery query, uint64_t requestId, bo
         int total = 0;
         QueryMatches(q, rows, total);
         if (m_state) {
-            auto snap = m_state->historyView.GetSnapshot();
-            if (snap && requestId < snap->requestId) {
-                return;
-            }
             m_state->historyView.PublishQueryResult(requestId, std::move(rows), total, append);
         }
     },
@@ -779,10 +775,6 @@ void DatabaseManager::AsyncGetMatchDetail(int64_t matchId, uint64_t requestId, s
         MatchDetail detail;
         const bool ok = GetMatchDetail(matchId, detail, account);
         if (m_state) {
-            auto snap = m_state->historyView.GetSnapshot();
-            if (snap && requestId < snap->detailRequestId) {
-                return;
-            }
             m_state->historyView.PublishDetailResult(requestId, (ok && detail.found) ? std::optional{std::move(detail)} : std::nullopt);
         }
     },
@@ -798,10 +790,6 @@ void DatabaseManager::AsyncGetMatchDetailByGuid(std::string matchGuid, uint64_t 
         MatchDetail detail;
         const bool ok = GetMatchDetailByGuid(guid, detail, account);
         if (m_state) {
-            auto snap = m_state->historyView.GetSnapshot();
-            if (snap && requestId < snap->detailRequestId) {
-                return;
-            }
             m_state->historyView.PublishDetailResult(requestId, (ok && detail.found) ? std::optional{std::move(detail)} : std::nullopt);
         }
     },
