@@ -355,8 +355,8 @@ SideEffects TelemetryReducer::ReduceInPlace(MatchState& state,
             const bool preInMatch = state.inMatch;
             HandleUpdateState(state, ev, context, effects);
             if (AcceptsAnalyticsEvent(state, ev.matchGuid)) state.analytics.OnUpdateState(ev, context.nowSeconds);
-            if (!effects.pushDiscord &&
-                (state.arenaName != preArena || state.score != preScore || state.inMatch != preInMatch)) {
+            if (effects.pushDiscord ||
+                state.arenaName != preArena || state.score != preScore || state.inMatch != preInMatch) {
                 effects.pushDiscord = true;
                 effects.discordSnapshot = BuildDiscordSnapshot(state);
             }
