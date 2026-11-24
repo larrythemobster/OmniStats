@@ -74,11 +74,6 @@ class MmrService {
     static std::string RankTierName(int tier, int division);
     static MMRProfileTotals ExtractProfileTotals(const nlohmann::json& jsonResp);
 
-    static bool IsPostMatchMmrStale(int previousMmr, int fetchedMmr, int previousMatches = -1, int fetchedMatches = -1);
-    static int ResolvePostMatchBaseline(int requestedPreviousMmr, bool previousMmrIsPlaylistSpecific, const std::vector<float>& recentHistory);
-    static int EstimatePostMatchMmr(int previousMmr, bool won, const std::vector<float>& recentHistory);
-    static size_t CoveredPendingMatchCount(int oldestPreviousMatches, int fetchedMatches, size_t pendingCount);
-
     bool ProcessPostMatchResponse(const std::string& matchGuid, int fetchedMmr, int fetchedMatches,
                                   bool allowProvisional = true);
     bool PublishProfileResult(const MMRRequest& req, const NormalizedProfileResult& profile);

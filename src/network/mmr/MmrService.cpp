@@ -1126,19 +1126,3 @@ MMRProfileTotals MmrService::ExtractProfileTotals(const nlohmann::json& jsonResp
     }
     return totals;
 }
-
-bool MmrService::IsPostMatchMmrStale(int previousMmr, int fetchedMmr, int previousMatches, int fetchedMatches) {
-    return MmrReconciler::IsPostMatchMmrStale(previousMmr, fetchedMmr, previousMatches, fetchedMatches);
-}
-
-size_t MmrService::CoveredPendingMatchCount(int oldestPreviousMatches, int fetchedMatches, size_t pendingCount) {
-    return MmrReconciler::CoveredPendingMatchCount(oldestPreviousMatches, fetchedMatches, pendingCount);
-}
-
-int MmrService::ResolvePostMatchBaseline(int requestedPreviousMmr, bool previousMmrIsPlaylistSpecific, const std::vector<float>& recentHistory) {
-    return MmrReconciler::ResolvePostMatchBaseline(requestedPreviousMmr, previousMmrIsPlaylistSpecific, recentHistory);
-}
-
-int MmrService::EstimatePostMatchMmr(int previousMmr, bool won, const std::vector<float>& recentHistory) {
-    return MmrReconciler::EstimatePostMatchMmr(previousMmr, won, recentHistory);
-}

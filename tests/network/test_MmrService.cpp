@@ -486,59 +486,59 @@ TEST(MmrServiceProfileTotalsTest, ExtractsOverviewWins) {
 }
 
 TEST(MmrServicePostMatchTest, UsesMatchCountsAsThePublicationVersion) {
-    EXPECT_TRUE(MmrService::IsPostMatchMmrStale(1200, 1200, 50, 50));
-    EXPECT_TRUE(MmrService::IsPostMatchMmrStale(1200, 1209, 50, 50));
-    EXPECT_TRUE(MmrService::IsPostMatchMmrStale(1200, 0, 50, 51));
-    EXPECT_FALSE(MmrService::IsPostMatchMmrStale(1200, 1209, 50, 51));
-    EXPECT_FALSE(MmrService::IsPostMatchMmrStale(1200, 1200, 50, 51));
-    EXPECT_FALSE(MmrService::IsPostMatchMmrStale(1200, 1218, 50, 52));
-    EXPECT_TRUE(MmrService::IsPostMatchMmrStale(1200, 1200, 0, 0));
-    EXPECT_FALSE(MmrService::IsPostMatchMmrStale(1200, 1200, 0, 1));
+    EXPECT_TRUE(MmrReconciler::IsPostMatchMmrStale(1200, 1200, 50, 50));
+    EXPECT_TRUE(MmrReconciler::IsPostMatchMmrStale(1200, 1209, 50, 50));
+    EXPECT_TRUE(MmrReconciler::IsPostMatchMmrStale(1200, 0, 50, 51));
+    EXPECT_FALSE(MmrReconciler::IsPostMatchMmrStale(1200, 1209, 50, 51));
+    EXPECT_FALSE(MmrReconciler::IsPostMatchMmrStale(1200, 1200, 50, 51));
+    EXPECT_FALSE(MmrReconciler::IsPostMatchMmrStale(1200, 1218, 50, 52));
+    EXPECT_TRUE(MmrReconciler::IsPostMatchMmrStale(1200, 1200, 0, 0));
+    EXPECT_FALSE(MmrReconciler::IsPostMatchMmrStale(1200, 1200, 0, 1));
 }
 
 TEST(MmrServicePostMatchTest, FallsBackToRatingOnlyWithoutMatchCounts) {
-    EXPECT_TRUE(MmrService::IsPostMatchMmrStale(1200, 1200, -1, -1));
-    EXPECT_FALSE(MmrService::IsPostMatchMmrStale(1200, 1209, -1, -1));
-    EXPECT_TRUE(MmrService::IsPostMatchMmrStale(1200, 1200, 50, -1));
-    EXPECT_FALSE(MmrService::IsPostMatchMmrStale(1200, 1209, 50, -1));
-    EXPECT_TRUE(MmrService::IsPostMatchMmrStale(0, 1200, -1, -1));
+    EXPECT_TRUE(MmrReconciler::IsPostMatchMmrStale(1200, 1200, -1, -1));
+    EXPECT_FALSE(MmrReconciler::IsPostMatchMmrStale(1200, 1209, -1, -1));
+    EXPECT_TRUE(MmrReconciler::IsPostMatchMmrStale(1200, 1200, 50, -1));
+    EXPECT_FALSE(MmrReconciler::IsPostMatchMmrStale(1200, 1209, 50, -1));
+    EXPECT_TRUE(MmrReconciler::IsPostMatchMmrStale(0, 1200, -1, -1));
 }
 
 TEST(MmrServicePostMatchTest, CountsCumulativePublishedMatches) {
-    EXPECT_EQ(MmrService::CoveredPendingMatchCount(50, 51, 3), 1u);
-    EXPECT_EQ(MmrService::CoveredPendingMatchCount(50, 52, 3), 2u);
-    EXPECT_EQ(MmrService::CoveredPendingMatchCount(50, 50, 3), 0u);
-    EXPECT_EQ(MmrService::CoveredPendingMatchCount(0, 1, 1), 1u);
+    EXPECT_EQ(MmrReconciler::CoveredPendingMatchCount(50, 51, 3), 1u);
+    EXPECT_EQ(MmrReconciler::CoveredPendingMatchCount(50, 52, 3), 2u);
+    EXPECT_EQ(MmrReconciler::CoveredPendingMatchCount(50, 50, 3), 0u);
+    EXPECT_EQ(MmrReconciler::CoveredPendingMatchCount(0, 1, 1), 1u);
 }
 
 TEST(MmrServicePostMatchTest, UsesPlaylistHistoryInsteadOfIncorrectBestMmrFallback) {
-    EXPECT_EQ(MmrService::ResolvePostMatchBaseline(788, false, {630.0f}), 630);
-    EXPECT_EQ(MmrService::ResolvePostMatchBaseline(788, false, {}), 788);
+    EXPECT_EQ(MmrReconciler::ResolvePostMatchBaseline(788, false, {630.0f}), 630);
+    EXPECT_EQ(MmrReconciler::ResolvePostMatchBaseline(788, false, {}), 788);
 }
 
 TEST(MmrServicePostMatchTest, KeepsFinalizedPlaylistBaselineWhenRosterFetchMovesAhead) {
-    EXPECT_EQ(MmrService::ResolvePostMatchBaseline(630, true, {630.0f, 667.0f}), 630);
+    EXPECT_EQ(MmrReconciler::ResolvePostMatchBaseline(630, true, {630.0f, 667.0f}), 630);
 }
 
 TEST(MmrServicePostMatchTest, EstimatesFromRecentNormalChanges) {
     const std::vector<float> history = {1182.0f, 1191.0f, 1200.0f};
 
-    EXPECT_EQ(MmrService::EstimatePostMatchMmr(1200, true, history), 1209);
-    EXPECT_EQ(MmrService::EstimatePostMatchMmr(1200, false, history), 1191);
+    EXPECT_EQ(MmrReconciler::EstimatePostMatchMmr(1200, true, history), 1209);
+    EXPECT_EQ(MmrReconciler::EstimatePostMatchMmr(1200, false, history), 1191);
 }
 
 TEST(MmrServicePostMatchTest, ChainsEstimateFromLatestGraphPoint) {
     const std::vector<float> history = {1200.0f, 1191.0f};
 
-    EXPECT_EQ(MmrService::EstimatePostMatchMmr(1200, false, history), 1182);
-    EXPECT_EQ(MmrService::EstimatePostMatchMmr(1200, true, history), 1200);
+    EXPECT_EQ(MmrReconciler::EstimatePostMatchMmr(1200, false, history), 1182);
+    EXPECT_EQ(MmrReconciler::EstimatePostMatchMmr(1200, true, history), 1200);
 }
 
 TEST(MmrServicePostMatchTest, IgnoresCumulativeJumpsAndUsesDefaultDelta) {
     const std::vector<float> history = {1200.0f, 1218.0f};
 
-    EXPECT_EQ(MmrService::EstimatePostMatchMmr(1218, true, history), 1227);
-    EXPECT_EQ(MmrService::EstimatePostMatchMmr(1218, false, history), 1209);
+    EXPECT_EQ(MmrReconciler::EstimatePostMatchMmr(1218, true, history), 1227);
+    EXPECT_EQ(MmrReconciler::EstimatePostMatchMmr(1218, false, history), 1209);
 }
 
 TEST_F(MmrServiceTest, NormalPublishedUpdateCreatesOneConfirmedOwnedPoint) {

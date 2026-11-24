@@ -71,8 +71,4 @@ namespace MmrServiceDetail {
     std::vector<BatchPlayerResult> ParseCustomApiBatchResponse(
         const std::vector<MMRRequest>& batchRequests,
         const nlohmann::json& jsonResp);
-
-    inline std::string PendingPostMatchKey(const std::string& primaryId, const std::string& playlist) {
-        return primaryId + '\x1f' + playlist;
-    }
 }
