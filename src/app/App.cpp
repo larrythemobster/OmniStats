@@ -202,6 +202,7 @@ void App::Stop() {
 
     std::cout << "[Main] Shutting down components...\n";
     if (m_overlay) m_overlay->ShutdownBackgroundTasks();
+    ExternalUpdaterLauncher::ShutdownBackgroundTasks();
     if (m_inputManager) {
         m_inputManager->Stop();
         std::cout << "[Main] InputManager stopped.\n";
@@ -242,6 +243,5 @@ void App::Stop() {
         m_saverStarted = false;
         std::cout << "[Main] Config Saver stopped.\n";
     }
-    ExternalUpdaterLauncher::ShutdownBackgroundTasks();
     std::cout << "[Main] Cleanup complete. Exiting.\n";
 }
