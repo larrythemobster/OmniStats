@@ -13,8 +13,6 @@ namespace database::repository {
 
     class HistoryRepository {
       public:
-        explicit HistoryRepository(sqlite::Connection& db) : m_db(db) {}
-
         static int GetSchemaVersion(sqlite::Connection& db);
         static void GetLifetimeMmrHistory(sqlite::Connection& db, const std::string& primaryId, const std::string& playlist, std::vector<int64_t>& outX, std::vector<float>& outY);
         static void GetRecentMatchHistory(sqlite::Connection& db, const std::string& primaryId, std::vector<SessionMatchSummary>& outMatches, int limit = kPreviousGamesDefaultLimit);
@@ -33,9 +31,6 @@ namespace database::repository {
         static bool GetMatchDetail(sqlite::Connection& db, int64_t matchId, MatchDetail& outDetail, const std::string& accountPrimaryId = "", const std::string& liveAccount = "");
         static bool GetMatchDetailByGuid(sqlite::Connection& db, const std::string& matchGuid, MatchDetail& outDetail, const std::string& accountPrimaryId = "", const std::string& liveAccount = "");
         static std::optional<std::vector<PersonRecord>> QueryEncounterRecords(sqlite::Connection& db, const std::string& account, const std::string& onlyPlayer = {}, int64_t excludeMatchId = 0);
-
-      private:
-        sqlite::Connection& m_db;
     };
 
 } // namespace database::repository

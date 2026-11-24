@@ -12,8 +12,6 @@ namespace database::repository {
 
     class ReplayRepository {
       public:
-        explicit ReplayRepository(sqlite::Connection& db) : m_db(db) {}
-
         static bool RecordDiscoveredReplay(sqlite::Connection& db, const std::string& filePath, const std::string& fileName,
                                            const std::string& matchGuid = "", const std::string& initialState = "pending",
                                            const std::string& error = "");
@@ -28,9 +26,6 @@ namespace database::repository {
         static bool RetryFailedReplayUploads(sqlite::Connection& db);
         static bool QueryMatchReplayInfo(sqlite::Connection& db, const std::string& matchGuid, bool& outFound,
                                          bool& outRanked, bool& outWin, bool& outResultPending, int& outPlaylistId);
-
-      private:
-        sqlite::Connection& m_db;
     };
 
 } // namespace database::repository

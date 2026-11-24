@@ -13,8 +13,6 @@ namespace database::repository {
 
     class PlayerNotesRepository {
       public:
-        explicit PlayerNotesRepository(sqlite::Connection& db) : m_db(db) {}
-
         static std::optional<std::vector<PlayerNotes::Note>> ListPlayerNotes(sqlite::Connection& db);
         static std::optional<std::vector<PlayerNotes::Tag>> ListPlayerTags(sqlite::Connection& db);
         static std::optional<std::vector<std::string>> GetPlayerTags(sqlite::Connection& db, const PlayerNotes::Identity& identity);
@@ -25,9 +23,6 @@ namespace database::repository {
                                    std::string_view lastKnownName, int64_t nowUnix, std::string* error = nullptr);
         static bool DeletePlayerNote(sqlite::Connection& db, const PlayerNotes::Identity& identity, std::string* error = nullptr);
         static std::optional<PlayerScoutProfile> GetPlayerScoutProfile(sqlite::Connection& db, const std::string& account, const std::string& playerId);
-
-      private:
-        sqlite::Connection& m_db;
     };
 
 } // namespace database::repository

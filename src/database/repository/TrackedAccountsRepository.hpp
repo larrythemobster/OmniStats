@@ -13,8 +13,6 @@ namespace database::repository {
 
     class TrackedAccountsRepository {
       public:
-        explicit TrackedAccountsRepository(sqlite::Connection& db) : m_db(db) {}
-
         static TrackedAccountInsertResult RegisterTrackedAccount(sqlite::Connection& db, const TrackedAccounts::AccountRecord& record);
         static std::vector<TrackedAccounts::AccountRecord> ListTrackedAccounts(sqlite::Connection& db);
         static std::optional<TrackedAccounts::AccountRecord> GetTrackedAccount(sqlite::Connection& db, const std::string& primaryId);
@@ -31,9 +29,6 @@ namespace database::repository {
             sqlite::Connection& db, const std::vector<std::string>& primaryIds, const std::string& playlistKey, int64_t sinceUnix = 0);
         static bool DeleteTrackedAccount(sqlite::Connection& db, const std::string& primaryId);
         static int ImportTrackedAccounts(sqlite::Connection& db, const std::vector<TrackedAccounts::AccountRecord>& records);
-
-      private:
-        sqlite::Connection& m_db;
     };
 
 } // namespace database::repository

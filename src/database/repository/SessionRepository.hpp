@@ -12,8 +12,6 @@ namespace database::repository {
 
     class SessionRepository {
       public:
-        explicit SessionRepository(sqlite::Connection& db) : m_db(db) {}
-
         static bool HasSessionsTable(sqlite::Connection& db);
         static bool HasUnlinkedMatches(sqlite::Connection& db, const std::string& account = "");
 
@@ -39,9 +37,6 @@ namespace database::repository {
                                        int expectedGames,
                                        int64_t& outEarliestMatchTs,
                                        int64_t& outLatestMatchTs);
-
-      private:
-        sqlite::Connection& m_db;
     };
 
 } // namespace database::repository

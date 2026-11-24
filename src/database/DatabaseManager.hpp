@@ -158,14 +158,8 @@ class DatabaseManager {
     sqlite3* GetRawDb() {
         return m_db.Handle();
     }
-    database::sqlite::Connection& GetConnection() {
-        return m_db;
-    }
     std::string GetDatabasePath() const {
         return m_dbPath;
-    }
-    database::ReaderPool& GetReaderPool() {
-        return m_readerPool;
     }
 
   private:
