@@ -5,6 +5,7 @@
 #include "core/config/Config.hpp"
 #include "core/reducer/TelemetryReducer.hpp"
 #include "database/DatabaseManager.hpp"
+#include "core/effects/EffectRouter.hpp"
 #include <map>
 #include <memory>
 #include <mutex>
@@ -538,8 +539,8 @@ TEST_F(SessionMmrLifecycleTest, InactivityCloseAfterTwoHoursSavesSessionWithoutR
         ms.lastMatchEndedAtUnix = 1700001200;
     });
     state->history.Mutate([&](auto& history) {
-        EXPECT_FALSE(state->closeSessionIfInactiveLocked(1700001200 + Insights::kSessionGapSeconds, history));
-        EXPECT_TRUE(state->closeSessionIfInactiveLocked(1700001200 + Insights::kSessionGapSeconds + 1, history));
+        EXPECT_FALSE(state->liveMatch->CloseSessionIfInactive(1700001200 + Insights::kSessionGapSeconds, history));
+        EXPECT_TRUE(state->liveMatch->CloseSessionIfInactive(1700001200 + Insights::kSessionGapSeconds + 1, history));
     });
 
     auto snap = state->liveMatch->GetSnapshot();
@@ -552,6 +553,30 @@ TEST_F(SessionMmrLifecycleTest, InactivityCloseAfterTwoHoursSavesSessionWithoutR
     ASSERT_EQ(sessions.size(), 1u);
     EXPECT_EQ(sessions[0].totals.wins, 3);
     EXPECT_EQ(sessions[0].totals.losses, 1);
+}
+
+TEST_F(SessionMmrLifecycleTest, NewMatchAfterIdleGapClosesPreviousSessionWhileConnected) {
+    Config::Update([](ConfigData& config) { config.reset_session_on_close = false; }, false);
+    state->liveMatch->Update([](MatchState& ms) {
+        ms.sessionTotals.wins = 2;
+        ms.sessionTotals.losses = 1;
+        ms.sessionStartedAtUnix = 1700000000;
+        ms.lastMatchEndedAtUnix = 1700001200;
+    });
+    const uint64_t generation = state->liveMatch->GetSnapshot()->sessionGeneration;
+
+    ReducerContext ctx = MakeReducerContext(state->ui);
+    ctx.nowUnix = 1700001200 + Insights::kSessionGapSeconds + 60;
+    SideEffects effects = state->liveMatch->ApplyEvent(TelemetryEvents::MatchCreatedEvent{.matchGuid = "after-gap"}, ctx);
+    EffectRouter::Route(std::move(effects), nullptr, nullptr, nullptr, nullptr, state);
+
+    const auto snap = state->liveMatch->GetSnapshot();
+    EXPECT_TRUE(snap->inMatch);
+    ASSERT_TRUE(snap->lastSessionRecap.valid);
+    EXPECT_EQ(snap->lastSessionRecap.totals.wins, 2);
+    EXPECT_EQ(snap->lastSessionRecap.endedAtUnix, 1700001200);
+    EXPECT_EQ(snap->sessionTotals.wins, 0);
+    EXPECT_EQ(snap->sessionGeneration, generation + 1);
 }
 
 TEST_F(SessionMmrLifecycleTest, LateProfileForDepartedPlayerDoesNotRecreateRosterEntry) {

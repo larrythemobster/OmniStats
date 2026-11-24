@@ -137,14 +137,21 @@ bool LiveMatchStore::StartNewSession(int64_t endedAtUnix, database::store::Histo
     return Update([&](MatchState& state) { return state.StartNewSession(endedAtUnix, &history); });
 }
 
-bool LiveMatchStore::CloseSessionIfInactive(int64_t nowUnix, database::store::HistoryData& history) {
-    return Update([&](MatchState& state) {
-        if (state.inMatch) return false;
+namespace {
+    bool CloseIdleSession(MatchState& state, int64_t nowUnix, database::store::HistoryData& history) {
         if (state.sessionTotals.wins + state.sessionTotals.losses <= 0) return false;
         if (state.lastMatchEndedAtUnix <= 0) return false;
         if (!Insights::StartsNewSession(state.lastMatchEndedAtUnix, nowUnix, true)) return false;
         return state.StartNewSession(state.lastMatchEndedAtUnix, &history);
-    });
+    }
+} // namespace
+
+bool LiveMatchStore::CloseSessionIfInactive(int64_t nowUnix, database::store::HistoryData& history) {
+    return Update([&](MatchState& state) { return !state.inMatch && CloseIdleSession(state, nowUnix, history); });
+}
+
+bool LiveMatchStore::CloseSessionBeforeNewMatch(int64_t nowUnix, database::store::HistoryData& history) {
+    return Update([&](MatchState& state) { return CloseIdleSession(state, nowUnix, history); });
 }
 
 void LiveMatchStore::ClearActiveMatchOnDisconnect() {

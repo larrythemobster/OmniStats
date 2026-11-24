@@ -88,10 +88,6 @@ bool SessionState::startNewSessionLocked(int64_t endedAtUnix, database::store::H
     return capture;
 }
 
-bool SessionState::closeSessionIfInactiveLocked(int64_t nowUnix, database::store::HistoryData& data) {
-    return liveMatch ? liveMatch->CloseSessionIfInactive(nowUnix, data) : false;
-}
-
 void SessionState::syncSessionMmrChangeLocked(database::store::HistoryData& data) {
     if (!liveMatch) return;
     std::map<std::string, int> changes;

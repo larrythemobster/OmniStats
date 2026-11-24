@@ -25,7 +25,7 @@ void EffectRouter::Route(SideEffects&& effects,
     }
     if (effects.closeSessionIfInactiveAtUnix && sessionState && sessionState->liveMatch) {
         sessionState->history.Mutate([&](auto& data) {
-            if (sessionState->closeSessionIfInactiveLocked(*effects.closeSessionIfInactiveAtUnix, data)) {
+            if (sessionState->liveMatch->CloseSessionBeforeNewMatch(*effects.closeSessionIfInactiveAtUnix, data)) {
                 effects.persistSession = sessionState->liveMatch->GetSnapshot()->lastSessionRecap;
             }
         });
