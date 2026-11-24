@@ -188,7 +188,7 @@ void RmlUiController::HandleClick(Rml::Element* target) {
         RebuildOverlay();
         if (m_config.second_monitor_mode) RebuildDashboard();
     } else if (action == "help-discord") {
-        ShellExecuteA(nullptr, "open", "https://discord.gg/4KBW35ApvF", nullptr, nullptr, SW_SHOWNORMAL);
+        ShellExecuteA(nullptr, "open", "https://discord.gg/CxMYAR4aUz", nullptr, nullptr, SW_SHOWNORMAL);
     } else if (action == "open-player-tracker") {
         const std::string url = Attribute(target, "data-url");
         if (url.rfind("https://rocketleague.tracker.network/rocket-league/profile/", 0) == 0) {
