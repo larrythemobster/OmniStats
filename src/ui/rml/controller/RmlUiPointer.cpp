@@ -53,7 +53,7 @@ void RmlUiController::LayoutDrag::HandleMouseDown(Rml::Element* target, Rml::Eve
         m_drag.startMouseX = event.GetParameter<float>("mouse_x", 0.0f);
         m_drag.startMouseY = event.GetParameter<float>("mouse_y", 0.0f);
         if (auto* root = m_owner.Root("dashboard-root")) {
-            const std::string draggedDomId = m_owner.WidgetDomId(m_drag.widget);
+            const std::string draggedDomId = WidgetDomId(m_drag.widget);
             m_drag.element = root->QuerySelector(("[data-widget='" + draggedDomId + "']").c_str());
             if (m_drag.element) m_drag.element->SetClass("dragging", true);
         }

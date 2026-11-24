@@ -100,7 +100,6 @@ class RmlUiController final : public Rml::EventListener {
     void ProcessEvent(Rml::Event& event) override;
     static const char* DemoKdClass(int demos, int demoed);
     static std::string FormatDemoKd(int demos, int demoed);
-    static std::string CssColor(const ColorRGBA& color);
 
   private:
     enum class SettingsPage {
@@ -291,7 +290,6 @@ class RmlUiController final : public Rml::EventListener {
     static bool ValidateStatsApiPath(std::string input, std::string& normalized, std::string& error);
     static const char* SettingsPageName(SettingsPage page);
     static const char* ZoneName(DashboardLayout::Zone zone);
-    static std::string WidgetDomId(DashboardLayout::WidgetId id);
     static std::string PlaylistImageForName(const std::string& playlist);
     // The roster's "best" rank: the reported tier, else the tier implied by the player's best MMR.
     std::string BestRankTier(const PlayerData& player) const;
@@ -396,16 +394,9 @@ class RmlUiController final : public Rml::EventListener {
     uint64_t m_lastRenderedDbStatsVersion = 0;
     uint64_t m_lastAccountStatusVersion = 0;
     bool m_lastStatsApiConnected = false;
-    bool m_lastShowMenu = false;
-    bool m_lastShowOverlay = false;
-    bool m_lastShowSessionView = false;
-    bool m_lastShowMatchSummary = false;
     bool m_lastSecondMonitor = false;
-    bool m_lastDashboardEditMode = false;
-    bool m_lastShowGraphView = false;
-    bool m_lastH2hExpanded = false;
+    bool m_lastShowMenu = false;
     bool m_lastShowLifetimeGraph = false;
-    bool m_lastInMatch = false;
     int m_lastGraphOffset = 0;
     MmrCategory m_lastRosterMmrCategory = MmrCategory::Best;
     MmrCategory m_lastGraphMmrCategory = MmrCategory::Best;

@@ -157,7 +157,7 @@ namespace {
             row.mmr = "--";
         }
         row.tier = p.tier.empty() ? "Unranked" : p.tier;
-        row.tier_color = RmlUiController::CssColor(Format::RankColor(p.tier));
+        row.tier_color = RmlUiDetail::CssColor(Format::RankColor(p.tier));
         if (p.isMe) {
             row.encounter = "You";
         } else if (p.encounter) {

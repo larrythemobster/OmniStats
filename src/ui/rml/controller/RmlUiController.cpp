@@ -808,14 +808,7 @@ void RmlUiController::RebuildVisibleUi(bool force, bool configChanged) {
         RebuildToast();
         rebuiltMainStructure = true;
 
-        m_lastShowOverlay = showOverlay;
-        m_lastShowSessionView = showSession;
-        m_lastShowMatchSummary = showSummary;
         m_lastSecondMonitor = m_config.second_monitor_mode;
-        m_lastDashboardEditMode = dashboardEdit;
-        m_lastShowGraphView = showGraphView;
-        m_lastH2hExpanded = h2hExpanded;
-        m_lastInMatch = m_snap.inMatch;
         m_lastRuntimeStructuralHash = runtimeStructuralHash;
     }
 
@@ -1200,16 +1193,6 @@ void RmlUiController::RefreshLiveUi(bool force, bool allowStructural) {
     }
 }
 
-std::string RmlUiController::CssColor(const ColorRGBA& color) {
-    auto byte = [](float v) {
-        if (!std::isfinite(v)) return 0;
-        return std::clamp(static_cast<int>(std::lround(v * 255.0f)), 0, 255);
-    };
-    char buffer[10]{};
-    std::snprintf(buffer, sizeof(buffer), "#%02X%02X%02X%02X", byte(color.r), byte(color.g), byte(color.b), byte(color.a));
-    return buffer;
-}
-
 std::string RmlUiController::FormatDemoKd(int demos, int demoed) {
     if (demoed <= 0) return demos > 0 ? FormatNumber(static_cast<float>(demos), 1) : "0.0";
     return FormatNumber(static_cast<float>(demos) / static_cast<float>(demoed), 2);
@@ -1282,34 +1265,6 @@ const char* RmlUiController::ZoneName(DashboardLayout::Zone zone) {
         return "top";
     }
     return "left";
-}
-
-std::string RmlUiController::WidgetDomId(DashboardLayout::WidgetId id) {
-    switch (id) {
-    case DashboardLayout::WidgetId::LiveRoster:
-        return "live-roster";
-    case DashboardLayout::WidgetId::LiveMatchStats:
-        return "live-match";
-    case DashboardLayout::WidgetId::SessionStats:
-        return "session";
-    case DashboardLayout::WidgetId::MmrGraph:
-        return "mmr-graph";
-    case DashboardLayout::WidgetId::StreaksStats:
-        return "streaks";
-    case DashboardLayout::WidgetId::GamemodeBreakdown:
-        return "gamemodes";
-    case DashboardLayout::WidgetId::LobbyRanks:
-        return "lobby-ranks";
-    case DashboardLayout::WidgetId::DemoTracker:
-        return "demos";
-    case DashboardLayout::WidgetId::PreviousGames:
-        return "previous-games";
-    case DashboardLayout::WidgetId::RankProgress:
-        return "rank-progress";
-    case DashboardLayout::WidgetId::Tournaments:
-        return "tournaments";
-    }
-    return "live-roster";
 }
 
 std::string RmlUiController::PlaylistImageForName(const std::string& playlist) {

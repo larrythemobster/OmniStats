@@ -631,7 +631,7 @@ void RmlUiController::ThemeEditor::RefreshColorPickPreview(bool updateFieldGradi
     if (auto* marker = m_owner.m_document->GetElementById("theme-color-hue-marker"))
         marker->SetProperty("left", percent(hue / 360.0f));
 
-    const std::string css = m_owner.CssColor(*editing);
+    const std::string css = CssColor(*editing);
     if (auto* preview = m_owner.m_document->GetElementById("theme-color-preview"))
         preview->SetProperty("background-color", css);
     if (auto* swatch = m_owner.m_document->GetElementById((std::string("theme-swatch-") + m_editColorKey).c_str()))
@@ -650,7 +650,7 @@ void RmlUiController::ThemeEditor::RefreshThemeEditorControls(std::string_view p
         const char* key = field.key;
         const ColorRGBA* color = &(config.*field.member);
         if (!color) continue;
-        const std::string css = m_owner.CssColor(*color);
+        const std::string css = CssColor(*color);
         if (auto* swatch = m_owner.m_document->GetElementById((std::string("theme-swatch-") + key).c_str()))
             swatch->SetProperty("background-color", css);
         if (preserveHexKey != key && !m_invalidColors.contains(key)) {
@@ -685,7 +685,7 @@ void RmlUiController::ThemeEditor::RefreshThemeEditorControls(std::string_view p
     if (auto* marker = m_owner.m_document->GetElementById("theme-color-hue-marker"))
         marker->SetProperty("left", percent(hue / 360.0f));
     if (auto* preview = m_owner.m_document->GetElementById("theme-color-preview"))
-        preview->SetProperty("background-color", m_owner.CssColor(*editing));
+        preview->SetProperty("background-color", CssColor(*editing));
 
     const std::array<std::pair<char, int>, 4> channels = {{{'r', channelByte(editing->r)},
                                                            {'g', channelByte(editing->g)},

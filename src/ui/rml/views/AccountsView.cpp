@@ -697,7 +697,7 @@ void AccountsView::RebuildRows() {
                 const std::string tier = DisplayTier(col.key, it->second);
                 cell.tier = tier.empty() ? "" : tier.rfind("Unranked", 0) == 0 ? tier
                                                                                : Format::AbbreviateRank(tier);
-                cell.tier_color = tier.empty() ? "" : RmlUiController::CssColor(Format::RankColor(tier));
+                cell.tier_color = tier.empty() ? "" : RmlUiDetail::CssColor(Format::RankColor(tier));
             } else {
                 cell.mmr = "\xE2\x80\x94";
                 cell.has_mmr = false;
@@ -846,7 +846,7 @@ void AccountsView::RebuildDetail() {
             dr.mmr = std::to_string(*it->second.mmr);
             const std::string tier = DisplayTier(col.key, it->second);
             dr.tier = tier.empty() ? "\xE2\x80\x94" : Format::RankTier(tier, false);
-            dr.tier_color = tier.empty() ? "" : RmlUiController::CssColor(Format::RankColor(tier));
+            dr.tier_color = tier.empty() ? "" : RmlUiDetail::CssColor(Format::RankColor(tier));
             dr.matches_played = it->second.matchesPlayed.has_value() ? std::to_string(*it->second.matchesPlayed) : "\xE2\x80\x94";
             dr.source = TrackedAccounts::RankSourceLabel(it->second.source);
             if (m_detailRankSource.empty() && !dr.source.empty()) {

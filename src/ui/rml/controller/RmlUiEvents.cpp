@@ -727,7 +727,7 @@ void RmlUiController::HandleChange(Rml::Element* target, Rml::Event& event) {
         }
     });
     if (m_telemetry) m_telemetry->RecordMilestone(TelemetryManager::Milestone::SettingsChanged);
-    if (key == "show_tournaments" || key == "tournament_region" || key == "widget_enabled:tournaments") {
+    if (key == "tournament_region" || key == "widget_enabled:tournaments") {
         if (m_tournamentService) m_tournamentService->RequestRefresh();
     }
 
