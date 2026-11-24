@@ -35,19 +35,26 @@ namespace {
     }
 
     std::string PlatformCssClass(TrackedAccounts::Platform platform) {
+        using RmlUiDetail::PlatformKind;
+        PlatformKind kind = PlatformKind::Unknown;
         switch (platform) {
         case TrackedAccounts::Platform::Epic:
-            return "badge platform-epic";
+            kind = PlatformKind::Epic;
+            break;
         case TrackedAccounts::Platform::Steam:
-            return "badge platform-steam";
+            kind = PlatformKind::Steam;
+            break;
         case TrackedAccounts::Platform::PlayStation:
-            return "badge platform-psn";
+            kind = PlatformKind::PlayStation;
+            break;
         case TrackedAccounts::Platform::Xbox:
-            return "badge platform-xbox";
+            kind = PlatformKind::Xbox;
+            break;
         case TrackedAccounts::Platform::Switch:
-            return "badge platform-switch";
+            kind = PlatformKind::Nintendo;
+            break;
         }
-        return "badge";
+        return std::string("badge ") + RmlUiDetail::PlatformClass(kind);
     }
 
     std::string DisplayTier(const std::string& playlistKey, const TrackedAccounts::PlaylistRank& rank) {
