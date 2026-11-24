@@ -353,7 +353,6 @@ namespace ExternalUpdaterLauncher {
                         std::lock_guard<std::mutex> lock(state->ui.updateMutex);
                         state->ui.updateAvailableVersion =
                             result == UpdateCheckResult::UpdateAvailable ? latestVersion : std::string{};
-                        state->ui.updateServerUrl.clear();
                     }
                     const bool updateAvailable = result == UpdateCheckResult::UpdateAvailable;
                     state->ui.updateAvailable.store(updateAvailable);

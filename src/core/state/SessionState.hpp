@@ -201,7 +201,6 @@ struct UIState {
     std::atomic<bool> databaseUpgradeIncomplete{false};
     mutable std::mutex updateMutex;
     std::string updateAvailableVersion;
-    std::string updateServerUrl;
 
     // Stats API config verification state (set on startup or settings check)
     mutable std::mutex statsApiMutex;

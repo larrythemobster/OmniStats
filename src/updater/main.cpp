@@ -11,7 +11,6 @@
 #include "updater/UpdaterPaths.hpp"
 #include "updater/UpdaterProcess.hpp"
 #include "updater/ReleaseManifest.hpp"
-#include "updater/ShortcutUtils.hpp"
 #include "updater/StatsApiRepair.hpp"
 #include <shellapi.h>
 #include <softpub.h>
