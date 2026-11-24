@@ -3038,11 +3038,11 @@ TEST_F(RmlUiControllerStateTest, HistoryViewOpensClosesIgnoresStaleResponsesAndO
     MatchRow fakeStaleRow;
     fakeStaleRow.matchId = 999;
     fakeStaleRow.arena = "StaleArena";
-    EXPECT_FALSE(HistoryModel(controller).ApplyQueryResult(activeReq - 1, {fakeStaleRow}, 1, false));
+    EXPECT_FALSE(HistoryModel(controller).ApplyQueryResult(activeReq - 1, {fakeStaleRow}, 1));
     EXPECT_EQ(HistoryModel(controller).TotalCount(), 2);
     EXPECT_EQ(HistoryModel(controller).Rows()[0].arena, "Mannfield");
 
-    state->historyView.PublishQueryResult(activeReq - 1, MatchQuery{}, {fakeStaleRow}, 1, false);
+    state->historyView.PublishQueryResult(activeReq - 1, {fakeStaleRow}, 1, false);
     controller.Update(Config::Read(), false);
     EXPECT_EQ(HistoryModel(controller).TotalCount(), 2);
     EXPECT_EQ(HistoryModel(controller).Rows()[0].arena, "Mannfield");
@@ -3142,6 +3142,65 @@ TEST_F(RmlUiControllerStateTest, HistoryViewOpensClosesIgnoresStaleResponsesAndO
     controller.OpenHistory();
     EXPECT_TRUE(controller.ProcessWindowMessage(nullptr, WM_KEYDOWN, VK_ESCAPE, 0));
     EXPECT_TRUE(controller.ProcessWindowMessage(nullptr, WM_KEYDOWN, VK_ESCAPE, 0));
+}
+
+TEST_F(RmlUiControllerStateTest, HistoryLoadMoreAppendsNextPageOnce) {
+    WarpDevice warp;
+    if (!warp.Create(1280, 800)) GTEST_SKIP() << "WARP not available.";
+
+    auto state = std::make_shared<SessionState>();
+    auto db = std::make_shared<DatabaseManager>(state);
+    ASSERT_TRUE(db->Initialize(":memory:"));
+
+    const std::string me = "Steam|hist_more_user";
+    state->liveMatch->Update([&](MatchState& ms) { ms.myPrimaryId = me; });
+    const int matchCount = HistoryView::kPageSize + 1;
+    for (int i = 0; i < matchCount; ++i) {
+        MatchSaveSnapshot snap;
+        snap.arenaName = "DFH Stadium";
+        snap.matchGuid = "hist-more-" + std::to_string(i);
+        snap.playlistId = 11;
+        snap.myTeam = 0;
+        snap.winnerTeam = 0;
+        snap.validResult = true;
+        snap.score[0] = 2;
+        snap.score[1] = 1;
+        snap.endedAtUnixMs = 1'700'100'000'000LL + i * 600'000LL;
+        snap.myPrimaryId = me;
+        snap.roster[me] = PlayerData{.primaryId = me, .name = "Me", .team = 0, .mmr = 1200};
+        db->SaveMatch(snap);
+    }
+
+    RmlUiController controller(state, db);
+    ASSERT_TRUE(controller.Initialize(nullptr, warp.device.Get(), warp.context.Get(), 1280, 800, 1.0f));
+    controller.Update(Config::Read(), false);
+    const auto settle = [&](const char* barrier) {
+        db->AsyncSetSetting(barrier, "done");
+        for (int i = 0; i < 200 && db->GetSetting(barrier, "") != "done"; ++i) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(5));
+        }
+        controller.Update(Config::Read(), false);
+        controller.Render();
+    };
+
+    controller.OpenHistory();
+    settle("hist_more_barrier_1");
+    ASSERT_EQ(HistoryModel(controller).Rows().size(), static_cast<size_t>(HistoryView::kPageSize));
+
+    auto* more = HistoryDocument(controller)->QuerySelector("[data-action='history-more']");
+    ASSERT_NE(more, nullptr);
+    Click(controller, more);
+    Click(controller, more);
+    settle("hist_more_barrier_2");
+    EXPECT_EQ(HistoryModel(controller).Rows().size(), static_cast<size_t>(matchCount));
+
+    Rml::ElementList rowElements;
+    HistoryDocument(controller)->QuerySelectorAll(rowElements, ".history-row.item");
+    ASSERT_FALSE(rowElements.empty());
+    Click(controller, rowElements.front());
+    settle("hist_more_barrier_3");
+    EXPECT_TRUE(HistoryModel(controller).IsDetailOpen());
+    EXPECT_EQ(HistoryModel(controller).Rows().size(), static_cast<size_t>(matchCount));
 }
 
 TEST_F(RmlUiControllerStateTest, HistoryFieldHoverConnectsOnlyScoringRoundAndRotatesForOrange) {

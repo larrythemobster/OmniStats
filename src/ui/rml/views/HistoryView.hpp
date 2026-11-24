@@ -204,7 +204,8 @@ class HistoryView {
     uint64_t ActiveRequestId() const {
         return m_activeRequestId;
     }
-    bool ApplyQueryResult(uint64_t requestId, const std::vector<MatchRow>& rows, int totalCount, bool append = false);
+    // `rows` is every loaded page, as accumulated by the history store.
+    bool ApplyQueryResult(uint64_t requestId, const std::vector<MatchRow>& rows, int totalCount);
 
     uint64_t BeginDetail(int64_t matchId = 0);
     uint64_t ActiveDetailRequestId() const {

@@ -48,7 +48,6 @@ namespace database::store {
         uint64_t detailRequestId = 0;
         bool loading = false;
         bool detailLoading = false;
-        bool appendMode = false;
         std::vector<MatchRow> rows;
         int total = 0;
         std::optional<MatchDetail> detail;

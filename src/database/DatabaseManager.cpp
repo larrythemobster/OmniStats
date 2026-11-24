@@ -720,7 +720,7 @@ void DatabaseManager::QueryMatches(const MatchQuery& query, std::vector<MatchRow
 
 void DatabaseManager::AsyncQueryMatches(MatchQuery query, uint64_t requestId, bool append) {
     if (m_state) {
-        m_state->historyView.RequestQuery(requestId, append, query);
+        m_state->historyView.RequestQuery(requestId);
     }
 
     (void)EnqueueDbJob([this, q = std::move(query), requestId, append]() {
@@ -732,7 +732,7 @@ void DatabaseManager::AsyncQueryMatches(MatchQuery query, uint64_t requestId, bo
             if (snap && requestId < snap->requestId) {
                 return;
             }
-            m_state->historyView.PublishQueryResult(requestId, q, std::move(rows), total, append);
+            m_state->historyView.PublishQueryResult(requestId, std::move(rows), total, append);
         }
     },
                        DbJobPriority::Normal);

@@ -667,23 +667,19 @@ MatchQuery HistoryView::BuildQuery(int offset, int limit, int64_t nowUnix) const
 }
 
 uint64_t HistoryView::BeginQuery(bool append) {
+    m_loading = true;
     if (!append) {
         m_activeRequestId++;
-        m_loading = true;
         m_emptyMessage = "Loading match history...";
-        for (const char* name : {"loading", "empty_message"})
-            Dirty(name);
+        Dirty("empty_message");
     }
+    Dirty("loading");
     return m_activeRequestId;
 }
 
-bool HistoryView::ApplyQueryResult(uint64_t requestId, const std::vector<MatchRow>& rows, int totalCount, bool append) {
+bool HistoryView::ApplyQueryResult(uint64_t requestId, const std::vector<MatchRow>& rows, int totalCount) {
     if (requestId != m_activeRequestId) return false;
-    if (append) {
-        m_sourceRows.insert(m_sourceRows.end(), rows.begin(), rows.end());
-    } else {
-        m_sourceRows = rows;
-    }
+    m_sourceRows = rows;
     m_totalCount = totalCount;
     m_loading = false;
     RebuildRows();

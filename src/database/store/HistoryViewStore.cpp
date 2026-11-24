@@ -16,7 +16,6 @@ namespace database::store {
         snap->detailRequestId = m_detailRequestId;
         snap->loading = m_loading;
         snap->detailLoading = m_detailLoading;
-        snap->appendMode = m_appendMode;
         snap->rows = m_rows;
         snap->total = m_total;
         snap->detail = m_detail;
@@ -25,24 +24,20 @@ namespace database::store {
         m_snapshot.store(std::move(snap), std::memory_order_release);
     }
 
-    void HistoryViewStore::RequestQuery(uint64_t reqId, bool append, const MatchQuery& q) {
+    void HistoryViewStore::RequestQuery(uint64_t reqId) {
         std::lock_guard lock(m_mutex);
         if (reqId >= m_requestId) {
             m_requestId = reqId;
             m_loading = true;
-            m_appendMode = append;
-            m_query = q;
             m_version.fetch_add(1, std::memory_order_relaxed);
             PublishCurrentLocked();
         }
     }
 
-    void HistoryViewStore::PublishQueryResult(uint64_t reqId, const MatchQuery& q, std::vector<MatchRow> inRows, int totalCount, bool append) {
+    void HistoryViewStore::PublishQueryResult(uint64_t reqId, std::vector<MatchRow> inRows, int totalCount, bool append) {
         std::lock_guard lock(m_mutex);
         m_requestId = reqId;
-        m_query = q;
         m_loading = false;
-        m_appendMode = append;
         m_total = totalCount;
         if (append) {
             m_rows.insert(m_rows.end(), std::make_move_iterator(inRows.begin()), std::make_move_iterator(inRows.end()));

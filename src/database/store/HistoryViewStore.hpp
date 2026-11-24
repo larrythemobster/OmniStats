@@ -20,8 +20,9 @@ namespace database::store {
 
         std::shared_ptr<const HistoryViewSnapshot> GetSnapshot() const;
 
-        void RequestQuery(uint64_t reqId, bool append, const MatchQuery& q);
-        void PublishQueryResult(uint64_t reqId, const MatchQuery& q, std::vector<MatchRow> inRows, int totalCount, bool append);
+        void RequestQuery(uint64_t reqId);
+        // `append` adds to the loaded rows.
+        void PublishQueryResult(uint64_t reqId, std::vector<MatchRow> inRows, int totalCount, bool append);
         void RequestDetail(uint64_t detailReqId);
         void PublishDetailResult(uint64_t detailReqId, std::optional<MatchDetail> detailResult);
 
@@ -34,8 +35,6 @@ namespace database::store {
         uint64_t m_detailRequestId = 0;
         bool m_loading = false;
         bool m_detailLoading = false;
-        bool m_appendMode = false;
-        MatchQuery m_query;
         std::vector<MatchRow> m_rows;
         int m_total = 0;
         std::optional<MatchDetail> m_detail;

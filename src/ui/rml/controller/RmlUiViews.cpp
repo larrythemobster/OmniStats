@@ -419,6 +419,7 @@ void RmlUiController::RefreshAccountRow(const std::string& primaryId) {
 }
 
 void RmlUiController::TriggerHistoryQuery(bool append) {
+    if (append && m_history.IsLoading()) return;
     const std::string effectivePrimary = m_snap.myPrimaryId.empty() ? m_config.last_primary_id : m_snap.myPrimaryId;
     m_history.SetAccount(effectivePrimary);
     const int offset = append ? m_history.LoadedRowCount() : 0;
@@ -469,7 +470,7 @@ void RmlUiController::RefreshHistory(bool force) {
     m_lastHistoryViewVersion = version;
 
     if (!snap->loading && snap->requestId > 0) {
-        m_history.ApplyQueryResult(snap->requestId, snap->rows, snap->total, snap->appendMode);
+        m_history.ApplyQueryResult(snap->requestId, snap->rows, snap->total);
     }
     if (!snap->detailLoading && (snap->detailRequestId > 0 || snap->detail.has_value())) {
         m_history.ApplyDetailResult(snap->detailRequestId, snap->detail);
