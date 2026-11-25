@@ -7,7 +7,7 @@
 #include <optional>
 #include <string>
 
-namespace database::store {
+namespace stores {
 
     class PlayerScoutStore : public SnapshotStore<PlayerScoutSnapshot> {
       public:
@@ -20,4 +20,4 @@ namespace database::store {
         void PublishScout(uint64_t reqId, const std::string& pid, bool inSuccess, std::optional<PlayerScoutProfile> inProfile);
     };
 
-} // namespace database::store
+} // namespace stores

@@ -16,7 +16,7 @@
 #include "core/state/MatchSaveSnapshot.hpp"
 #include "network/telemetry/TelemetryEvents.hpp"
 
-namespace database::store {
+namespace stores {
     struct HistoryData;
 }
 
@@ -162,7 +162,7 @@ struct MatchState : MatchSnapshotData, MatchLedger {
     void ResetMatch(const std::string& newArena, const std::string& newArenaAsset = "");
     void ClearActiveMatchOnDisconnect();
     // Returns whether a recap was captured.
-    bool StartNewSession(int64_t endedAtUnix, database::store::HistoryData* history);
+    bool StartNewSession(int64_t endedAtUnix, stores::HistoryData* history);
     void ResetTiming();
     float PausedSecondsWithin(int64_t windowStartMs, int64_t windowEndMs) const;
 };

@@ -6,7 +6,7 @@
 #include <optional>
 #include <vector>
 
-namespace database::store {
+namespace stores {
 
     class HistoryViewStore : public SnapshotStore<HistoryViewSnapshot> {
       public:
@@ -23,4 +23,4 @@ namespace database::store {
         void PublishDetailResult(uint64_t detailReqId, std::optional<MatchDetail> detailResult);
     };
 
-} // namespace database::store
+} // namespace stores

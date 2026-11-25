@@ -1,7 +1,7 @@
 #include "HistoryStore.hpp"
 #include <algorithm>
 
-namespace database::store {
+namespace stores {
 
     HistoryStore::HistoryStore() {
         m_data.version = 1;
@@ -131,4 +131,4 @@ namespace database::store {
         });
     }
 
-} // namespace database::store
+} // namespace stores

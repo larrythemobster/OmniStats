@@ -137,7 +137,7 @@ void MmrService::EnqueuePostMatch(const std::string& primaryId,
 
     if (provisionalImmediately && m_state) {
         std::optional<MmrReconciler::DbUpdate> dbUpdate;
-        m_state->history.Mutate([&](database::store::HistoryData& data) {
+        m_state->history.Mutate([&](stores::HistoryData& data) {
             if (!m_state->liveMatch) return;
             m_state->liveMatch->Update([&](MatchState& match) {
                 std::vector<float> historyY;
@@ -207,7 +207,7 @@ void MmrService::EnqueuePendingDestroyedMatch(const PendingDestroyedMatchMmrRefr
 
     if (m_state) {
         std::optional<MmrReconciler::DbUpdate> dbUpdate;
-        m_state->history.Mutate([&](database::store::HistoryData& data) {
+        m_state->history.Mutate([&](stores::HistoryData& data) {
             if (!m_state->liveMatch) return;
             m_state->liveMatch->Update([&](MatchState& match) {
                 std::vector<float> historyY;
@@ -363,7 +363,7 @@ bool MmrService::ProcessPostMatchResponse(const std::string& matchGuid, int fetc
     MmrReconciler::ReconcileResult recResult;
     std::optional<SessionRecap> updatedRecap;
     std::optional<MmrReconciler::DbUpdate> provisionalDbUpdate;
-    const auto reconcile = [&](database::store::HistoryData* history, MatchState* match) {
+    const auto reconcile = [&](stores::HistoryData* history, MatchState* match) {
         if (history && match) {
             const auto copyHistory = [&](const auto& playlistHistory, const auto& matchPoints, const auto& initialMmrs) {
                 const auto it = playlistHistory.find(req.playlist);
@@ -430,7 +430,7 @@ bool MmrService::ProcessPostMatchResponse(const std::string& matchGuid, int fetc
         }
     };
     if (m_state && m_state->liveMatch) {
-        m_state->history.Mutate([&](database::store::HistoryData& data) {
+        m_state->history.Mutate([&](stores::HistoryData& data) {
             m_state->liveMatch->Update([&](MatchState& match) { reconcile(&data, &match); });
         });
     } else {

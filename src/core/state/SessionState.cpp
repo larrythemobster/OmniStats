@@ -33,13 +33,13 @@ void SessionState::clearActiveMatchOnDisconnect() {
     ui.lastMatchStartMs.store(0, std::memory_order_relaxed);
 }
 
-bool SessionState::startNewSessionLocked(int64_t endedAtUnix, database::store::HistoryData& data) {
+bool SessionState::startNewSessionLocked(int64_t endedAtUnix, stores::HistoryData& data) {
     const bool capture = liveMatch ? liveMatch->StartNewSession(endedAtUnix, data) : false;
     ui.graphOffset.store(0);
     return capture;
 }
 
-void SessionState::syncSessionMmrChangeLocked(database::store::HistoryData& data) {
+void SessionState::syncSessionMmrChangeLocked(stores::HistoryData& data) {
     if (!liveMatch) return;
     std::map<std::string, int> changes;
     for (const auto& [playlist, projection] : data.playlistHistoryY) {
@@ -51,7 +51,7 @@ void SessionState::syncSessionMmrChangeLocked(database::store::HistoryData& data
     liveMatch->SyncSessionMmrChange(changes, total);
 }
 
-void SessionState::selectMmrOwnerLocked(const std::string& primaryId, database::store::HistoryData& data) {
+void SessionState::selectMmrOwnerLocked(const std::string& primaryId, stores::HistoryData& data) {
     if (!liveMatch) {
         data.SelectMmrOwner(primaryId);
         return;

@@ -12,7 +12,7 @@ namespace MmrPublisher {
 
         class ScopedMmrHistoryOwner {
           public:
-            ScopedMmrHistoryOwner(database::store::HistoryData& data, const std::string& requestId,
+            ScopedMmrHistoryOwner(stores::HistoryData& data, const std::string& requestId,
                                   const std::string& currentId)
                 : m_data(data), m_restoreId(requestId == currentId ? "" : currentId) {
                 m_data.SelectMmrOwner(requestId);
@@ -23,11 +23,11 @@ namespace MmrPublisher {
             }
 
           private:
-            database::store::HistoryData& m_data;
+            stores::HistoryData& m_data;
             std::string m_restoreId;
         };
 
-        void SyncSessionMmrChange(const database::store::HistoryData& data, MatchState& match) {
+        void SyncSessionMmrChange(const stores::HistoryData& data, MatchState& match) {
             std::map<std::string, int> changes;
             for (const auto& [playlist, projection] : data.playlistHistoryY) {
                 const auto initialIt = data.playlistInitialMmr.find(playlist);
@@ -87,7 +87,7 @@ namespace MmrPublisher {
                               const NormalizedProfileResult& profile,
                               const std::unordered_set<std::string>* playlistsAwaitingPostMatch) {
         if (!state.liveMatch) return false;
-        state.history.Mutate([&](database::store::HistoryData& data) {
+        state.history.Mutate([&](stores::HistoryData& data) {
             state.liveMatch->Update([&](MatchState& match) {
                 const bool fetchedThisSession = req.sessionGeneration == match.sessionGeneration;
                 const bool isLocalPlayer = req.primaryId == match.myPrimaryId;
@@ -159,13 +159,13 @@ namespace MmrPublisher {
     std::optional<SessionRecap> PublishReconciledPoints(SessionState& state,
                                                         const ReconcilePublication& pub) {
         std::optional<SessionRecap> result;
-        state.history.Mutate([&](database::store::HistoryData& data) {
+        state.history.Mutate([&](stores::HistoryData& data) {
             result = PublishReconciledPointsLocked(state, data, pub);
         });
         return result;
     }
 
-    std::optional<SessionRecap> PublishReconciledPointsLocked(database::store::HistoryData& data,
+    std::optional<SessionRecap> PublishReconciledPointsLocked(stores::HistoryData& data,
                                                               const ReconcilePublication& pub, MatchState& match) {
         std::optional<SessionRecap> updatedRecap;
         const uint64_t currentSessionGeneration = match.sessionGeneration;
@@ -264,7 +264,7 @@ namespace MmrPublisher {
         return updatedRecap;
     }
 
-    std::optional<SessionRecap> PublishReconciledPointsLocked(SessionState& state, database::store::HistoryData& data,
+    std::optional<SessionRecap> PublishReconciledPointsLocked(SessionState& state, stores::HistoryData& data,
                                                               const ReconcilePublication& pub) {
         if (state.liveMatch) {
             return state.liveMatch->Update([&](MatchState& match) {
@@ -277,12 +277,12 @@ namespace MmrPublisher {
 
     void PublishProvisionalPoint(SessionState& state,
                                  const ProvisionalPublication& pub) {
-        state.history.Mutate([&](database::store::HistoryData& data) {
+        state.history.Mutate([&](stores::HistoryData& data) {
             PublishProvisionalPointLocked(state, data, pub);
         });
     }
 
-    void PublishProvisionalPointLocked(database::store::HistoryData& data,
+    void PublishProvisionalPointLocked(stores::HistoryData& data,
                                        const ProvisionalPublication& pub, MatchState& match) {
         if (pub.sessionGeneration != match.sessionGeneration) return;
         ScopedMmrHistoryOwner owner(data, pub.primaryId, match.myPrimaryId);
@@ -316,7 +316,7 @@ namespace MmrPublisher {
         if (pub.primaryId == match.myPrimaryId) SyncSessionMmrChange(data, match);
     }
 
-    void PublishProvisionalPointLocked(SessionState& state, database::store::HistoryData& data,
+    void PublishProvisionalPointLocked(SessionState& state, stores::HistoryData& data,
                                        const ProvisionalPublication& pub) {
         if (!state.liveMatch) return;
         state.liveMatch->Update([&](MatchState& match) {

@@ -3,7 +3,7 @@
 #include "core/state/store/HistoryViewStore.hpp"
 
 TEST(HistoryViewStore, OlderQueryResultDoesNotOverwriteNewerRequest) {
-    database::store::HistoryViewStore store;
+    stores::HistoryViewStore store;
     store.RequestQuery(1);
     store.RequestQuery(2);
 
@@ -18,7 +18,7 @@ TEST(HistoryViewStore, OlderQueryResultDoesNotOverwriteNewerRequest) {
 }
 
 TEST(HistoryViewStore, OlderDetailResultDoesNotOverwriteNewerRequest) {
-    database::store::HistoryViewStore store;
+    stores::HistoryViewStore store;
     store.RequestDetail(1);
     store.RequestDetail(2);
 

@@ -5,7 +5,7 @@
 #include <string>
 #include <vector>
 
-namespace database::store {
+namespace stores {
 
     class InsightsStore : public SnapshotStore<InsightsSnapshot> {
       public:
@@ -25,4 +25,4 @@ namespace database::store {
         void UpdateSessions(const std::string& pid, std::vector<SessionRecap> inSessions);
     };
 
-} // namespace database::store
+} // namespace stores

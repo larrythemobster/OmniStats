@@ -2,7 +2,7 @@
 
 #include <utility>
 
-namespace database::store {
+namespace stores {
 
     void PlayerScoutStore::PublishScout(uint64_t reqId, const std::string& pid, bool inSuccess, std::optional<PlayerScoutProfile> inProfile) {
         std::lock_guard lock(m_mutex);
@@ -15,4 +15,4 @@ namespace database::store {
         PublishCurrentLocked();
     }
 
-} // namespace database::store
+} // namespace stores

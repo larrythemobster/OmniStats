@@ -3,7 +3,7 @@
 #include <iterator>
 #include <utility>
 
-namespace database::store {
+namespace stores {
 
     void HistoryViewStore::RequestQuery(uint64_t reqId) {
         std::lock_guard lock(m_mutex);
@@ -46,4 +46,4 @@ namespace database::store {
         PublishCurrentLocked();
     }
 
-} // namespace database::store
+} // namespace stores

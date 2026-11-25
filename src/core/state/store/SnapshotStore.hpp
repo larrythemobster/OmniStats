@@ -4,7 +4,7 @@
 #include <memory>
 #include <mutex>
 
-namespace database::store {
+namespace stores {
 
     template <typename Snapshot>
     class SnapshotStore {
@@ -28,4 +28,4 @@ namespace database::store {
         std::atomic<std::shared_ptr<const Snapshot>> m_snapshot;
     };
 
-} // namespace database::store
+} // namespace stores

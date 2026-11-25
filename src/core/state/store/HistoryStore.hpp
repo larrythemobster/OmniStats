@@ -7,7 +7,7 @@
 #include <type_traits>
 #include <utility>
 
-namespace database::store {
+namespace stores {
 
     struct HistoryData : HistorySnapshot {
         void SelectMmrOwner(const std::string& primaryId);
@@ -58,4 +58,4 @@ namespace database::store {
         std::atomic<std::shared_ptr<const HistorySnapshot>> m_snapshot;
     };
 
-} // namespace database::store
+} // namespace stores

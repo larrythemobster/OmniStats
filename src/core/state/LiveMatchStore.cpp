@@ -133,12 +133,12 @@ void LiveMatchStore::UpdateLastSessionRecapMmr(const std::map<std::string, int>&
     });
 }
 
-bool LiveMatchStore::StartNewSession(int64_t endedAtUnix, database::store::HistoryData& history) {
+bool LiveMatchStore::StartNewSession(int64_t endedAtUnix, stores::HistoryData& history) {
     return Update([&](MatchState& state) { return state.StartNewSession(endedAtUnix, &history); });
 }
 
 namespace {
-    bool CloseIdleSession(MatchState& state, int64_t nowUnix, database::store::HistoryData& history) {
+    bool CloseIdleSession(MatchState& state, int64_t nowUnix, stores::HistoryData& history) {
         if (state.sessionTotals.wins + state.sessionTotals.losses <= 0) return false;
         if (state.lastMatchEndedAtUnix <= 0) return false;
         if (!Insights::StartsNewSession(state.lastMatchEndedAtUnix, nowUnix, true)) return false;
@@ -146,11 +146,11 @@ namespace {
     }
 } // namespace
 
-bool LiveMatchStore::CloseSessionIfInactive(int64_t nowUnix, database::store::HistoryData& history) {
+bool LiveMatchStore::CloseSessionIfInactive(int64_t nowUnix, stores::HistoryData& history) {
     return Update([&](MatchState& state) { return !state.inMatch && CloseIdleSession(state, nowUnix, history); });
 }
 
-bool LiveMatchStore::CloseSessionBeforeNewMatch(int64_t nowUnix, database::store::HistoryData& history) {
+bool LiveMatchStore::CloseSessionBeforeNewMatch(int64_t nowUnix, stores::HistoryData& history) {
     return Update([&](MatchState& state) { return CloseIdleSession(state, nowUnix, history); });
 }
 

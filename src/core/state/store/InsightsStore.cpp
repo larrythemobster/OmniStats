@@ -2,7 +2,7 @@
 
 #include <utility>
 
-namespace database::store {
+namespace stores {
 
     void InsightsStore::PublishInsights(std::string pid,
                                         std::vector<PersonRecord> inPeople,
@@ -28,4 +28,4 @@ namespace database::store {
         PublishCurrentLocked();
     }
 
-} // namespace database::store
+} // namespace stores

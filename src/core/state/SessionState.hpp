@@ -119,8 +119,8 @@ inline int CalculateSessionBoostPickedUp(
 #include "core/state/store/PlayerNotesStore.hpp"
 #include "core/state/store/PlayerScoutStore.hpp"
 
-using InsightsState = database::store::InsightsStore;
-using HistoryViewState = database::store::HistoryViewStore;
+using InsightsState = stores::InsightsStore;
+using HistoryViewState = stores::HistoryViewStore;
 
 struct ConfigData;
 
@@ -206,9 +206,9 @@ struct UIState {
     std::atomic<uint64_t> replayUploadVersion{0};
 };
 
-using HistoryState = database::store::HistoryStore;
-using PlayerNotesState = database::store::PlayerNotesStore;
-using PlayerScoutState = database::store::PlayerScoutStore;
+using HistoryState = stores::HistoryStore;
+using PlayerNotesState = stores::PlayerNotesStore;
+using PlayerScoutState = stores::PlayerScoutStore;
 
 class LiveMatchStore;
 
@@ -229,7 +229,7 @@ class SessionState : public std::enable_shared_from_this<SessionState> {
     void clearActiveMatchOnDisconnect();
 
     // Returns whether a recap was captured.
-    bool startNewSessionLocked(int64_t endedAtUnix, database::store::HistoryData& data);
-    void syncSessionMmrChangeLocked(database::store::HistoryData& data);
-    void selectMmrOwnerLocked(const std::string& primaryId, database::store::HistoryData& data);
+    bool startNewSessionLocked(int64_t endedAtUnix, stores::HistoryData& data);
+    void syncSessionMmrChangeLocked(stores::HistoryData& data);
+    void selectMmrOwnerLocked(const std::string& primaryId, stores::HistoryData& data);
 };

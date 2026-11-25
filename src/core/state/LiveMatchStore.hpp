@@ -53,10 +53,10 @@ class LiveMatchStore {
                                   int winsAgainst, int lossesAgainst);
     void SyncSessionMmrChange(const std::map<std::string, int>& changes, float totalChange);
     void UpdateLastSessionRecapMmr(const std::map<std::string, int>& changes, float totalChange);
-    bool StartNewSession(int64_t endedAtUnix, database::store::HistoryData& history);
-    bool CloseSessionIfInactive(int64_t nowUnix, database::store::HistoryData& history);
+    bool StartNewSession(int64_t endedAtUnix, stores::HistoryData& history);
+    bool CloseSessionIfInactive(int64_t nowUnix, stores::HistoryData& history);
     // Routed after the reducer has already reset state for the new match, so it skips the in-match guard.
-    bool CloseSessionBeforeNewMatch(int64_t nowUnix, database::store::HistoryData& history);
+    bool CloseSessionBeforeNewMatch(int64_t nowUnix, stores::HistoryData& history);
     void ClearActiveMatchOnDisconnect();
 
   private:

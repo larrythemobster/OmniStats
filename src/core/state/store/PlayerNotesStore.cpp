@@ -2,7 +2,7 @@
 
 #include <utility>
 
-namespace database::store {
+namespace stores {
 
     void PlayerNotesStore::PublishLoaded(bool inLoadFailed,
                                          std::unordered_map<std::string, PlayerNotes::Note> inNotes,
@@ -68,4 +68,4 @@ namespace database::store {
         PublishCurrentLocked();
     }
 
-} // namespace database::store
+} // namespace stores

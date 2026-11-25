@@ -10,10 +10,10 @@
 #include <atomic>
 
 TEST(HistoryStoreTest, MutationPublishesSnapshotAndPreservesPreviousSnapshot) {
-    database::store::HistoryStore history;
+    stores::HistoryStore history;
     const auto before = history.GetSnapshot();
 
-    const int result = history.Mutate([](database::store::HistoryData& data) {
+    const int result = history.Mutate([](stores::HistoryData& data) {
         data.initialMmr = 1200;
         data.playlistHistoryY["2v2"] = {1200.0f, 1210.0f};
         data.showLifetimeGraph = true;

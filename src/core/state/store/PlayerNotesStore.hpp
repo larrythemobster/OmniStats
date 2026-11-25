@@ -9,7 +9,7 @@
 #include <unordered_map>
 #include <vector>
 
-namespace database::store {
+namespace stores {
 
     class PlayerNotesStore : public SnapshotStore<PlayerNotesSnapshot> {
       public:
@@ -35,4 +35,4 @@ namespace database::store {
                                std::optional<std::vector<std::string>> newTags);
     };
 
-} // namespace database::store
+} // namespace stores

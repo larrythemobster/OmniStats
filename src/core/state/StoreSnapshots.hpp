@@ -12,7 +12,7 @@
 #include <unordered_map>
 #include <vector>
 
-namespace database::store {
+namespace stores {
 
     struct HistorySnapshot {
         std::vector<float> mmrHistoryY;
@@ -77,4 +77,4 @@ namespace database::store {
         uint64_t version = 0;
     };
 
-} // namespace database::store
+} // namespace stores
