@@ -163,6 +163,35 @@ class DatabaseManager {
     }
 
   private:
+    class ReadLease {
+      public:
+        ReadLease(database::ReaderPool::Lease lease, std::unique_lock<std::mutex> lock,
+                  database::sqlite::Connection& writer)
+            : m_lease(std::move(lease)), m_lock(std::move(lock)), m_writer(writer) {}
+        database::sqlite::Connection& Get() {
+            return m_lease.IsValid() ? m_lease.Get() : m_writer;
+        }
+        bool IsValid() const {
+            return m_lease.IsValid() || m_lock.owns_lock();
+        }
+
+      private:
+        database::ReaderPool::Lease m_lease;
+        std::unique_lock<std::mutex> m_lock;
+        database::sqlite::Connection& m_writer;
+    };
+
+    ReadLease ReadConnection(bool fallbackWhenPoolUnavailable = true) {
+        const bool hasPool = m_readerPool.HasPool();
+        auto lease = hasPool ? m_readerPool.Acquire() : database::ReaderPool::Lease{};
+        std::unique_lock lock(m_writeMutex, std::defer_lock);
+        if (!lease.IsValid() && (!hasPool || fallbackWhenPoolUnavailable)) lock.lock();
+        return ReadLease(std::move(lease), std::move(lock), m_db);
+    }
+    std::unique_lock<std::mutex> LockWriter() {
+        return std::unique_lock<std::mutex>(m_writeMutex);
+    }
+
     enum class DbJobPriority {
         Critical,
         Normal,
@@ -186,6 +215,7 @@ class DatabaseManager {
     std::string m_dbPath;
     std::string m_initializationError;
     bool m_schemaUpgradeIncomplete = false;
+    bool m_hasStatsTables = false;
     std::mutex m_writeMutex;
 
     std::atomic<bool> m_backfillPending{false};

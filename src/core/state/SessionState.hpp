@@ -113,11 +113,11 @@ inline int CalculateSessionBoostPickedUp(
 }
 
 #include "core/state/StoreSnapshots.hpp"
-#include "database/store/HistoryStore.hpp"
-#include "database/store/InsightsStore.hpp"
-#include "database/store/HistoryViewStore.hpp"
-#include "database/store/PlayerNotesStore.hpp"
-#include "database/store/PlayerScoutStore.hpp"
+#include "core/state/store/HistoryStore.hpp"
+#include "core/state/store/InsightsStore.hpp"
+#include "core/state/store/HistoryViewStore.hpp"
+#include "core/state/store/PlayerNotesStore.hpp"
+#include "core/state/store/PlayerScoutStore.hpp"
 
 using InsightsState = database::store::InsightsStore;
 using HistoryViewState = database::store::HistoryViewStore;

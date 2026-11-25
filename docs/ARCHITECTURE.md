@@ -26,7 +26,7 @@ flowchart LR
 | Telemetry | `src/network/telemetry/` | Receives Stats API packets and parses typed events. |
 | Match logic | `src/core/reducer/`, `src/core/game/` | Reduces events into match state, analytics, and side effects. |
 | Live state | `src/core/state/LiveMatchStore.*` | Publishes match and session snapshots for the UI. |
-| History state | `src/database/store/HistoryStore.*` | Publishes saved-match and rating projections. |
+| History state | `src/core/state/store/HistoryStore.*` | Publishes saved-match and rating projections. |
 | Database | `src/database/` | SQLite connections, migrations, repositories, and database workers. |
 | Rank lookups | `src/core/game/`, `src/network/mmr/` | Playlist metadata and rank tiers in core; request queues, providers, and reconciliation in networking. |
 | Tracked accounts | `src/core/accounts/` | Account discovery, refreshes, and persistence. |

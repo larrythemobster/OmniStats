@@ -1,6 +1,6 @@
 #include <gtest/gtest.h>
 
-#include "database/store/HistoryViewStore.hpp"
+#include "core/state/store/HistoryViewStore.hpp"
 
 TEST(HistoryViewStore, OlderQueryResultDoesNotOverwriteNewerRequest) {
     database::store::HistoryViewStore store;

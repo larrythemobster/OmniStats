@@ -258,6 +258,25 @@ TEST(SeasonDatabase, StoresSeasonsRewardsAndDetectsOnlyForwardLocalResets) {
     EXPECT_FALSE(db.GetTrackedAccountRewards(kIdA, 19));
 }
 
+TEST(SeasonDatabase, FileBackedReadsObserveCommittedWritesAndRejectedBatchRollsBack) {
+    TempDirectory tempDir;
+    DatabaseManager db(std::make_shared<SessionState>());
+    ASSERT_TRUE(db.Initialize((tempDir.path / "seasons.db").string()));
+    ASSERT_TRUE(Add(db, kIdA));
+    ASSERT_TRUE(db.UpsertSeasons({{19, 100, 200, "official"}}));
+    EXPECT_FALSE(db.UpsertSeasons({{20, 200, 300, "official"}, {21, 0, 400, "official"}}));
+    const auto seasons = db.GetSeasons();
+    ASSERT_EQ(seasons.size(), 1u);
+    EXPECT_EQ(seasons[0].season, 19);
+    ASSERT_TRUE(db.SaveTrackedAccountRewards(kIdA, 19, 3, 5, 150));
+    const auto rewards = db.GetTrackedAccountRewards(kIdA, 19);
+    ASSERT_TRUE(rewards);
+    EXPECT_EQ(rewards->wins, 5);
+    const auto summaries = db.GetSeasonSummaries(kIdA);
+    ASSERT_EQ(summaries.size(), 1u);
+    EXPECT_EQ(summaries[0].season.season, 19);
+}
+
 TEST(SeasonDatabase, SummariesExcludePendingAndCasualAndPublishAsynchronously) {
     auto state = std::make_shared<SessionState>();
     {

@@ -1,41 +1,17 @@
 #include "PlayerNotesStore.hpp"
 
+#include <utility>
+
 namespace database::store {
-
-    PlayerNotesStore::PlayerNotesStore() {
-        m_snapshot.store(std::make_shared<const PlayerNotesSnapshot>());
-    }
-
-    std::shared_ptr<const PlayerNotesSnapshot> PlayerNotesStore::GetSnapshot() const {
-        return m_snapshot.load(std::memory_order_acquire);
-    }
-
-    void PlayerNotesStore::PublishCurrentLocked() {
-        auto snap = std::make_shared<PlayerNotesSnapshot>();
-        snap->loaded = m_loaded;
-        snap->loadFailed = m_loadFailed;
-        snap->byKey = m_byKey;
-        snap->tagsByKey = m_tagsByKey;
-        snap->completedRequestId = m_completedRequestId;
-        snap->lastRequestOk = m_lastRequestOk;
-        snap->lastRequestError = m_lastRequestError;
-        snap->completedTagRequestId = m_completedTagRequestId;
-        snap->lastTagRequestOk = m_lastTagRequestOk;
-        snap->lastTagRequestError = m_lastTagRequestError;
-        snap->version = m_version.load(std::memory_order_relaxed);
-
-        m_snapshot.store(std::move(snap), std::memory_order_release);
-    }
 
     void PlayerNotesStore::PublishLoaded(bool inLoadFailed,
                                          std::unordered_map<std::string, PlayerNotes::Note> inNotes,
                                          std::unordered_map<std::string, std::vector<std::string>> inTags) {
         std::lock_guard lock(m_mutex);
-        m_loaded = true;
-        m_loadFailed = inLoadFailed;
-        m_byKey = std::move(inNotes);
-        m_tagsByKey = std::move(inTags);
-        m_version.fetch_add(1, std::memory_order_relaxed);
+        m_state.loaded = true;
+        m_state.loadFailed = inLoadFailed;
+        m_state.byKey = std::move(inNotes);
+        m_state.tagsByKey = std::move(inTags);
         PublishCurrentLocked();
     }
 
@@ -47,9 +23,9 @@ namespace database::store {
         if (ok) {
             std::string norm = PlayerNotes::NormalizeNote(text);
             if (norm.empty()) {
-                m_byKey.erase(key);
+                m_state.byKey.erase(key);
             } else {
-                auto& n = m_byKey[key];
+                auto& n = m_state.byKey[key];
                 n.identity = identity;
                 n.text = std::move(norm);
                 if (!lastKnownName.empty()) n.lastKnownName = std::string(lastKnownName);
@@ -57,10 +33,9 @@ namespace database::store {
                 n.updatedAtUnix = nowUnix;
             }
         }
-        m_completedRequestId = reqId;
-        m_lastRequestOk = ok;
-        m_lastRequestError = ok ? std::string{} : err;
-        m_version.fetch_add(1, std::memory_order_relaxed);
+        m_state.completedRequestId = reqId;
+        m_state.lastRequestOk = ok;
+        m_state.lastRequestError = ok ? std::string{} : err;
         PublishCurrentLocked();
     }
 
@@ -68,12 +43,11 @@ namespace database::store {
                                               const PlayerNotes::Identity& identity) {
         std::lock_guard lock(m_mutex);
         if (ok) {
-            m_byKey.erase(identity.Key());
+            m_state.byKey.erase(identity.Key());
         }
-        m_completedRequestId = reqId;
-        m_lastRequestOk = ok;
-        m_lastRequestError = ok ? std::string{} : err;
-        m_version.fetch_add(1, std::memory_order_relaxed);
+        m_state.completedRequestId = reqId;
+        m_state.lastRequestOk = ok;
+        m_state.lastRequestError = ok ? std::string{} : err;
         PublishCurrentLocked();
     }
 
@@ -83,15 +57,14 @@ namespace database::store {
         std::lock_guard lock(m_mutex);
         if (ok && newTags.has_value()) {
             if (newTags->empty()) {
-                m_tagsByKey.erase(identity.Key());
+                m_state.tagsByKey.erase(identity.Key());
             } else {
-                m_tagsByKey[identity.Key()] = std::move(*newTags);
+                m_state.tagsByKey[identity.Key()] = std::move(*newTags);
             }
         }
-        m_completedTagRequestId = reqId;
-        m_lastTagRequestOk = ok;
-        m_lastTagRequestError = ok ? std::string{} : err;
-        m_version.fetch_add(1, std::memory_order_relaxed);
+        m_state.completedTagRequestId = reqId;
+        m_state.lastTagRequestOk = ok;
+        m_state.lastTagRequestError = ok ? std::string{} : err;
         PublishCurrentLocked();
     }
 
