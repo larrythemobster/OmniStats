@@ -47,6 +47,7 @@ class StatsClient {
     void RunLoop();
     void OnEvent(const TelemetryEvents::TelemetryEvent& event);
     void HandleDestroyedMatchConfirmation(const std::string& matchGuid, bool won);
+    ReducerContext MakeContext(bool updateUiConfig);
 
     struct ConfirmationCallbackGuard {
         std::mutex mutex;
@@ -68,5 +69,8 @@ class StatsClient {
     int m_disconnectCount{0};
     bool m_resetAfterDisconnect{false};
     std::optional<TelemetryRecorder> m_recorder;
+    std::mutex m_reducerSettingsMutex;
+    ReducerSettings m_reducerSettings;
     uint64_t m_configRevision{0};
+    uint64_t m_uiConfigRevision{0};
 };

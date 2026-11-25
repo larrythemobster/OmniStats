@@ -20,15 +20,9 @@ namespace database::store {
     struct HistoryData;
 }
 
-struct CapturedMatch {
-    std::string arenaName;
-    std::string arenaAsset;
-    std::string matchGuid;
-    int playlistId = -1;
+struct CapturedMatch : MatchSaveData {
     uint64_t matchGeneration = 0;
     uint64_t sessionGeneration = 0;
-    std::string myPrimaryId;
-    int myTeam = -1;
     std::array<int, 2> score{};
     int legacyMaxPlayersSeen = 0;
     std::array<int, 2> legacyMaxTeamPlayersSeen{};
@@ -44,33 +38,20 @@ struct CapturedMatch {
     bool nonLiveReplay = false;
     MatchStats stats;
     std::unordered_map<std::string, PlayerData> roster;
-    MmrCategory rosterMmrCategory = MmrCategory::Best;
     std::string mode;
     LocalPreMatchMmrSnapshot preMatchMmr;
     bool hasPreMatchMmr = false;
-    int64_t endedAtUnixMs = 0;
-    float durationSeconds = 0.0f;
-    float overtimeSeconds = 0.0f;
-    std::vector<MatchJournalEvent> events;
-    std::optional<MatchAnalytics> analytics;
 };
 
-struct MatchState {
-    uint64_t version = 1;
-
-    // Match Lifecycle State
+struct ActiveMatchState {
     bool inMatch = false;
     bool inReplay = false;
     int myTeam = -1;
-    std::string myPrimaryId;
     std::string arenaName;
     std::string arenaAsset;
-    std::string matchGuid;
     int playlistId = -1;
-    uint64_t activeMatchGeneration = 0;
     std::array<int, 2> score{};
     int legacyMaxPlayersSeen = 0;
-
     bool roundEverStarted = false;
     bool localPlayerWasActive = false;
     bool localPlayerWasSpectator = false;
@@ -86,36 +67,65 @@ struct MatchState {
     std::array<int, 2> legacyCurrentTeamPlayersSeen{0, 0};
     std::array<int, 2> legacyMaxTeamPlayersSeen{0, 0};
 
+    float timeSeconds = 0.0f;
+    bool bOvertime = false;
+    MatchStats currentMatch;
+    std::unordered_map<std::string, PlayerData> roster;
+    std::unordered_map<std::string, PlayerData> matchRoster;
+    std::unordered_map<std::string, LocalPreMatchMmrSnapshot> preMatchMmrByGuid;
+    bool matchFinalized = false;
+};
+
+struct MatchSessionState {
+    SessionTotals sessionTotals;
+    float lastGoalSpeed = 0.0f;
+    float lastGoalSpeedSelf = 0.0f;
+    std::map<std::string, GamemodeStat> sessionGamemodes;
+    int64_t sessionStartedAtUnix = 0;
+    int64_t lastMatchEndedAtUnix = 0;
+    std::vector<std::string> sessionMatchGuids;
+};
+
+struct MatchTimeline {
+    int64_t lastMatchStartMs = 0;
+    int64_t firstCountdownOfMatchMs = 0;
+    int64_t lastCountdownMs = 0;
+    int64_t lastGoalMs = 0;
+    int64_t lastMatchEndMs = 0;
+    int64_t lastPodiumMs = 0;
+    bool inGoalReplay = false;
+    bool showMatchSummary = false;
+    int64_t matchSummaryStartMs = 0;
+};
+
+struct MatchSnapshotData : ActiveMatchState, MatchSessionState, MatchTimeline {
+    uint64_t version = 1;
+    std::string myPrimaryId;
+    std::string matchGuid;
+    uint64_t activeMatchGeneration = 0;
     bool lastMatchWasVoid = false;
     std::string lastMatchVoidReason;
     std::array<int, 2> matchSummaryScore{};
     int matchSummaryMyTeam = -1;
     int matchSummaryWinnerTeam = -1;
     float matchSummaryOvertimeSeconds = 0.0f;
-    float timeSeconds = 0.0f;
-    bool bOvertime = false;
-
-    MatchStats currentMatch;
-    SessionTotals sessionTotals;
-    float lastGoalSpeed = 0.0f;
-    float lastGoalSpeedSelf = 0.0f;
-    std::unordered_map<std::string, PlayerData> roster;
-    std::unordered_map<std::string, PlayerData> matchRoster;
-    std::map<std::string, GamemodeStat> sessionGamemodes;
-    std::unordered_map<std::string, LocalPreMatchMmrSnapshot> preMatchMmrByGuid;
-    bool matchFinalized = false;
-    int64_t sessionStartedAtUnix = 0;
-    int64_t lastMatchEndedAtUnix = 0;
-    std::vector<std::string> sessionMatchGuids;
     SessionRecap lastSessionRecap;
     uint64_t sessionGeneration = 0;
+};
 
-    std::string lastSavedMatchGuid;
+struct MatchLedger {
     std::vector<MatchJournalEvent> matchEvents;
     std::unordered_set<std::string> eventNativeKeys;
+    std::string lastEventSignature;
+    MatchAnalyticsTracker analytics;
+};
+
+struct MatchState : MatchSnapshotData, MatchLedger {
+    int64_t currentReducerNowUnixMs = 0;
+
+    std::string lastSavedMatchGuid;
     bool hasObservedMatchClock = false;
     int64_t lastMatchClockSampleAtMs = 0;
-    std::string lastEventSignature;
     int64_t lastEventAtMs = 0;
     std::unordered_map<std::string, int> lastPlayerBoost;
     std::unordered_set<std::string> boostRespawnPending;
@@ -146,19 +156,8 @@ struct MatchState {
     };
     std::vector<PauseInterval> pauseIntervals;
 
-    int64_t lastMatchStartMs = 0;
-    int64_t firstCountdownOfMatchMs = 0;
-    int64_t lastCountdownMs = 0;
-    int64_t lastGoalMs = 0;
-    int64_t lastMatchEndMs = 0;
-    int64_t lastPodiumMs = 0;
-    bool inGoalReplay = false;
-    bool showMatchSummary = false;
-    int64_t matchSummaryStartMs = 0;
     // Set by ResetMatch; the next published UI update hides the held overlay once.
     bool hideOverlayRequested = false;
-
-    MatchAnalyticsTracker analytics;
 
     void ResetMatch(const std::string& newArena, const std::string& newArenaAsset = "");
     void ClearActiveMatchOnDisconnect();

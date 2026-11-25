@@ -110,9 +110,9 @@ namespace TelemetryReducerDetail {
                            const TelemetryEvents::UpdateStateEvent& ev,
                            const ReducerContext& ctx,
                            SideEffects& effects) {
-        const int64_t nowMs = ctx.nowMs > 0 ? ctx.nowMs : SteadyNowMs();
+        const int64_t nowMs = ctx.nowMs;
         if (!state.nonLiveReplayActive) {
-            (void)AcceptsUiMatchEvent(state, ev.matchGuid, nowMs, effects);
+            (void)AcceptsUiMatchEvent(state, ev.matchGuid, nowMs);
         }
 
         bool gameReplayActive = ev.bReplay;
@@ -167,41 +167,21 @@ namespace TelemetryReducerDetail {
                         hasPreservedMmrSnapshot = true;
                     }
 
-                    const int64_t savedMatchStartMs = state.lastMatchStartMs;
-                    const int64_t savedFirstCountdownMs = state.firstCountdownOfMatchMs;
-                    const int64_t savedLastCountdownMs = state.lastCountdownMs;
-                    const int64_t savedLastGoalMs = state.lastGoalMs;
-                    const int64_t savedLastMatchEndMs = state.lastMatchEndMs;
-                    const int64_t savedLastPodiumMs = state.lastPodiumMs;
-                    const bool savedInGoalReplay = state.inGoalReplay;
+                    const MatchTimeline savedTimeline = state;
 
                     state.ResetMatch(currentArena, currentArenaAsset);
                     if (startsNewLifecycle) {
-                        state.matchEvents.clear();
-                        state.analytics = MatchAnalyticsTracker{};
-                        state.eventNativeKeys.clear();
-                        state.lastEventSignature.clear();
+                        static_cast<MatchLedger&>(state) = {};
                         state.activeMatchGeneration = ++state.nextMatchGeneration;
                         state.missingGuidAssociationBlockedByReconnect = false;
                         state.lastMatchStartMs = nowMs;
-                        state.firstCountdownOfMatchMs = 0;
-                        state.lastCountdownMs = 0;
-                        state.lastGoalMs = 0;
-                        state.lastMatchEndMs = 0;
-                        state.lastPodiumMs = 0;
-                        state.inGoalReplay = false;
                         state.uiMatchGuid.clear();
                         state.countdownSeenThisRound = false;
                         state.ResetTiming();
-                        effects.uiUpdate = UiStateUpdate{.resetTimestamps = true, .resetMatchStartMs = nowMs};
                     } else {
-                        state.lastMatchStartMs = savedMatchStartMs > 0 ? savedMatchStartMs : nowMs;
-                        state.firstCountdownOfMatchMs = savedFirstCountdownMs;
-                        state.lastCountdownMs = savedLastCountdownMs;
-                        state.lastGoalMs = savedLastGoalMs;
-                        state.lastMatchEndMs = savedLastMatchEndMs;
-                        state.lastPodiumMs = savedLastPodiumMs;
-                        state.inGoalReplay = savedInGoalReplay;
+                        static_cast<MatchTimeline&>(state) = savedTimeline;
+                        state.showMatchSummary = false;
+                        if (state.lastMatchStartMs <= 0) state.lastMatchStartMs = nowMs;
                     }
 
                     if (!startsNewLifecycle && hasPreservedMmrSnapshot) {
@@ -258,10 +238,7 @@ namespace TelemetryReducerDetail {
                     const std::string currentArena = state.arenaName;
                     const std::string currentArenaAsset = state.arenaAsset;
                     state.ResetMatch(currentArena, currentArenaAsset);
-                    state.matchEvents.clear();
-                    state.analytics = MatchAnalyticsTracker{};
-                    state.eventNativeKeys.clear();
-                    state.lastEventSignature.clear();
+                    static_cast<MatchLedger&>(state) = {};
                     state.lastMatchStartMs = nowMs;
                     state.activeMatchGeneration = ++state.nextMatchGeneration;
                     state.matchGuid = matchGuid;

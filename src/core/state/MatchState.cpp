@@ -6,49 +6,19 @@
 #include <cmath>
 
 void MatchState::ResetMatch(const std::string& newArena, const std::string& newArenaAsset) {
+    static_cast<ActiveMatchState&>(*this) = {};
     inMatch = true;
-    inReplay = false;
-    myTeam = -1;
     arenaName = newArena;
     arenaAsset = newArenaAsset;
-    playlistId = -1;
-    score = {0, 0};
-    legacyMaxPlayersSeen = 0;
-    roundEverStarted = false;
-    localPlayerWasActive = false;
-    localPlayerWasSpectator = false;
-    localPlayerPresenceObserved = false;
-    localPlayerPresentInLatestUpdate = false;
-    explicitLocalForfeit = false;
-    excludedEarlyExitContext = false;
-    earlyExitExclusionReason.clear();
-    fallbackCasualContext = false;
-    fallbackNonRecordableContext = false;
-    fallbackNonRecordableReason.clear();
-    legacyLobbyWasEverFull = false;
-    legacyCurrentTeamPlayersSeen = {0, 0};
-    legacyMaxTeamPlayersSeen = {0, 0};
     lastMatchWasVoid = false;
     lastMatchVoidReason.clear();
     matchSummaryScore = {0, 0};
     matchSummaryMyTeam = -1;
     matchSummaryWinnerTeam = -1;
     matchSummaryOvertimeSeconds = 0.0f;
-    timeSeconds = 0.0f;
-    bOvertime = false;
-    currentMatch = MatchStats{};
-    roster.clear();
-    matchRoster.clear();
-    preMatchMmrByGuid.clear();
-    matchFinalized = false;
-    showMatchSummary = false;
-    lastMatchStartMs = 0;
-    firstCountdownOfMatchMs = 0;
-    lastCountdownMs = 0;
-    lastGoalMs = 0;
-    lastMatchEndMs = 0;
-    lastPodiumMs = 0;
-    inGoalReplay = false;
+    const int64_t savedSummaryStartMs = matchSummaryStartMs;
+    static_cast<MatchTimeline&>(*this) = {};
+    matchSummaryStartMs = savedSummaryStartMs;
     hideOverlayRequested = true;
 }
 
@@ -85,13 +55,7 @@ bool MatchState::StartNewSession(int64_t endedAtUnix, database::store::HistoryDa
             .matchGuids = std::move(matchGuids)};
     }
 
-    sessionTotals = SessionTotals();
-    lastGoalSpeed = 0.0f;
-    lastGoalSpeedSelf = 0.0f;
-    sessionGamemodes.clear();
-    sessionStartedAtUnix = 0;
-    lastMatchEndedAtUnix = 0;
-    sessionMatchGuids.clear();
+    static_cast<MatchSessionState&>(*this) = {};
     sessionGeneration++;
     if (history) {
         history->ResetSessionMmr();
@@ -100,37 +64,9 @@ bool MatchState::StartNewSession(int64_t endedAtUnix, database::store::HistoryDa
 }
 
 void MatchState::ClearActiveMatchOnDisconnect() {
-    inMatch = false;
-    inReplay = false;
-    myTeam = -1;
-    arenaName.clear();
-    arenaAsset.clear();
+    static_cast<ActiveMatchState&>(*this) = {};
     matchGuid.clear();
-    playlistId = -1;
-    score = {0, 0};
-    legacyMaxPlayersSeen = 0;
-    roundEverStarted = false;
-    localPlayerWasActive = false;
-    localPlayerWasSpectator = false;
-    localPlayerPresenceObserved = false;
-    localPlayerPresentInLatestUpdate = false;
-    explicitLocalForfeit = false;
-    excludedEarlyExitContext = false;
-    earlyExitExclusionReason.clear();
-    fallbackCasualContext = false;
-    fallbackNonRecordableContext = false;
-    fallbackNonRecordableReason.clear();
-    legacyLobbyWasEverFull = false;
-    legacyCurrentTeamPlayersSeen = {0, 0};
-    legacyMaxTeamPlayersSeen = {0, 0};
-    timeSeconds = 0.0f;
-    bOvertime = false;
     matchSummaryOvertimeSeconds = 0.0f;
-    currentMatch = MatchStats{};
-    roster.clear();
-    matchRoster.clear();
-    preMatchMmrByGuid.clear();
-    matchFinalized = false;
     inGoalReplay = false;
     showMatchSummary = false;
     matchEvents.clear();

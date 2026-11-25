@@ -66,9 +66,7 @@ namespace TelemetryReducerDetail {
             MatchJournalEvent event;
             event.type = type;
             event.source = source;
-            event.observedAtUnixMs = std::chrono::duration_cast<std::chrono::milliseconds>(
-                                         std::chrono::system_clock::now().time_since_epoch())
-                                         .count();
+            event.observedAtUnixMs = state.currentReducerNowUnixMs;
             event.actorId = actorId;
             event.actorName = actorName;
             event.secondaryId = secondaryId;
@@ -99,7 +97,7 @@ namespace TelemetryReducerDetail {
     void HandleStatfeed(MatchState& state,
                         const TelemetryEvents::StatfeedEvent& ev,
                         const ReducerContext& ctx) {
-        const int64_t nowMs = ctx.nowMs > 0 ? ctx.nowMs : SteadyNowMs();
+        const int64_t nowMs = ctx.nowMs;
         if (state.inReplay) return;
         const std::string& feedEvent = ev.eventName;
         if (feedEvent.empty()) return;
@@ -166,16 +164,14 @@ namespace TelemetryReducerDetail {
 
     void HandleGoalScored(MatchState& state,
                           const TelemetryEvents::GoalScoredEvent& ev,
-                          const ReducerContext& ctx,
-                          SideEffects& effects) {
+                          const ReducerContext& ctx, SideEffects& effects) {
         // Skipped replays can deliver the replay-end echo outside replay state; it is not a new goal.
         if (ev.isEcho) return;
         if (state.inReplay) return;
-        const int64_t nowMs = ctx.nowMs > 0 ? ctx.nowMs : SteadyNowMs();
-        if (AcceptsUiMatchEvent(state, ev.matchGuid, nowMs, effects)) {
+        const int64_t nowMs = ctx.nowMs;
+        if (AcceptsUiMatchEvent(state, ev.matchGuid, nowMs)) {
             state.lastGoalMs = nowMs;
             state.countdownSeenThisRound = false;
-            effects.uiUpdate = UiStateUpdate{.lastGoalMs = nowMs};
         }
 
         const std::string& goalGuid = ev.matchGuid;
@@ -270,7 +266,7 @@ namespace TelemetryReducerDetail {
     void HandleCrossbarHit(MatchState& state,
                            const TelemetryEvents::CrossbarHitEvent& ev,
                            const ReducerContext& ctx) {
-        const int64_t nowMs = ctx.nowMs > 0 ? ctx.nowMs : SteadyNowMs();
+        const int64_t nowMs = ctx.nowMs;
         const std::string toucherId = ResolveRosterPlayerId(state, ev.lastTouch);
         const bool isToucherSelf =
             !toucherId.empty() ? IsSelfById(state, toucherId) : IsSelf(state, ev.lastTouch.name);

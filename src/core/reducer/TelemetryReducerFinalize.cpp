@@ -139,7 +139,7 @@ namespace TelemetryReducerDetail {
             state.matchSummaryMyTeam = match.myTeam;
             state.matchSummaryWinnerTeam = winnerTeam;
             state.matchSummaryOvertimeSeconds = match.overtimeSeconds;
-            const int64_t nowMs = ctx.nowMs > 0 ? ctx.nowMs : SteadyNowMs();
+            const int64_t nowMs = ctx.nowMs;
             if (state.lastMatchEndMs <= 0) {
                 state.lastMatchEndMs = nowMs;
             }
@@ -150,11 +150,7 @@ namespace TelemetryReducerDetail {
             const int64_t summaryStartMs =
                 (podiumMs > 0 && (matchStartMs <= 0 || podiumMs >= matchStartMs)) ? podiumMs : nowMs;
             state.matchSummaryStartMs = summaryStartMs;
-            effects.uiUpdate = UiStateUpdate{
-                .lastMatchEndMs = state.lastMatchEndMs,
-                .inGoalReplay = false,
-                .showMatchSummary = true,
-                .matchSummaryStartMs = summaryStartMs};
+            effects.uiUpdate = UiStateUpdate{.showMatchSummary = true};
         }
 
         if (!decision.shouldPersist) {
@@ -222,9 +218,7 @@ namespace TelemetryReducerDetail {
 
         MatchSaveSnapshot snapshot = TelemetryReducer::BuildMatchSaveSnapshot(match, winnerTeam, decision);
         snapshot.roster = std::move(match.roster);
-        snapshot.localMmrNeedsReconciliation =
-            hasLocalRefresh && (ctx.config.enable_mmr_tracking ||
-                                (ctx.config.custom_api_enabled && !ctx.config.account_refresh_token.empty()));
+        snapshot.localMmrNeedsReconciliation = hasLocalRefresh && ctx.config.ShouldReconcileMmr();
 
         effects.saveMatch = true;
         effects.saveSnapshot = std::move(snapshot);
@@ -283,7 +277,7 @@ namespace TelemetryReducerDetail {
             return;
         }
 
-        const int64_t nowMs = ctx.nowMs > 0 ? ctx.nowMs : SteadyNowMs();
+        const int64_t nowMs = ctx.nowMs;
         state.inGoalReplay = false;
         state.lastMatchEndMs = nowMs;
         state.countdownSeenThisRound = false;
@@ -406,9 +400,7 @@ namespace TelemetryReducerDetail {
                             MatchSaveSnapshot provisional =
                                 TelemetryReducer::BuildMatchSaveSnapshot(pendingMatch, provisionalWinner, decision);
                             provisional.roster = pendingMatch.roster;
-                            provisional.localMmrNeedsReconciliation =
-                                ctx.config.enable_mmr_tracking ||
-                                (ctx.config.custom_api_enabled && !ctx.config.account_refresh_token.empty());
+                            provisional.localMmrNeedsReconciliation = ctx.config.ShouldReconcileMmr();
                             provisional.resultPending = true;
                             effects.provisionalSaveSnapshot = std::move(provisional);
                         }
@@ -460,12 +452,8 @@ MatchSaveSnapshot TelemetryReducer::BuildMatchSaveSnapshot(
     int winnerTeam,
     const MatchEndDecision& decision) {
     MatchSaveSnapshot snapshot;
-    snapshot.arenaName = match.arenaName;
-    snapshot.arenaAsset = match.arenaAsset;
-    snapshot.matchGuid = match.matchGuid;
-    snapshot.playlistId = match.playlistId;
+    static_cast<MatchSaveData&>(snapshot) = match;
     snapshot.gamemode = match.mode;
-    snapshot.myTeam = match.myTeam;
     snapshot.winnerTeam = winnerTeam;
     snapshot.validResult = decision.shouldPersist;
     snapshot.voidReason = decision.voidReason;
@@ -477,14 +465,7 @@ MatchSaveSnapshot TelemetryReducer::BuildMatchSaveSnapshot(
             : (match.legacyMaxPlayersSeen > 0
                    ? match.legacyMaxPlayersSeen
                    : match.legacyMaxTeamPlayersSeen[0] + match.legacyMaxTeamPlayersSeen[1]);
-    snapshot.rosterMmrCategory = match.rosterMmrCategory;
-    snapshot.myPrimaryId = match.myPrimaryId;
-    snapshot.endedAtUnixMs = match.endedAtUnixMs;
-    snapshot.events = match.events;
-    snapshot.analytics = match.analytics;
     snapshot.localStats = match.stats;
-    snapshot.durationSeconds = match.durationSeconds;
-    snapshot.overtimeSeconds = match.overtimeSeconds;
     return snapshot;
 }
 

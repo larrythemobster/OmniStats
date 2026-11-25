@@ -39,9 +39,6 @@ void EffectRouter::Route(SideEffects&& effects,
             sessionState->ui.showOverlay = false;
             sessionState->ui.showMatchSummary = false;
         }
-        if (ui.resetTimestamps) {
-            sessionState->ui.ResetMatchTimestamps(ui.resetMatchStartMs);
-        }
         if (ui.lastMatchStartMs) sessionState->ui.lastMatchStartMs.store(*ui.lastMatchStartMs, std::memory_order_relaxed);
         if (ui.firstCountdownOfMatchMs) sessionState->ui.firstCountdownOfMatchMs.store(*ui.firstCountdownOfMatchMs, std::memory_order_relaxed);
         if (ui.lastCountdownMs) sessionState->ui.lastCountdownMs.store(*ui.lastCountdownMs, std::memory_order_relaxed);

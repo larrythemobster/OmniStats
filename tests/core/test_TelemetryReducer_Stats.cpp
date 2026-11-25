@@ -6,6 +6,7 @@
 #include "core/effects/EffectRouter.hpp"
 #include "network/telemetry/TelemetryEvents.hpp"
 #include <nlohmann/json.hpp>
+#include "core/state/LiveMatchSnapshot.hpp"
 
 namespace {
     struct TestState : public SessionState {
@@ -1129,4 +1130,65 @@ TEST(TelemetryReducerStats, GoalReplayEchoOutsideReplayIsNotASecondGoal) {
     ASSERT_EQ(end.saveSnapshot.analytics->goals.size(), 1u);
     ASSERT_TRUE(end.saveSnapshot.analytics->goals[0].location.has_value());
     EXPECT_FLOAT_EQ(end.saveSnapshot.analytics->goals[0].location->y, 5200.0f);
+}
+
+#undef TelemetryReducer
+#undef SessionState
+
+TEST(MatchStateRestructuring, ResetKeepsLifecycleAndSessionData) {
+    MatchState state;
+    state.matchGuid = "active-guid";
+    state.activeMatchGeneration = 7;
+    state.myPrimaryId = "local";
+    state.sessionTotals.wins = 3;
+    state.pendingDestroyedMatches.emplace("pending", CapturedMatch{});
+    state.finalizedMatchGuids.insert("finalized");
+    state.missingGuidAssociationBlockedByReconnect = true;
+    state.matchSummaryStartMs = 123;
+    state.score = {2, 1};
+    state.roster["local"] = PlayerData{};
+    state.lastGoalMs = 99;
+
+    state.ResetMatch("new arena");
+    LiveMatchSnapshot snapshot(state);
+    EXPECT_TRUE(snapshot.inMatch);
+    EXPECT_EQ(snapshot.arenaName, "new arena");
+    EXPECT_EQ(snapshot.score[0], 0);
+    EXPECT_TRUE(snapshot.roster.empty());
+    EXPECT_EQ(snapshot.lastGoalMs, 0);
+    EXPECT_EQ(snapshot.matchSummaryStartMs, 123);
+    EXPECT_EQ(snapshot.matchGuid, "active-guid");
+    EXPECT_EQ(snapshot.activeMatchGeneration, 7);
+    EXPECT_EQ(snapshot.sessionTotals.wins, 3);
+    EXPECT_TRUE(state.pendingDestroyedMatches.contains("pending"));
+    EXPECT_TRUE(state.finalizedMatchGuids.contains("finalized"));
+    EXPECT_TRUE(state.missingGuidAssociationBlockedByReconnect);
+
+    state.ClearActiveMatchOnDisconnect();
+    EXPECT_FALSE(state.inMatch);
+    EXPECT_TRUE(state.matchGuid.empty());
+    EXPECT_EQ(state.myPrimaryId, "local");
+    EXPECT_EQ(state.sessionTotals.wins, 3);
+    EXPECT_TRUE(state.pendingDestroyedMatches.contains("pending"));
+    EXPECT_TRUE(state.finalizedMatchGuids.contains("finalized"));
+    EXPECT_TRUE(state.missingGuidAssociationBlockedByReconnect);
+}
+
+TEST(MatchStateRestructuring, JournalAndCaptureUseInjectedUnixTime) {
+    MatchState state;
+    state.inMatch = true;
+    state.matchGuid = "clock-test";
+    ReducerContext context;
+    context.nowMs = 1000;
+    context.nowSeconds = 1.0;
+    context.nowUnix = 1700000000;
+    context.nowUnixMs = 1700000000123LL;
+    const auto event = TelemetryEvents::ParseEventFromJson(
+        std::string(Constants::EVT_STATFEED),
+        nlohmann::json{{"MatchGuid", "clock-test"}, {"EventName", "Shot"}}.dump());
+    ASSERT_TRUE(event.has_value());
+    ::TelemetryReducer::ReduceInPlace(state, *event, context);
+    ASSERT_EQ(state.matchEvents.size(), 1u);
+    EXPECT_EQ(state.matchEvents.front().observedAtUnixMs, context.nowUnixMs);
+    EXPECT_EQ(::TelemetryReducer::CaptureMatch(state).endedAtUnixMs, context.nowUnixMs);
 }

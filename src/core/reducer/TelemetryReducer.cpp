@@ -14,14 +14,22 @@
 using namespace TelemetryReducerDetail;
 
 ReducerContext MakeReducerContext(const UIState& ui) {
+    return MakeReducerContext(ui, ReducerSettings(Config::Read()));
+}
+
+ReducerContext MakeReducerContext(const UIState& ui, const ReducerSettings& settings) {
     const auto steadyNow = std::chrono::steady_clock::now();
+    const auto systemNow = std::chrono::system_clock::now();
+    const int64_t nowUnixMs =
+        std::chrono::duration_cast<std::chrono::milliseconds>(systemNow.time_since_epoch()).count();
     const int64_t nowMs =
         std::chrono::duration_cast<std::chrono::milliseconds>(steadyNow.time_since_epoch()).count();
     return ReducerContext{
         .nowMs = nowMs > 0 ? nowMs : 1,
         .nowSeconds = std::chrono::duration<double>(steadyNow.time_since_epoch()).count(),
-        .nowUnix = static_cast<int64_t>(std::time(nullptr)),
-        .config = Config::Read(),
+        .nowUnix = nowUnixMs / 1000,
+        .nowUnixMs = nowUnixMs,
+        .config = settings,
         .rosterMmrCategory = ui.rosterMmrCategory.load(std::memory_order_relaxed),
         .rankProgressMmrCategory = ui.rankProgressMmrCategory.load(std::memory_order_relaxed),
         .graphMmrCategory = ui.graphMmrCategory.load(std::memory_order_relaxed)};
@@ -29,7 +37,7 @@ ReducerContext MakeReducerContext(const UIState& ui) {
 
 namespace TelemetryReducerDetail {
 
-    bool AcceptsUiMatchEvent(MatchState& state, const std::string& incomingGuid, int64_t nowMs, SideEffects& effects) {
+    bool AcceptsUiMatchEvent(MatchState& state, const std::string& incomingGuid, int64_t nowMs) {
         if (state.nonLiveReplayActive) return false;
         if (!incomingGuid.empty()) {
             if (state.finalizedMatchGuids.count(incomingGuid) > 0 ||
@@ -50,7 +58,6 @@ namespace TelemetryReducerDetail {
                 state.lastPodiumMs = 0;
                 state.inGoalReplay = false;
                 state.countdownSeenThisRound = false;
-                effects.uiUpdate = UiStateUpdate{.resetTimestamps = true, .resetMatchStartMs = nowMs};
             }
             state.uiMatchGuid = incomingGuid;
             return true;
@@ -133,7 +140,11 @@ SideEffects TelemetryReducer::ReduceInPlace(MatchState& state,
                                             const TelemetryEvents::TelemetryEvent& event,
                                             const ReducerContext& context) {
     SideEffects effects;
-    state.currentReducerNowMs = context.nowMs > 0 ? context.nowMs : SteadyNowMs();
+    state.currentReducerNowMs = context.nowMs;
+    state.currentReducerNowUnixMs =
+        context.nowUnixMs != 0 && (context.nowUnix == 0 || context.nowUnixMs / 1000 == context.nowUnix)
+            ? context.nowUnixMs
+            : context.nowUnix * 1000;
 
     std::visit([&](const auto& ev) {
         using T = std::decay_t<decltype(ev)>;
@@ -142,9 +153,8 @@ SideEffects TelemetryReducer::ReduceInPlace(MatchState& state,
             state.nonLiveReplayActive = true;
             state.inReplay = true;
             state.inGoalReplay = false;
-            effects.uiUpdate = UiStateUpdate{.inGoalReplay = false};
         } else if constexpr (std::is_same_v<T, TelemetryEvents::MatchCreatedEvent>) {
-            const int64_t nowMs = context.nowMs > 0 ? context.nowMs : SteadyNowMs();
+            const int64_t nowMs = context.nowMs;
             const std::string incomingGuid = ev.matchGuid;
             const bool wasInMatch = state.inMatch;
             const bool wasFinalized = state.matchFinalized;
@@ -203,10 +213,7 @@ SideEffects TelemetryReducer::ReduceInPlace(MatchState& state,
                 state.roundActive = false;
                 state.autoSwitchedPlaylistCategory = MmrCategory::Best;
                 state.followedGraphPlaylistCategory = MmrCategory::Best;
-                state.matchEvents.clear();
-                state.analytics = MatchAnalyticsTracker{};
-                state.eventNativeKeys.clear();
-                state.lastEventSignature.clear();
+                static_cast<MatchLedger&>(state) = {};
                 state.lastPlayerBoost.clear();
                 state.boostRespawnPending.clear();
                 state.lastPlayerSeenMs.clear();
@@ -234,19 +241,14 @@ SideEffects TelemetryReducer::ReduceInPlace(MatchState& state,
                     state.lastPodiumMs = 0;
                     state.inGoalReplay = false;
                     state.countdownSeenThisRound = false;
-                    effects.uiUpdate = UiStateUpdate{.resetTimestamps = true, .resetMatchStartMs = nowMs};
                 } else {
                     state.lastMatchStartMs = nowMs;
                     state.inGoalReplay = false;
-                    effects.uiUpdate = UiStateUpdate{.lastMatchStartMs = nowMs, .inGoalReplay = false};
                 }
                 state.uiMatchGuid = incomingGuid;
             } else {
                 if (state.lastMatchStartMs <= 0) {
                     state.lastMatchStartMs = nowMs;
-                    effects.uiUpdate = UiStateUpdate{.lastMatchStartMs = nowMs, .inGoalReplay = false};
-                } else {
-                    effects.uiUpdate = UiStateUpdate{.inGoalReplay = false};
                 }
                 state.inGoalReplay = false;
             }
@@ -265,29 +267,23 @@ SideEffects TelemetryReducer::ReduceInPlace(MatchState& state,
                 effects.discordSnapshot = BuildDiscordSnapshot(state);
             }
         } else if constexpr (std::is_same_v<T, TelemetryEvents::MatchInitializedEvent>) {
-            const int64_t nowMs = context.nowMs > 0 ? context.nowMs : SteadyNowMs();
-            if (AcceptsUiMatchEvent(state, ev.matchGuid, nowMs, effects)) {
-                UiStateUpdate upd;
+            const int64_t nowMs = context.nowMs;
+            if (AcceptsUiMatchEvent(state, ev.matchGuid, nowMs)) {
                 if (state.lastMatchStartMs <= 0) {
                     state.lastMatchStartMs = nowMs;
-                    upd.lastMatchStartMs = nowMs;
                 }
                 if (state.firstCountdownOfMatchMs <= 0) {
                     state.firstCountdownOfMatchMs = nowMs;
-                    upd.firstCountdownOfMatchMs = nowMs;
                 }
                 if (state.lastCountdownMs <= 0) {
                     state.lastCountdownMs = nowMs;
-                    upd.lastCountdownMs = nowMs;
                 }
                 state.inGoalReplay = false;
-                upd.inGoalReplay = false;
                 state.countdownSeenThisRound = true;
-                effects.uiUpdate = upd;
             }
         } else if constexpr (std::is_same_v<T, TelemetryEvents::CountdownBeginEvent>) {
-            const int64_t nowMs = context.nowMs > 0 ? context.nowMs : SteadyNowMs();
-            if (AcceptsUiMatchEvent(state, ev.matchGuid, nowMs, effects)) {
+            const int64_t nowMs = context.nowMs;
+            if (AcceptsUiMatchEvent(state, ev.matchGuid, nowMs)) {
                 if (state.lastMatchStartMs <= 0) state.lastMatchStartMs = nowMs;
                 if (state.firstCountdownOfMatchMs <= 0) state.firstCountdownOfMatchMs = nowMs;
                 state.lastCountdownMs = nowMs;
@@ -298,8 +294,8 @@ SideEffects TelemetryReducer::ReduceInPlace(MatchState& state,
             }
             if (AcceptsAnalyticsEvent(state, ev.matchGuid)) state.analytics.OnCountdownBegin();
         } else if constexpr (std::is_same_v<T, TelemetryEvents::RoundStartedEvent>) {
-            const int64_t nowMs = context.nowMs > 0 ? context.nowMs : SteadyNowMs();
-            if (AcceptsUiMatchEvent(state, ev.matchGuid, nowMs, effects)) {
+            const int64_t nowMs = context.nowMs;
+            if (AcceptsUiMatchEvent(state, ev.matchGuid, nowMs)) {
                 if (state.lastMatchStartMs <= 0) state.lastMatchStartMs = nowMs;
                 if (state.firstCountdownOfMatchMs <= 0) state.firstCountdownOfMatchMs = nowMs;
                 if (!state.countdownSeenThisRound) state.lastCountdownMs = nowMs;
@@ -315,11 +311,11 @@ SideEffects TelemetryReducer::ReduceInPlace(MatchState& state,
             if (AcceptsAnalyticsEvent(state, ev.matchGuid)) state.analytics.OnRoundStarted(context.nowSeconds);
         } else if constexpr (std::is_same_v<T, TelemetryEvents::MatchPausedEvent>) {
             if (!state.currentPauseStartMs.has_value()) {
-                state.currentPauseStartMs = context.nowMs > 0 ? context.nowMs : SteadyNowMs();
+                state.currentPauseStartMs = context.nowMs;
             }
             if (AcceptsAnalyticsEvent(state, ev.matchGuid)) state.analytics.OnPaused(context.nowSeconds);
         } else if constexpr (std::is_same_v<T, TelemetryEvents::MatchUnpausedEvent>) {
-            const int64_t nowMs = context.nowMs > 0 ? context.nowMs : SteadyNowMs();
+            const int64_t nowMs = context.nowMs;
             if (state.currentPauseStartMs.has_value()) {
                 state.pauseIntervals.push_back({*state.currentPauseStartMs, nowMs});
                 state.currentPauseStartMs.reset();
@@ -342,7 +338,7 @@ SideEffects TelemetryReducer::ReduceInPlace(MatchState& state,
             if (TargetsCurrentActiveMatchUi(state, ev.matchGuid)) {
                 state.inGoalReplay = false;
                 if (state.lastPodiumMs <= 0) {
-                    const int64_t nowMs = context.nowMs > 0 ? context.nowMs : SteadyNowMs();
+                    const int64_t nowMs = context.nowMs;
                     state.lastPodiumMs = nowMs;
                     if (state.showMatchSummary || state.matchFinalized) {
                         state.matchSummaryStartMs = nowMs;

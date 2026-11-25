@@ -58,8 +58,6 @@ struct UiStateUpdate {
     std::optional<MmrCategory> rosterMmrCategory;
     std::optional<MmrCategory> graphMmrCategory;
     std::optional<MmrCategory> rankProgressMmrCategory;
-    bool resetTimestamps = false;
-    int64_t resetMatchStartMs = 0;
     // A new match lifecycle hides the held overlay and the previous match summary.
     bool matchReset = false;
 };

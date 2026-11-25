@@ -15,11 +15,42 @@
 #include "core/state/MatchState.hpp"
 #include "network/telemetry/TelemetryEvents.hpp"
 
+struct ReducerSettings {
+    bool reset_session_on_close = true;
+    bool enable_mmr_tracking = false;
+    bool custom_api_enabled = true;
+    bool has_account_refresh_token = false;
+    bool show_extra_playlists = true;
+    bool auto_switch_mmr_category = true;
+    bool graph_follow_current_playlist = true;
+    bool rank_progress_follow_current_playlist = true;
+    std::string graph_mmr_category = "2v2";
+    std::string rank_progress_mmr_category = "2v2";
+
+    ReducerSettings() = default;
+    ReducerSettings(const ConfigData& config)
+        : reset_session_on_close(config.reset_session_on_close),
+          enable_mmr_tracking(config.enable_mmr_tracking),
+          custom_api_enabled(config.custom_api_enabled),
+          has_account_refresh_token(!config.account_refresh_token.empty()),
+          show_extra_playlists(config.show_extra_playlists),
+          auto_switch_mmr_category(config.auto_switch_mmr_category),
+          graph_follow_current_playlist(config.graph_follow_current_playlist),
+          rank_progress_follow_current_playlist(config.rank_progress_follow_current_playlist),
+          graph_mmr_category(config.graph_mmr_category),
+          rank_progress_mmr_category(config.rank_progress_mmr_category) {}
+
+    bool ShouldReconcileMmr() const {
+        return enable_mmr_tracking || (custom_api_enabled && has_account_refresh_token);
+    }
+};
+
 struct ReducerContext {
     int64_t nowMs = 0;       // Monotonic clock ms (for UI timestamps, interval checks)
     double nowSeconds = 0.0; // Monotonic clock seconds (for analytics play time)
     int64_t nowUnix = 0;     // System clock Unix epoch seconds (for match/session persistence)
-    ConfigData config{};
+    int64_t nowUnixMs = 0;   // System clock Unix epoch milliseconds
+    ReducerSettings config{};
     // Categories currently shown, so following respects user overrides made between events.
     MmrCategory rosterMmrCategory = MmrCategory::Best;
     MmrCategory rankProgressMmrCategory = MmrCategory::TwoVTwo;
@@ -29,6 +60,7 @@ struct ReducerContext {
 struct UIState;
 
 ReducerContext MakeReducerContext(const UIState& ui);
+ReducerContext MakeReducerContext(const UIState& ui, const ReducerSettings& settings);
 
 struct ReducerResult {
     MatchState state;
@@ -83,7 +115,7 @@ class TelemetryReducer {
     };
 
     static CapturedMatch CaptureMatch(const MatchState& state);
-    static MatchEndDecision ClassifyMatchEnd(const CapturedMatch& match, int winnerTeam, const ConfigData& config);
+    static MatchEndDecision ClassifyMatchEnd(const CapturedMatch& match, int winnerTeam, const ReducerSettings& config);
     static MatchSaveSnapshot BuildMatchSaveSnapshot(const CapturedMatch& match, int winnerTeam, const MatchEndDecision& decision);
     static void FinalizeMatch(MatchState& state, int winnerTeam, MatchFinalizeSource source, const ReducerContext& context, SideEffects& effects);
     static bool IsValidEarlyCompetitiveExit(const MatchState& state, std::string& mode, std::string& voidReason);

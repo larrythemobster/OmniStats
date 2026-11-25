@@ -35,7 +35,7 @@ flowchart LR
 
 ## Data pipeline and session lifecycle
 
-`TelemetryParser` emits typed events. `TelemetryReducer::ReduceInPlace` updates match state and analytics, then returns side effects for `EffectRouter` to dispatch to persistence, rank lookup, account tracking, and Discord.
+`TelemetryParser` emits typed events. `TelemetryReducer::ReduceInPlace` updates match state and analytics with an injected event clock, then returns side effects for `EffectRouter` to dispatch to persistence, rank lookup, account tracking, and Discord.
 
 `LiveMatchStore` and `HistoryStore` publish immutable snapshots. UI readers consume those snapshots rather than accessing mutable worker state.
 

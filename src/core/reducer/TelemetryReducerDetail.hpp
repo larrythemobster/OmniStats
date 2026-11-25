@@ -24,14 +24,7 @@ namespace TelemetryReducerDetail {
     std::string FormatPendingMatchHistoryMode(const std::string& mode);
     std::string Lowercase(std::string value);
 
-    inline int64_t SteadyNowMs() {
-        const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(
-                            std::chrono::steady_clock::now().time_since_epoch())
-                            .count();
-        return ms > 0 ? ms : 1;
-    }
-
-    bool AcceptsUiMatchEvent(MatchState& state, const std::string& incomingGuid, int64_t nowMs, SideEffects& effects);
+    bool AcceptsUiMatchEvent(MatchState& state, const std::string& incomingGuid, int64_t nowMs);
     bool TargetsCurrentActiveMatchUi(MatchState& state, const std::string& incomingGuid);
     void RequeueEncounterRecords(MatchState& state, SideEffects& effects);
 

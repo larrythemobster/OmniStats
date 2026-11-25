@@ -63,7 +63,7 @@ CapturedMatch TelemetryReducer::CaptureMatch(const MatchState& state) {
         match.hasPreMatchMmr = true;
     }
 
-    const int64_t nowMs = state.currentReducerNowMs > 0 ? state.currentReducerNowMs : SteadyNowMs();
+    const int64_t nowMs = state.currentReducerNowMs;
     if (state.overtimeStartedAtMs.has_value()) {
         const float rawOt = static_cast<float>(nowMs - *state.overtimeStartedAtMs) / 1000.0f;
         const float pausedOt = state.PausedSecondsWithin(*state.overtimeStartedAtMs, nowMs);
@@ -77,17 +77,14 @@ CapturedMatch TelemetryReducer::CaptureMatch(const MatchState& state) {
             ? (std::max)(0.0f, *state.regulationClockStart - state.regulationClockLatest)
             : 0.0f;
     match.durationSeconds = regulationSeconds > 0.0f ? regulationSeconds + match.overtimeSeconds : 0.0f;
-    match.endedAtUnixMs =
-        std::chrono::duration_cast<std::chrono::milliseconds>(
-            std::chrono::system_clock::now().time_since_epoch())
-            .count();
+    match.endedAtUnixMs = state.currentReducerNowUnixMs;
     return match;
 }
 
 TelemetryReducer::MatchEndDecision TelemetryReducer::ClassifyMatchEnd(
     const CapturedMatch& match,
     int winnerTeam,
-    const ConfigData& config) {
+    const ReducerSettings& config) {
     (void)config;
     MatchEndDecision decision;
 

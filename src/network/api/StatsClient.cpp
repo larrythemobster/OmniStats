@@ -84,16 +84,29 @@ void StatsClient::Stop() {
     if (m_workerThread.joinable()) m_workerThread.join();
 }
 
+ReducerContext StatsClient::MakeContext(bool updateUiConfig) {
+    std::lock_guard<std::mutex> lock(m_reducerSettingsMutex);
+    const uint64_t revision = Config::Revision();
+    if (revision != m_configRevision || (updateUiConfig && revision != m_uiConfigRevision)) {
+        const ConfigData config = Config::Read();
+        if (revision != m_configRevision) {
+            m_reducerSettings = ReducerSettings(config);
+            m_configRevision = revision;
+        }
+        if (updateUiConfig && revision != m_uiConfigRevision) {
+            m_state->ui.ApplyRankProgressConfig(config, false);
+            m_uiConfigRevision = revision;
+        }
+    }
+    return MakeReducerContext(m_state->ui, m_reducerSettings);
+}
+
 void StatsClient::OnEvent(const TelemetryEvents::TelemetryEvent& event) {
     m_disconnectCount = 0;
     m_resetAfterDisconnect = false;
     if (!m_state || !m_state->liveMatch) return;
 
-    if (const uint64_t revision = Config::Revision(); revision != m_configRevision) {
-        m_configRevision = revision;
-        m_state->ui.ApplyRankProgressConfig(Config::Read(), false);
-    }
-    ReducerContext ctx = MakeReducerContext(m_state->ui);
+    ReducerContext ctx = MakeContext(true);
     SideEffects effects = m_state->liveMatch->ApplyEvent(event, ctx);
     EffectRouter::Route(std::move(effects),
                         m_dbManager,
@@ -131,7 +144,7 @@ void StatsClient::HandleLine(const std::string& line) {
 
 void StatsClient::HandleDestroyedMatchConfirmation(const std::string& matchGuid, bool won) {
     if (!m_state || !m_state->liveMatch) return;
-    ReducerContext ctx = MakeReducerContext(m_state->ui);
+    ReducerContext ctx = MakeContext(false);
     SideEffects effects = m_state->liveMatch->ConfirmDestroyedMatch(matchGuid, won, ctx);
     EffectRouter::Route(std::move(effects),
                         m_dbManager,

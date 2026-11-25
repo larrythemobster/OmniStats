@@ -105,7 +105,6 @@ namespace TelemetryReducerDetail {
 
     void PublishUiTimestamps(MatchState& state, SideEffects& effects) {
         UiStateUpdate& ui = effects.uiUpdate ? *effects.uiUpdate : effects.uiUpdate.emplace();
-        ui.resetTimestamps = false;
         if (state.hideOverlayRequested) {
             ui.matchReset = true;
             state.hideOverlayRequested = false;
