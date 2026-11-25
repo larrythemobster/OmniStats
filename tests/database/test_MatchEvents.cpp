@@ -49,7 +49,7 @@ TEST(MatchEvents, RoundTripChronologyNullsAndDuplicateMatch) {
     auto state = std::make_shared<SessionState>();
     DatabaseManager db(state);
     ASSERT_TRUE(db.Initialize(":memory:"));
-    EXPECT_EQ(db.GetSchemaVersion(), 12);
+    EXPECT_EQ(db.GetSchemaVersion(), 13);
     auto snap = MakeMatch();
     auto later = MakeEvent("goal", 2000);
     later.ballSpeed = 112.2;
@@ -110,7 +110,7 @@ TEST(MatchEvents, MigrationFromSevenPreservesMatchHistoryAndNewEventsAcrossResta
     {
         DatabaseManager db(state);
         ASSERT_TRUE(db.Initialize(path));
-        EXPECT_EQ(db.GetSchemaVersion(), 12);
+        EXPECT_EQ(db.GetSchemaVersion(), 13);
         EXPECT_EQ(Count(db.GetRawDb(), "SELECT COUNT(*) FROM Matches;"), 1);
         MatchDetail legacy;
         ASSERT_TRUE(db.GetMatchDetail(1, legacy, "Steam|1"));

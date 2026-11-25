@@ -15,6 +15,12 @@ struct DbMergeResult {
     std::string error;
 };
 
+struct DejaVuImportResult {
+    bool imported = false;
+    int players = 0;
+    std::string error;
+};
+
 enum class TrackedAccountInsertResult {
     Inserted,
     AlreadyExists,

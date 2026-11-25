@@ -639,6 +639,7 @@ namespace database::repository {
             db.Execute("DELETE FROM MatchPlayers;");
             db.Execute("DELETE FROM Matches;");
             if (db.TableExists("Sessions")) db.Execute("DELETE FROM Sessions;");
+            if (db.TableExists("ImportedEncounters")) db.Execute("DELETE FROM ImportedEncounters;");
             if (db.TableExists("ReplayUploads")) db.Execute("UPDATE ReplayUploads SET match_guid = NULL;");
             db.Execute("DELETE FROM sqlite_sequence WHERE name IN ('Matches', 'MatchPlayers', 'Sessions');");
             tx.Commit();

@@ -275,36 +275,51 @@ namespace database::repository {
                                                                                       int64_t excludeMatchId) {
         if (!db.IsOpen() || account.empty()) return std::nullopt;
 
+        // Imported rows are pre-aggregated per playlist, so match rows are reduced to the same 0/1 columns before summing.
         std::string sql = R"(
-        SELECT pid, name,
-               SUM(CASE WHEN against = 0 AND won = 1 THEN 1 ELSE 0 END),
-               SUM(CASE WHEN against = 0 AND won = 0 THEN 1 ELSE 0 END),
-               SUM(CASE WHEN against = 1 AND won = 1 THEN 1 ELSE 0 END),
-               SUM(CASE WHEN against = 1 AND won = 0 THEN 1 ELSE 0 END),
-               MAX(ts)
+        SELECT pid, name, SUM(ww), SUM(wl), SUM(aw), SUM(al), MAX(ts)
         FROM (
-            SELECT p.primary_id AS pid,
-                   p.name AS name,
-                   CASE WHEN MIN(me.team) IN (0, 1) AND MIN(p.team) IN (0, 1)
-                        THEN MIN(p.team) != MIN(me.team)
-                        ELSE MAX(COALESCE(p.is_opponent, 0)) != MIN(COALESCE(me.is_opponent, 0)) END AS against,
-                   CASE WHEN MIN(COALESCE(me.is_opponent, 0)) = 0 THEN m.win ELSE 1 - m.win END AS won,
-                   CAST(strftime('%s', m.timestamp) AS INTEGER) AS ts
-            FROM MatchPlayers p
-            JOIN MatchPlayers me ON me.match_id = p.match_id AND me.primary_id = ?1
-            JOIN Matches m ON m.id = p.match_id
-            WHERE p.primary_id != ?1
-              AND p.primary_id NOT LIKE 'Unknown|%'
-              AND COALESCE(m.result_pending, 0) = 0
-              AND m.win IS NOT NULL
+            SELECT pid, name,
+                   CASE WHEN against = 0 AND won = 1 THEN 1 ELSE 0 END AS ww,
+                   CASE WHEN against = 0 AND won = 0 THEN 1 ELSE 0 END AS wl,
+                   CASE WHEN against = 1 AND won = 1 THEN 1 ELSE 0 END AS aw,
+                   CASE WHEN against = 1 AND won = 0 THEN 1 ELSE 0 END AS al,
+                   ts
+            FROM (
+                SELECT p.primary_id AS pid,
+                       p.name AS name,
+                       CASE WHEN MIN(me.team) IN (0, 1) AND MIN(p.team) IN (0, 1)
+                            THEN MIN(p.team) != MIN(me.team)
+                            ELSE MAX(COALESCE(p.is_opponent, 0)) != MIN(COALESCE(me.is_opponent, 0)) END AS against,
+                       CASE WHEN MIN(COALESCE(me.is_opponent, 0)) = 0 THEN m.win ELSE 1 - m.win END AS won,
+                       CAST(strftime('%s', m.timestamp) AS INTEGER) AS ts
+                FROM MatchPlayers p
+                JOIN MatchPlayers me ON me.match_id = p.match_id AND me.primary_id = ?1
+                JOIN Matches m ON m.id = p.match_id
+                WHERE p.primary_id != ?1
+                  AND p.primary_id NOT LIKE 'Unknown|%'
+                  AND COALESCE(m.result_pending, 0) = 0
+                  AND m.win IS NOT NULL
     )";
         if (!onlyPlayer.empty()) sql += " AND p.primary_id = ?2";
         if (excludeMatchId > 0) sql += " AND m.id != ?3";
         sql += R"(
-            GROUP BY m.id, p.primary_id
+                GROUP BY m.id, p.primary_id
+            )
+    )";
+        if (db.TableExists("ImportedEncounters")) {
+            sql += R"(
+            UNION ALL
+            SELECT primary_id, name, wins_with, losses_with, wins_against, losses_against, last_seen
+            FROM ImportedEncounters
+            WHERE account = ?1 AND primary_id != ?1
+    )";
+            if (!onlyPlayer.empty()) sql += " AND primary_id = ?2";
+        }
+        sql += R"(
         )
         GROUP BY pid
-        ORDER BY COUNT(*) DESC, 7 DESC
+        ORDER BY SUM(ww + wl + aw + al) DESC, 7 DESC
         LIMIT 500;
     )";
 

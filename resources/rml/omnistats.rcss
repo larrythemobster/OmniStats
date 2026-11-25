@@ -755,6 +755,10 @@ button:disabled { color: #686868; background-color: #191919; border-color: #2929
     color: #9da6b3;
     word-break: break-all;
 }
+.prompt-field { display: block; margin-top: 14dp; }
+.prompt-field-label { display: block; font-size: 12.5dp; font-weight: 600; color: #e3e7ee; }
+.prompt-field-help { display: block; margin-top: 2dp; margin-bottom: 7dp; font-size: 11.5dp; color: #8f99a8; }
+.prompt-field select { display: block; width: 100%; font-size: 12.5dp; }
 .prompt-actions { margin-top: 18dp; align-items: center; }
 .settings-window {
     position: absolute;

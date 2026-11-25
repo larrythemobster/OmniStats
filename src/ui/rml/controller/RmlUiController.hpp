@@ -241,7 +241,8 @@ class RmlUiController final : public Rml::EventListener {
     std::string RenderLobbyRanks();
     std::string RenderRankSourceHint(bool interactive) const;
     void OpenStatsApiFixIfNeeded();
-    void RebuildStatsApiPrompt();
+    // prompt-root shows one card: the Stats API prompt, then session expiry, then the DejaVu import offer.
+    void RebuildPromptRoot();
     enum class StatsApiPrompt { Hidden,
                                 Asking,
                                 Repairing,
@@ -249,6 +250,9 @@ class RmlUiController final : public Rml::EventListener {
                                 Failed,
                                 NotFound };
     void SetStatsApiPrompt(StatsApiPrompt state);
+    bool DejaVuPromptReady() const;
+    void CheckDejaVuPrompt();
+    std::string RenderDejaVuPrompt() const;
     std::string RenderMatchSummary();
     std::string RenderSessionView();
     std::string RenderOverlayContainer(const OverlayLayout::ContainerConfig& container, bool editMode);
@@ -432,6 +436,11 @@ class RmlUiController final : public Rml::EventListener {
     StatsApiPrompt m_statsApiPrompt = StatsApiPrompt::Hidden;
     bool m_sessionExpired = false;
     bool m_sessionExpiredPrompt = false;
+    bool m_dejaVuPrompt = false;
+    int m_dejaVuPlayers = 0;
+    std::string m_dejaVuPath;
+    std::string m_dejaVuAccount;
+    std::vector<RmlUiDetail::SelectOption> m_dejaVuAccounts;
     bool m_pointerPressed = false;
     std::string m_pendingBallchasingToken;
     std::string m_statsApiPathError;

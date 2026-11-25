@@ -383,6 +383,21 @@ namespace database::repository {
     );
 )";
 
+        constexpr const char* kMigrationV13Sql = R"(
+    CREATE TABLE IF NOT EXISTS ImportedEncounters (
+        account TEXT NOT NULL,
+        primary_id TEXT NOT NULL,
+        playlist_id INTEGER NOT NULL,
+        name TEXT NOT NULL,
+        wins_with INTEGER NOT NULL DEFAULT 0,
+        losses_with INTEGER NOT NULL DEFAULT 0,
+        wins_against INTEGER NOT NULL DEFAULT 0,
+        losses_against INTEGER NOT NULL DEFAULT 0,
+        last_seen INTEGER NOT NULL DEFAULT 0,
+        PRIMARY KEY(account, primary_id, playlist_id)
+    );
+)";
+
         const std::vector<MigrationStep> kMigrations = {
             {1, kMigrationV1Sql, ApplyMigrationV1},
             {2, kMigrationV2Sql},
@@ -396,6 +411,7 @@ namespace database::repository {
             {10, kMigrationV10Sql},
             {11, kMigrationV11Sql},
             {12, kMigrationV12Sql},
+            {13, kMigrationV13Sql},
         };
 
     } // namespace

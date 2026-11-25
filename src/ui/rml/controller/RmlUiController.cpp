@@ -361,6 +361,7 @@ void RmlUiController::Update(const ConfigData& config, bool configChanged, uint6
     }
     if (scaleChanged) SetDpiScale(m_dpiScale);
     PublishBackgroundTaskCompletion();
+    CheckDejaVuPrompt();
     if (themeChanged) {
         UpdateThemeProperties();
         m_themeEditor.RefreshThemeEditorControls();
@@ -552,13 +553,13 @@ void RmlUiController::RebuildVisibleUi(bool force, bool configChanged) {
             if (m_accountClient && m_accountClient->ConsumeSignedOutNotification(signedOutReason)) {
                 m_sessionExpired = true;
                 m_sessionExpiredPrompt = true;
-                RebuildStatsApiPrompt();
+                RebuildPromptRoot();
                 m_renderDirty = true;
             } else if (m_sessionExpired && (accountStatus.state == AccountAuthState::SignedIn ||
                                             accountStatus.state == AccountAuthState::AwaitingApproval)) {
                 m_sessionExpired = false;
                 m_sessionExpiredPrompt = false;
-                RebuildStatsApiPrompt();
+                RebuildPromptRoot();
                 m_renderDirty = true;
             }
             if (m_onboarding.IsVisible()) RefreshOnboarding();

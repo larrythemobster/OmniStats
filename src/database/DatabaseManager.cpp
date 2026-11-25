@@ -5,6 +5,7 @@
 #include "database/repository/HistoryRepository.hpp"
 #include "database/repository/MatchRepository.hpp"
 #include "database/repository/Migrations.hpp"
+#include "database/repository/DejaVuImporter.hpp"
 #include "database/repository/PlayerNotesRepository.hpp"
 #include "database/repository/ReplayRepository.hpp"
 #include "database/repository/SeasonRepository.hpp"
@@ -567,6 +568,71 @@ DbMergeResult DatabaseManager::MergeDatabase(const std::string& sourceDbPath) {
         return DbMergeResult{.success = false, .error = "Database is not open."};
     }
     return repository::TransferService::MergeDatabase(m_db, sourceDbPath, m_dbPath);
+}
+
+int DatabaseManager::CountDejaVuOffer(const std::filesystem::path& playerCounterPath) {
+    std::error_code ec;
+    if (playerCounterPath.empty() || !std::filesystem::is_regular_file(playerCounterPath, ec)) return 0;
+    {
+        auto read = ReadConnection();
+        if (!read.Get().IsOpen() || repository::DejaVuImporter::Answered(read.Get())) return 0;
+    }
+    std::string error;
+    const auto rows = repository::DejaVuImporter::LoadFile(playerCounterPath, error);
+    if (!rows) {
+        std::cerr << "[Database] Ignoring DejaVu history: " << error << "\n";
+        return 0;
+    }
+    return repository::DejaVuImporter::CountPlayers(*rows);
+}
+
+void DatabaseManager::AsyncOfferDejaVuImport(std::filesystem::path playerCounterPath, std::vector<std::string> localAccounts) {
+    if (!m_state) return;
+    (void)EnqueueDbJob([this, path = std::move(playerCounterPath), ids = std::move(localAccounts)]() {
+        const int players = CountDejaVuOffer(path);
+        if (players <= 0 || !m_state) return;
+        std::vector<std::pair<std::string, std::string>> accounts;
+        for (const auto& id : ids) {
+            if (id.empty() || id.rfind("Unknown|", 0) == 0) continue;
+            if (std::any_of(accounts.begin(), accounts.end(), [&](const auto& account) { return account.first == id; })) continue;
+            if (auto name = FindLatestPlayerName(id)) accounts.emplace_back(id, std::move(*name));
+        }
+        std::lock_guard lock(m_state->ui.dejaVuMutex);
+        m_state->ui.dejaVuPath = path.string();
+        m_state->ui.dejaVuAccounts = std::move(accounts);
+        m_state->ui.dejaVuPlayers.store(players);
+    });
+}
+
+DejaVuImportResult DatabaseManager::ImportDejaVuHistory(const std::filesystem::path& playerCounterPath, const std::string& account) {
+    DejaVuImportResult result;
+    const auto rows = repository::DejaVuImporter::LoadFile(playerCounterPath, result.error);
+    if (!rows) return result;
+
+    auto lock = LockWriter();
+    if (repository::DejaVuImporter::Answered(m_db)) {
+        result.error = "DejaVu history was already imported or declined.";
+        return result;
+    }
+    if (!repository::DejaVuImporter::Import(m_db, account, *rows, result.error)) return result;
+    result.imported = true;
+    result.players = repository::DejaVuImporter::CountPlayers(*rows);
+    return result;
+}
+
+bool DatabaseManager::DeclineDejaVuImport(std::string& error) {
+    auto lock = LockWriter();
+    return repository::DejaVuImporter::Decline(m_db, error);
+}
+
+void DatabaseManager::AsyncDeclineDejaVuImport() {
+    if (!EnqueueDbJob([this]() {
+            std::string error;
+            if (!DeclineDejaVuImport(error)) std::cerr << "[Database] Failed to save DejaVu answer: " << error << "\n";
+        },
+                      DbJobPriority::Critical)) {
+        std::cerr << "[Database] Failed to enqueue DejaVu answer.\n";
+    }
 }
 
 std::vector<PlayerStatRow> DatabaseManager::GetPlayerStatSeries(const std::string& primaryId,

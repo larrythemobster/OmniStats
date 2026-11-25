@@ -6,6 +6,7 @@
 #include "core/state/SessionState.hpp"
 #include "core/tournaments/TournamentSchedule.hpp"
 #include "database/DatabaseManager.hpp"
+#include "database/repository/DejaVuImporter.hpp"
 #include "network/DiscordManager.hpp"
 #include "network/ExternalUpdaterLauncher.hpp"
 #include "network/api/AccountClient.hpp"
@@ -119,6 +120,12 @@ int App::Run() {
     if (m_dbManager->SchemaUpgradeIncomplete()) {
         std::cerr << "[Database] Schema upgrade incomplete; running on the older schema until the next launch retries it.\n";
         m_state->ui.databaseUpgradeIncomplete.store(true);
+    }
+    {
+        const ConfigData conf = Config::Read();
+        std::vector<std::string> localAccounts = conf.known_primary_ids;
+        localAccounts.insert(localAccounts.begin(), conf.last_primary_id);
+        m_dbManager->AsyncOfferDejaVuImport(database::repository::DejaVuImporter::DefaultPlayerCounterPath(), std::move(localAccounts));
     }
 
     m_remoteConfig = std::make_shared<RemoteConfig>();

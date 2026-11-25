@@ -3,6 +3,7 @@
 
 #include <algorithm>
 #include <filesystem>
+#include <fstream>
 #include <memory>
 #include <string>
 #include <vector>
@@ -159,6 +160,114 @@ TEST_F(EncounterRecordsTest, PeopleListAgreesWithPerPlayerLookups) {
     const auto renamed = std::find_if(people.begin(), people.end(), [&](const PersonRecord& p) { return p.primaryId == a; });
     ASSERT_NE(renamed, people.end());
     EXPECT_EQ(renamed->name, "A-renamed");
+}
+
+namespace {
+    void WriteFile(const std::filesystem::path& path, const std::string& contents) {
+        std::ofstream out(path, std::ios::binary | std::ios::trunc);
+        out << contents;
+    }
+
+    constexpr const char* kDejaVuJson = R"({
+        "players": {
+            "0012fd50f2a34c17aa359309f782ef99": {
+                "metCount": 9, "name": "Mate",
+                "playlistData": {
+                    "11": {"records": {"with": {"wins": 3, "losses": 1}}},
+                    "2": {"records": {"against": {"wins": 1, "losses": 2}}},
+                    "6": {"records": {"against": {"wins": 5, "losses": 5}}}
+                },
+                "timeMet": "Sun Dec  3 23:29:15 2023\n", "updatedAt": "Fri Oct  3 21:23:35 2025\n"
+            },
+            "76561198000000002": {"name": "SteamRival", "playlistData": {"13": {"records": {"against": {"wins": 0, "losses": 1}}}}},
+            "2535421607154237": {"name": "XboxRival", "playlistData": {"10": {"records": {"against": {"wins": 1, "losses": 0}}}}},
+            "1000769701497904841": {"name": "PsnMate", "playlistData": {"3": {"records": {"with": {"wins": 2, "losses": 0}}}}},
+            "000d1acaa9ff454fa06ff4d15a07ca42": {"metCount": 1, "name": "NoGames", "timeMet": "Thu Jan 16 22:22:07 2025\n"}
+        }
+    })";
+}
+
+TEST_F(EncounterRecordsTest, DejaVuRecordsAddToTheChosenAccountOnly) {
+    TempDirectory dir;
+    const auto file = dir.path / "player_counter.json";
+    WriteFile(file, kDejaVuJson);
+
+    const std::string mate = "Epic|0012fd50f2a34c17aa359309f782ef99|0";
+    Save("after", kMe, 0, {{kMe, "Me", 0}, {mate, "Mate", 0}});
+
+    EXPECT_EQ(db->CountDejaVuOffer(file), 4);
+    const auto result = db->ImportDejaVuHistory(file, kMe);
+    ASSERT_TRUE(result.imported) << result.error;
+    EXPECT_EQ(result.players, 4);
+
+    // Private-match records (playlist 6) are skipped like OmniStats skips private matches.
+    const auto m = Record(mate);
+    EXPECT_EQ(m.winsWith, 4);
+    EXPECT_EQ(m.lossesWith, 1);
+    EXPECT_EQ(m.winsAgainst, 1);
+    EXPECT_EQ(m.lossesAgainst, 2);
+
+    EXPECT_EQ(Record("Steam|76561198000000002|0").lossesAgainst, 1);
+    EXPECT_EQ(Record("XboxOne|2535421607154237|0").winsAgainst, 1);
+    EXPECT_EQ(Record("PS4|1000769701497904841|0").winsWith, 2);
+    EXPECT_EQ(Record("Epic|000d1acaa9ff454fa06ff4d15a07ca42|0").GamesWith(), 0);
+
+    std::vector<PersonRecord> people;
+    db->GetPeopleRecords(kMe, people);
+    ASSERT_EQ(people.size(), 4u);
+    EXPECT_EQ(people.front().primaryId, mate);
+    EXPECT_EQ(people.front().GamesWith() + people.front().GamesAgainst(), 8);
+
+    EXPECT_EQ(Record(mate, kMyAlt).GamesWith() + Record(mate, kMyAlt).GamesAgainst(), 0);
+    db->GetPeopleRecords(kMyAlt, people);
+    EXPECT_TRUE(people.empty());
+}
+
+TEST_F(EncounterRecordsTest, DejaVuIsOfferedOnceUntilImported) {
+    TempDirectory dir;
+    const auto file = dir.path / "player_counter.json";
+    WriteFile(file, kDejaVuJson);
+    const std::string steam = "Steam|76561198000000002|0";
+
+    ASSERT_TRUE(db->ImportDejaVuHistory(file, kMe).imported);
+    EXPECT_EQ(db->CountDejaVuOffer(file), 0);
+    const auto again = db->ImportDejaVuHistory(file, kMyAlt);
+    EXPECT_FALSE(again.imported);
+    EXPECT_FALSE(again.error.empty());
+    EXPECT_EQ(Record(steam).lossesAgainst, 1);
+    EXPECT_EQ(Record(steam, kMyAlt).GamesAgainst(), 0);
+}
+
+TEST_F(EncounterRecordsTest, DeclinedDejaVuIsNotOfferedOrImported) {
+    TempDirectory dir;
+    const auto file = dir.path / "player_counter.json";
+    WriteFile(file, kDejaVuJson);
+
+    std::string error;
+    ASSERT_TRUE(db->DeclineDejaVuImport(error)) << error;
+    EXPECT_EQ(db->CountDejaVuOffer(file), 0);
+    EXPECT_FALSE(db->ImportDejaVuHistory(file, kMe).imported);
+    EXPECT_EQ(Record("Steam|76561198000000002|0").GamesAgainst(), 0);
+}
+
+TEST_F(EncounterRecordsTest, BrokenDejaVuFilesAreNotOfferedAndHistoryDeleteClearsImports) {
+    TempDirectory dir;
+    const auto file = dir.path / "player_counter.json";
+    EXPECT_EQ(db->CountDejaVuOffer(file), 0);
+
+    WriteFile(file, "{\"players\": [");
+    EXPECT_EQ(db->CountDejaVuOffer(file), 0);
+    const auto broken = db->ImportDejaVuHistory(file, kMe);
+    EXPECT_FALSE(broken.imported);
+    EXPECT_FALSE(broken.error.empty());
+
+    WriteFile(file, kDejaVuJson);
+    EXPECT_EQ(db->CountDejaVuOffer(file), 4);
+    ASSERT_TRUE(db->ImportDejaVuHistory(file, kMe).imported);
+    std::string error;
+    ASSERT_TRUE(db->DeleteLocalMatchHistory(error)) << error;
+    EXPECT_EQ(Record("Steam|76561198000000002|0").GamesAgainst(), 0);
+    EXPECT_EQ(db->CountDejaVuOffer(file), 0);
 }
 
 TEST(EncounterRecordsMigrationTest, RecoversBothRelationshipsFromVersion1History) {

@@ -13,6 +13,7 @@ class TelemetryManager;
 #include <condition_variable>
 #include <cstdint>
 #include <deque>
+#include <filesystem>
 #include <functional>
 #include <map>
 #include <memory>
@@ -82,6 +83,13 @@ class DatabaseManager {
     bool ExportLocalData(std::string& exportPath, std::string& error);
     bool DeleteLocalMatchHistory(std::string& error);
     DbMergeResult MergeDatabase(const std::string& sourceDbPath);
+    // BakkesMod DejaVu history is offered once per install and attributed to one local account.
+    int CountDejaVuOffer(const std::filesystem::path& playerCounterPath);
+    // Names come from match history, so only local accounts that have played on this PC are offered.
+    void AsyncOfferDejaVuImport(std::filesystem::path playerCounterPath, std::vector<std::string> localAccounts);
+    DejaVuImportResult ImportDejaVuHistory(const std::filesystem::path& playerCounterPath, const std::string& account);
+    bool DeclineDejaVuImport(std::string& error);
+    void AsyncDeclineDejaVuImport();
 
     std::vector<PlayerStatRow> GetPlayerStatSeries(const std::string& primaryId,
                                                    const std::string& playlistFilter = "",

@@ -489,6 +489,10 @@ void RmlUiController::HandleChange(Rml::Element* target, Rml::Event& event) {
         SelectIdentity(value);
         return;
     }
+    if (key == "dejavu_account") {
+        m_dejaVuAccount = value;
+        return;
+    }
 
     if (key == "auto_upload_replays" && checked && !m_config.ballchasing_upload_notice_accepted) {
         m_confirmReplayUploads = true;

@@ -44,7 +44,7 @@ class TrackedAccountsDbTest : public ::testing::Test {
 };
 
 TEST_F(TrackedAccountsDbTest, FreshDbMigratesToLatestWithTrackedAccountTables) {
-    EXPECT_EQ(dbManager->GetSchemaVersion(), 12);
+    EXPECT_EQ(dbManager->GetSchemaVersion(), 13);
     EXPECT_EQ(QueryIntScalar(dbManager->GetRawDb(), "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='TrackedAccounts';"), 1);
     EXPECT_EQ(QueryIntScalar(dbManager->GetRawDb(), "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='TrackedAccountRanks';"), 1);
     EXPECT_EQ(QueryIntScalar(dbManager->GetRawDb(), "SELECT COUNT(*) FROM sqlite_master WHERE type='index' AND name='idx_tracked_accounts_sort_order_created_at';"), 1);
@@ -89,7 +89,7 @@ TEST_F(TrackedAccountsDbTest, MigrationFromV4PreservesExistingDataAndCreatesTabl
     {
         auto db2 = std::make_shared<DatabaseManager>(sessionState);
         ASSERT_TRUE(db2->Initialize(path));
-        EXPECT_EQ(db2->GetSchemaVersion(), 12);
+        EXPECT_EQ(db2->GetSchemaVersion(), 13);
         EXPECT_EQ(QueryIntScalar(db2->GetRawDb(), "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='TrackedAccounts';"), 1);
         EXPECT_EQ(QueryIntScalar(db2->GetRawDb(), "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='TrackedAccountRanks';"), 1);
         EXPECT_EQ(QueryIntScalar(db2->GetRawDb(), "SELECT COUNT(*) FROM Matches WHERE match_guid = 'guid_mig_v4';"), 1);

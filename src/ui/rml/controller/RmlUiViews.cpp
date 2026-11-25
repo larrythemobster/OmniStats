@@ -8,7 +8,8 @@ bool RmlUiController::WantsAttention() const {
     // and the host skips Update() while the window is hidden, so the pending
     // flag itself has to keep the window drawn.
     return m_insights.IsVisible() || m_history.IsVisible() || m_accounts.IsVisible() || m_playerNote.IsVisible() || m_onboarding.IsVisible() ||
-           m_accountPromptPending || m_statsApiPrompt != StatsApiPrompt::Hidden || m_sessionExpiredPrompt ||
+           m_accountPromptPending || m_statsApiPrompt != StatsApiPrompt::Hidden || m_sessionExpiredPrompt || m_dejaVuPrompt ||
+           DejaVuPromptReady() ||
            (m_state && m_state->ui.showSessionRecap.load()) || (m_state && m_state->ui.showMenu.load());
 }
 
@@ -54,7 +55,7 @@ bool RmlUiController::HandleViewAction(const std::string& action, Rml::Element* 
     if (action.starts_with("accounts-")) return HandleAccountsAction(action, target);
     if (action.starts_with("onboarding-") || action.starts_with("account-") || action == "open-legal-link")
         return HandleOnboardingAction(action, target);
-    if (action.starts_with("statsapi-prompt-") || action.starts_with("session-prompt-") ||
+    if (action.starts_with("statsapi-prompt-") || action.starts_with("session-prompt-") || action.starts_with("dejavu-prompt-") ||
         action == "session-sign-in" || action == "open-rank-settings") return HandlePromptsAction(action, target);
     return HandleInsightsAction(action, target);
 }

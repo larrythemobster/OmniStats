@@ -53,7 +53,7 @@ namespace {
 TEST(TrackedAccountRankHistory, RecordsOnlyValidSuccessfulSnapshotsWithoutPollingDuplicates) {
     auto db = DatabaseManager(std::make_shared<SessionState>());
     ASSERT_TRUE(db.Initialize(":memory:"));
-    EXPECT_EQ(db.GetSchemaVersion(), 12);
+    EXPECT_EQ(db.GetSchemaVersion(), 13);
     ASSERT_TRUE(Add(db, kIdA));
 
     const auto base = Rank("2v2", 1210, 1710000000);
@@ -152,7 +152,7 @@ TEST(TrackedAccountRankHistory, VersionEightUpgradeSeedsOnlyActualFetchedSnapsho
     {
         DatabaseManager db(state);
         ASSERT_TRUE(db.Initialize(path));
-        EXPECT_EQ(db.GetSchemaVersion(), 12);
+        EXPECT_EQ(db.GetSchemaVersion(), 13);
         auto history = db.GetTrackedAccountRankHistory({kIdA}, "2v2");
         ASSERT_EQ(history.size(), 1u);
         ASSERT_EQ(history[0].observations.size(), 1u);
@@ -221,7 +221,7 @@ TEST(SeasonDatabase, UpgradesVersionElevenWithoutLosingAccounts) {
     {
         DatabaseManager db(std::make_shared<SessionState>());
         ASSERT_TRUE(db.Initialize(path));
-        EXPECT_EQ(db.GetSchemaVersion(), 12);
+        EXPECT_EQ(db.GetSchemaVersion(), 13);
         EXPECT_TRUE(db.GetTrackedAccount(kIdA));
         EXPECT_TRUE(db.UpsertSeasons({{19, 100, 200, "official"}}));
         EXPECT_TRUE(db.SaveTrackedAccountRewards(kIdA, 19, 1, 2, 150));

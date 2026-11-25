@@ -192,6 +192,13 @@ struct UIState {
     mutable std::mutex updateMutex;
     std::string updateAvailableVersion;
 
+    // DejaVu history waiting for its one-time import prompt; players > 0 while pending.
+    mutable std::mutex dejaVuMutex;
+    std::string dejaVuPath;
+    // Local accounts with recorded matches, as {primary id, latest name}.
+    std::vector<std::pair<std::string, std::string>> dejaVuAccounts;
+    std::atomic<int> dejaVuPlayers{0};
+
     // Stats API config verification state (set on startup or settings check)
     mutable std::mutex statsApiMutex;
     StatsApiConfig::CheckResult statsApiResult;
