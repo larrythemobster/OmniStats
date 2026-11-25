@@ -1,4 +1,5 @@
 #include "core/config/Config.hpp"
+#include "core/config/ConfigSchema.hpp"
 #include "core/config/SecretStore.hpp"
 #include "utils/Storage.hpp"
 
@@ -6,6 +7,7 @@
 #include <atomic>
 #include <chrono>
 #include <cmath>
+#include <cstdlib>
 #include <condition_variable>
 #include <filesystem>
 #include <fstream>
@@ -25,645 +27,6 @@
 #include <vector>
 
 namespace fs = std::filesystem;
-
-namespace {
-
-    static bool IsKnownMmrCategory(const std::string& category) {
-        return category == "best" || category == "1v1" ||
-               category == "2v2" || category == "3v3" ||
-               category == "casual" || category == "t" ||
-               category == "hoops" || category == "rumble" ||
-               category == "dropshot" || category == "snowday" ||
-               category == "heatseeker";
-    }
-
-    static bool IsGraphMmrCategory(const std::string& category) {
-        return category != "best" && IsKnownMmrCategory(category);
-    }
-
-    static bool IsExtraMmrCategory(const std::string& category) {
-        return category == "hoops" || category == "rumble" ||
-               category == "dropshot" || category == "snowday" ||
-               category == "heatseeker";
-    }
-
-    static bool IsValidBallchasingVisibility(const std::string& visibility) {
-        return visibility == "private" || visibility == "unlisted" || visibility == "public";
-    }
-
-    static bool IsValidTournamentRegion(const std::string& region) {
-        return region == "auto" || region == "US" || region == "EU" || region == "OCE" ||
-               region == "SAM" || region == "ASIA" || region == "ME" || region == "SAF";
-    }
-
-    static bool IsValidTournamentReminderMinutes(int minutes) {
-        return minutes == 0 || minutes == 5 || minutes == 10 || minutes == 15;
-    }
-
-    static nlohmann::json ColorToJson(const ColorRGBA& c) {
-        return nlohmann::json::array({c.r, c.g, c.b, c.a});
-    }
-
-    static ColorRGBA JsonToColor(const nlohmann::json& j, const ColorRGBA& fallback) {
-        if (!j.is_array() || j.size() < 4) return fallback;
-        for (size_t i = 0; i < 4; ++i) {
-            if (!j[i].is_number()) return fallback;
-            const double component = j[i].get<double>();
-            if (!std::isfinite(component) || component < 0.0 || component > 1.0) return fallback;
-        }
-        return {j[0].get<float>(), j[1].get<float>(), j[2].get<float>(), j[3].get<float>()};
-    }
-
-    static void ReadContainerVisibility(const nlohmann::json& jv, OverlayLayout::ContainerConfig::Visibility& vis) {
-        if (jv.contains("mode")) {
-            if (jv["mode"].is_string()) {
-                vis.mode = OverlayLayout::VisibilityModeFromConfigString(jv["mode"].get<std::string>());
-            } else if (jv["mode"].is_number_integer()) {
-                vis.mode = static_cast<OverlayLayout::VisibilityMode>(jv["mode"].get<int>());
-            } else {
-                vis.mode = OverlayLayout::Visibility::KeyHeld;
-            }
-        }
-        if (jv.contains("event")) {
-            if (jv["event"].is_string()) {
-                vis.event = OverlayLayout::VisibilityEventFromConfigString(jv["event"].get<std::string>());
-            } else if (jv["event"].is_number_integer()) {
-                vis.event = static_cast<OverlayLayout::VisibilityEvent>(jv["event"].get<int>());
-            } else {
-                vis.event = OverlayLayout::Visibility::FirstCountdown;
-            }
-        }
-        if (jv.contains("seconds") && jv["seconds"].is_number_integer()) {
-            vis.seconds = jv["seconds"].get<int>();
-        }
-        if (jv.contains("also_while_key_held") && jv["also_while_key_held"].is_boolean()) {
-            vis.alsoWhileKeyHeld = jv["also_while_key_held"].get<bool>();
-        } else if (jv.contains("alsoWhileKeyHeld") && jv["alsoWhileKeyHeld"].is_boolean()) {
-            vis.alsoWhileKeyHeld = jv["alsoWhileKeyHeld"].get<bool>();
-        }
-        if (jv.contains("hide_during_replay") && jv["hide_during_replay"].is_boolean()) {
-            vis.hideDuringReplay = jv["hide_during_replay"].get<bool>();
-        } else if (jv.contains("hideDuringReplay") && jv["hideDuringReplay"].is_boolean()) {
-            vis.hideDuringReplay = jv["hideDuringReplay"].get<bool>();
-        }
-        OverlayLayout::Sanitize(vis);
-    }
-
-    static nlohmann::json ContainerVisibilityToJson(const OverlayLayout::ContainerConfig::Visibility& vis) {
-        auto sanitized = vis;
-        OverlayLayout::Sanitize(sanitized);
-        return {
-            {"mode", OverlayLayout::ToConfigString(sanitized.mode)},
-            {"event", OverlayLayout::ToConfigString(sanitized.event)},
-            {"seconds", sanitized.seconds},
-            {"also_while_key_held", sanitized.alsoWhileKeyHeld},
-            {"hide_during_replay", sanitized.hideDuringReplay}};
-    }
-
-    struct FieldDescriptor {
-        std::string key;
-        std::function<void(const nlohmann::json&, ConfigData&, SecretStore&, bool& needsSave, bool& needsLegacyMigration)> load;
-        std::function<void(nlohmann::json&, const ConfigData&, SecretStore&)> save;
-    };
-
-    static FieldDescriptor MakeBoolField(const char* key, bool ConfigData::* member, bool defaultVal) {
-        return {
-            key,
-            [key, member, defaultVal](const nlohmann::json& j, ConfigData& cfg, SecretStore&, bool&, bool&) {
-                if (j.contains(key) && j[key].is_boolean()) {
-                    cfg.*member = j[key].get<bool>();
-                } else {
-                    cfg.*member = defaultVal;
-                }
-            },
-            [key, member](nlohmann::json& j, const ConfigData& cfg, SecretStore&) {
-                j[key] = cfg.*member;
-            }};
-    }
-
-    static FieldDescriptor MakeIntField(const char* key, int ConfigData::* member, int defaultVal,
-                                        std::optional<int> minVal = std::nullopt,
-                                        std::optional<int> maxVal = std::nullopt,
-                                        bool clamp = false) {
-        return {
-            key,
-            [key, member, defaultVal, minVal, maxVal, clamp](const nlohmann::json& j, ConfigData& cfg, SecretStore&, bool& needsSave, bool&) {
-                if (j.contains(key) && j[key].is_number_integer()) {
-                    const long double num = j[key].get<long double>();
-                    if (std::isfinite(num) && num >= (std::numeric_limits<int>::lowest)() && num <= (std::numeric_limits<int>::max)()) {
-                        const int val = static_cast<int>(num);
-                        if (clamp && minVal && maxVal) {
-                            const int clamped = std::clamp(val, *minVal, *maxVal);
-                            if (clamped != val) needsSave = true;
-                            cfg.*member = clamped;
-                            return;
-                        }
-                        if (minVal && val < *minVal) {
-                            cfg.*member = defaultVal;
-                            return;
-                        }
-                        if (maxVal && val > *maxVal) {
-                            cfg.*member = defaultVal;
-                            return;
-                        }
-                        cfg.*member = val;
-                        return;
-                    }
-                }
-                cfg.*member = defaultVal;
-            },
-            [key, member](nlohmann::json& j, const ConfigData& cfg, SecretStore&) {
-                j[key] = cfg.*member;
-            }};
-    }
-
-    static FieldDescriptor MakeFloatField(const char* key, float ConfigData::* member, float defaultVal,
-                                          std::optional<float> minVal = std::nullopt,
-                                          std::optional<float> maxVal = std::nullopt,
-                                          bool clamp = false) {
-        return {
-            key,
-            [key, member, defaultVal, minVal, maxVal, clamp](const nlohmann::json& j, ConfigData& cfg, SecretStore&, bool& needsSave, bool&) {
-                if (j.contains(key) && j[key].is_number()) {
-                    const long double num = j[key].get<long double>();
-                    if (std::isfinite(num) && num >= (std::numeric_limits<float>::lowest)() && num <= (std::numeric_limits<float>::max)()) {
-                        const float val = static_cast<float>(num);
-                        if (clamp && minVal && maxVal) {
-                            const float clamped = std::clamp(val, *minVal, *maxVal);
-                            if (clamped != val) needsSave = true;
-                            cfg.*member = clamped;
-                            return;
-                        }
-                        if (minVal && val < *minVal) {
-                            cfg.*member = defaultVal;
-                            return;
-                        }
-                        if (maxVal && val > *maxVal) {
-                            cfg.*member = defaultVal;
-                            return;
-                        }
-                        cfg.*member = val;
-                        return;
-                    }
-                }
-                cfg.*member = defaultVal;
-            },
-            [key, member](nlohmann::json& j, const ConfigData& cfg, SecretStore&) {
-                j[key] = cfg.*member;
-            }};
-    }
-
-    static FieldDescriptor MakeStringField(const char* key, std::string ConfigData::* member, std::string defaultVal,
-                                           std::function<bool(const std::string&)> validator = nullptr) {
-        return {
-            key,
-            [key, member, defaultVal, validator](const nlohmann::json& j, ConfigData& cfg, SecretStore&, bool& needsSave, bool&) {
-                if (j.contains(key) && j[key].is_string()) {
-                    std::string val = j[key].get<std::string>();
-                    if (!validator || validator(val)) {
-                        cfg.*member = std::move(val);
-                        return;
-                    }
-                    needsSave = true;
-                }
-                cfg.*member = defaultVal;
-            },
-            [key, member](nlohmann::json& j, const ConfigData& cfg, SecretStore&) {
-                j[key] = cfg.*member;
-            }};
-    }
-
-    static FieldDescriptor MakeSecretField(const char* key, std::string ConfigData::* member) {
-        return {
-            key,
-            [key, member](const nlohmann::json& j, ConfigData& cfg, SecretStore& secrets, bool&, bool& needsLegacyMigration) {
-                if (j.contains(key) && j[key].is_string()) {
-                    secrets.LoadSecretField(key, j[key].get<std::string>(), cfg.*member, needsLegacyMigration, cfg.credentials_decryption_failed);
-                } else {
-                    std::string empty;
-                    secrets.LoadSecretField(key, "", empty, needsLegacyMigration, cfg.credentials_decryption_failed);
-                    (cfg.*member).clear();
-                }
-            },
-            [key, member](nlohmann::json& j, const ConfigData& cfg, SecretStore& secrets) {
-                std::string diskVal;
-                secrets.SaveSecretField(key, cfg.*member, diskVal);
-                j[key] = diskVal;
-            }};
-    }
-
-    static std::optional<nlohmann::json> invalidCustomThemes;
-
-    static std::string ThemeDiskKey(std::string_view key) {
-        if (key == "theme_panel") return "settings_panel";
-        if (key == "theme_graph") return "graph_line";
-        if (key == "theme_baseline") return "graph_baseline";
-        return std::string(key.substr(6));
-    }
-
-    static bool ValidSavedThemes(const std::vector<Themes::SavedTheme>& themes) {
-        if (themes.size() > 32) return false;
-        for (size_t i = 0; i < themes.size(); ++i) {
-            const auto& theme = themes[i];
-            if (theme.name.empty() || theme.name.size() > 80 || Themes::Encode(theme.colors).empty()) return false;
-            try {
-                (void)nlohmann::json(theme.name).dump();
-            } catch (const nlohmann::json::exception&) {
-                return false;
-            }
-            for (size_t k = 0; k < i; ++k)
-                if (themes[k].name == theme.name) return false;
-        }
-        return true;
-    }
-
-    static bool ParseSavedThemes(const nlohmann::json& value, std::vector<Themes::SavedTheme>& result) {
-        if (!value.is_array() || value.size() > 32) return false;
-        std::vector<Themes::SavedTheme> parsed;
-        for (const auto& item : value) {
-            if (!item.is_object() || !item.contains("name") || !item["name"].is_string() ||
-                !item.contains("colors") || !item["colors"].is_array() ||
-                (item["colors"].size() != Themes::kLegacyPaletteSize && item["colors"].size() != Themes::Palette{}.size())) return false;
-            Themes::SavedTheme saved{};
-            saved.name = item["name"].get<std::string>();
-            for (size_t i = 0; i < item["colors"].size(); ++i) {
-                const auto& color = item["colors"][i];
-                if (!color.is_array() || color.size() != 4) return false;
-                for (const auto& channel : color) {
-                    if (!channel.is_number()) return false;
-                    const double v = channel.get<double>();
-                    if (!std::isfinite(v) || v < 0 || v > 1) return false;
-                }
-                saved.colors[i] = {color[0].get<float>(), color[1].get<float>(), color[2].get<float>(), color[3].get<float>()};
-            }
-            if (item["colors"].size() == Themes::kLegacyPaletteSize) {
-                ConfigData config{};
-                Themes::Apply(config, saved.colors);
-                Themes::CompleteLegacy(config);
-                saved.colors = Themes::Read(config);
-            }
-            parsed.push_back(std::move(saved));
-        }
-        if (!ValidSavedThemes(parsed)) return false;
-        result = std::move(parsed);
-        return true;
-    }
-
-    static const std::vector<FieldDescriptor>& GetFieldDescriptors() {
-        static const ConfigData def{};
-        static const std::vector<FieldDescriptor> descriptors = {
-            MakeStringField("host", &ConfigData::host, def.host),
-            MakeIntField("port", &ConfigData::port, def.port),
-            MakeIntField("key_overlay", &ConfigData::key_overlay, def.key_overlay),
-            MakeIntField("key_cycle", &ConfigData::key_cycle, def.key_cycle),
-            MakeIntField("key_expand", &ConfigData::key_expand, def.key_expand),
-            MakeIntField("key_session", &ConfigData::key_session, def.key_session),
-            MakeIntField("key_menu", &ConfigData::key_menu, def.key_menu),
-            MakeIntField("key_graph_pan_left", &ConfigData::key_graph_pan_left, def.key_graph_pan_left),
-            MakeIntField("key_graph_pan_right", &ConfigData::key_graph_pan_right, def.key_graph_pan_right),
-            MakeIntField("key_lifetime_graph", &ConfigData::key_lifetime_graph, def.key_lifetime_graph),
-
-            MakeIntField("gamepad_overlay", &ConfigData::gamepad_overlay, def.gamepad_overlay),
-            MakeBoolField("gamepad_overlay_raw", &ConfigData::gamepad_overlay_raw, def.gamepad_overlay_raw),
-            MakeIntField("gamepad_overlay_raw_button", &ConfigData::gamepad_overlay_raw_button, def.gamepad_overlay_raw_button),
-            MakeIntField("gamepad_cycle", &ConfigData::gamepad_cycle, def.gamepad_cycle),
-            MakeBoolField("gamepad_cycle_raw", &ConfigData::gamepad_cycle_raw, def.gamepad_cycle_raw),
-            MakeIntField("gamepad_cycle_raw_button", &ConfigData::gamepad_cycle_raw_button, def.gamepad_cycle_raw_button),
-            MakeIntField("gamepad_expand", &ConfigData::gamepad_expand, def.gamepad_expand),
-            MakeBoolField("gamepad_expand_raw", &ConfigData::gamepad_expand_raw, def.gamepad_expand_raw),
-            MakeIntField("gamepad_expand_raw_button", &ConfigData::gamepad_expand_raw_button, def.gamepad_expand_raw_button),
-            MakeIntField("gamepad_session", &ConfigData::gamepad_session, def.gamepad_session),
-            MakeBoolField("gamepad_session_raw", &ConfigData::gamepad_session_raw, def.gamepad_session_raw),
-            MakeIntField("gamepad_session_raw_button", &ConfigData::gamepad_session_raw_button, def.gamepad_session_raw_button),
-            MakeIntField("gamepad_menu", &ConfigData::gamepad_menu, def.gamepad_menu),
-            MakeBoolField("gamepad_menu_raw", &ConfigData::gamepad_menu_raw, def.gamepad_menu_raw),
-            MakeIntField("gamepad_menu_raw_button", &ConfigData::gamepad_menu_raw_button, def.gamepad_menu_raw_button),
-            MakeIntField("gamepad_graph_pan_left", &ConfigData::gamepad_graph_pan_left, def.gamepad_graph_pan_left),
-            MakeBoolField("gamepad_graph_pan_left_raw", &ConfigData::gamepad_graph_pan_left_raw, def.gamepad_graph_pan_left_raw),
-            MakeIntField("gamepad_graph_pan_left_raw_button", &ConfigData::gamepad_graph_pan_left_raw_button, def.gamepad_graph_pan_left_raw_button),
-            MakeIntField("gamepad_graph_pan_right", &ConfigData::gamepad_graph_pan_right, def.gamepad_graph_pan_right),
-            MakeBoolField("gamepad_graph_pan_right_raw", &ConfigData::gamepad_graph_pan_right_raw, def.gamepad_graph_pan_right_raw),
-            MakeIntField("gamepad_graph_pan_right_raw_button", &ConfigData::gamepad_graph_pan_right_raw_button, def.gamepad_graph_pan_right_raw_button),
-
-            MakeStringField("mmr_category", &ConfigData::mmr_category, def.mmr_category, IsKnownMmrCategory),
-            MakeStringField("graph_mmr_category", &ConfigData::graph_mmr_category, def.graph_mmr_category, IsGraphMmrCategory),
-            MakeBoolField("graph_follow_current_playlist", &ConfigData::graph_follow_current_playlist, def.graph_follow_current_playlist),
-            MakeBoolField("graph_default_lifetime", &ConfigData::graph_default_lifetime, def.graph_default_lifetime),
-            MakeStringField("rank_progress_mmr_category", &ConfigData::rank_progress_mmr_category, def.rank_progress_mmr_category, IsKnownMmrCategory),
-            MakeBoolField("rank_progress_follow_current_playlist", &ConfigData::rank_progress_follow_current_playlist, def.rank_progress_follow_current_playlist),
-            MakeStringField("last_primary_id", &ConfigData::last_primary_id, def.last_primary_id),
-
-            {"known_primary_ids",
-             [](const nlohmann::json& j, ConfigData& cfg, SecretStore&, bool&, bool&) {
-                 cfg.known_primary_ids.clear();
-                 if (j.contains("known_primary_ids") && j["known_primary_ids"].is_array()) {
-                     for (const auto& item : j["known_primary_ids"]) {
-                         if (item.is_string()) cfg.known_primary_ids.push_back(item.get<std::string>());
-                     }
-                 }
-             },
-             [](nlohmann::json& j, const ConfigData& cfg, SecretStore&) {
-                 j["known_primary_ids"] = cfg.known_primary_ids;
-             }},
-
-            MakeBoolField("require_rl_focus", &ConfigData::require_rl_focus, def.require_rl_focus),
-            MakeBoolField("show_match_summary", &ConfigData::show_match_summary, def.show_match_summary),
-            MakeIntField("match_summary_seconds", &ConfigData::match_summary_seconds, def.match_summary_seconds, 5, 60, true),
-            MakeBoolField("discord_rpc_enabled", &ConfigData::discord_rpc_enabled, def.discord_rpc_enabled),
-            MakeBoolField("enable_mmr_tracking", &ConfigData::enable_mmr_tracking, def.enable_mmr_tracking),
-            MakeBoolField("auto_switch_mmr_category", &ConfigData::auto_switch_mmr_category, def.auto_switch_mmr_category),
-            MakeBoolField("enable_auto_updates", &ConfigData::enable_auto_updates, def.enable_auto_updates),
-            MakeBoolField("crash_reports_enabled", &ConfigData::crash_reports_enabled, def.crash_reports_enabled),
-            MakeBoolField("debug_logging", &ConfigData::debug_logging, def.debug_logging),
-            MakeBoolField("imperial_units", &ConfigData::imperial_units, def.imperial_units),
-            MakeBoolField("run_on_startup", &ConfigData::run_on_startup, def.run_on_startup),
-            MakeBoolField("reset_session_on_close", &ConfigData::reset_session_on_close, def.reset_session_on_close),
-            MakeBoolField("show_session_recap_on_close", &ConfigData::show_session_recap_on_close, def.show_session_recap_on_close),
-            MakeStringField("client_uuid", &ConfigData::client_uuid, def.client_uuid),
-            MakeStringField("privacy_policy_accepted_version", &ConfigData::privacy_policy_accepted_version, def.privacy_policy_accepted_version),
-            MakeStringField("terms_accepted_version", &ConfigData::terms_accepted_version, def.terms_accepted_version),
-            MakeStringField("privacy_accepted_at", &ConfigData::privacy_accepted_at, def.privacy_accepted_at),
-            MakeBoolField("onboarding_completed", &ConfigData::onboarding_completed, def.onboarding_completed),
-            MakeBoolField("account_link_prompt_shown", &ConfigData::account_link_prompt_shown, def.account_link_prompt_shown),
-
-            MakeStringField("position", &ConfigData::position, def.position),
-            MakeBoolField("show_running_indicator", &ConfigData::show_running_indicator, def.show_running_indicator),
-            MakeBoolField("use_roman_numerals", &ConfigData::use_roman_numerals, def.use_roman_numerals),
-            MakeBoolField("use_rank_icons", &ConfigData::use_rank_icons, def.use_rank_icons),
-            MakeBoolField("show_extra_playlists", &ConfigData::show_extra_playlists, def.show_extra_playlists),
-
-            MakeBoolField("custom_api_enabled", &ConfigData::custom_api_enabled, def.custom_api_enabled),
-            MakeSecretField("custom_api_key", &ConfigData::custom_api_key),
-
-            MakeStringField("account_signed_in_name", &ConfigData::account_signed_in_name, def.account_signed_in_name),
-            MakeStringField("account_device_public_id", &ConfigData::account_device_public_id, def.account_device_public_id),
-            MakeSecretField("account_refresh_token", &ConfigData::account_refresh_token),
-            MakeSecretField("account_device_key", &ConfigData::account_device_key),
-            MakeStringField("rocket_league_stats_api_config_path", &ConfigData::rocket_league_stats_api_config_path, def.rocket_league_stats_api_config_path),
-            MakeBoolField("check_stats_api_config_on_startup", &ConfigData::check_stats_api_config_on_startup, def.check_stats_api_config_on_startup),
-
-            MakeSecretField("ballchasing_token", &ConfigData::ballchasing_token),
-            MakeBoolField("auto_upload_replays", &ConfigData::auto_upload_replays, def.auto_upload_replays),
-            MakeBoolField("ballchasing_upload_notice_accepted", &ConfigData::ballchasing_upload_notice_accepted, def.ballchasing_upload_notice_accepted),
-            MakeStringField("ballchasing_visibility", &ConfigData::ballchasing_visibility, def.ballchasing_visibility, IsValidBallchasingVisibility),
-            MakeBoolField("ballchasing_filter_ranked_only", &ConfigData::ballchasing_filter_ranked_only, def.ballchasing_filter_ranked_only),
-            MakeBoolField("ballchasing_filter_wins_only", &ConfigData::ballchasing_filter_wins_only, def.ballchasing_filter_wins_only),
-            MakeBoolField("auto_save_replays", &ConfigData::auto_save_replays, def.auto_save_replays),
-            MakeIntField("key_save_replay", &ConfigData::key_save_replay, def.key_save_replay),
-
-            {"theme",
-             [](const nlohmann::json& j, ConfigData& cfg, SecretStore&, bool&, bool&) {
-                 if (!j.contains("theme") || !j["theme"].is_object()) return;
-                 const auto fields = Themes::Fields();
-                 for (size_t i = 0; i < Themes::kLegacyPaletteSize; ++i) {
-                     const auto& field = fields[i];
-                     const auto key = ThemeDiskKey(field.key);
-                     if (j["theme"].contains(key)) cfg.*field.member = JsonToColor(j["theme"][key], cfg.*field.member);
-                 }
-                 Themes::CompleteLegacy(cfg);
-                 for (size_t i = Themes::kLegacyPaletteSize; i < fields.size(); ++i) {
-                     const auto& field = fields[i];
-                     const auto key = ThemeDiskKey(field.key);
-                     if (j["theme"].contains(key)) cfg.*field.member = JsonToColor(j["theme"][key], cfg.*field.member);
-                 }
-             },
-             [](nlohmann::json& j, const ConfigData& cfg, SecretStore&) {
-                 for (const auto& field : Themes::Fields())
-                     j["theme"][ThemeDiskKey(field.key)] = ColorToJson(cfg.*field.member);
-             }},
-            {"custom_themes",
-             [](const nlohmann::json& j, ConfigData& cfg, SecretStore&, bool&, bool&) {
-                 invalidCustomThemes.reset();
-                 if (!j.contains("custom_themes")) return;
-                 if (!ParseSavedThemes(j["custom_themes"], cfg.custom_themes)) {
-                     invalidCustomThemes = j["custom_themes"];
-                     cfg.custom_themes_unreadable = true;
-                     std::cerr << "[Config] Invalid custom themes preserved without loading.\n";
-                 }
-             },
-             [](nlohmann::json& j, const ConfigData& cfg, SecretStore&) {
-                 if (invalidCustomThemes) {
-                     j["custom_themes"] = *invalidCustomThemes;
-                     return;
-                 }
-                 auto& output = j["custom_themes"];
-                 output = nlohmann::json::array();
-                 for (const auto& theme : cfg.custom_themes) {
-                     nlohmann::json colors = nlohmann::json::array();
-                     for (const auto& color : theme.colors)
-                         colors.push_back(ColorToJson(color));
-                     output.push_back({{"name", theme.name}, {"colors", std::move(colors)}});
-                 }
-             }},
-
-            MakeBoolField("show_session_record", &ConfigData::show_session_record, def.show_session_record),
-            MakeBoolField("show_session_goals", &ConfigData::show_session_goals, def.show_session_goals),
-            MakeBoolField("show_session_saves", &ConfigData::show_session_saves, def.show_session_saves),
-            MakeBoolField("show_session_demos", &ConfigData::show_session_demos, def.show_session_demos),
-            MakeBoolField("show_session_assists", &ConfigData::show_session_assists, def.show_session_assists),
-            MakeBoolField("show_session_goal_participation", &ConfigData::show_session_goal_participation, def.show_session_goal_participation),
-            MakeBoolField("show_session_mmr_change", &ConfigData::show_session_mmr_change, def.show_session_mmr_change),
-            MakeBoolField("show_session_boost", &ConfigData::show_session_boost, def.show_session_boost),
-            MakeBoolField("show_lobby_ranks_overlay", &ConfigData::show_lobby_ranks_overlay, def.show_lobby_ranks_overlay),
-            MakeBoolField("show_lobby_rank_1v1", &ConfigData::show_lobby_rank_1v1, def.show_lobby_rank_1v1),
-            MakeBoolField("show_lobby_rank_2v2", &ConfigData::show_lobby_rank_2v2, def.show_lobby_rank_2v2),
-            MakeBoolField("show_lobby_rank_3v3", &ConfigData::show_lobby_rank_3v3, def.show_lobby_rank_3v3),
-            MakeBoolField("show_lobby_rank_casual", &ConfigData::show_lobby_rank_casual, def.show_lobby_rank_casual),
-            MakeBoolField("show_lobby_rank_tourny", &ConfigData::show_lobby_rank_tourny, def.show_lobby_rank_tourny),
-            MakeBoolField("show_lobby_rank_hoops", &ConfigData::show_lobby_rank_hoops, def.show_lobby_rank_hoops),
-            MakeBoolField("show_lobby_rank_rumble", &ConfigData::show_lobby_rank_rumble, def.show_lobby_rank_rumble),
-            MakeBoolField("show_lobby_rank_dropshot", &ConfigData::show_lobby_rank_dropshot, def.show_lobby_rank_dropshot),
-            MakeBoolField("show_lobby_rank_snowday", &ConfigData::show_lobby_rank_snowday, def.show_lobby_rank_snowday),
-            MakeBoolField("show_lobby_rank_heatseeker", &ConfigData::show_lobby_rank_heatseeker, def.show_lobby_rank_heatseeker),
-            MakeBoolField("show_account_wins_overlay", &ConfigData::show_account_wins_overlay, def.show_account_wins_overlay),
-            MakeBoolField("show_demo_tracker_overlay", &ConfigData::show_demo_tracker_overlay, def.show_demo_tracker_overlay),
-            MakeBoolField("show_rank_progress", &ConfigData::show_rank_progress, def.show_rank_progress),
-            MakeBoolField("show_previous_games_summary", &ConfigData::show_previous_games_summary, def.show_previous_games_summary),
-            MakeIntField("previous_games_limit", &ConfigData::previous_games_limit, def.previous_games_limit, 10, 50, true),
-
-            MakeBoolField("show_tournaments", &ConfigData::show_tournaments, def.show_tournaments),
-            MakeStringField("tournament_region", &ConfigData::tournament_region, def.tournament_region, IsValidTournamentRegion),
-            MakeIntField("tournament_reminder_minutes", &ConfigData::tournament_reminder_minutes, def.tournament_reminder_minutes, 0, 15, false),
-            MakeBoolField("tournament_reminder_standard_only", &ConfigData::tournament_reminder_standard_only, def.tournament_reminder_standard_only),
-            MakeBoolField("tournament_sound_cue", &ConfigData::tournament_sound_cue, def.tournament_sound_cue),
-
-            MakeBoolField("show_season_countdown", &ConfigData::show_season_countdown, def.show_season_countdown),
-            MakeIntField("season_reminder_days", &ConfigData::season_reminder_days, def.season_reminder_days, 0, 30, false),
-            MakeBoolField("season_reward_reminders", &ConfigData::season_reward_reminders, def.season_reward_reminders),
-            MakeBoolField("show_season_recap", &ConfigData::show_season_recap, def.show_season_recap),
-            MakeBoolField("group_history_by_season", &ConfigData::group_history_by_season, def.group_history_by_season),
-            MakeStringField("season_reminder_last_day", &ConfigData::season_reminder_last_day, def.season_reminder_last_day),
-            MakeIntField("season_recap_last_seen", &ConfigData::season_recap_last_seen, def.season_recap_last_seen, 0, 1000, false),
-
-            MakeBoolField("show_streaks_stats", &ConfigData::show_streaks_stats, def.show_streaks_stats),
-            MakeBoolField("show_longest_loss_streak", &ConfigData::show_longest_loss_streak, def.show_longest_loss_streak),
-            MakeBoolField("show_gamemode_breakdown", &ConfigData::show_gamemode_breakdown, def.show_gamemode_breakdown),
-            MakeBoolField("show_gamemode_record_1v1", &ConfigData::show_gamemode_record_1v1, def.show_gamemode_record_1v1),
-            MakeBoolField("show_gamemode_record_2v2", &ConfigData::show_gamemode_record_2v2, def.show_gamemode_record_2v2),
-            MakeBoolField("show_gamemode_record_3v3", &ConfigData::show_gamemode_record_3v3, def.show_gamemode_record_3v3),
-            MakeStringField("gamemode_breakdown_scope", &ConfigData::gamemode_breakdown_scope, def.gamemode_breakdown_scope),
-            MakeStringField("crossbar_display_mode", &ConfigData::crossbar_display_mode, def.crossbar_display_mode),
-
-            MakeBoolField("second_monitor_mode", &ConfigData::second_monitor_mode, def.second_monitor_mode),
-            MakeBoolField("second_monitor_show_roster", &ConfigData::second_monitor_show_roster, def.second_monitor_show_roster),
-            MakeBoolField("second_monitor_show_session", &ConfigData::second_monitor_show_session, def.second_monitor_show_session),
-            MakeBoolField("second_monitor_show_settings", &ConfigData::second_monitor_show_settings, def.second_monitor_show_settings),
-            MakeBoolField("second_monitor_has_bounds", &ConfigData::second_monitor_has_bounds, def.second_monitor_has_bounds),
-            MakeIntField("second_monitor_x", &ConfigData::second_monitor_x, def.second_monitor_x),
-            MakeIntField("second_monitor_y", &ConfigData::second_monitor_y, def.second_monitor_y),
-            MakeIntField("second_monitor_w", &ConfigData::second_monitor_w, def.second_monitor_w),
-            MakeIntField("second_monitor_h", &ConfigData::second_monitor_h, def.second_monitor_h),
-
-            MakeFloatField("ui_scale", &ConfigData::ui_scale, def.ui_scale),
-            {"card_text_percent",
-             [](const nlohmann::json& j, ConfigData& cfg, SecretStore&, bool&, bool&) {
-                 const auto field = j.find("card_text_percent");
-                 if (field == j.end() || !field->is_object()) return;
-                 for (size_t i = 0; i < cfg.card_text_percent.size(); ++i) {
-                     const auto entry = field->find(DashboardLayout::ToConfigString(static_cast<DashboardLayout::WidgetId>(i)));
-                     if (entry != field->end() && entry->is_number_integer() && *entry >= 75 && *entry <= 150)
-                         cfg.card_text_percent[i] = ConfigData::NormalizeCardTextPercent(entry->get<int>());
-                 }
-             },
-             [](nlohmann::json& j, const ConfigData& cfg, SecretStore&) {
-                 auto sizes = nlohmann::json::object();
-                 for (size_t i = 0; i < cfg.card_text_percent.size(); ++i) {
-                     const auto widget = static_cast<DashboardLayout::WidgetId>(i);
-                     if (const int percent = cfg.CardTextPercent(widget); percent != 100)
-                         sizes[DashboardLayout::ToConfigString(widget)] = percent;
-                 }
-                 j["card_text_percent"] = std::move(sizes);
-             }},
-            MakeStringField("font_ui", &ConfigData::font_ui, def.font_ui),
-            MakeStringField("font_mono", &ConfigData::font_mono, def.font_mono),
-            MakeStringField("font_display", &ConfigData::font_display, def.font_display),
-
-            MakeFloatField("session_view_x", &ConfigData::session_view_x, def.session_view_x),
-            MakeFloatField("session_view_y", &ConfigData::session_view_y, def.session_view_y),
-            MakeFloatField("match_summary_x", &ConfigData::match_summary_x, def.match_summary_x),
-            MakeFloatField("match_summary_y", &ConfigData::match_summary_y, def.match_summary_y),
-
-            MakeIntField("overlay_fps_cap", &ConfigData::overlay_fps_cap, def.overlay_fps_cap),
-            MakeBoolField("vsync", &ConfigData::vsync, def.vsync),
-
-            {"dashboard_layout",
-             [](const nlohmann::json& j, ConfigData& cfg, SecretStore&, bool&, bool&) {
-                 if (!j.contains("dashboard_layout") || !j["dashboard_layout"].is_object()) return;
-                 const auto& jl = j["dashboard_layout"];
-                 if (jl.contains("version") && jl["version"].is_number_integer()) cfg.dashboard_layout.version = jl["version"].get<int>();
-                 if (jl.contains("left_column_weight") && jl["left_column_weight"].is_number()) cfg.dashboard_layout.leftColumnWeight = jl["left_column_weight"].get<float>();
-                 if (jl.contains("widgets") && jl["widgets"].is_array()) {
-                     cfg.dashboard_layout.widgets.clear();
-                     for (const auto& jw : jl["widgets"]) {
-                         if (!jw.is_object()) continue;
-                         DashboardLayout::WidgetPlacement w;
-                         if (jw.contains("id") && jw["id"].is_string()) w.id = DashboardLayout::WidgetIdFromConfigString(jw["id"].get<std::string>());
-                         if (jw.contains("zone") && jw["zone"].is_string()) w.zone = DashboardLayout::ZoneFromConfigString(jw["zone"].get<std::string>());
-                         if (jw.contains("order") && jw["order"].is_number_integer()) w.order = jw["order"].get<int>();
-                         if (jw.contains("height") && jw["height"].is_number()) w.height = jw["height"].get<float>();
-                         if (jw.contains("collapsed") && jw["collapsed"].is_boolean()) w.collapsed = jw["collapsed"].get<bool>();
-                         if (jw.contains("enabled") && jw["enabled"].is_boolean()) w.enabled = jw["enabled"].get<bool>();
-                         cfg.dashboard_layout.widgets.push_back(w);
-                     }
-                 }
-                 DashboardLayout::Sanitize(cfg.dashboard_layout);
-             },
-             [](nlohmann::json& j, const ConfigData& cfg, SecretStore&) {
-                 nlohmann::json jl;
-                 jl["version"] = cfg.dashboard_layout.version;
-                 jl["left_column_weight"] = cfg.dashboard_layout.leftColumnWeight;
-                 nlohmann::json jw_arr = nlohmann::json::array();
-                 for (const auto& w : cfg.dashboard_layout.widgets) {
-                     jw_arr.push_back({{"id", DashboardLayout::ToConfigString(w.id)},
-                                       {"zone", DashboardLayout::ToConfigString(w.zone)},
-                                       {"order", w.order},
-                                       {"height", w.height},
-                                       {"collapsed", w.collapsed},
-                                       {"enabled", w.enabled}});
-                 }
-                 jl["widgets"] = jw_arr;
-                 j["dashboard_layout"] = jl;
-             }},
-
-            {"overlay_layout",
-             [](const nlohmann::json& j, ConfigData& cfg, SecretStore&, bool&, bool&) {
-                 if (!j.contains("overlay_layout") || !j["overlay_layout"].is_object()) return;
-                 const auto& jl = j["overlay_layout"];
-                 if (jl.contains("version") && jl["version"].is_number_integer()) cfg.overlay_layout.version = jl["version"].get<int>();
-                 if (jl.contains("toolbox_open") && jl["toolbox_open"].is_boolean()) cfg.overlay_layout.toolboxOpen = jl["toolbox_open"].get<bool>();
-                 cfg.overlay_layout.disabledWidgets.clear();
-                 if (jl.contains("disabled_widgets") && jl["disabled_widgets"].is_array()) {
-                     for (const auto& widget : jl["disabled_widgets"]) {
-                         if (widget.is_string()) cfg.overlay_layout.disabledWidgets.push_back(DashboardLayout::WidgetIdFromConfigString(widget.get<std::string>()));
-                     }
-                 }
-                 if (jl.contains("containers") && jl["containers"].is_array()) {
-                     cfg.overlay_layout.containers.clear();
-                     for (const auto& jc : jl["containers"]) {
-                         if (!jc.is_object()) continue;
-                         OverlayLayout::ContainerConfig c;
-                         if (jc.contains("id") && jc["id"].is_string()) c.id = jc["id"].get<std::string>();
-                         if (jc.contains("x") && jc["x"].is_number()) c.x = jc["x"].get<float>();
-                         if (jc.contains("y") && jc["y"].is_number()) c.y = jc["y"].get<float>();
-                         if (jc.contains("w") && jc["w"].is_number()) c.w = jc["w"].get<float>();
-                         if (jc.contains("h") && jc["h"].is_number()) c.h = jc["h"].get<float>();
-                         if (jc.contains("widgets") && jc["widgets"].is_array()) {
-                             for (const auto& jw : jc["widgets"]) {
-                                 if (jw.is_string()) c.widgets.push_back(DashboardLayout::WidgetIdFromConfigString(jw.get<std::string>()));
-                             }
-                         }
-                         if (jc.contains("visibility") && jc["visibility"].is_object()) {
-                             ReadContainerVisibility(jc["visibility"], c.visibility);
-                         }
-                         cfg.overlay_layout.containers.push_back(c);
-                     }
-                 }
-                 cfg.overlay_layout.widgetVisibility.clear();
-                 if (jl.contains("widget_visibility") && jl["widget_visibility"].is_object()) {
-                     for (const auto& [key, jv] : jl["widget_visibility"].items()) {
-                         if (!jv.is_object()) continue;
-                         const auto wid = DashboardLayout::WidgetIdFromConfigString(key);
-                         OverlayLayout::ContainerConfig::Visibility vis;
-                         ReadContainerVisibility(jv, vis);
-                         cfg.overlay_layout.widgetVisibility[wid] = vis;
-                     }
-                 }
-                 OverlayLayout::Sanitize(cfg.overlay_layout);
-             },
-             [](nlohmann::json& j, const ConfigData& cfg, SecretStore&) {
-                 nlohmann::json jol;
-                 jol["version"] = cfg.overlay_layout.version;
-                 jol["toolbox_open"] = cfg.overlay_layout.toolboxOpen;
-                 jol["disabled_widgets"] = nlohmann::json::array();
-                 for (auto widget : cfg.overlay_layout.disabledWidgets)
-                     jol["disabled_widgets"].push_back(DashboardLayout::ToConfigString(widget));
-                 nlohmann::json jwv = nlohmann::json::object();
-                 for (const auto& [wid, vis] : cfg.overlay_layout.widgetVisibility) {
-                     jwv[DashboardLayout::ToConfigString(wid)] = ContainerVisibilityToJson(vis);
-                 }
-                 jol["widget_visibility"] = jwv;
-                 nlohmann::json jc_arr = nlohmann::json::array();
-                 for (const auto& c : cfg.overlay_layout.containers) {
-                     nlohmann::json jc;
-                     jc["id"] = c.id;
-                     jc["x"] = c.x;
-                     jc["y"] = c.y;
-                     jc["w"] = c.w;
-                     jc["h"] = c.h;
-                     nlohmann::json jw_arr2 = nlohmann::json::array();
-                     for (auto w : c.widgets)
-                         jw_arr2.push_back(DashboardLayout::ToConfigString(w));
-                     jc["widgets"] = jw_arr2;
-                     jc["visibility"] = ContainerVisibilityToJson(c.visibility);
-                     jc_arr.push_back(jc);
-                 }
-                 jol["containers"] = jc_arr;
-                 j["overlay_layout"] = jol;
-             }}};
-        return descriptors;
-    }
-
-} // namespace
 
 namespace Config {
     static ConfigData Current;
@@ -765,12 +128,7 @@ namespace Config {
         std::unique_lock<std::shared_mutex> lock(Mutex);
         if (fn) fn(Current);
 
-        if (!Current.show_lobby_rank_1v1 && !Current.show_lobby_rank_2v2 &&
-            !Current.show_lobby_rank_3v3 && !Current.show_lobby_rank_casual && !Current.show_lobby_rank_tourny &&
-            !Current.show_lobby_rank_hoops && !Current.show_lobby_rank_rumble && !Current.show_lobby_rank_dropshot &&
-            !Current.show_lobby_rank_snowday && !Current.show_lobby_rank_heatseeker) {
-            Current.show_lobby_rank_2v2 = true;
-        }
+        ConfigSchema::NormalizeLobbyRanks(Current);
 
         if (!Current.last_primary_id.empty()) {
             if (std::find(Current.known_primary_ids.begin(), Current.known_primary_ids.end(), Current.last_primary_id) == Current.known_primary_ids.end()) {
@@ -814,7 +172,7 @@ namespace Config {
         const bool exists = fs::exists(configFile, existsEc);
         if (!exists && !existsEc) {
             s_writeBlocked = false;
-            invalidCustomThemes.reset();
+            ConfigSchema::ResetPreservedThemes();
             std::cout << "[Config] No config found. Creating default config.\n";
             Current = ConfigData{};
             secrets.Reset();
@@ -827,7 +185,7 @@ namespace Config {
         if (!text) {
             std::cout << "[Config] config.json could not be read. Using defaults and leaving the file untouched.\n";
             s_writeBlocked = true;
-            invalidCustomThemes.reset();
+            ConfigSchema::ResetPreservedThemes();
             Current = ConfigData{};
             secrets.Reset();
             s_revision.fetch_add(1, std::memory_order_release);
@@ -844,10 +202,7 @@ namespace Config {
             bool needsSave = false;
             bool needsLegacyMigration = false;
 
-            const auto& descriptors = GetFieldDescriptors();
-            for (const auto& desc : descriptors) {
-                desc.load(j, Current, secrets, needsSave, needsLegacyMigration);
-            }
+            ConfigSchema::Decode(j, Current, secrets, needsSave, needsLegacyMigration);
 
             if (j.contains("gamepad_overlay")) {
                 bool migrated = false;
@@ -896,8 +251,8 @@ namespace Config {
             }
 
             if (!j.contains("graph_mmr_category") || !j["graph_mmr_category"].is_string() ||
-                !IsGraphMmrCategory(j["graph_mmr_category"].get<std::string>())) {
-                Current.graph_mmr_category = IsGraphMmrCategory(Current.mmr_category) ? Current.mmr_category : "2v2";
+                !ConfigSchema::IsGraphMmrCategory(j["graph_mmr_category"].get<std::string>())) {
+                Current.graph_mmr_category = ConfigSchema::IsGraphMmrCategory(Current.mmr_category) ? Current.mmr_category : "2v2";
                 needsSave = true;
             }
             if (!j.contains("graph_follow_current_playlist") || !j["graph_follow_current_playlist"].is_boolean()) {
@@ -905,8 +260,8 @@ namespace Config {
                 needsSave = true;
             }
             if (!j.contains("rank_progress_mmr_category") || !j["rank_progress_mmr_category"].is_string() ||
-                !IsKnownMmrCategory(j["rank_progress_mmr_category"].get<std::string>())) {
-                Current.rank_progress_mmr_category = j.contains("rank_progress_mmr_category") ? "2v2" : (IsKnownMmrCategory(Current.mmr_category) ? Current.mmr_category : "2v2");
+                !ConfigSchema::IsKnownMmrCategory(j["rank_progress_mmr_category"].get<std::string>())) {
+                Current.rank_progress_mmr_category = j.contains("rank_progress_mmr_category") ? "2v2" : (ConfigSchema::IsKnownMmrCategory(Current.mmr_category) ? Current.mmr_category : "2v2");
                 needsSave = true;
             }
             if (!j.contains("rank_progress_follow_current_playlist") || !j["rank_progress_follow_current_playlist"].is_boolean()) {
@@ -914,17 +269,17 @@ namespace Config {
                 needsSave = true;
             }
             if (!Current.show_extra_playlists) {
-                if (IsExtraMmrCategory(Current.graph_mmr_category)) {
+                if (ConfigSchema::IsExtraMmrCategory(Current.graph_mmr_category)) {
                     Current.graph_mmr_category = "2v2";
                     needsSave = true;
                 }
-                if (IsExtraMmrCategory(Current.rank_progress_mmr_category)) {
+                if (ConfigSchema::IsExtraMmrCategory(Current.rank_progress_mmr_category)) {
                     Current.rank_progress_mmr_category = "2v2";
                     needsSave = true;
                 }
             }
 
-            if (!IsValidTournamentReminderMinutes(Current.tournament_reminder_minutes)) {
+            if (const int minutes = Current.tournament_reminder_minutes; minutes % 5 != 0) {
                 Current.tournament_reminder_minutes = 10;
             }
 
@@ -941,12 +296,7 @@ namespace Config {
                 }
             }
 
-            if (!Current.show_lobby_rank_1v1 && !Current.show_lobby_rank_2v2 &&
-                !Current.show_lobby_rank_3v3 && !Current.show_lobby_rank_casual && !Current.show_lobby_rank_tourny &&
-                !Current.show_lobby_rank_hoops && !Current.show_lobby_rank_rumble && !Current.show_lobby_rank_dropshot &&
-                !Current.show_lobby_rank_snowday && !Current.show_lobby_rank_heatseeker) {
-                Current.show_lobby_rank_2v2 = true;
-            }
+            ConfigSchema::NormalizeLobbyRanks(Current);
 
             if (Current.themeBg.a < 0.01f) {
                 Current.themeBg.a = 0.85f;
@@ -992,19 +342,9 @@ namespace Config {
             std::cerr << "[Config] Not saving: config.json could not be read at startup.\n";
             return std::nullopt;
         }
-        if (!ValidSavedThemes(Current.custom_themes) || (invalidCustomThemes && !Current.custom_themes.empty())) {
-            std::cerr << "[Config] Cannot save invalid custom themes or replace unrecognized saved themes.\n";
-            return std::nullopt;
-        }
         SerializedConfig serialized;
         try {
-            nlohmann::json j;
-            const auto& descriptors = GetFieldDescriptors();
-            for (const auto& desc : descriptors) {
-                desc.save(j, Current, secrets);
-            }
-            j["controller_default_back_migrated"] = true;
-            serialized.text = j.dump(4);
+            serialized.text = ConfigSchema::Encode(Current, secrets).dump(4);
         } catch (const std::exception& e) {
             std::cerr << "[Config] Failed to serialize config: " << e.what() << "\n";
             return std::nullopt;

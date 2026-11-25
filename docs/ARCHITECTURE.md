@@ -65,7 +65,7 @@ Refreshes run on explicit actions and once at startup for stale accounts, not on
 
 Network requests, database operations, and Stats API configuration repairs run off the render thread. Services own their workers and stop and join them during shutdown.
 
-Replay discovery and save-key timing are separate from the upload worker, so uploads cannot delay replay saving. Configuration writes use a background saver.
+Replay discovery and save-key timing are separate from the upload worker, so uploads cannot delay replay saving. Configuration writes use a background saver. `ConfigSchema.cpp` defines persisted scalar settings, the controls that can edit them, and which settings invalidate the overlay and dashboard.
 
 ## UI architecture and update model
 

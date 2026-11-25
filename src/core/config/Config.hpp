@@ -299,6 +299,9 @@ namespace Config {
     // Safely updates the configuration under an exclusive lock and saves to disk
     void Update(std::function<void(ConfigData&)> fn, bool saveToDisk = true);
 
+    bool ApplyControl(ConfigData& config, std::string_view key, const std::string& value, bool checked);
+    uint64_t RenderScalarHash(const ConfigData& config);
+
     // Loads data/config.json from disk (or creates it with defaults if missing)
     void Load();
     void Load(SecretStore& secrets);

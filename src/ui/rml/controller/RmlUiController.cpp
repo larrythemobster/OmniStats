@@ -726,67 +726,56 @@ void RmlUiController::RebuildVisibleUi(bool force, bool configChanged) {
         m_lastConfigFingerprint = std::to_string(invalidationHash);
     }
 
-    // Config is revision-gated by Overlay. Build the larger render-config
-    // fingerprint only when a config commit actually occurred. Theme colors,
-    // vsync and the FPS cap are intentionally excluded: they do not change DOM
-    // structure and must not recreate the overlay/dashboard roots.
     bool renderConfigChanged = force;
     if (force || configChanged) {
-        std::ostringstream fp;
-        fp << std::setprecision(9)
-           << m_config.require_rl_focus << '|' << m_config.second_monitor_mode << '|'
-           << m_config.second_monitor_show_roster << '|' << m_config.second_monitor_show_session << '|'
-           << m_config.show_match_summary << '|' << m_config.match_summary_seconds << '|' << m_config.show_running_indicator << '|'
-           << m_config.enable_auto_updates << '|'
-           << m_config.last_primary_id << '|'
-           << m_config.show_session_record << '|' << m_config.show_session_goals << '|'
-           << m_config.show_session_saves << '|' << m_config.show_session_demos << '|'
-           << m_config.show_session_assists << '|' << m_config.show_session_goal_participation << '|'
-           << m_config.show_session_mmr_change << '|' << m_config.show_session_boost << '|'
-           << m_config.use_rank_icons << '|' << m_config.show_lobby_ranks_overlay << '|'
-           << m_config.show_lobby_rank_1v1 << '|' << m_config.show_lobby_rank_2v2 << '|'
-           << m_config.show_lobby_rank_3v3 << '|' << m_config.show_lobby_rank_casual << '|'
-           << m_config.show_lobby_rank_tourny << '|' << m_config.show_lobby_rank_hoops << '|'
-           << m_config.show_lobby_rank_rumble << '|' << m_config.show_lobby_rank_dropshot << '|'
-           << m_config.show_lobby_rank_snowday << '|' << m_config.show_lobby_rank_heatseeker << '|'
-           << m_config.show_account_wins_overlay << '|' << m_config.show_demo_tracker_overlay << '|' << m_config.show_rank_progress << '|'
-           << m_config.show_previous_games_summary << '|' << m_config.previous_games_limit << '|'
-           << m_config.show_tournaments << '|' << m_config.tournament_region << '|'
-           << m_config.tournament_reminder_minutes << '|' << m_config.tournament_reminder_standard_only << '|'
-           << m_config.show_season_countdown << '|'
-           << m_config.show_streaks_stats << '|' << m_config.show_longest_loss_streak << '|'
-           << m_config.show_gamemode_breakdown << '|' << m_config.show_gamemode_record_1v1 << '|'
-           << m_config.show_gamemode_record_2v2 << '|' << m_config.show_gamemode_record_3v3 << '|'
-           << m_config.gamemode_breakdown_scope << '|' << m_config.mmr_category << '|'
-           << m_config.auto_switch_mmr_category << '|' << m_config.graph_follow_current_playlist << '|'
-           << m_config.graph_mmr_category << '|' << m_config.rank_progress_follow_current_playlist << '|'
-           << m_config.graph_default_lifetime << '|'
-           << m_config.rank_progress_mmr_category << '|' << m_config.show_extra_playlists << '|'
-           << m_config.ui_scale << '|' << m_config.imperial_units << '|' << m_config.crossbar_display_mode << '|'
-           << m_config.use_roman_numerals << '|' << m_config.key_cycle << '|' << m_config.key_expand << '|'
-           << m_config.key_session << '|';
+        uint64_t key = Config::RenderScalarHash(m_config);
+        const auto append = [&]<class T>(T value) {
+            if constexpr (std::is_same_v<T, float>)
+                HashAppend(key, std::bit_cast<uint32_t>(value));
+            else
+                HashAppend(key, static_cast<uint64_t>(value));
+        };
         for (const int percent : m_config.card_text_percent)
-            fp << percent << ';';
-        fp << m_config.overlay_layout.version << '|' << m_config.overlay_layout.toolboxOpen << '|';
-        for (auto widget : m_config.overlay_layout.disabledWidgets)
-            fp << "disabled:" << static_cast<int>(widget) << ';';
-        for (const auto& container : m_config.overlay_layout.containers) {
-            fp << container.id << ':' << container.x << ',' << container.y << ',' << container.w << ',' << container.h
-               << ',' << static_cast<int>(container.visibility.mode) << ',' << static_cast<int>(container.visibility.event)
-               << ',' << container.visibility.seconds << ',' << container.visibility.alsoWhileKeyHeld
-               << ',' << container.visibility.hideDuringReplay << '[';
-            for (auto widget : container.widgets)
-                fp << static_cast<int>(widget) << ',';
-            fp << "];";
-        }
-        fp << '|' << m_config.dashboard_layout.version << '|' << m_config.dashboard_layout.leftColumnWeight << '|';
-        for (const auto& widget : m_config.dashboard_layout.widgets)
-            fp << static_cast<int>(widget.id) << ',' << static_cast<int>(widget.zone) << ',' << widget.order << ','
-               << widget.height << ',' << widget.collapsed << ',' << widget.enabled << ';';
+            append(percent);
 
-        const std::string renderConfigFingerprint = fp.str();
-        renderConfigChanged = force || m_lastRenderConfigFingerprint != renderConfigFingerprint;
-        m_lastRenderConfigFingerprint = renderConfigFingerprint;
+        const auto& overlay = m_config.overlay_layout;
+        append(overlay.version);
+        append(overlay.toolboxOpen);
+        append(overlay.disabledWidgets.size());
+        for (auto widget : overlay.disabledWidgets)
+            append(widget);
+        append(overlay.containers.size());
+        for (const auto& container : overlay.containers) {
+            HashAppend(key, container.id);
+            append(container.x);
+            append(container.y);
+            append(container.w);
+            append(container.h);
+            const auto& visibility = container.visibility;
+            append(visibility.mode);
+            append(visibility.event);
+            append(visibility.seconds);
+            append(visibility.alsoWhileKeyHeld);
+            append(visibility.hideDuringReplay);
+            append(container.widgets.size());
+            for (auto widget : container.widgets)
+                append(widget);
+        }
+
+        const auto& dashboard = m_config.dashboard_layout;
+        append(dashboard.version);
+        append(dashboard.leftColumnWeight);
+        append(dashboard.widgets.size());
+        for (const auto& widget : dashboard.widgets) {
+            append(widget.id);
+            append(widget.zone);
+            append(widget.order);
+            append(widget.height);
+            append(widget.collapsed);
+            append(widget.enabled);
+        }
+        renderConfigChanged = force || m_lastRenderConfigHash != key;
+        m_lastRenderConfigHash = key;
     }
 
     const bool modeChanged = m_lastSecondMonitor != m_config.second_monitor_mode;

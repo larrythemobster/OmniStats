@@ -404,7 +404,7 @@ class RmlUiController final : public Rml::EventListener {
     std::string m_lastConfigFingerprint;
     uint64_t m_lastConfigHash = 0;
     uint64_t m_lastRuntimeStructuralHash = 0;
-    std::string m_lastRenderConfigFingerprint;
+    uint64_t m_lastRenderConfigHash = 0;
     std::string m_lastSettingsFingerprint;
     uint64_t m_lastSettingsHash = 0;
     uint64_t m_lastSettingsRosterHash = 0;

@@ -507,9 +507,7 @@ void RmlUiController::HandleChange(Rml::Element* target, Rml::Event& event) {
 
     const bool signedIn = m_accountClient && m_accountClient->IsSignedIn(m_config);
     Config::Update([&](ConfigData& c) {
-        if (key == "require_rl_focus")
-            c.require_rl_focus = checked;
-        else if (key.rfind("widget_enabled:", 0) == 0) {
+        if (key.rfind("widget_enabled:", 0) == 0) {
             const auto widget = WidgetFromDom(key.substr(15));
             if (widget != DashboardLayout::WidgetId::Tournaments || signedIn)
                 WidgetSettings::SetEnabled(c, widget, c.second_monitor_mode, checked, static_cast<float>(m_width), static_cast<float>(m_height));
@@ -517,148 +515,22 @@ void RmlUiController::HandleChange(Rml::Element* target, Rml::Event& event) {
             c.card_text_percent[static_cast<size_t>(m_cardTextWidget)] = ConfigData::NormalizeCardTextPercent(std::atoi(value.c_str()));
         } else if (key == "display_mode")
             c.second_monitor_mode = value == "dashboard";
-        else if (key == "tournament_region")
-            c.tournament_region = value;
-        else if (key == "tournament_reminder_minutes")
-            c.tournament_reminder_minutes = std::clamp(std::atoi(value.c_str()), 0, 15);
-        else if (key == "tournament_reminder_standard_only")
-            c.tournament_reminder_standard_only = checked;
-        else if (key == "tournament_sound_cue")
-            c.tournament_sound_cue = checked;
-        else if (key == "show_season_countdown")
-            c.show_season_countdown = checked;
-        else if (key == "season_reminder_days")
-            c.season_reminder_days = std::clamp(std::atoi(value.c_str()), 0, 30);
-        else if (key == "season_reward_reminders")
-            c.season_reward_reminders = checked;
-        else if (key == "show_season_recap")
-            c.show_season_recap = checked;
-        else if (key == "group_history_by_season")
-            c.group_history_by_season = checked;
-        else if (key == "show_match_summary")
-            c.show_match_summary = checked;
-        else if (key == "show_running_indicator")
-            c.show_running_indicator = checked;
-        else if (key == "reset_session_on_close")
-            c.reset_session_on_close = checked;
-        else if (key == "show_session_recap_on_close")
-            c.show_session_recap_on_close = checked;
-        else if (key == "run_on_startup")
-            c.run_on_startup = checked;
-        else if (key == "enable_auto_updates")
-            c.enable_auto_updates = checked;
-        else if (key == "show_session_record")
-            c.show_session_record = checked;
-        else if (key == "show_session_goals")
-            c.show_session_goals = checked;
-        else if (key == "show_session_saves")
-            c.show_session_saves = checked;
-        else if (key == "show_session_demos")
-            c.show_session_demos = checked;
-        else if (key == "show_session_boost")
-            c.show_session_boost = checked;
-        else if (key == "show_session_assists")
-            c.show_session_assists = checked;
-        else if (key == "show_session_goal_participation")
-            c.show_session_goal_participation = checked;
-        else if (key == "show_session_mmr_change")
-            c.show_session_mmr_change = checked;
-        else if (key == "use_rank_icons")
-            c.use_rank_icons = checked;
-        else if (key == "show_account_wins_overlay")
-            c.show_account_wins_overlay = checked;
-        else if (key == "show_lobby_rank_1v1")
-            c.show_lobby_rank_1v1 = checked;
-        else if (key == "show_lobby_rank_2v2")
-            c.show_lobby_rank_2v2 = checked;
-        else if (key == "show_lobby_rank_3v3")
-            c.show_lobby_rank_3v3 = checked;
-        else if (key == "show_lobby_rank_casual")
-            c.show_lobby_rank_casual = checked;
-        else if (key == "show_lobby_rank_tourny")
-            c.show_lobby_rank_tourny = checked;
-        else if (key == "show_lobby_rank_hoops")
-            c.show_lobby_rank_hoops = checked;
-        else if (key == "show_lobby_rank_rumble")
-            c.show_lobby_rank_rumble = checked;
-        else if (key == "show_lobby_rank_dropshot")
-            c.show_lobby_rank_dropshot = checked;
-        else if (key == "show_lobby_rank_snowday")
-            c.show_lobby_rank_snowday = checked;
-        else if (key == "show_lobby_rank_heatseeker")
-            c.show_lobby_rank_heatseeker = checked;
-        else if (key == "previous_games_limit")
-            c.previous_games_limit = std::clamp(std::atoi(value.c_str()), 10, 50);
-        else if (key == "show_longest_loss_streak")
-            c.show_longest_loss_streak = checked;
-        else if (key == "show_gamemode_record_1v1")
-            c.show_gamemode_record_1v1 = checked;
-        else if (key == "show_gamemode_record_2v2")
-            c.show_gamemode_record_2v2 = checked;
-        else if (key == "show_gamemode_record_3v3")
-            c.show_gamemode_record_3v3 = checked;
-        else if (key == "gamemode_breakdown_scope")
-            c.gamemode_breakdown_scope = value;
-        else if (key == "mmr_category")
-            c.mmr_category = value;
-        else if (key == "auto_switch_mmr_category")
-            c.auto_switch_mmr_category = checked;
         else if (key == "show_extra_playlists") {
             c.show_extra_playlists = checked;
             if (!checked && IsExtraMmrCategory(StringToMmrCategory(c.mmr_category))) c.mmr_category = "best";
             if (!checked && IsExtraMmrCategory(StringToMmrCategory(c.graph_mmr_category))) c.graph_mmr_category = "2v2";
             if (!checked && IsExtraMmrCategory(StringToMmrCategory(c.rank_progress_mmr_category))) c.rank_progress_mmr_category = "2v2";
-        } else if (key == "graph_follow_current_playlist")
-            c.graph_follow_current_playlist = checked;
-        else if (key == "graph_default_lifetime")
-            c.graph_default_lifetime = checked;
-        else if (key == "graph_mmr_category")
-            c.graph_mmr_category = value;
-        else if (key == "rank_progress_follow_current_playlist")
-            c.rank_progress_follow_current_playlist = checked;
-        else if (key == "rank_progress_mmr_category")
-            c.rank_progress_mmr_category = value;
-        else if (key == "ui_scale")
+        } else if (key == "ui_scale")
             c.ui_scale = SanitizedUiScale(std::strtof(value.c_str(), nullptr));
-        else if (key == "font_ui")
-            c.font_ui = value;
-        else if (key == "font_mono")
-            c.font_mono = value;
-        else if (key == "font_display")
-            c.font_display = value;
         else if (key == "speed_units")
             c.imperial_units = value == "imperial";
         else if (key == "crossbar_display_mode")
             c.crossbar_display_mode = value == "speed" ? "speed" : "raw";
-        else if (key == "use_roman_numerals")
-            c.use_roman_numerals = checked;
-        else if (key == "custom_api_enabled")
-            c.custom_api_enabled = checked;
         else if (key == "ballchasing_token") {
             c.ballchasing_token = value;
             m_pendingBallchasingToken = value;
             if (m_state) m_state->ui.ballchasingTokenRejected.store(false);
-        } else if (key == "auto_upload_replays")
-            c.auto_upload_replays = checked;
-        else if (key == "ballchasing_filter_ranked_only")
-            c.ballchasing_filter_ranked_only = checked;
-        else if (key == "ballchasing_filter_wins_only")
-            c.ballchasing_filter_wins_only = checked;
-        else if (key == "ballchasing_visibility")
-            c.ballchasing_visibility = value;
-        else if (key == "auto_save_replays")
-            c.auto_save_replays = checked;
-        else if (key == "discord_rpc_enabled")
-            c.discord_rpc_enabled = checked;
-        else if (key == "enable_mmr_tracking")
-            c.enable_mmr_tracking = checked;
-        else if (key == "crash_reports_enabled")
-            c.crash_reports_enabled = checked;
-        else if (key == "check_stats_api_config_on_startup")
-            c.check_stats_api_config_on_startup = checked;
-        else if (key == "debug_logging")
-            c.debug_logging = checked;
-        else if (key == "statsapi_path")
+        } else if (key == "statsapi_path")
             c.rocket_league_stats_api_config_path = value;
         else if (key.rfind("widget_vis_", 0) == 0) {
             const size_t colon = key.find(':');
@@ -710,6 +582,8 @@ void RmlUiController::HandleChange(Rml::Element* target, Rml::Event& event) {
                 }
                 OverlayLayout::Sanitize(c.overlay_layout);
             }
+        } else {
+            Config::ApplyControl(c, key, value, checked);
         }
 
         // The rank table is a fixed-column layout, so enabling or disabling a
