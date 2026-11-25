@@ -289,47 +289,25 @@ void InputManager::Stop() {
     g_instance.store(nullptr, std::memory_order_release);
 }
 
-void InputManager::RefreshConfigCache() {
-    const uint64_t revision = Config::Revision();
-    if (m_cachedConfigRevision.load(std::memory_order_acquire) == revision) return;
+InputManager::BindingSnapshot InputManager::RefreshConfigCache() {
     std::lock_guard lock(m_configCacheMutex);
-    if (m_cachedConfigRevision.load(std::memory_order_relaxed) == revision) return;
-    const ConfigData conf = Config::Read();
-    m_keyOverlay.store(conf.key_overlay, std::memory_order_relaxed);
-    m_keyCycle.store(conf.key_cycle, std::memory_order_relaxed);
-    m_keyExpand.store(conf.key_expand, std::memory_order_relaxed);
-    m_keySession.store(conf.key_session, std::memory_order_relaxed);
-    m_keyMenu.store(conf.key_menu, std::memory_order_relaxed);
-    m_gamepadOverlay.store(conf.gamepad_overlay, std::memory_order_relaxed);
-    m_gamepadOverlayRaw.store(conf.gamepad_overlay_raw, std::memory_order_relaxed);
-    m_gamepadOverlayRawButton.store(conf.gamepad_overlay_raw_button, std::memory_order_relaxed);
-    m_gamepadCycle.store(conf.gamepad_cycle, std::memory_order_relaxed);
-    m_gamepadCycleRaw.store(conf.gamepad_cycle_raw, std::memory_order_relaxed);
-    m_gamepadCycleRawButton.store(conf.gamepad_cycle_raw_button, std::memory_order_relaxed);
-
-    m_gamepadExpand.store(conf.gamepad_expand, std::memory_order_relaxed);
-    m_gamepadExpandRaw.store(conf.gamepad_expand_raw, std::memory_order_relaxed);
-    m_gamepadExpandRawButton.store(conf.gamepad_expand_raw_button, std::memory_order_relaxed);
-
-    m_gamepadSession.store(conf.gamepad_session, std::memory_order_relaxed);
-    m_gamepadSessionRaw.store(conf.gamepad_session_raw, std::memory_order_relaxed);
-    m_gamepadSessionRawButton.store(conf.gamepad_session_raw_button, std::memory_order_relaxed);
-
-    m_gamepadMenu.store(conf.gamepad_menu, std::memory_order_relaxed);
-    m_gamepadMenuRaw.store(conf.gamepad_menu_raw, std::memory_order_relaxed);
-    m_gamepadMenuRawButton.store(conf.gamepad_menu_raw_button, std::memory_order_relaxed);
-    m_keyGraphPanLeft.store(conf.key_graph_pan_left, std::memory_order_relaxed);
-    m_keyGraphPanRight.store(conf.key_graph_pan_right, std::memory_order_relaxed);
-    m_keyLifetimeGraph.store(conf.key_lifetime_graph, std::memory_order_relaxed);
-    m_gamepadGraphPanLeft.store(conf.gamepad_graph_pan_left, std::memory_order_relaxed);
-    m_gamepadGraphPanLeftRaw.store(conf.gamepad_graph_pan_left_raw, std::memory_order_relaxed);
-    m_gamepadGraphPanLeftRawButton.store(conf.gamepad_graph_pan_left_raw_button, std::memory_order_relaxed);
-    m_gamepadGraphPanRight.store(conf.gamepad_graph_pan_right, std::memory_order_relaxed);
-    m_gamepadGraphPanRightRaw.store(conf.gamepad_graph_pan_right_raw, std::memory_order_relaxed);
-    m_gamepadGraphPanRightRawButton.store(conf.gamepad_graph_pan_right_raw_button, std::memory_order_relaxed);
-    m_showExtraPlaylists.store(conf.show_extra_playlists, std::memory_order_relaxed);
-    m_graphDefaultLifetime.store(conf.graph_default_lifetime, std::memory_order_relaxed);
-    m_cachedConfigRevision.store(revision, std::memory_order_release);
+    const uint64_t revision = Config::Revision();
+    if (m_cachedConfigRevision != revision) {
+        const ConfigData conf = Config::Read();
+        auto& b = m_bindings.bindings;
+        b[static_cast<size_t>(Action::Overlay)] = {conf.key_overlay, conf.gamepad_overlay, conf.gamepad_overlay_raw, conf.gamepad_overlay_raw_button};
+        b[static_cast<size_t>(Action::Cycle)] = {conf.key_cycle, conf.gamepad_cycle, conf.gamepad_cycle_raw, conf.gamepad_cycle_raw_button};
+        b[static_cast<size_t>(Action::Expand)] = {conf.key_expand, conf.gamepad_expand, conf.gamepad_expand_raw, conf.gamepad_expand_raw_button};
+        b[static_cast<size_t>(Action::Session)] = {conf.key_session, conf.gamepad_session, conf.gamepad_session_raw, conf.gamepad_session_raw_button};
+        b[static_cast<size_t>(Action::Menu)] = {conf.key_menu, conf.gamepad_menu, conf.gamepad_menu_raw, conf.gamepad_menu_raw_button};
+        b[static_cast<size_t>(Action::PanLeft)] = {conf.key_graph_pan_left, conf.gamepad_graph_pan_left, conf.gamepad_graph_pan_left_raw, conf.gamepad_graph_pan_left_raw_button};
+        b[static_cast<size_t>(Action::PanRight)] = {conf.key_graph_pan_right, conf.gamepad_graph_pan_right, conf.gamepad_graph_pan_right_raw, conf.gamepad_graph_pan_right_raw_button};
+        b[static_cast<size_t>(Action::Lifetime)].key = conf.key_lifetime_graph;
+        m_bindings.showExtraPlaylists = conf.show_extra_playlists;
+        m_bindings.graphDefaultLifetime = conf.graph_default_lifetime;
+        m_cachedConfigRevision = revision;
+    }
+    return m_bindings;
 }
 
 void InputManager::SetOverlayHeld(OverlayHoldSource source, bool held) {
@@ -460,26 +438,16 @@ void InputManager::KeyboardThreadLoop() {
         }
     };
 
+    BindingSnapshot bindings;
     auto handleHotKey = [&](int hotKeyId) {
-        if (!m_state) {
-            return;
-        }
-
-        auto& state = *m_state;
-        if (state.ui.inputCaptureActive.load(std::memory_order_relaxed)) {
-            return;
-        }
-
-        HandleHotKeyAction(
-            state,
-            hotKeyId,
-            m_showExtraPlaylists.load(std::memory_order_relaxed),
-            m_graphDefaultLifetime.load(std::memory_order_relaxed),
-            m_telemetry.get());
+        if (!m_state || m_state->ui.inputCaptureActive.load(std::memory_order_relaxed)) return;
+        HandleHotKeyAction(*m_state, hotKeyId, bindings.showExtraPlaylists,
+                           bindings.graphDefaultLifetime, m_telemetry.get());
     };
 
     while (m_isRunning) {
-        RefreshConfigCache();
+        bindings = RefreshConfigCache();
+        const auto key = [&](Action action) { return bindings.bindings[static_cast<size_t>(action)].key; };
 
         bool inputCaptureActive = false;
         if (m_state) {
@@ -489,15 +457,15 @@ void InputManager::KeyboardThreadLoop() {
         if (inputCaptureActive) {
             unregisterRegisteredHotkeys();
         } else {
-            registerHotKeyIfNeeded(HotKeyMenu, m_keyMenu.load(std::memory_order_relaxed), registeredMenuKey);
-            registerHotKeyIfNeeded(HotKeyCycle, m_keyCycle.load(std::memory_order_relaxed), registeredCycleKey);
-            registerHotKeyIfNeeded(HotKeyExpand, m_keyExpand.load(std::memory_order_relaxed), registeredExpandKey);
-            registerHotKeyIfNeeded(HotKeySession, m_keySession.load(std::memory_order_relaxed), registeredSessionKey);
-            registerHotKeyIfNeeded(HotKeyLifetimeGraph, m_keyLifetimeGraph.load(std::memory_order_relaxed), registeredLifetimeKey);
+            registerHotKeyIfNeeded(HotKeyMenu, key(Action::Menu), registeredMenuKey);
+            registerHotKeyIfNeeded(HotKeyCycle, key(Action::Cycle), registeredCycleKey);
+            registerHotKeyIfNeeded(HotKeyExpand, key(Action::Expand), registeredExpandKey);
+            registerHotKeyIfNeeded(HotKeySession, key(Action::Session), registeredSessionKey);
+            registerHotKeyIfNeeded(HotKeyLifetimeGraph, key(Action::Lifetime), registeredLifetimeKey);
             registerDashboardEditIfNeeded();
             if (m_state && m_state->ui.showGraphView.load(std::memory_order_relaxed)) {
-                registerHotKeyIfNeeded(HotKeyPanLeft, m_keyGraphPanLeft.load(std::memory_order_relaxed), registeredPanLeftKey);
-                registerHotKeyIfNeeded(HotKeyPanRight, m_keyGraphPanRight.load(std::memory_order_relaxed), registeredPanRightKey);
+                registerHotKeyIfNeeded(HotKeyPanLeft, key(Action::PanLeft), registeredPanLeftKey);
+                registerHotKeyIfNeeded(HotKeyPanRight, key(Action::PanRight), registeredPanRightKey);
             } else {
                 if (registeredPanLeftKey != -1) {
                     UnregisterHotKey(NULL, HotKeyPanLeft);
@@ -527,7 +495,7 @@ void InputManager::KeyboardThreadLoop() {
         }
 
         if (m_state) {
-            const int keyOverlay = m_keyOverlay.load(std::memory_order_relaxed);
+            const int keyOverlay = key(Action::Overlay);
             const bool keyboardHeld = !inputCaptureActive && IsRocketLeagueForeground() &&
                                       (GetAsyncKeyState(VK_MENU) & 0x8000) == 0 &&
                                       keyOverlay > 0 && keyOverlay < 256 &&
@@ -557,17 +525,36 @@ LRESULT CALLBACK InputManager::LowLevelKeyboardProc(int nCode, WPARAM wParam,
         if (keyDown) {
             st->ui.lastKeyboardKeyPressed.store(static_cast<int>(kb->vkCode));
         }
-        const int keyOverlay = self->m_keyOverlay.load(std::memory_order_relaxed);
+        const auto bindings = self->RefreshConfigCache();
+        const auto key = [&](Action action) { return bindings.bindings[static_cast<size_t>(action)].key; };
+        const auto dispatch = [&](int id) {
+            HandleHotKeyAction(*st, id, bindings.showExtraPlaylists,
+                               bindings.graphDefaultLifetime, self->m_telemetry.get());
+        };
+        const int keyOverlay = key(Action::Overlay);
+        if (self->m_hookOverlayKey != keyOverlay) {
+            self->SetOverlayHeld(OverlayHoldSource::Keyboard, false);
+            self->m_hookOverlayKey = keyOverlay;
+        }
+        if (self->m_hookSessionKey != key(Action::Session)) {
+            self->m_sessionKeyDown.store(false, std::memory_order_relaxed);
+            self->m_hookSessionKey = key(Action::Session);
+        }
+        if (self->m_hookMenuKey != key(Action::Menu)) {
+            self->m_menuKeyDown.store(false, std::memory_order_relaxed);
+            self->m_hookMenuKey = key(Action::Menu);
+        }
         if (st->ui.inputCaptureActive.load(std::memory_order_relaxed)) {
+            self->m_sessionKeyDown.store(false, std::memory_order_relaxed);
+            self->m_menuKeyDown.store(false, std::memory_order_relaxed);
             if (kb->vkCode == keyOverlay && !keyDown)
                 self->SetOverlayHeld(OverlayHoldSource::Keyboard, false);
             return CallNextHookEx(m_hook, nCode, wParam, lParam);
         }
-        const int keyCycle = self->m_keyCycle.load(std::memory_order_relaxed);
-        const int keyExpand = self->m_keyExpand.load(std::memory_order_relaxed);
-        const int keySession = self->m_keySession.load(std::memory_order_relaxed);
-        const int keyMenu = self->m_keyMenu.load(std::memory_order_relaxed);
-        const bool showExtraPlaylists = self->m_showExtraPlaylists.load(std::memory_order_relaxed);
+        const int keyCycle = key(Action::Cycle);
+        const int keyExpand = key(Action::Expand);
+        const int keySession = key(Action::Session);
+        const int keyMenu = key(Action::Menu);
 
         if (kb->vkCode == keyOverlay) {
             const bool isAltDown = (GetKeyState(VK_MENU) & 0x8000) != 0;
@@ -576,23 +563,23 @@ LRESULT CALLBACK InputManager::LowLevelKeyboardProc(int nCode, WPARAM wParam,
         }
 
         if (kb->vkCode == keyCycle && wParam == WM_KEYDOWN) {
-            CycleMmrCategory(*st, showExtraPlaylists);
+            dispatch(HotKeyCycle);
         }
 
         if (kb->vkCode == keyExpand && wParam == WM_KEYDOWN) {
-            ExpandActiveView(*st, self->m_graphDefaultLifetime.load(std::memory_order_relaxed), self->m_telemetry.get());
+            dispatch(HotKeyExpand);
         }
-        if (kb->vkCode == static_cast<DWORD>(self->m_keyLifetimeGraph.load(std::memory_order_relaxed)) && wParam == WM_KEYDOWN) {
-            ToggleLifetimeGraph(*st);
+        if (kb->vkCode == static_cast<DWORD>(key(Action::Lifetime)) && wParam == WM_KEYDOWN) {
+            dispatch(HotKeyLifetimeGraph);
         }
         if (st->ui.showGraphView.load()) {
-            const int keyPanLeft = self->m_keyGraphPanLeft.load(std::memory_order_relaxed);
-            const int keyPanRight = self->m_keyGraphPanRight.load(std::memory_order_relaxed);
+            const int keyPanLeft = key(Action::PanLeft);
+            const int keyPanRight = key(Action::PanRight);
             if (kb->vkCode == keyPanLeft && wParam == WM_KEYDOWN) {
-                PanGraph(*st, -1);
+                dispatch(HotKeyPanLeft);
             }
             if (kb->vkCode == keyPanRight && wParam == WM_KEYDOWN) {
-                PanGraph(*st, 1);
+                dispatch(HotKeyPanRight);
             }
         }
         // The low-level hook still receives repeated keydowns, so track the F8 edge.
@@ -601,7 +588,7 @@ LRESULT CALLBACK InputManager::LowLevelKeyboardProc(int nCode, WPARAM wParam,
                 self->m_sessionKeyDown.store(false, std::memory_order_relaxed);
             } else if ((wParam == WM_KEYDOWN || wParam == WM_SYSKEYDOWN) &&
                        !self->m_sessionKeyDown.exchange(true, std::memory_order_relaxed)) {
-                ToggleSessionView(*st, self->m_graphDefaultLifetime.load(std::memory_order_relaxed));
+                dispatch(HotKeySession);
             }
         }
 
@@ -613,13 +600,13 @@ LRESULT CALLBACK InputManager::LowLevelKeyboardProc(int nCode, WPARAM wParam,
                 self->m_menuKeyDown.store(false, std::memory_order_relaxed);
             } else if ((wParam == WM_KEYDOWN || wParam == WM_SYSKEYDOWN) &&
                        !self->m_menuKeyDown.exchange(true, std::memory_order_relaxed)) {
-                ToggleSettingsMenu(*st);
+                dispatch(HotKeyMenu);
             }
         }
 
         bool isCtrlDown = (GetAsyncKeyState(VK_CONTROL) & 0x8000) != 0;
         if (st->ui.showMenu.load() && isCtrlDown && kb->vkCode == 'E' && wParam == WM_KEYDOWN) {
-            ToggleDashboardEditMode(*st);
+            dispatch(HotKeyDashboardEdit);
         }
 
         if (kb->vkCode == VK_ESCAPE && wParam == WM_KEYDOWN) {
@@ -661,9 +648,6 @@ void InputManager::GamepadThreadLoop() {
 
     while (m_isRunning) {
         auto* self = g_instance.load(std::memory_order_acquire);
-        if (self) {
-            self->RefreshConfigCache();
-        }
         auto now = std::chrono::steady_clock::now();
 
         if (controller == nullptr && fallbackJoystick == nullptr &&
@@ -702,10 +686,38 @@ void InputManager::GamepadThreadLoop() {
 
         if (self && self->m_state) {
             auto& st = self->m_state;
-            const int gamepadOverlay = self->m_gamepadOverlay.load(std::memory_order_relaxed);
-            const bool gamepadOverlayRaw = self->m_gamepadOverlayRaw.load(std::memory_order_relaxed);
-            const int gamepadOverlayRawButton = self->m_gamepadOverlayRawButton.load(std::memory_order_relaxed);
+            const auto bindings = self->RefreshConfigCache();
             const bool inputCaptureActive = st->ui.inputCaptureActive.load(std::memory_order_relaxed);
+            auto dispatchButtons = [&](const bool* current, const bool* previous, int count,
+                                       const bool* raw, const bool* previousRaw) {
+                auto held = [&](Action action, bool previousState) {
+                    const auto& binding = bindings.bindings[static_cast<size_t>(action)];
+                    const int index = binding.raw ? binding.rawButton : binding.button;
+                    const int limit = binding.raw ? 256 : count;
+                    if (index < 0 || index >= limit) return false;
+                    const bool* states = binding.raw ? (previousState ? previousRaw : raw)
+                                                     : (previousState ? previous : current);
+                    return states[index];
+                };
+                auto pressed = [&](Action action) { return held(action, false) && !held(action, true); };
+                self->SetOverlayHeld(OverlayHoldSource::Gamepad, !inputCaptureActive && held(Action::Overlay, false));
+                if (inputCaptureActive) return;
+                const bool overlayVisible = st->ui.showOverlay.load();
+                auto dispatch = [&](Action action, int id) {
+                    if (pressed(action)) HandleHotKeyAction(*st, id, bindings.showExtraPlaylists,
+                                                            bindings.graphDefaultLifetime, self->m_telemetry.get());
+                };
+                if (overlayVisible) {
+                    dispatch(Action::Cycle, HotKeyCycle);
+                    dispatch(Action::Expand, HotKeyExpand);
+                    dispatch(Action::Session, HotKeySession);
+                }
+                dispatch(Action::Menu, HotKeyMenu);
+                if (st->ui.showGraphView.load()) {
+                    dispatch(Action::PanLeft, HotKeyPanLeft);
+                    dispatch(Action::PanRight, HotKeyPanRight);
+                }
+            };
 
             if (controller != nullptr) {
                 if (!SDL_GameControllerGetAttached(controller)) {
@@ -720,7 +732,7 @@ void InputManager::GamepadThreadLoop() {
                     bool currentStates[MAX_TRACKED_BUTTONS] = {false};
                     bool currentRawControllerStates[256] = {false};
 
-                    for (int b = 0; b < SDL_CONTROLLER_BUTTON_MAX; ++b) {
+                    for (int b = 0; b < SDL_CONTROLLER_BUTTON_MAX && b < MAX_TRACKED_BUTTONS; ++b) {
                         currentStates[b] = SDL_GameControllerGetButton(controller, static_cast<SDL_GameControllerButton>(b)) != 0;
                         if (currentStates[b]) st->ui.lastControllerButtonPressed.store(b);
                     }
@@ -747,70 +759,10 @@ void InputManager::GamepadThreadLoop() {
                         }
                     }
 
-                    auto isPressed = [&](int bind, bool isRaw, int rawBind) {
-                        if (isRaw) {
-                            if (rawBind < 0 || rawBind >= 256) return false;
-                            return currentRawControllerStates[rawBind] && !prevRawControllerStates[rawBind];
-                        }
-                        if (bind < 0 || bind >= MAX_TRACKED_BUTTONS) return false;
-                        return currentStates[bind] && !prevControllerStates[bind];
-                    };
-
-                    bool buttonHeld = false;
-                    if (gamepadOverlayRaw) {
-                        if (gamepadOverlayRawButton >= 0 && gamepadOverlayRawButton < 256) {
-                            buttonHeld = currentRawControllerStates[gamepadOverlayRawButton];
-                        }
-                    } else if (gamepadOverlay >= 0 && gamepadOverlay < MAX_TRACKED_BUTTONS) {
-                        buttonHeld = currentStates[gamepadOverlay];
-                    }
-
-                    self->SetOverlayHeld(OverlayHoldSource::Gamepad, !inputCaptureActive && buttonHeld);
-                    if (!inputCaptureActive) {
-                        const bool overlayVisible = st->ui.showOverlay.load();
-
-                        if (overlayVisible && isPressed(self->m_gamepadCycle.load(std::memory_order_relaxed),
-                                                        self->m_gamepadCycleRaw.load(std::memory_order_relaxed),
-                                                        self->m_gamepadCycleRawButton.load(std::memory_order_relaxed))) {
-                            CycleMmrCategory(*st, self->m_showExtraPlaylists.load(std::memory_order_relaxed));
-                        }
-
-                        if (overlayVisible && isPressed(self->m_gamepadExpand.load(std::memory_order_relaxed),
-                                                        self->m_gamepadExpandRaw.load(std::memory_order_relaxed),
-                                                        self->m_gamepadExpandRawButton.load(std::memory_order_relaxed))) {
-                            ExpandActiveView(*st, self->m_graphDefaultLifetime.load(std::memory_order_relaxed), self->m_telemetry.get());
-                        }
-
-                        if (overlayVisible && isPressed(self->m_gamepadSession.load(std::memory_order_relaxed),
-                                                        self->m_gamepadSessionRaw.load(std::memory_order_relaxed),
-                                                        self->m_gamepadSessionRawButton.load(std::memory_order_relaxed))) {
-                            ToggleSessionView(*st, self->m_graphDefaultLifetime.load(std::memory_order_relaxed));
-                        }
-
-                        if (isPressed(self->m_gamepadMenu.load(std::memory_order_relaxed),
-                                      self->m_gamepadMenuRaw.load(std::memory_order_relaxed),
-                                      self->m_gamepadMenuRawButton.load(std::memory_order_relaxed))) {
-                            ToggleSettingsMenu(*st);
-                        }
-
-                        if (st->ui.showGraphView.load()) {
-                            if (isPressed(self->m_gamepadGraphPanLeft.load(std::memory_order_relaxed),
-                                          self->m_gamepadGraphPanLeftRaw.load(std::memory_order_relaxed),
-                                          self->m_gamepadGraphPanLeftRawButton.load(std::memory_order_relaxed))) {
-                                PanGraph(*st, -1);
-                            }
-                            if (isPressed(self->m_gamepadGraphPanRight.load(std::memory_order_relaxed),
-                                          self->m_gamepadGraphPanRightRaw.load(std::memory_order_relaxed),
-                                          self->m_gamepadGraphPanRightRawButton.load(std::memory_order_relaxed))) {
-                                PanGraph(*st, 1);
-                            }
-                        }
-                    }
-
-                    for (int i = 0; i < MAX_TRACKED_BUTTONS; ++i)
-                        prevControllerStates[i] = currentStates[i];
-                    for (int i = 0; i < 256; ++i)
-                        prevRawControllerStates[i] = currentRawControllerStates[i];
+                    dispatchButtons(currentStates, prevControllerStates, MAX_TRACKED_BUTTONS,
+                                    currentRawControllerStates, prevRawControllerStates);
+                    std::copy_n(currentStates, MAX_TRACKED_BUTTONS, prevControllerStates);
+                    std::copy_n(currentRawControllerStates, 256, prevRawControllerStates);
                 }
             } else if (fallbackJoystick != nullptr) {
                 if (!SDL_JoystickGetAttached(fallbackJoystick)) {
@@ -832,59 +784,8 @@ void InputManager::GamepadThreadLoop() {
                         }
                     }
 
-                    auto isPressed = [&](int bind, bool isRaw, int rawBind) {
-                        int activeBind = isRaw ? rawBind : bind;
-                        if (activeBind < 0 || activeBind >= 256) return false;
-                        return currentStates[activeBind] && !prevFallbackStates[activeBind];
-                    };
-
-                    const int overlayButton = gamepadOverlayRaw ? gamepadOverlayRawButton : gamepadOverlay;
-                    const bool buttonHeld = overlayButton >= 0 && overlayButton < 256 && currentStates[overlayButton];
-
-                    self->SetOverlayHeld(OverlayHoldSource::Gamepad, !inputCaptureActive && buttonHeld);
-                    if (!inputCaptureActive) {
-                        const bool overlayVisible = st->ui.showOverlay.load();
-
-                        if (overlayVisible && isPressed(self->m_gamepadCycle.load(std::memory_order_relaxed),
-                                                        self->m_gamepadCycleRaw.load(std::memory_order_relaxed),
-                                                        self->m_gamepadCycleRawButton.load(std::memory_order_relaxed))) {
-                            CycleMmrCategory(*st, self->m_showExtraPlaylists.load(std::memory_order_relaxed));
-                        }
-
-                        if (overlayVisible && isPressed(self->m_gamepadExpand.load(std::memory_order_relaxed),
-                                                        self->m_gamepadExpandRaw.load(std::memory_order_relaxed),
-                                                        self->m_gamepadExpandRawButton.load(std::memory_order_relaxed))) {
-                            ExpandActiveView(*st, self->m_graphDefaultLifetime.load(std::memory_order_relaxed), self->m_telemetry.get());
-                        }
-
-                        if (overlayVisible && isPressed(self->m_gamepadSession.load(std::memory_order_relaxed),
-                                                        self->m_gamepadSessionRaw.load(std::memory_order_relaxed),
-                                                        self->m_gamepadSessionRawButton.load(std::memory_order_relaxed))) {
-                            ToggleSessionView(*st, self->m_graphDefaultLifetime.load(std::memory_order_relaxed));
-                        }
-
-                        if (isPressed(self->m_gamepadMenu.load(std::memory_order_relaxed),
-                                      self->m_gamepadMenuRaw.load(std::memory_order_relaxed),
-                                      self->m_gamepadMenuRawButton.load(std::memory_order_relaxed))) {
-                            ToggleSettingsMenu(*st);
-                        }
-
-                        if (st->ui.showGraphView.load()) {
-                            if (isPressed(self->m_gamepadGraphPanLeft.load(std::memory_order_relaxed),
-                                          self->m_gamepadGraphPanLeftRaw.load(std::memory_order_relaxed),
-                                          self->m_gamepadGraphPanLeftRawButton.load(std::memory_order_relaxed))) {
-                                PanGraph(*st, -1);
-                            }
-                            if (isPressed(self->m_gamepadGraphPanRight.load(std::memory_order_relaxed),
-                                          self->m_gamepadGraphPanRightRaw.load(std::memory_order_relaxed),
-                                          self->m_gamepadGraphPanRightRawButton.load(std::memory_order_relaxed))) {
-                                PanGraph(*st, 1);
-                            }
-                        }
-                    }
-
-                    for (int i = 0; i < 256; ++i)
-                        prevFallbackStates[i] = currentStates[i];
+                    dispatchButtons(currentStates, prevFallbackStates, 256, currentStates, prevFallbackStates);
+                    std::copy_n(currentStates, 256, prevFallbackStates);
                 }
             }
         }

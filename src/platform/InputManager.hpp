@@ -6,6 +6,7 @@
 #include <thread>
 #include <condition_variable>
 #include <mutex>
+#include <array>
 #include "core/state/SessionState.hpp"
 #include "platform/OverlayHoldState.hpp"
 
@@ -49,7 +50,27 @@ class InputManager {
   private:
     void KeyboardThreadLoop();
     void GamepadThreadLoop();
-    void RefreshConfigCache();
+    enum class Action : size_t { Overlay,
+                                 Cycle,
+                                 Expand,
+                                 Session,
+                                 Menu,
+                                 PanLeft,
+                                 PanRight,
+                                 Lifetime,
+                                 Count };
+    struct Binding {
+        int key = -1;
+        int button = -1;
+        bool raw = false;
+        int rawButton = -1;
+    };
+    struct BindingSnapshot {
+        std::array<Binding, static_cast<size_t>(Action::Count)> bindings{};
+        bool showExtraPlaylists = true;
+        bool graphDefaultLifetime = false;
+    };
+    BindingSnapshot RefreshConfigCache();
     void SetOverlayHeld(OverlayHoldSource source, bool held);
 
     std::shared_ptr<SessionState> m_state;
@@ -62,40 +83,13 @@ class InputManager {
     std::mutex m_overlayHoldMutex;
     OverlayHoldState m_overlayHolds;
     std::mutex m_configCacheMutex;
-    std::atomic<uint64_t> m_cachedConfigRevision{UINT64_MAX};
+    uint64_t m_cachedConfigRevision{UINT64_MAX};
+    BindingSnapshot m_bindings;
     std::atomic<DWORD> m_keyboardThreadId{0};
-    std::atomic<int> m_keyOverlay{VK_TAB};
-    std::atomic<int> m_keyCycle{VK_F6};
-    std::atomic<int> m_keyExpand{VK_F7};
-    std::atomic<int> m_keySession{VK_F8};
-    std::atomic<int> m_keyMenu{VK_F5};
-    std::atomic<int> m_keyGraphPanLeft{VK_LEFT};
-    std::atomic<int> m_keyGraphPanRight{VK_RIGHT};
-    std::atomic<int> m_keyLifetimeGraph{VK_F9};
-    std::atomic<int> m_gamepadOverlay{4};
-    std::atomic<bool> m_gamepadOverlayRaw{false};
-    std::atomic<int> m_gamepadOverlayRawButton{4};
-    std::atomic<int> m_gamepadCycle{-1};
-    std::atomic<bool> m_gamepadCycleRaw{false};
-    std::atomic<int> m_gamepadCycleRawButton{-1};
-    std::atomic<int> m_gamepadExpand{-1};
-    std::atomic<bool> m_gamepadExpandRaw{false};
-    std::atomic<int> m_gamepadExpandRawButton{-1};
-    std::atomic<int> m_gamepadSession{-1};
-    std::atomic<bool> m_gamepadSessionRaw{false};
-    std::atomic<int> m_gamepadSessionRawButton{-1};
-    std::atomic<int> m_gamepadMenu{-1};
-    std::atomic<bool> m_gamepadMenuRaw{false};
-    std::atomic<int> m_gamepadMenuRawButton{-1};
-    std::atomic<int> m_gamepadGraphPanLeft{-1};
-    std::atomic<bool> m_gamepadGraphPanLeftRaw{false};
-    std::atomic<int> m_gamepadGraphPanLeftRawButton{-1};
-    std::atomic<int> m_gamepadGraphPanRight{-1};
-    std::atomic<bool> m_gamepadGraphPanRightRaw{false};
-    std::atomic<int> m_gamepadGraphPanRightRawButton{-1};
-    std::atomic<bool> m_showExtraPlaylists{true};
-    std::atomic<bool> m_graphDefaultLifetime{false};
 #if OMNISTATS_ENABLE_LOW_LEVEL_HOOK
+    int m_hookOverlayKey{-1};
+    int m_hookSessionKey{-1};
+    int m_hookMenuKey{-1};
     std::atomic<bool> m_sessionKeyDown{false};
     std::atomic<bool> m_menuKeyDown{false};
     static inline HHOOK m_hook = nullptr;
