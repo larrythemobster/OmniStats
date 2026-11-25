@@ -16,18 +16,18 @@
 #include "network/telemetry/TelemetryEvents.hpp"
 
 struct ReducerSettings {
-    bool reset_session_on_close = true;
-    bool enable_mmr_tracking = false;
-    bool custom_api_enabled = true;
-    bool has_account_refresh_token = false;
-    bool show_extra_playlists = true;
-    bool auto_switch_mmr_category = true;
-    bool graph_follow_current_playlist = true;
-    bool rank_progress_follow_current_playlist = true;
-    std::string graph_mmr_category = "2v2";
-    std::string rank_progress_mmr_category = "2v2";
+    bool reset_session_on_close;
+    bool enable_mmr_tracking;
+    bool custom_api_enabled;
+    bool has_account_refresh_token;
+    bool show_extra_playlists;
+    bool auto_switch_mmr_category;
+    bool graph_follow_current_playlist;
+    bool rank_progress_follow_current_playlist;
+    std::string graph_mmr_category;
+    std::string rank_progress_mmr_category;
 
-    ReducerSettings() = default;
+    ReducerSettings() : ReducerSettings(ConfigData{}) {}
     ReducerSettings(const ConfigData& config)
         : reset_session_on_close(config.reset_session_on_close),
           enable_mmr_tracking(config.enable_mmr_tracking),

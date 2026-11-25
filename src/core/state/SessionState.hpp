@@ -156,16 +156,6 @@ struct UIState {
     std::atomic<int64_t> lastPodiumMs{0};
     std::atomic<bool> inGoalReplay{false};
 
-    void ResetMatchTimestamps(int64_t matchStartMs = 0) noexcept {
-        lastMatchStartMs.store(matchStartMs, std::memory_order_relaxed);
-        firstCountdownOfMatchMs.store(0, std::memory_order_relaxed);
-        lastCountdownMs.store(0, std::memory_order_relaxed);
-        lastGoalMs.store(0, std::memory_order_relaxed);
-        lastMatchEndMs.store(0, std::memory_order_relaxed);
-        lastPodiumMs.store(0, std::memory_order_relaxed);
-        inGoalReplay.store(false, std::memory_order_relaxed);
-    }
-
     // Initial applies the pinned rank-progress playlist; later revisions only drop hidden extra playlists.
     void ApplyRankProgressConfig(const ConfigData& config, bool initial);
 
