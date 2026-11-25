@@ -1,6 +1,6 @@
 #include "ui/rml/RmlUiPch.hpp"
 #include "ui/rml/controller/RmlUiController.hpp"
-#include "ui/rml/presenters/SettingsPresenter.hpp"
+#include "ui/rml/settings/SettingsPages.hpp"
 #include "ui/rml/services/FontService.hpp"
 #include <commdlg.h>
 
@@ -19,10 +19,10 @@
 
 using namespace RmlUiDetail;
 
-std::string SettingsPresenter::RenderAppearance(const ConfigData& config, const std::string& editColorKey, float editColorHue, bool showAdvanced,
-                                                bool pending, const std::string& nameDraft, const std::string& importDraft,
-                                                const std::string& message, bool messageError, bool canUndo,
-                                                const std::set<std::string>& openGroups, DashboardLayout::WidgetId cardTextWidget) {
+std::string SettingsPages::RenderAppearance(const ConfigData& config, const std::string& editColorKey, float editColorHue, bool showAdvanced,
+                                            bool pending, const std::string& nameDraft, const std::string& importDraft,
+                                            const std::string& message, bool messageError, bool canUndo,
+                                            const std::set<std::string>& openGroups, DashboardLayout::WidgetId cardTextWidget) {
     auto rangeRow = [&](const char* channel, char component, int value) {
         std::ostringstream html;
         html << "<div class='color-channel'><span class='color-channel-label'>" << channel << "</span>"
@@ -216,11 +216,4 @@ std::string SettingsPresenter::RenderAppearance(const ConfigData& config, const 
         << SectionEnd();
 
     return out.str();
-}
-
-std::string RmlUiController::RenderSettingsAppearance() {
-    return m_settingsPresenter->RenderAppearance(m_themeEditor.PreviewConfig(), m_themeEditor.m_editColorKey,
-                                                 m_themeEditor.m_editColorHue, m_showAdvancedAppearance, m_themeEditor.Pending(), m_themeEditor.m_nameDraft,
-                                                 m_themeEditor.m_importDraft, m_themeEditor.m_message, m_themeEditor.m_messageError,
-                                                 m_themeEditor.m_resetUndo.has_value(), m_themeEditor.m_openGroups, m_cardTextWidget);
 }

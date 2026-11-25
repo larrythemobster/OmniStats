@@ -285,9 +285,9 @@ void RmlUiController::ReloadUiResources() {
     // View documents hold their markup in RML, so reload them whole.
     CloseViewDocuments();
     LoadViewDocuments();
-    if (m_onboardingVisible) RefreshOnboarding();
-    if (m_historyVisible) RefreshHistory(true);
-    if (m_accountsVisible) RefreshAccounts(true);
+    if (m_onboarding.IsVisible()) RefreshOnboarding();
+    if (m_history.IsVisible()) RefreshHistory(true);
+    if (m_accounts.IsVisible()) RefreshAccounts(true);
     UpdateThemeProperties();
     RebuildVisibleUi(true, true);
     if (m_state && m_state->ui.showMenu.load()) RebuildSettings();
@@ -552,7 +552,7 @@ void RmlUiController::UpdateThemeProperties() {
     rule(".settings-footer button.ghost", "color", labelOn(config.themeButtonText, config.themeSettingsPanel));
     rule(".settings-footer button:disabled", "opacity", "0.55");
 
-    css << FontOverrideCss();
+    css << m_fontService.FontOverrideCss(m_config);
 
     auto themeStyle = Rml::Factory::InstanceStyleSheetString(css.str());
     if (!themeStyle) return;
@@ -560,7 +560,7 @@ void RmlUiController::UpdateThemeProperties() {
     if (combined) {
         // The view documents link the same packaged RCSS, so one combined
         // sheet serves all of them.
-        for (Rml::ElementDocument* document : {m_document, m_insightsDoc, m_onboardingDoc, m_historyDoc, m_accountsDoc, m_playerNoteDoc})
+        for (Rml::ElementDocument* document : {m_document, m_insights.Document(), m_onboarding.Document(), m_history.Document(), m_accounts.Document(), m_playerNote.Document()})
             if (document) document->SetStyleSheetContainer(combined);
         m_renderDirty = true;
     }

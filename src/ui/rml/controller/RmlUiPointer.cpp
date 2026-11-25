@@ -108,6 +108,7 @@ void RmlUiController::LayoutDrag::HandleMouseDown(Rml::Element* target, Rml::Eve
         m_drag.startMouseY = event.GetParameter<float>("mouse_y", 0.0f);
         m_drag.startX = it->x;
         m_drag.startY = it->y;
+        m_drag.geometry = {it->x, it->y, it->w, it->h};
         m_drag.allowDock = m_owner.m_state && m_owner.m_state->ui.dashboardLayoutEditMode.load();
         const auto [resolvedWidth, resolvedHeight] = OverlayContainerSize(*it, m_owner.m_dpiScale, &m_owner.m_config);
         m_drag.startW = resolvedWidth;
@@ -147,6 +148,8 @@ void RmlUiController::LayoutDrag::HandleMouseDown(Rml::Element* target, Rml::Eve
         if (card.empty()) return;
         m_drag = {};
         m_drag.kind = DragKind::FloatingCard;
+        m_drag.floatingPositions = {m_owner.m_config.session_view_x, m_owner.m_config.session_view_y,
+                                    m_owner.m_config.match_summary_x, m_owner.m_config.match_summary_y};
         m_drag.containerId = card;
         m_drag.startMouseX = event.GetParameter<float>("mouse_x", 0.0f);
         m_drag.startMouseY = event.GetParameter<float>("mouse_y", 0.0f);
@@ -203,11 +206,11 @@ void RmlUiController::LayoutDrag::HandleMouseMove(Rml::Event& event) {
         const float x = std::clamp(m_drag.startX + dx, 0.0f, std::max(0.0f, static_cast<float>(m_owner.m_width) - m_drag.startW));
         const float y = std::clamp(m_drag.startY + dy, 0.0f, std::max(0.0f, static_cast<float>(m_owner.m_height) - m_drag.startH));
         if (m_drag.containerId == "session-view") {
-            m_owner.m_config.session_view_x = x;
-            m_owner.m_config.session_view_y = y;
+            m_drag.floatingPositions.sessionX = x;
+            m_drag.floatingPositions.sessionY = y;
         } else {
-            m_owner.m_config.match_summary_x = x;
-            m_owner.m_config.match_summary_y = y;
+            m_drag.floatingPositions.summaryX = x;
+            m_drag.floatingPositions.summaryY = y;
         }
         if (m_drag.element) {
             m_drag.element->SetProperty("left", std::to_string(x / std::max(rmlScale, 0.01f)) + "dp");
@@ -300,8 +303,8 @@ void RmlUiController::LayoutDrag::HandleMouseMove(Rml::Event& event) {
             considerSnap(y, other.y - m_drag.startH, other.y, ySnap, bestY);
             considerSnap(y, other.y + other.h - m_drag.startH, other.y + other.h, ySnap, bestY);
         }
-        it->x = std::clamp(xSnap.value, 0.0f, std::max(0.0f, screenWidth - m_drag.startW));
-        it->y = std::clamp(ySnap.value, 0.0f, std::max(0.0f, screenHeight - m_drag.startH));
+        m_drag.geometry.x = std::clamp(xSnap.value, 0.0f, std::max(0.0f, screenWidth - m_drag.startW));
+        m_drag.geometry.y = std::clamp(ySnap.value, 0.0f, std::max(0.0f, screenHeight - m_drag.startH));
     } else {
         const auto [minWidth, minHeight] = OverlayContainerMinSize(*it, dpi, &m_owner.m_config);
         float newWidth = std::max(minWidth, m_drag.startW + dx);
@@ -309,16 +312,16 @@ void RmlUiController::LayoutDrag::HandleMouseMove(Rml::Event& event) {
         for (const auto& other : m_drag.snapRects) {
             if (std::abs(newWidth - other.w) < snap) {
                 newWidth = other.w;
-                xSnap = {it->x + newWidth, it->x + newWidth, true};
+                xSnap = {m_drag.geometry.x + newWidth, m_drag.geometry.x + newWidth, true};
             }
             if (std::abs(newHeight - other.h) < snap) {
                 newHeight = other.h;
-                ySnap = {it->y + newHeight, it->y + newHeight, true};
+                ySnap = {m_drag.geometry.y + newHeight, m_drag.geometry.y + newHeight, true};
             }
         }
 
-        const float right = it->x + newWidth;
-        const float bottom = it->y + newHeight;
+        const float right = m_drag.geometry.x + newWidth;
+        const float bottom = m_drag.geometry.y + newHeight;
         SnapResult rightSnap{right, 0.0f, false};
         SnapResult bottomSnap{bottom, 0.0f, false};
         float bestRight = snap;
@@ -338,16 +341,19 @@ void RmlUiController::LayoutDrag::HandleMouseMove(Rml::Event& event) {
         // Every value above is in rendered screen pixels; stored geometry is
         // design pixels at 100% text size, so divide the scale back out.
         const float uiScale = SanitizedUiScale(m_owner.m_config.ui_scale);
-        it->w = std::clamp(snappedRight - it->x, minWidth, std::max(minWidth, screenWidth - resizeMargin - it->x)) / uiScale;
-        it->h = std::clamp(snappedBottom - it->y, minHeight, std::max(minHeight, screenHeight - resizeMargin - it->y)) / uiScale;
+        m_drag.geometry.w = std::clamp(snappedRight - m_drag.geometry.x, minWidth, std::max(minWidth, screenWidth - resizeMargin - m_drag.geometry.x)) / uiScale;
+        m_drag.geometry.h = std::clamp(snappedBottom - m_drag.geometry.y, minHeight, std::max(minHeight, screenHeight - resizeMargin - m_drag.geometry.y)) / uiScale;
     }
 
     const auto toDp = [rmlScale](float pixels) { return pixels / std::max(rmlScale, 0.5f); };
     if (m_drag.element) {
-        m_drag.element->SetProperty("left", std::to_string(toDp(it->x)) + "dp");
-        m_drag.element->SetProperty("top", std::to_string(toDp(it->y)) + "dp");
+        m_drag.element->SetProperty("left", std::to_string(toDp(m_drag.geometry.x)) + "dp");
+        m_drag.element->SetProperty("top", std::to_string(toDp(m_drag.geometry.y)) + "dp");
         if (m_drag.kind == DragKind::OverlayResize) {
-            const auto [resolvedWidth, resolvedHeight] = OverlayContainerSize(*it, m_owner.m_dpiScale, &m_owner.m_config);
+            const auto [minWidth, minHeight] = OverlayContainerMinSize(*it, dpi, &m_owner.m_config);
+            const float uiScale = SanitizedUiScale(m_owner.m_config.ui_scale);
+            const float resolvedWidth = std::max(m_drag.geometry.w * uiScale, minWidth);
+            const float resolvedHeight = std::max(m_drag.geometry.h * uiScale, minHeight);
             m_drag.element->SetProperty("width", std::to_string(toDp(resolvedWidth)) + "dp");
             m_drag.element->SetProperty("min-height", std::to_string(toDp(resolvedHeight)) + "dp");
         }
@@ -431,15 +437,12 @@ void RmlUiController::LayoutDrag::HandleMouseUp(Rml::Event& event) {
     } else if (m_drag.kind == DragKind::ColorField || m_drag.kind == DragKind::ColorHue) {
         m_owner.m_themeEditor.CommitColorPick();
     } else if (m_drag.kind == DragKind::FloatingCard) {
-        const float sessionX = m_owner.m_config.session_view_x;
-        const float sessionY = m_owner.m_config.session_view_y;
-        const float summaryX = m_owner.m_config.match_summary_x;
-        const float summaryY = m_owner.m_config.match_summary_y;
+        const auto positions = m_drag.floatingPositions;
         Config::Update([=](ConfigData& c) {
-            c.session_view_x = sessionX;
-            c.session_view_y = sessionY;
-            c.match_summary_x = summaryX;
-            c.match_summary_y = summaryY;
+            c.session_view_x = positions.sessionX;
+            c.session_view_y = positions.sessionY;
+            c.match_summary_x = positions.summaryX;
+            c.match_summary_y = positions.summaryY;
         });
         m_owner.m_config = Config::Read();
         m_owner.RebuildOverlay();
@@ -593,6 +596,15 @@ void RmlUiController::LayoutDrag::HandleMouseUp(Rml::Event& event) {
         m_owner.m_config = Config::Read();
         m_owner.RebuildOverlay();
     } else if (m_drag.kind == DragKind::OverlayMove || m_drag.kind == DragKind::OverlayResize) {
+        auto layout = m_owner.m_config.overlay_layout;
+        for (auto& container : layout.containers) {
+            if (container.id != m_drag.containerId) continue;
+            container.x = m_drag.geometry.x;
+            container.y = m_drag.geometry.y;
+            container.w = m_drag.geometry.w;
+            container.h = m_drag.geometry.h;
+            break;
+        }
         if (m_drag.kind == DragKind::OverlayMove && m_drag.allowDock) {
             std::string targetId;
             bool dockAtTop = false;
@@ -610,7 +622,6 @@ void RmlUiController::LayoutDrag::HandleMouseUp(Rml::Event& event) {
             }
             if (!targetId.empty()) {
                 const std::string draggedId = m_drag.containerId;
-                auto layout = m_owner.m_config.overlay_layout;
                 OverlayLayout::ContainerConfig dragged;
                 bool found = false;
                 for (auto it = layout.containers.begin(); it != layout.containers.end(); ++it) {
@@ -633,11 +644,9 @@ void RmlUiController::LayoutDrag::HandleMouseUp(Rml::Event& event) {
                         break;
                     }
                     OverlayLayout::Sanitize(layout);
-                    m_owner.m_config.overlay_layout = std::move(layout);
                 }
             }
         }
-        const auto layout = m_owner.m_config.overlay_layout;
         Config::Update([&](ConfigData& c) { c.overlay_layout = layout; });
         m_owner.m_config = Config::Read();
         m_owner.RebuildOverlay();

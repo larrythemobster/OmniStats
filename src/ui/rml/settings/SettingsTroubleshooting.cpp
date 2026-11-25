@@ -1,6 +1,6 @@
 #include "ui/rml/RmlUiPch.hpp"
 #include "ui/rml/controller/RmlUiController.hpp"
-#include "ui/rml/presenters/SettingsPresenter.hpp"
+#include "ui/rml/settings/SettingsPages.hpp"
 #include <commdlg.h>
 
 #include "core/config/AppVersion.hpp"
@@ -18,7 +18,7 @@
 
 using namespace RmlUiDetail;
 
-std::string SettingsPresenter::RenderTroubleshooting(const ConfigData& config, const std::shared_ptr<SessionState>& state, const std::string& statsApiPathError) {
+std::string SettingsPages::RenderTroubleshooting(const ConfigData& config, const std::shared_ptr<SessionState>& state, const std::string& statsApiPathError) {
     StatsApiConfig::CheckResult result;
     if (state) {
         std::lock_guard lock(state->ui.statsApiMutex);
@@ -46,8 +46,4 @@ std::string SettingsPresenter::RenderTroubleshooting(const ConfigData& config, c
         << ActionRow("Log file", "", Button("show-log", "Show", "ghost"))
         << SectionEnd();
     return out.str();
-}
-
-std::string RmlUiController::RenderSettingsTroubleshooting() {
-    return m_settingsPresenter->RenderTroubleshooting(m_config, m_state, m_statsApiPathError);
 }

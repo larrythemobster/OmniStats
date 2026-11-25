@@ -1,6 +1,6 @@
 #include "ui/rml/RmlUiPch.hpp"
 #include "ui/rml/controller/RmlUiController.hpp"
-#include "ui/rml/presenters/SettingsPresenter.hpp"
+#include "ui/rml/settings/SettingsPages.hpp"
 #include <commdlg.h>
 
 #include "core/config/AppVersion.hpp"
@@ -19,7 +19,7 @@
 
 using namespace RmlUiDetail;
 
-std::string SettingsPresenter::RenderRanks(const ConfigData& config, const RmlRenderSnapshot& snap) {
+std::string SettingsPages::RenderRanks(const ConfigData& config, const RmlRenderSnapshot& snap) {
     const std::string rosterCategory = MmrCategoryToString(StringToMmrCategory(config.mmr_category));
     const std::string graphCategory = MmrCategoryToString(StringToMmrCategory(config.graph_mmr_category));
     const std::string rankCategory = MmrCategoryToString(StringToMmrCategory(config.rank_progress_mmr_category));
@@ -66,8 +66,4 @@ std::string SettingsPresenter::RenderRanks(const ConfigData& config, const RmlRe
     }
     out << SectionEnd();
     return out.str();
-}
-
-std::string RmlUiController::RenderSettingsRanks() {
-    return m_settingsPresenter->RenderRanks(m_config, m_snap);
 }

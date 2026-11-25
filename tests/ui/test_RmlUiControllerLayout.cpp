@@ -110,13 +110,17 @@ TEST_F(RmlUiControllerStateTest, ActiveOverlayDragPreservesCoordinatesAndPrevent
 
     EXPECT_TRUE(controller.WantsInteraction());
 
-    // Call Update with global config (which still has old coordinates)
+    // Polling replaces persisted config without overwriting the gesture draft.
+    config.overlay_layout.containers.front().x = 25.0f;
+    config.overlay_layout.containers.front().y = 35.0f;
     controller.Update(config);
 
-    // The in-flight coordinates must be preserved, not overwritten with old config
     const auto [curX, curY] = GetContainerPos(controller, containerId);
-    EXPECT_EQ(curX, 550.0f);
-    EXPECT_EQ(curY, 350.0f);
+    EXPECT_EQ(curX, 25.0f);
+    EXPECT_EQ(curY, 35.0f);
+    const auto [dragX, dragY] = GetDragPos(controller);
+    EXPECT_EQ(dragX, 550.0f);
+    EXPECT_EQ(dragY, 350.0f);
 }
 
 TEST_F(RmlUiControllerStateTest, OverlayContainerResizeHandleVisibleInEditMode) {
@@ -294,6 +298,10 @@ TEST_F(RmlUiControllerStateTest, ShortOverlayCardCanBeDraggedToTheBottomOfTheScr
     controller.Render();
     controller.ProcessWindowMessage(hwnd, WM_LBUTTONDOWN, MK_LBUTTON, MAKELPARAM(static_cast<int>(grip.x), static_cast<int>(grip.y)));
     controller.ProcessWindowMessage(hwnd, WM_MOUSEMOVE, MK_LBUTTON, MAKELPARAM(static_cast<int>(grip.x), 1000));
+    EXPECT_EQ(GetContainerPos(controller, "lobby_ranks").second, 60.0f);
+    EXPECT_GT(GetDragPos(controller).second, 850.0f);
+    controller.Update(Config::Read(), true);
+    EXPECT_GT(GetDragPos(controller).second, 850.0f);
     controller.ProcessWindowMessage(hwnd, WM_LBUTTONUP, 0, MAKELPARAM(static_cast<int>(grip.x), 1000));
     controller.Render();
 

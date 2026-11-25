@@ -1,5 +1,6 @@
 #include "ui/rml/RmlUiPch.hpp"
 #include "ui/rml/controller/RmlUiController.hpp"
+#include "ui/rml/settings/SettingsPages.hpp"
 #include <shobjidl.h>
 #include <commdlg.h>
 
@@ -18,7 +19,7 @@
 
 using namespace RmlUiDetail;
 
-std::string SettingsPresenter::RenderData(const ConfigData& config, const std::shared_ptr<SessionState>& state, bool busy) {
+std::string SettingsPages::RenderData(const ConfigData& config, const std::shared_ptr<SessionState>& state, bool busy) {
     int detailedMatches = 0;
     std::string detailedSince;
     if (state) {
@@ -45,8 +46,4 @@ std::string SettingsPresenter::RenderData(const ConfigData& config, const std::s
                      Button("delete-history", "Delete", "danger", busy))
         << SectionEnd();
     return out.str();
-}
-
-std::string RmlUiController::RenderSettingsData() {
-    return m_settingsPresenter->RenderData(m_config, m_state, m_backgroundTaskRunning.load(std::memory_order_relaxed));
 }

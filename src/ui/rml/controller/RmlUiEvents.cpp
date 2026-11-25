@@ -270,7 +270,7 @@ void RmlUiController::HandleClick(Rml::Element* target) {
     } else if (action == "capture-bind") {
         const int value = std::atoi(Attribute(target, "data-bind").c_str());
         if (value >= static_cast<int>(BindCaptureTarget::KeyOverlay) && value <= static_cast<int>(BindCaptureTarget::GamepadGraphPanRight) &&
-            m_bindCaptureTarget != static_cast<BindCaptureTarget>(value)) {
+            m_inputCaptureService.ActiveTarget() != static_cast<BindCaptureTarget>(value)) {
             BeginBindCapture(static_cast<BindCaptureTarget>(value));
         }
         RebuildSettings();
@@ -408,35 +408,35 @@ void RmlUiController::HandleInput(Rml::Element* target) {
         // Validate the completed path on blur, not after each character.
         return;
     } else if (key == "history_with") {
-        m_history.SetWithPlayer(value);
+        m_history.model.SetWithPlayer(value);
         TriggerHistoryQuery(false);
         return;
     } else if (key == "history_against") {
-        m_history.SetAgainstPlayer(value);
+        m_history.model.SetAgainstPlayer(value);
         TriggerHistoryQuery(false);
         return;
     } else if (key == "history_arena") {
-        m_history.SetArenaFilter(value);
+        m_history.model.SetArenaFilter(value);
         TriggerHistoryQuery(false);
         return;
     } else if (key == "history_search") {
-        m_history.SetNameSearch(value);
+        m_history.model.SetNameSearch(value);
         TriggerHistoryQuery(false);
         return;
     } else if (key == "accounts_add_id") {
-        m_accounts.SetAddAccountId(value);
+        m_accounts.model.SetAddAccountId(value);
         return;
     } else if (key == "accounts_add_nickname") {
-        m_accounts.SetAddNickname(value);
+        m_accounts.model.SetAddNickname(value);
         return;
     } else if (key == "accounts_rename_input") {
-        m_accounts.SetRenameValue(value);
+        m_accounts.model.SetRenameValue(value);
         return;
     } else if (key == "player_scout_tag") {
-        m_playerNote.SetTagDraft(value);
+        m_playerNote.model.SetTagDraft(value);
         return;
     } else if (key == "player_note_text") {
-        m_playerNote.SetDraft(value);
+        m_playerNote.model.SetDraft(value);
         m_renderDirty = true;
         return;
     } else {
@@ -637,35 +637,19 @@ void RmlUiController::HandleChange(Rml::Element* target, Rml::Event& event) {
 void RmlUiController::BeginBindCapture(BindCaptureTarget target) {
     if (!m_state) return;
     if (m_state->ui.showMenu.load()) m_lastShowMenu = true;
-    m_bindCaptureTarget = target;
-    if (m_inputCaptureService) {
-        m_inputCaptureService->BeginCapture(m_state, target);
-    } else {
-        m_state->ui.inputCaptureActive.store(true);
-        m_state->ui.lastKeyboardKeyPressed.store(-1);
-        m_state->ui.lastControllerButtonPressed.store(-1);
-        m_state->ui.lastRawControllerButtonPressed.store(-1);
-    }
+    m_inputCaptureService.BeginCapture(m_state, target);
 }
 
 void RmlUiController::FinishBindCapture() {
-    m_bindCaptureTarget = BindCaptureTarget::None;
-    if (m_inputCaptureService) {
-        m_inputCaptureService->FinishCapture(m_state);
-    } else if (m_state) {
-        m_state->ui.inputCaptureActive.store(false);
-    }
+    m_inputCaptureService.FinishCapture(m_state);
 }
 
 void RmlUiController::ClearBind(BindCaptureTarget target) {
-    if (m_inputCaptureService) {
-        m_inputCaptureService->ClearBind(target);
-    }
+    m_inputCaptureService.ClearBind(target);
 }
 
 void RmlUiController::UpdateInputCapture() {
-    if (m_inputCaptureService && m_inputCaptureService->Update(m_state)) {
-        m_bindCaptureTarget = m_inputCaptureService->ActiveTarget();
+    if (m_inputCaptureService.Update(m_state)) {
         m_config = Config::Read();
         RebuildSettings();
     }

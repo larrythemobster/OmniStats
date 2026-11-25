@@ -1,6 +1,6 @@
 #include "ui/rml/RmlUiPch.hpp"
 #include "ui/rml/controller/RmlUiController.hpp"
-#include "ui/rml/presenters/SettingsPresenter.hpp"
+#include "ui/rml/settings/SettingsPages.hpp"
 #include <commdlg.h>
 
 #include "core/config/AppVersion.hpp"
@@ -21,7 +21,7 @@
 
 using namespace RmlUiDetail;
 
-std::string SettingsPresenter::RenderIntegrations(
+std::string SettingsPages::RenderIntegrations(
     const ConfigData& config,
     const AccountStatusSnapshot& accountStatus,
     const std::string& pendingToken,
@@ -149,9 +149,4 @@ std::string SettingsPresenter::RenderIntegrations(
         << ToggleControl("discord_rpc_enabled", "Discord Rich Presence", "Shows your current match on your Discord profile. Takes effect after you restart OmniStats.", config.discord_rpc_enabled)
         << SectionEnd();
     return out.str();
-}
-
-std::string RmlUiController::RenderSettingsIntegrations() {
-    const AccountStatusSnapshot accountStatus = m_accountClient ? m_accountClient->GetStatus() : AccountStatusSnapshot{};
-    return m_settingsPresenter->RenderIntegrations(m_config, accountStatus, m_pendingBallchasingToken, m_showBallchasingToken, m_onboarding.ShowFallback(), m_state, m_bindCaptureTarget);
 }

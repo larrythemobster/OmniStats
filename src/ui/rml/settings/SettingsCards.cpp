@@ -3,7 +3,7 @@
 #include "core/tournaments/TournamentSchedule.hpp"
 #include "network/api/AccountClient.hpp"
 #include "ui/rml/controller/RmlUiController.hpp"
-#include "ui/rml/presenters/SettingsPresenter.hpp"
+#include "ui/rml/settings/SettingsPages.hpp"
 #include <commdlg.h>
 
 #include "core/config/AppVersion.hpp"
@@ -21,7 +21,7 @@
 
 using namespace RmlUiDetail;
 
-std::string SettingsPresenter::RenderCards(const ConfigData& config, bool showDetails, bool signedIn) {
+std::string SettingsPages::RenderCards(const ConfigData& config, bool showDetails, bool signedIn) {
     std::ostringstream out;
     const bool dashboard = config.second_monitor_mode;
     out << SectionStart(dashboard ? "Dashboard cards" : "Overlay cards")
@@ -116,32 +116,26 @@ std::string SettingsPresenter::RenderCards(const ConfigData& config, bool showDe
     return out.str();
 }
 
-std::string RmlUiController::RenderSettingsCards() {
-    return m_settingsPresenter->RenderCards(m_config, m_showCardDetails, m_accountClient && m_accountClient->IsSignedIn());
-}
-
-std::string RmlUiController::RenderSettingsReminders() {
+std::string SettingsPages::RenderReminders(const ConfigData& config, bool signedIn, const Tournaments::ScheduleSnapshot& tournaments) {
     std::ostringstream out;
     out << SectionStart("Tournament reminders")
         << "<div class='setting-help section-help'>Reminders work even when the tournament countdown card is off.</div>";
-    const bool signedIn = m_accountClient && m_accountClient->IsSignedIn();
-    const auto tournaments = m_tournamentService ? m_tournamentService->Snapshot() : std::make_shared<Tournaments::ScheduleSnapshot>();
     if (!signedIn) out << "<div class='setting-notice'>Sign in under Accounts &amp; services to get the tournament schedule.</div>";
     const bool disabled = !signedIn;
     std::string regionHelp = "Not detected yet. Open Rocket League to detect your region.";
-    if (tournaments->regionSource == "ping")
-        regionHelp = "Auto uses your lowest-ping server (" + tournaments->detectedServer + ", " + std::to_string(tournaments->detectedPingMs) + " ms).";
-    else if (tournaments->regionSource == "matches")
+    if (tournaments.regionSource == "ping")
+        regionHelp = "Auto uses your lowest-ping server (" + tournaments.detectedServer + ", " + std::to_string(tournaments.detectedPingMs) + " ms).";
+    else if (tournaments.regionSource == "matches")
         regionHelp = "Auto uses your recent matchmaking region.";
-    const std::string autoLabel = tournaments->group.empty() ? "Auto" : "Auto (" + tournaments->group + ")";
+    const std::string autoLabel = tournaments.group.empty() ? "Auto" : "Auto (" + tournaments.group + ")";
     out << SelectRow("tournament_region", "Region", regionHelp,
                      {{"auto", autoLabel}, {"US", "US"}, {"EU", "Europe"}, {"OCE", "Oceania"}, {"SAM", "South America"}, {"ASIA", "Asia"}, {"ME", "Middle East"}, {"SAF", "South Africa"}},
-                     m_config.tournament_region, disabled)
+                     config.tournament_region, disabled)
         << SelectRow("tournament_reminder_minutes", "Remind me", "A short notice appears on screen, even during matches.",
-                     {{"0", "Off"}, {"5", "5 min before"}, {"10", "10 min before"}, {"15", "15 min before"}}, std::to_string(m_config.tournament_reminder_minutes), disabled)
-        << ToggleControl("tournament_reminder_standard_only", "Standard tournaments only", "Only 2v2 and 3v3 Soccar.", m_config.tournament_reminder_standard_only, disabled);
-    if (m_config.second_monitor_mode)
-        out << ToggleControl("tournament_sound_cue", "Sound cue", "Play a sound when a tournament is about to start.", m_config.tournament_sound_cue, disabled);
+                     {{"0", "Off"}, {"5", "5 min before"}, {"10", "10 min before"}, {"15", "15 min before"}}, std::to_string(config.tournament_reminder_minutes), disabled)
+        << ToggleControl("tournament_reminder_standard_only", "Standard tournaments only", "Only 2v2 and 3v3 Soccar.", config.tournament_reminder_standard_only, disabled);
+    if (config.second_monitor_mode)
+        out << ToggleControl("tournament_sound_cue", "Sound cue", "Play a sound when a tournament is about to start.", config.tournament_sound_cue, disabled);
     out << SectionEnd();
     return out.str();
 }

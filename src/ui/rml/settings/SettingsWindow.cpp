@@ -17,6 +17,8 @@
 
 #include "ui/rml/controller/RmlUiHelpers.hpp"
 #include "ui/rml/presenters/ReleaseBanners.hpp"
+#include "ui/rml/settings/SettingsPages.hpp"
+#include "network/api/AccountClient.hpp"
 
 using namespace RmlUiDetail;
 
@@ -108,34 +110,42 @@ void RmlUiController::RebuildSettings() {
     std::ostringstream content;
     switch (m_settingsPage) {
     case SettingsPage::Display:
-        content << RenderSettingsGeneral() << RenderSettingsCards();
+        content << SettingsPages::RenderGeneral(m_config)
+                << SettingsPages::RenderCards(m_config, m_showCardDetails, m_accountClient && m_accountClient->IsSignedIn());
         break;
-    case SettingsPage::Reminders:
-        content << RenderSettingsReminders();
+    case SettingsPage::Reminders: {
+        const bool signedIn = m_accountClient && m_accountClient->IsSignedIn();
+        const auto tournaments = m_tournamentService ? m_tournamentService->Snapshot() : std::make_shared<Tournaments::ScheduleSnapshot>();
+        content << SettingsPages::RenderReminders(m_config, signedIn, *tournaments);
         break;
+    }
     case SettingsPage::Appearance:
-        content << RenderSettingsAppearance();
+        content << SettingsPages::RenderAppearance(m_themeEditor.PreviewConfig(), m_themeEditor.m_editColorKey,
+                                                   m_themeEditor.m_editColorHue, m_showAdvancedAppearance, m_themeEditor.Pending(), m_themeEditor.m_nameDraft,
+                                                   m_themeEditor.m_importDraft, m_themeEditor.m_message, m_themeEditor.m_messageError,
+                                                   m_themeEditor.m_resetUndo.has_value(), m_themeEditor.m_openGroups, m_cardTextWidget);
         break;
     case SettingsPage::Controls:
-        content << RenderSettingsShortcuts();
+        content << SettingsPages::RenderShortcuts(m_config, m_state, m_inputCaptureService.ActiveTarget());
         break;
     case SettingsPage::Accounts: {
         const std::string activeId = m_snap.myPrimaryId.empty() ? m_config.last_primary_id : m_snap.myPrimaryId;
         std::string activeName = "Auto-detect";
         for (const auto& option : IdentityOptions())
             if (option.value == activeId) activeName = option.label;
-        content << RenderSettingsIntegrations()
+        const AccountStatusSnapshot accountStatus = m_accountClient ? m_accountClient->GetStatus() : AccountStatusSnapshot{};
+        content << SettingsPages::RenderIntegrations(m_config, accountStatus, m_pendingBallchasingToken, m_showBallchasingToken, m_onboarding.model.ShowFallback(), m_state, m_inputCaptureService.ActiveTarget())
                 << SectionStart("Rocket League account")
                 << ActionRow("Active account", activeName, Button("accounts-open", "Choose account", "ghost"))
                 << SectionEnd()
                 << "<div class='settings-disclosure'>"
                 << Button("toggle-rank-details", m_showRankDetails ? "Hide rank options" : "Show rank options", "ghost")
                 << "</div>";
-        if (m_showRankDetails) content << RenderSettingsRanks();
+        if (m_showRankDetails) content << SettingsPages::RenderRanks(m_config, m_snap);
         break;
     }
     case SettingsPage::DataSupport:
-        content << RenderSettingsData()
+        content << SettingsPages::RenderData(m_config, m_state, m_backgroundTaskService.IsRunning())
                 << SectionStart("Sessions")
                 << ToggleControl("reset_session_on_close", "Reset session when OmniStats closes", "Start each launch with a fresh session record.", m_config.reset_session_on_close)
                 << ToggleControl("show_session_recap_on_close", "Show a session recap afterwards", "Requires resetting the session on close.", m_config.show_session_recap_on_close, !m_config.reset_session_on_close)
@@ -147,7 +157,7 @@ void RmlUiController::RebuildSettings() {
                 << "<div class='settings-disclosure'>"
                 << Button("toggle-troubleshooting", m_showTroubleshooting ? "Hide troubleshooting" : "Show troubleshooting", "ghost")
                 << "</div>";
-        if (m_showTroubleshooting) content << RenderSettingsTroubleshooting();
+        if (m_showTroubleshooting) content << SettingsPages::RenderTroubleshooting(m_config, m_state, m_statsApiPathError);
         break;
     case SettingsPage::Count:
         break;

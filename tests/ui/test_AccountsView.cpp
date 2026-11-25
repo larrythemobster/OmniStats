@@ -79,13 +79,13 @@ class AccountsViewTest : public ::testing::Test {
     }
 
     Rml::ElementDocument* AccountsDocument(RmlUiController& controller) {
-        return controller.m_accountsDoc;
+        return controller.m_accounts.Document();
     }
     AccountsView& AccountsModel(RmlUiController& controller) {
-        return controller.m_accounts;
+        return controller.m_accounts.model;
     }
     bool IsAccountsVisible(const RmlUiController& controller) const {
-        return controller.m_accountsVisible;
+        return controller.m_accounts.IsVisible();
     }
     void Click(RmlUiController& controller, Rml::Element* element) {
         controller.HandleClick(element);

@@ -1,4 +1,5 @@
 #pragma once
+#include "ui/rml/settings/SettingsPages.hpp"
 
 #include "ui/rml/widgets/TournamentWidget.hpp"
 #include "core/state/LiveMatchStore.hpp"
@@ -126,7 +127,7 @@ class RmlUiControllerStateTest : public ::testing::Test {
     }
     std::string RenderCardSettings(RmlUiController& controller) {
         controller.m_showCardDetails = true;
-        return controller.RenderSettingsCards();
+        return SettingsPages::RenderCards(controller.m_config, true, controller.m_accountClient && controller.m_accountClient->IsSignedIn());
     }
     std::vector<std::string> IdentityValues(RmlUiController& controller) {
         std::vector<std::string> values;
@@ -138,13 +139,17 @@ class RmlUiControllerStateTest : public ::testing::Test {
         return controller.IdentityOptions();
     }
     Rml::ElementDocument* AccountsDocument(RmlUiController& controller) {
-        return controller.m_accountsDoc;
+        return controller.m_accounts.Document();
     }
     std::string RenderIntegrationSettings(RmlUiController& controller) {
-        return controller.RenderSettingsIntegrations();
+        return SettingsPages::RenderIntegrations(controller.m_config,
+                                                 controller.m_accountClient ? controller.m_accountClient->GetStatus() : AccountStatusSnapshot{},
+                                                 controller.m_pendingBallchasingToken, controller.m_showBallchasingToken,
+                                                 controller.m_onboarding.model.ShowFallback(), controller.m_state,
+                                                 controller.m_inputCaptureService.ActiveTarget());
     }
     std::string RenderDataSettings(RmlUiController& controller) {
-        return controller.RenderSettingsData();
+        return SettingsPages::RenderData(controller.m_config, controller.m_state, controller.m_backgroundTaskService.IsRunning());
     }
     void BeginSaveReplayKeyCapture(RmlUiController& controller) {
         controller.BeginBindCapture(RmlUiController::BindCaptureTarget::KeySaveReplay);
@@ -231,13 +236,11 @@ class RmlUiControllerStateTest : public ::testing::Test {
         controller.m_layoutDrag.m_drag.containerId = containerId;
         controller.m_layoutDrag.m_drag.startX = x;
         controller.m_layoutDrag.m_drag.startY = y;
-        for (auto& c : controller.m_config.overlay_layout.containers) {
-            if (c.id == containerId) {
-                c.x = x;
-                c.y = y;
-                break;
-            }
-        }
+        controller.m_layoutDrag.m_drag.geometry.x = x;
+        controller.m_layoutDrag.m_drag.geometry.y = y;
+    }
+    std::pair<float, float> GetDragPos(const RmlUiController& controller) const {
+        return {controller.m_layoutDrag.m_drag.geometry.x, controller.m_layoutDrag.m_drag.geometry.y};
     }
     void ClearOverlayDrag(RmlUiController& controller) {
         controller.m_layoutDrag.m_drag = {};
@@ -271,22 +274,22 @@ class RmlUiControllerStateTest : public ::testing::Test {
         return controller.m_statusUntilMs;
     }
     Rml::ElementDocument* OnboardingDocument(RmlUiController& controller) {
-        return controller.m_onboardingDoc;
+        return controller.m_onboarding.Document();
     }
     OnboardingView& OnboardingModel(RmlUiController& controller) {
-        return controller.m_onboarding;
+        return controller.m_onboarding.model;
     }
     Rml::ElementDocument* InsightsDocument(RmlUiController& controller) {
-        return controller.m_insightsDoc;
+        return controller.m_insights.Document();
     }
     Rml::ElementDocument* HistoryDocument(RmlUiController& controller) {
-        return controller.m_historyDoc;
+        return controller.m_history.Document();
     }
     HistoryView& HistoryModel(RmlUiController& controller) {
-        return controller.m_history;
+        return controller.m_history.model;
     }
     bool IsHistoryVisible(const RmlUiController& controller) const {
-        return controller.m_historyVisible;
+        return controller.m_history.IsVisible();
     }
     void Click(RmlUiController& controller, Rml::Element* element) {
         controller.HandleClick(element);
@@ -298,13 +301,13 @@ class RmlUiControllerStateTest : public ::testing::Test {
         return Themes::Read(controller.m_themeEditor.PreviewConfig());
     }
     PlayerNoteView& NoteModel(RmlUiController& controller) {
-        return controller.m_playerNote;
+        return controller.m_playerNote.model;
     }
     bool IsNoteVisible(const RmlUiController& controller) const {
-        return controller.m_playerNoteVisible;
+        return controller.m_playerNote.IsVisible();
     }
     Rml::ElementDocument* NoteDocument(RmlUiController& controller) {
-        return controller.m_playerNoteDoc;
+        return controller.m_playerNote.Document();
     }
     void OpenNote(RmlUiController& controller, const std::string& primaryId, const std::string& name) {
         controller.ShowPlayerNote(primaryId, name, "");
@@ -324,7 +327,7 @@ class RmlUiControllerStateTest : public ::testing::Test {
     void ShowSeason(RmlUiController& controller, const std::vector<SeasonSummary>& summaries,
                     const TrackedAccounts::SeasonReward& reward, int64_t now, int selectedSeason = 0) {
         controller.ShowInsights(InsightsView::Tab::Season, false);
-        controller.m_insights.SetSeason(summaries, reward, now, selectedSeason);
+        controller.m_insights.model.SetSeason(summaries, reward, now, selectedSeason);
     }
     bool InsightsShowEndedSession(const RmlUiController& controller) const {
         return controller.m_insightsShowsEndedSession;
@@ -339,7 +342,7 @@ class RmlUiControllerStateTest : public ::testing::Test {
         controller.CheckStatsApi(repair, false);
     }
     bool StatsApiRepairRunning(const RmlUiController& controller) const {
-        return controller.m_backgroundTaskRunning.load();
+        return controller.m_backgroundTaskService.IsRunning();
     }
 
     ConfigData original;

@@ -279,7 +279,7 @@ std::string RmlUiController::RenderOverlayToolbox(bool editMode) {
 }
 
 void RmlUiController::RebuildOverlay() {
-    if (m_onboardingVisible || m_config.second_monitor_mode) return;
+    if (m_onboarding.IsVisible() || m_config.second_monitor_mode) return;
     std::ostringstream out;
     if (m_config.show_running_indicator) out << "<div class='running-indicator'><span class='win'>●</span> OmniStats</div>";
 
@@ -309,7 +309,7 @@ void RmlUiController::RebuildOverlay() {
 }
 
 void RmlUiController::RebuildDashboard() {
-    if (m_onboardingVisible || !m_config.second_monitor_mode) return;
+    if (m_onboarding.IsVisible() || !m_config.second_monitor_mode) return;
     const bool editMode = m_state && m_state->ui.dashboardLayoutEditMode.load();
     DashboardLayout::LayoutConfig layout = m_config.dashboard_layout;
     DashboardLayout::Sanitize(layout);

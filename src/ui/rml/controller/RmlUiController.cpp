@@ -35,11 +35,7 @@ RmlUiController::RmlUiController(std::shared_ptr<SessionState> state,
                                  std::shared_ptr<AccountClient> accountClient)
     : m_state(std::move(state)), m_dbManager(std::move(dbManager)), m_accountsService(std::move(accounts)),
       m_accountClient(std::move(accountClient)), m_remoteConfig(std::move(remoteConfig)), m_tournamentService(std::move(tournamentService)), m_telemetry(std::move(telemetry)),
-      m_systemInterface(nullptr),
-      m_settingsPresenter(std::make_unique<SettingsPresenter>()),
-      m_backgroundTaskService(std::make_unique<BackgroundTaskService>()),
-      m_inputCaptureService(std::make_unique<InputCaptureService>()),
-      m_fontService(std::make_unique<FontService>()) {
+      m_systemInterface(nullptr) {
     if (m_state) m_lastShowMenu = m_state->ui.showMenu.load();
 }
 
@@ -76,7 +72,7 @@ bool RmlUiController::Initialize(HWND hwnd, ID3D11Device* device, ID3D11DeviceCo
         return false;
     }
     if (!m_liveModel.Create(m_context) ||
-        !m_insights.Create(m_context) || !m_history.Create(m_context) || !m_accounts.Create(m_context) || !m_playerNote.Create(m_context) || !m_onboarding.Create(m_context)) {
+        !m_insights.model.Create(m_context) || !m_history.model.Create(m_context) || !m_accounts.model.Create(m_context) || !m_playerNote.model.Create(m_context) || !m_onboarding.model.Create(m_context)) {
         Shutdown();
         return false;
     }
@@ -87,7 +83,7 @@ bool RmlUiController::Initialize(HWND hwnd, ID3D11Device* device, ID3D11DeviceCo
     m_config = Config::Read();
     SetDpiScale(m_dpiScale);
 
-    if (!LoadBundledFonts()) {
+    if (!m_fontService.LoadBundledFonts()) {
         Shutdown();
         return false;
     }
@@ -133,24 +129,22 @@ void RmlUiController::Shutdown() {
         m_context->RemoveEventListener("blur", this, true);
         m_context = nullptr;
         m_document = nullptr;
-        m_insightsVisible = false;
+        m_insights.Hide();
         m_sessionRecapDismissAtMs.reset();
-        m_onboardingVisible = false;
-        m_historyVisible = false;
-        m_accountsVisible = false;
-        m_playerNoteVisible = false;
+        m_onboarding.Hide();
+        m_history.Hide();
+        m_accounts.Hide();
+        m_playerNote.Hide();
         m_liveModel.Reset();
-        m_insights.Reset();
-        m_history.Reset();
-        m_accounts.Reset();
-        m_playerNote.Reset();
-        m_onboarding.Reset();
+        m_insights.model.Reset();
+        m_history.model.Reset();
+        m_accounts.model.Reset();
+        m_playerNote.model.Reset();
+        m_onboarding.model.Reset();
         CloseViewDocuments();
     }
     ShutdownBackgroundTasks();
-    if (m_inputCaptureService && m_state) {
-        m_inputCaptureService->FinishCapture(m_state);
-    }
+    m_inputCaptureService.FinishCapture(m_state);
     if (m_rmlInitialized) {
         Rml::Shutdown();
         m_rmlInitialized = false;
@@ -176,9 +170,7 @@ void RmlUiController::Shutdown() {
 }
 
 void RmlUiController::ShutdownBackgroundTasks() {
-    if (m_backgroundTaskService) {
-        m_backgroundTaskService->Shutdown();
-    }
+    m_backgroundTaskService.Shutdown();
 }
 
 void RmlUiController::Resize(int width, int height, float dpiScale) {
@@ -221,32 +213,32 @@ bool RmlUiController::ProcessWindowMessage(HWND hwnd, UINT message, WPARAM wPara
         ReloadUiResources();
         return true;
     }
-    if (message == WM_KEYDOWN && wParam == VK_ESCAPE && m_playerNoteVisible && !m_onboardingVisible) {
+    if (message == WM_KEYDOWN && wParam == VK_ESCAPE && m_playerNote.IsVisible() && !m_onboarding.IsVisible()) {
         RequestClosePlayerNote();
         return true;
     }
-    if (message == WM_KEYDOWN && wParam == VK_ESCAPE && m_insightsVisible && !m_onboardingVisible) {
+    if (message == WM_KEYDOWN && wParam == VK_ESCAPE && m_insights.IsVisible() && !m_onboarding.IsVisible()) {
         HideInsights();
         return true;
     }
-    if (message == WM_KEYDOWN && wParam == VK_ESCAPE && m_historyVisible && !m_onboardingVisible) {
-        if (m_history.IsDetailOpen()) {
-            m_history.CloseDetail();
+    if (message == WM_KEYDOWN && wParam == VK_ESCAPE && m_history.IsVisible() && !m_onboarding.IsVisible()) {
+        if (m_history.model.IsDetailOpen()) {
+            m_history.model.CloseDetail();
             m_renderDirty = true;
         } else {
             HideHistory();
         }
         return true;
     }
-    if (message == WM_KEYDOWN && wParam == VK_ESCAPE && m_accountsVisible && !m_onboardingVisible) {
-        if (m_accounts.IsAddOpen()) {
-            m_accounts.CloseAdd();
+    if (message == WM_KEYDOWN && wParam == VK_ESCAPE && m_accounts.IsVisible() && !m_onboarding.IsVisible()) {
+        if (m_accounts.model.IsAddOpen()) {
+            m_accounts.model.CloseAdd();
             m_renderDirty = true;
-        } else if (m_accounts.IsImportOpen()) {
-            m_accounts.CloseImport();
+        } else if (m_accounts.model.IsImportOpen()) {
+            m_accounts.model.CloseImport();
             m_renderDirty = true;
-        } else if (m_accounts.IsDetailOpen()) {
-            m_accounts.CloseDetail();
+        } else if (m_accounts.model.IsDetailOpen()) {
+            m_accounts.model.CloseDetail();
             m_renderDirty = true;
         } else {
             HideAccounts();
@@ -339,50 +331,10 @@ void RmlUiController::Update(const ConfigData& config, bool configChanged, uint6
         // see the change and the context would keep rendering at the old dp ratio
         // while all geometry was computed for the new one.
         scaleChanged = SanitizedUiScale(config.ui_scale) != m_appliedUiScale;
-        themeChanged = !Themes::Equal(Themes::Read(config), Themes::Read(m_config)) || FontsDifferFromApplied(config);
+        themeChanged = !Themes::Equal(Themes::Read(config), Themes::Read(m_config)) || m_fontService.FontsDifferFromApplied(config);
         if (!m_config.account_link_prompt_shown) CheckAccountLinkPrompt();
 
-        const auto activeDragKind = m_layoutDrag.m_drag.kind;
-        const std::string draggingId = m_layoutDrag.m_drag.containerId;
-        float inFlightX = 0.0f, inFlightY = 0.0f, inFlightW = 0.0f, inFlightH = 0.0f;
-        bool hasInFlight = false;
-        if (activeDragKind == DragKind::OverlayMove || activeDragKind == DragKind::OverlayResize) {
-            auto it = std::find_if(m_config.overlay_layout.containers.begin(), m_config.overlay_layout.containers.end(),
-                                   [&](const auto& c) { return c.id == draggingId; });
-            if (it != m_config.overlay_layout.containers.end()) {
-                inFlightX = it->x;
-                inFlightY = it->y;
-                inFlightW = it->w;
-                inFlightH = it->h;
-                hasInFlight = true;
-            }
-        }
-        // Positions are edited live in m_config while dragging; preserve those
-        // in-flight values until the drag commits them to Config.
-        const float inFlightSessionX = m_config.session_view_x;
-        const float inFlightSessionY = m_config.session_view_y;
-        const float inFlightSummaryX = m_config.match_summary_x;
-        const float inFlightSummaryY = m_config.match_summary_y;
-
         m_config = config;
-
-        if (hasInFlight) {
-            for (auto& c : m_config.overlay_layout.containers) {
-                if (c.id == draggingId) {
-                    c.x = inFlightX;
-                    c.y = inFlightY;
-                    c.w = inFlightW;
-                    c.h = inFlightH;
-                    break;
-                }
-            }
-        }
-        if (activeDragKind == DragKind::FloatingCard) {
-            m_config.session_view_x = inFlightSessionX;
-            m_config.session_view_y = inFlightSessionY;
-            m_config.match_summary_x = inFlightSummaryX;
-            m_config.match_summary_y = inFlightSummaryY;
-        }
     }
 
     const uint64_t previousGameVersion = m_lastGameVersion;
@@ -425,11 +377,11 @@ void RmlUiController::Update(const ConfigData& config, bool configChanged, uint6
     RebuildVisibleUi(false, (configChanged && !localConfigEcho) || m_deferredSelectRebuild);
     if (m_state && m_state->ui.showSessionRecap.exchange(false)) ShowInsights(InsightsView::Tab::Recap, true);
     if (m_sessionRecapDismissAtMs && nowMs >= *m_sessionRecapDismissAtMs) HideInsights();
-    if (m_insightsVisible) RefreshInsights(false);
-    if (m_historyVisible) RefreshHistory(false);
-    if (m_accountsVisible) RefreshAccounts(false);
+    if (m_insights.IsVisible()) RefreshInsights(false);
+    if (m_history.IsVisible()) RefreshHistory(false);
+    if (m_accounts.IsVisible()) RefreshAccounts(false);
     RefreshPlayerNote();
-    if (m_onboardingVisible) RefreshOnboarding();
+    if (m_onboarding.IsVisible()) RefreshOnboarding();
 }
 
 Rml::Element* RmlUiController::Root(const char* id) const {
@@ -609,13 +561,13 @@ void RmlUiController::RebuildVisibleUi(bool force, bool configChanged) {
                 RebuildStatsApiPrompt();
                 m_renderDirty = true;
             }
-            if (m_onboardingVisible) RefreshOnboarding();
+            if (m_onboarding.IsVisible()) RefreshOnboarding();
             if (m_accountPromptPending) CheckAccountLinkPrompt();
         } else if (m_accountPromptPending) {
             CheckAccountLinkPrompt();
         }
     }
-    if (m_onboardingVisible && m_state &&
+    if (m_onboarding.IsVisible() && m_state &&
         m_state->ui.statsApiConnected.load(std::memory_order_relaxed) != m_lastStatsApiConnected) {
         RefreshOnboarding();
     }
@@ -706,26 +658,6 @@ void RmlUiController::RebuildVisibleUi(bool force, bool configChanged) {
         }
     }
 
-    // Keep an externally-observable value for tests/diagnostics, but materialize
-    // its string only when the underlying hash changes.
-    uint64_t invalidationHash = runtimeStructuralHash;
-    if (m_state) {
-        HashAppend(invalidationHash, static_cast<uint64_t>(m_state->ui.statsApiChecked.load(std::memory_order_relaxed)));
-        std::lock_guard lock(m_state->ui.statsApiMutex);
-        const auto& result = m_state->ui.statsApiResult;
-        HashAppend(invalidationHash, static_cast<uint64_t>(result.status));
-        HashAppend(invalidationHash, result.path);
-        HashAppend(invalidationHash, result.message);
-        HashAppend(invalidationHash, static_cast<uint64_t>(static_cast<int64_t>(result.expectedPort)));
-        HashAppend(invalidationHash, static_cast<uint64_t>(static_cast<int64_t>(result.actualPort)));
-        HashAppend(invalidationHash, static_cast<uint64_t>(std::bit_cast<uint32_t>(result.packetSendRate)));
-        HashAppend(invalidationHash, static_cast<uint64_t>(result.rlRunning));
-    }
-    if (m_lastConfigHash != invalidationHash) {
-        m_lastConfigHash = invalidationHash;
-        m_lastConfigFingerprint = std::to_string(invalidationHash);
-    }
-
     bool renderConfigChanged = force;
     if (force || configChanged) {
         uint64_t key = Config::RenderScalarHash(m_config);
@@ -784,7 +716,7 @@ void RmlUiController::RebuildVisibleUi(bool force, bool configChanged) {
 
     bool rebuiltMainStructure = false;
     if (structuralDirty) {
-        if (m_onboardingVisible) {
+        if (m_onboarding.IsVisible()) {
             SetRootRml("dashboard-root", "");
             SetRootRml("overlay-root", "");
         } else if (m_config.second_monitor_mode) {
@@ -806,10 +738,10 @@ void RmlUiController::RebuildVisibleUi(bool force, bool configChanged) {
     if (showMenu) {
         uint64_t settingsHash = kFnvOffset;
         HashAppend(settingsHash, static_cast<uint64_t>(m_settingsPage));
-        HashAppend(settingsHash, static_cast<uint64_t>(m_bindCaptureTarget));
+        HashAppend(settingsHash, static_cast<uint64_t>(m_inputCaptureService.ActiveTarget()));
         HashAppend(settingsHash, static_cast<uint64_t>(m_showBallchasingToken));
         HashAppend(settingsHash, m_accountClient ? m_accountClient->GetStatus().version : 0);
-        HashAppend(settingsHash, static_cast<uint64_t>(m_onboarding.ShowFallback()));
+        HashAppend(settingsHash, static_cast<uint64_t>(m_onboarding.model.ShowFallback()));
         HashAppend(settingsHash, static_cast<uint64_t>(m_confirmReplayUploads));
         HashAppend(settingsHash, m_remoteConfig ? m_remoteConfig->Version() : 0);
         HashAppend(settingsHash, (m_tournamentService && m_tournamentService->Snapshot()) ? m_tournamentService->Snapshot()->version : 0);
@@ -825,7 +757,7 @@ void RmlUiController::RebuildVisibleUi(bool force, bool configChanged) {
             const bool controllerConnected = m_state->ui.controllerConnected.load(std::memory_order_relaxed);
             HashAppend(settingsHash, static_cast<uint64_t>(controllerConnected));
             HashAppend(settingsHash, static_cast<uint64_t>(m_state->ui.controllerIsGameController.load(std::memory_order_relaxed)));
-            const bool capturing = m_bindCaptureTarget != BindCaptureTarget::None;
+            const bool capturing = m_inputCaptureService.IsCapturing();
             if (capturing)
                 HashAppend(settingsHash, static_cast<uint64_t>(static_cast<int64_t>(m_state->ui.lastKeyboardKeyPressed.load(std::memory_order_relaxed))));
             if (capturing || (controllerConnected && m_settingsPage == SettingsPage::Controls)) {
@@ -908,11 +840,9 @@ void RmlUiController::RebuildVisibleUi(bool force, bool configChanged) {
         if (settingsDirty) {
             RebuildSettings();
             m_lastSettingsHash = settingsHash;
-            m_lastSettingsFingerprint = std::to_string(settingsHash);
         }
     } else if (m_lastShowMenu) {
         SetRootRml("settings-root", "");
-        m_lastSettingsFingerprint.clear();
         m_lastSettingsHash = 0;
         m_hasSettingsRosterHash = false;
         m_lastSettingsRosterGameVersion = std::numeric_limits<uint64_t>::max();
@@ -1275,7 +1205,7 @@ void RmlUiController::RefreshTournaments(bool force) {
         const std::string primary = m_snap.myPrimaryId.empty() ? m_config.last_primary_id : m_snap.myPrimaryId;
         m_dbManager->AsyncGetSeasonSummaries(primary, ++m_seasonSummaryRequestId);
     }
-    if (m_currentSeason && !m_onboardingVisible) {
+    if (m_currentSeason && !m_onboarding.IsVisible()) {
         const auto& season = *m_currentSeason;
         const int previous = m_config.season_recap_last_seen;
         if (previous == 0 || (!m_config.show_season_recap && season.season > previous)) {
@@ -1283,7 +1213,7 @@ void RmlUiController::RefreshTournaments(bool force) {
             Config::Update([number = season.season](ConfigData& c) { c.season_recap_last_seen = number; }, false);
             Config::RequestSave();
         } else if (TournamentUi::ShouldShowSeasonRecap(previous, season.season, m_config.show_season_recap, m_snap.inMatch) &&
-                   !m_insightsVisible && !m_historyVisible && !m_accountsVisible) {
+                   !m_insights.IsVisible() && !m_history.IsVisible() && !m_accounts.IsVisible()) {
             m_seasonRecapSelection = previous;
             m_config.season_recap_last_seen = season.season;
             Config::Update([number = season.season](ConfigData& c) { c.season_recap_last_seen = number; }, false);
@@ -1339,7 +1269,7 @@ void RmlUiController::RefreshTournaments(bool force) {
         m_lastTournamentWinAt = now;
 
     const int leadMinutes = m_config.tournament_reminder_minutes;
-    if (enabled && !m_onboardingVisible && leadMinutes > 0 &&
+    if (enabled && !m_onboarding.IsVisible() && leadMinutes > 0 &&
         (snapshot->status == Tournaments::ScheduleStatus::Ready || snapshot->status == Tournaments::ScheduleStatus::Loading)) {
         auto remind = [&](Tournaments::ScheduledEvent event, Tournaments::BracketResult result) {
             if (!m_tournamentReminder.ShouldFire(event, now, leadMinutes, result)) return;
@@ -1543,7 +1473,7 @@ bool RmlUiController::CheckStatsApi(bool repair, bool showToast) {
                 }
                 if (showToast) ShowToast(StatsApiConfig::GetStatusMessage(result.status), result.status != StatsApiConfig::Status::Valid);
                 if (m_state->ui.showMenu.load()) RebuildSettings();
-                if (m_onboardingVisible) RefreshOnboarding();
+                if (m_onboarding.IsVisible()) RefreshOnboarding();
                 if (m_statsApiPrompt == StatsApiPrompt::Repairing) {
                     SetStatsApiPrompt(result.status == StatsApiConfig::Status::Valid ? StatsApiPrompt::Repaired
                                                                                      : StatsApiPrompt::Failed);
@@ -1585,23 +1515,14 @@ void RmlUiController::BrowseStatsApiPath() {
 }
 
 bool RmlUiController::StartBackgroundTask(std::string startedToast, std::function<std::function<void()>(std::stop_token)> work) {
-    if (!m_backgroundTaskService) return false;
-    const bool started = m_backgroundTaskService->StartTask(
+    const bool started = m_backgroundTaskService.StartTask(
         std::move(startedToast),
-        [this, work = std::move(work)](std::stop_token stop) mutable {
-            auto completion = work(stop);
-            m_backgroundTaskRunning.store(false, std::memory_order_relaxed);
-            return completion;
-        },
+        std::move(work),
         [this](std::string msg, bool err) { ShowToast(std::move(msg), err); });
-    m_backgroundTaskRunning.store(started && m_backgroundTaskService->IsRunning(), std::memory_order_relaxed);
     m_renderDirty = true;
     return started;
 }
 
 void RmlUiController::PublishBackgroundTaskCompletion() {
-    if (m_backgroundTaskService) {
-        m_backgroundTaskService->PublishCompletion();
-        m_backgroundTaskRunning.store(m_backgroundTaskService->IsRunning());
-    }
+    m_backgroundTaskService.PublishCompletion();
 }

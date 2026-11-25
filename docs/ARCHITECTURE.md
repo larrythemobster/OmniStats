@@ -69,7 +69,7 @@ Replay discovery and save-key timing are separate from the upload worker, so upl
 
 ## UI architecture and update model
 
-RmlUi documents remain loaded between frames. Presenters use version counters and data bindings to update changed content rather than rebuild the UI for each telemetry packet.
+Each modal owns its RmlUi document and view model. Documents remain loaded between frames. Presenters use version counters and data bindings to update changed content rather than rebuild the UI for each telemetry packet.
 
 The overlay is a transparent, click-through window for borderless gameplay. The dashboard is a separate second-monitor window. Both use the Direct3D 11 backend; foreground changes use a WinEvent hook rather than polling every frame.
 

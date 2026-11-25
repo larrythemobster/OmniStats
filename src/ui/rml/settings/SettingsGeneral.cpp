@@ -1,6 +1,6 @@
 #include "ui/rml/RmlUiPch.hpp"
 #include "ui/rml/controller/RmlUiController.hpp"
-#include "ui/rml/presenters/SettingsPresenter.hpp"
+#include "ui/rml/settings/SettingsPages.hpp"
 #include <commdlg.h>
 
 #include "core/config/AppVersion.hpp"
@@ -19,7 +19,7 @@
 
 using namespace RmlUiDetail;
 
-std::string SettingsPresenter::RenderGeneral(const ConfigData& config) {
+std::string SettingsPages::RenderGeneral(const ConfigData& config) {
     std::ostringstream out;
     out << SectionStart("Display mode")
         << SelectRow("display_mode", "Use OmniStats as", "", {{"overlay", "In-game overlay"}, {"dashboard", "Second-monitor dashboard"}}, config.second_monitor_mode ? "dashboard" : "overlay")
@@ -43,10 +43,6 @@ std::string SettingsPresenter::RenderGeneral(const ConfigData& config) {
         << ToggleControl("group_history_by_season", "Group history by season", "Adds season filters to match history.", config.group_history_by_season)
         << SectionEnd();
     return out.str();
-}
-
-std::string RmlUiController::RenderSettingsGeneral() {
-    return m_settingsPresenter->RenderGeneral(m_config);
 }
 
 std::vector<SelectOption> RmlUiController::IdentityOptions() const {

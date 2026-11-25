@@ -1,6 +1,8 @@
 #pragma once
+#include "ui/rml/controller/ModalDocument.hpp"
 
 #include <RmlUi/Core/EventListener.h>
+#include <array>
 #include <RmlUi/Core/Types.h>
 #include <windows.h>
 #include <d3d11.h>
@@ -36,7 +38,6 @@ class AccountClient;
 #include "ui/rml/views/PlayerNoteView.hpp"
 #include "ui/rml/backend/RmlSystemInterfaceWin32.hpp"
 #include "ui/rml/controller/RmlRenderSnapshot.hpp"
-#include "ui/rml/presenters/SettingsPresenter.hpp"
 #include "ui/rml/services/BackgroundTaskService.hpp"
 #include "ui/rml/services/InputCaptureService.hpp"
 #include "ui/rml/services/FontService.hpp"
@@ -91,7 +92,7 @@ class RmlUiController final : public Rml::EventListener {
     // the overlay would otherwise hide (Rocket League not focused or closed).
     bool WantsAttention() const;
     bool IsOnboardingVisible() const noexcept {
-        return m_onboardingVisible;
+        return m_onboarding.IsVisible();
     }
     void OpenInsights();
     void OpenHistory();
@@ -132,6 +133,13 @@ class RmlUiController final : public Rml::EventListener {
         float h = 0.0f;
     };
 
+    struct FloatingDragPositions {
+        float sessionX = 0.0f;
+        float sessionY = 0.0f;
+        float summaryX = 0.0f;
+        float summaryY = 0.0f;
+    };
+
     struct DragState {
         DragKind kind = DragKind::None;
         DashboardLayout::WidgetId widget = DashboardLayout::WidgetId::LiveRoster;
@@ -143,6 +151,8 @@ class RmlUiController final : public Rml::EventListener {
         float startY = 0.0f;
         float startW = 0.0f;
         float startH = 0.0f;
+        DragSnapRect geometry;
+        FloatingDragPositions floatingPositions;
         bool allowDock = false;
         Rml::Element* element = nullptr;
         Rml::Element* guideX = nullptr;
@@ -200,15 +210,6 @@ class RmlUiController final : public Rml::EventListener {
     };
 
     void SnapshotState();
-    bool LoadBundledFonts();
-    // Rml family name to render `choice` with: bundled families as-is, installed
-    // families loaded once under a private alias, or `defaultFamily` when the
-    // choice is empty or cannot be loaded.
-    std::string ResolveFontFamily(const std::string& choice, std::string_view defaultFamily);
-    // font-family overrides for the configured roles; empty when all are default.
-    std::string FontOverrideCss();
-    const std::vector<std::string>& SystemFontFamilies();
-    bool FontsDifferFromApplied(const ConfigData& config) const;
     void RefreshAsyncData();
     void UpdateInputCapture();
     void UpdateThemeProperties();
@@ -255,15 +256,6 @@ class RmlUiController final : public Rml::EventListener {
     std::string RenderRosterFooter() const;
     std::string RenderOverlayToolbox(bool editMode);
 
-    std::string RenderSettingsGeneral();
-    std::string RenderSettingsCards();
-    std::string RenderSettingsReminders();
-    std::string RenderSettingsRanks();
-    std::string RenderSettingsShortcuts();
-    std::string RenderSettingsAppearance();
-    std::string RenderSettingsIntegrations();
-    std::string RenderSettingsData();
-    std::string RenderSettingsTroubleshooting();
     std::vector<RmlUiDetail::SelectOption> IdentityOptions() const;
     void SelectIdentity(const std::string& primaryId);
 
@@ -302,6 +294,9 @@ class RmlUiController final : public Rml::EventListener {
     // Insights and onboarding documents (RmlUiViews.cpp).
     void LoadViewDocuments();
     void CloseViewDocuments();
+    std::array<ModalDocument*, 5> ModalDocuments() {
+        return {&m_insights, &m_onboarding, &m_history, &m_accounts, &m_playerNote};
+    }
     void ShowInsights(InsightsView::Tab tab, bool endedSession);
     void HideInsights();
     void RefreshInsights(bool force);
@@ -326,6 +321,12 @@ class RmlUiController final : public Rml::EventListener {
     void RefreshOnboarding();
     void CheckAccountLinkPrompt();
     bool HandleViewAction(const std::string& action, Rml::Element* target);
+    bool HandlePlayerNoteAction(const std::string& action, Rml::Element* target);
+    bool HandleInsightsAction(const std::string& action, Rml::Element* target);
+    bool HandleHistoryAction(const std::string& action, Rml::Element* target);
+    bool HandleAccountsAction(const std::string& action, Rml::Element* target);
+    bool HandlePromptsAction(const std::string& action, Rml::Element* target);
+    bool HandleOnboardingAction(const std::string& action, Rml::Element* target);
 
     std::shared_ptr<SessionState> m_state;
     std::shared_ptr<DatabaseManager> m_dbManager;
@@ -349,18 +350,11 @@ class RmlUiController final : public Rml::EventListener {
     bool m_rmlInterfacesInstalled = false;
     std::unique_ptr<Rml::ElementInstancer> m_graphLineInstancer;
     ID3D11DeviceContext* m_d3dContext = nullptr;
-    InsightsView m_insights;
-    OnboardingView m_onboarding;
-    HistoryView m_history;
-    Rml::ElementDocument* m_insightsDoc = nullptr;
-    Rml::ElementDocument* m_onboardingDoc = nullptr;
-    Rml::ElementDocument* m_historyDoc = nullptr;
-    AccountsView m_accounts;
-    Rml::ElementDocument* m_accountsDoc = nullptr;
-    bool m_accountsVisible = false;
-    PlayerNoteView m_playerNote;
-    Rml::ElementDocument* m_playerNoteDoc = nullptr;
-    bool m_playerNoteVisible = false;
+    ModalView<InsightsView> m_insights{"res://insights.rml"};
+    ModalView<OnboardingView> m_onboarding{"res://onboarding.rml"};
+    ModalView<HistoryView> m_history{"res://history.rml"};
+    ModalView<AccountsView> m_accounts{"res://accounts.rml"};
+    ModalView<PlayerNoteView> m_playerNote{"res://player_note.rml"};
     uint64_t m_nextPlayerNoteRequestId = 0;
     uint64_t m_nextPlayerTagRequestId = 0;
     uint64_t m_nextScoutRequestId = 0;
@@ -370,11 +364,8 @@ class RmlUiController final : public Rml::EventListener {
     uint64_t m_lastAccountsVersion = std::numeric_limits<uint64_t>::max();
     std::chrono::steady_clock::time_point m_lastAccountsRelativeRender{};
     std::string m_lastAccountsActive;
-    bool m_insightsVisible = false;
     static constexpr int64_t kSessionRecapIdleTimeoutMs = 5 * 60 * 1000;
     std::optional<int64_t> m_sessionRecapDismissAtMs;
-    bool m_onboardingVisible = false;
-    bool m_historyVisible = false;
     // True while the recap tab shows a session captured when it ended rather
     // than the live one.
     bool m_insightsShowsEndedSession = false;
@@ -401,11 +392,8 @@ class RmlUiController final : public Rml::EventListener {
     MmrCategory m_lastRosterMmrCategory = MmrCategory::Best;
     MmrCategory m_lastGraphMmrCategory = MmrCategory::Best;
     MmrCategory m_lastRankProgressMmrCategory = MmrCategory::Best;
-    std::string m_lastConfigFingerprint;
-    uint64_t m_lastConfigHash = 0;
     uint64_t m_lastRuntimeStructuralHash = 0;
     uint64_t m_lastRenderConfigHash = 0;
-    std::string m_lastSettingsFingerprint;
     uint64_t m_lastSettingsHash = 0;
     uint64_t m_lastSettingsRosterHash = 0;
     bool m_hasSettingsRosterHash = false;
@@ -431,7 +419,6 @@ class RmlUiController final : public Rml::EventListener {
 
     bool m_detailedStatsSummaryRequested = false;
     SettingsPage m_settingsPage = SettingsPage::Display;
-    BindCaptureTarget m_bindCaptureTarget = BindCaptureTarget::None;
     bool m_showBallchasingToken = false;
     bool m_showCardDetails = false;
     bool m_showAdvancedAppearance = false;
@@ -486,14 +473,11 @@ class RmlUiController final : public Rml::EventListener {
     float m_settingsY = 0.0f;
     int64_t m_nextUpdateCheckPollMs = 0;
 
-    std::atomic<bool> m_backgroundTaskRunning{false};
     std::shared_ptr<RemoteConfig> m_remoteConfig;
     std::shared_ptr<Tournaments::TournamentScheduleService> m_tournamentService;
     std::shared_ptr<TelemetryManager> m_telemetry;
 
-    std::unique_ptr<SettingsPresenter> m_settingsPresenter;
-
-    std::unique_ptr<BackgroundTaskService> m_backgroundTaskService;
-    std::unique_ptr<InputCaptureService> m_inputCaptureService;
-    std::unique_ptr<FontService> m_fontService;
+    BackgroundTaskService m_backgroundTaskService;
+    InputCaptureService m_inputCaptureService;
+    FontService m_fontService;
 };

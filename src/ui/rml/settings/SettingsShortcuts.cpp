@@ -1,6 +1,6 @@
 #include "ui/rml/RmlUiPch.hpp"
 #include "ui/rml/controller/RmlUiController.hpp"
-#include "ui/rml/presenters/SettingsPresenter.hpp"
+#include "ui/rml/settings/SettingsPages.hpp"
 #include <commdlg.h>
 
 #include "core/config/AppVersion.hpp"
@@ -18,7 +18,7 @@
 
 using namespace RmlUiDetail;
 
-std::string SettingsPresenter::RenderShortcuts(const ConfigData& config, const std::shared_ptr<SessionState>& state, BindCaptureTarget bindCaptureTarget) {
+std::string SettingsPages::RenderShortcuts(const ConfigData& config, const std::shared_ptr<SessionState>& state, BindCaptureTarget bindCaptureTarget) {
     auto bindTarget = [](BindCaptureTarget target) { return std::to_string(static_cast<int>(target)); };
     auto keyRow = [&](const char* label, BindCaptureTarget target, int key, bool canClear = true) {
         std::ostringstream html;
@@ -88,8 +88,4 @@ std::string SettingsPresenter::RenderShortcuts(const ConfigData& config, const s
     }
     out << "</div>" << SectionEnd();
     return out.str();
-}
-
-std::string RmlUiController::RenderSettingsShortcuts() {
-    return m_settingsPresenter->RenderShortcuts(m_config, m_state, m_bindCaptureTarget);
 }
