@@ -1,4 +1,5 @@
 #include "ui/rml/RmlUiPch.hpp"
+#include "core/game/RankTiers.hpp"
 #include "ui/rml/controller/RmlUiController.hpp"
 #include <shobjidl.h>
 #include <commdlg.h>
@@ -42,7 +43,7 @@ namespace {
             const auto tierIt = player->playlistTiers.find(playlist);
             if (mmrIt != player->playlists.end() && tierIt != player->playlistTiers.end() && mmrIt->second == mmr) reportedTier = tierIt->second;
         }
-        return RankProgress::Compute(MmrService::RankThresholdsForPlaylist(playlist), mmr, reportedTier);
+        return RankProgress::Compute(RankTiers::RankThresholdsForPlaylist(playlist), mmr, reportedTier);
     }
 
     std::string RenderRankProgress(const RankProgress::Progress& progress, const ConfigData& config) {
@@ -131,7 +132,7 @@ namespace {
 std::string RmlUiController::BestRankTier(const PlayerData& p) const {
     if (!p.rankTier.empty() && p.rankTier != "Unranked") return p.rankTier;
     if (p.mmr <= 0) return {};
-    return MmrService::GetRankTierForPlaylistMmr(BestRankSource(p, p.mmr, m_config.show_extra_playlists), p.mmr);
+    return RankTiers::GetRankTierForPlaylistMmr(BestRankSource(p, p.mmr, m_config.show_extra_playlists), p.mmr);
 }
 
 std::string RmlUiController::RenderPlayerRoster(int team, const char* label) {
@@ -178,7 +179,7 @@ std::string RmlUiController::RenderPlayerRoster(int team, const char* label) {
             rankSource = BestRankSource(*p, mmr, config.show_extra_playlists);
         }
         if (category != "casual" && (tier.empty() || tier == "Unranked") && mmr > 0) {
-            tier = MmrService::GetRankTierForPlaylistMmr(category == "best" ? rankSource : category, mmr);
+            tier = RankTiers::GetRankTierForPlaylistMmr(category == "best" ? rankSource : category, mmr);
         }
         std::string platform;
         if (const auto pos = p->primaryId.find('|'); pos != std::string::npos) platform = p->primaryId.substr(0, pos);

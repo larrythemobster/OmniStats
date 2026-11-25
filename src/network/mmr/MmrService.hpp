@@ -67,11 +67,6 @@ class MmrService {
     static RankProvider ActiveRankProvider();
     RankProvider CurrentRankProvider() const;
 
-    static std::string GetTournamentTierForMmr(int mmr);
-    static std::string GetRankTierForPlaylistMmr(const std::string& playlist, int mmr);
-    static std::span<const RankProgress::Threshold> RankThresholdsForPlaylist(std::string_view playlist);
-    static std::string PlaylistNameForTrackerId(int playlistId);
-    static std::string RankTierName(int tier, int division);
     static MMRProfileTotals ExtractProfileTotals(const nlohmann::json& jsonResp);
 
     bool ProcessPostMatchResponse(const std::string& matchGuid, int fetchedMmr, int fetchedMatches,

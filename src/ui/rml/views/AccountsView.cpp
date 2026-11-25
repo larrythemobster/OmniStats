@@ -1,4 +1,5 @@
 #include "ui/rml/views/AccountsView.hpp"
+#include "core/game/RankTiers.hpp"
 
 #include <RmlUi/Core/Context.h>
 
@@ -60,7 +61,7 @@ namespace {
     std::string DisplayTier(const std::string& playlistKey, const TrackedAccounts::PlaylistRank& rank) {
         const std::string& tier = rank.rankTier;
         if ((tier.empty() || tier.rfind("Unranked", 0) == 0) && rank.mmr.value_or(0) > 0) {
-            return MmrService::GetRankTierForPlaylistMmr(playlistKey, *rank.mmr);
+            return RankTiers::GetRankTierForPlaylistMmr(playlistKey, *rank.mmr);
         }
         return tier;
     }

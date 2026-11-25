@@ -365,38 +365,15 @@ namespace RmlUiDetail {
     }
 
     std::string MmrLabel(MmrCategory category) {
-        switch (category) {
-        case MmrCategory::Best:
-            return "Best Rank";
-        case MmrCategory::OneVOne:
-            return "1v1";
-        case MmrCategory::TwoVTwo:
-            return "2v2";
-        case MmrCategory::ThreeVThree:
-            return "3v3";
-        case MmrCategory::Casual:
-            return "Casual";
-        case MmrCategory::Tourny:
-            return "Tournament";
-        case MmrCategory::Hoops:
-            return "Hoops";
-        case MmrCategory::Rumble:
-            return "Rumble";
-        case MmrCategory::Dropshot:
-            return "Dropshot";
-        case MmrCategory::SnowDay:
-            return "Snow Day";
-        case MmrCategory::Heatseeker:
-            return "Heatseeker";
-        }
-        return "Best Rank";
+        return PlaylistMetadata::RatingModeFor(category).label;
     }
 
     std::vector<MmrCategory> MmrCategories(bool includeBest, bool extras) {
         std::vector<MmrCategory> result;
         if (includeBest) result.push_back(MmrCategory::Best);
-        result.insert(result.end(), {MmrCategory::OneVOne, MmrCategory::TwoVTwo, MmrCategory::ThreeVThree});
-        if (extras) result.insert(result.end(), {MmrCategory::Hoops, MmrCategory::Rumble, MmrCategory::Dropshot, MmrCategory::SnowDay, MmrCategory::Heatseeker});
+        for (const auto& mode : PlaylistMetadata::kRatingModes) {
+            if (mode.teamSize > 0 && (!mode.extra || extras)) result.push_back(mode.category);
+        }
         result.insert(result.end(), {MmrCategory::Casual, MmrCategory::Tourny});
         return result;
     }
@@ -864,20 +841,10 @@ namespace RmlUiDetail {
     }
 
     int EnabledLobbyRankColumns(const ConfigData& config) {
-        int rankColumns = 0;
-        rankColumns += config.show_lobby_rank_1v1 ? 1 : 0;
-        rankColumns += config.show_lobby_rank_2v2 ? 1 : 0;
-        rankColumns += config.show_lobby_rank_3v3 ? 1 : 0;
-        rankColumns += config.show_lobby_rank_casual ? 1 : 0;
-        rankColumns += config.show_lobby_rank_tourny ? 1 : 0;
-        if (config.show_extra_playlists) {
-            rankColumns += config.show_lobby_rank_hoops ? 1 : 0;
-            rankColumns += config.show_lobby_rank_rumble ? 1 : 0;
-            rankColumns += config.show_lobby_rank_dropshot ? 1 : 0;
-            rankColumns += config.show_lobby_rank_snowday ? 1 : 0;
-            rankColumns += config.show_lobby_rank_heatseeker ? 1 : 0;
-        }
-        return std::max(rankColumns, 1);
+        const auto count = std::ranges::count_if(PlaylistMetadata::kRatingModes, [&](const auto& mode) {
+            return config.ShowsLobbyRankColumn(mode);
+        });
+        return (std::max)(static_cast<int>(count), 1);
     }
 
     float LobbyRanksContentMinDp(const ConfigData& config) {

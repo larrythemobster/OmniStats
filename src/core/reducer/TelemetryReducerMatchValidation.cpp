@@ -12,11 +12,9 @@
 using namespace TelemetryReducerDetail;
 
 int TelemetryReducerDetail::LegacyExpectedTeamSizeForMode(const std::string& mode) {
-    if (mode == "1v1") return 1;
-    if (mode == "2v2" || mode == "hoops" || mode == "heatseeker") return 2;
-    if (mode == "3v3" || mode == "rumble" || mode == "dropshot" || mode == "snowday") return 3;
     if (mode == "4v4") return 4;
-    return 0;
+    const auto* rating = PlaylistMetadata::FindRatingMode(mode);
+    return rating ? rating->teamSize : 0;
 }
 
 int TelemetryReducer::LegacyExpectedTeamSizeForMode(const std::string& mode) {

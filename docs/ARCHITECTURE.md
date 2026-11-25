@@ -28,7 +28,7 @@ flowchart LR
 | Live state | `src/core/state/LiveMatchStore.*` | Publishes match and session snapshots for the UI. |
 | History state | `src/database/store/HistoryStore.*` | Publishes saved-match and rating projections. |
 | Database | `src/database/` | SQLite connections, migrations, repositories, and database workers. |
-| Rank lookups | `src/network/mmr/` | Request queues, providers, and rank reconciliation. |
+| Rank lookups | `src/core/game/`, `src/network/mmr/` | Playlist metadata and rank tiers in core; request queues, providers, and reconciliation in networking. |
 | Tracked accounts | `src/core/accounts/` | Account discovery, refreshes, and persistence. |
 | UI | `src/ui/rml/`, `src/ui/window/` | Presenters, input, windows, and Direct3D rendering. |
 | Updater | `src/updater/` | Separate process that verifies and installs releases. |

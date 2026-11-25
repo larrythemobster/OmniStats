@@ -15,7 +15,6 @@
 
 namespace TelemetryReducerDetail {
     MmrCategory CategoryFromTeamCounts(const std::array<int, 2>& teamCounts, bool roundStarted);
-    MmrCategory CategoryFromMode(const std::string& mode);
     std::string InferModeFromMatchState(const MatchState& match, MmrCategory rosterCategory);
     std::string InferModeFromMatchState(const LiveMatchSnapshot& match, MmrCategory rosterCategory);
     MmrCategory CategoryFromMatchContext(const MatchState& match);

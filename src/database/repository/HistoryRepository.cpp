@@ -1,4 +1,5 @@
 #include "HistoryRepository.hpp"
+#include "core/game/RankTiers.hpp"
 #include "core/config/Config.hpp"
 #include "core/game/MatchAnalytics.hpp"
 #include "core/game/PlaylistMetadata.hpp"
@@ -24,15 +25,9 @@ namespace database::repository {
         }
 
         std::string FormatMatchHistoryMode(const std::string& gamemode, int playerCount) {
-            if (gamemode == "1v1") return "Duel";
-            if (gamemode == "2v2") return "Doubles";
-            if (gamemode == "3v3") return "Standard";
-            if (gamemode == "hoops") return "Hoops";
-            if (gamemode == "rumble") return "Rumble";
-            if (gamemode == "dropshot") return "Dropshot";
-            if (gamemode == "snowday") return "Snow Day";
-            if (gamemode == "heatseeker") return "Heatseeker";
-            if (gamemode == "casual") return FormatPlaylistName(playerCount);
+            if (const auto* mode = PlaylistMetadata::FindRatingMode(gamemode); mode && mode->teamSize > 0) {
+                return mode->historyLabel;
+            }
             if (gamemode == "t") return "Tournament Match";
             return FormatPlaylistName(playerCount);
         }
@@ -1204,7 +1199,7 @@ namespace database::repository {
                 p.mmr = playerStmt.Get<int>(3);
                 p.mmrEstimated = playerStmt.Get<int>(4) != 0;
                 p.isOpponent = playerStmt.Get<int>(5) != 0;
-                p.tier = MmrService::GetRankTierForPlaylistMmr(tierKey, p.mmr);
+                p.tier = RankTiers::GetRankTierForPlaylistMmr(tierKey, p.mmr);
                 if (hasStats && !playerStmt.IsNull(6)) {
                     p.hasStats = true;
                     outDetail.hasPlayerStats = true;

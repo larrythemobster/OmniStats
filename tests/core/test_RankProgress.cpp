@@ -1,4 +1,5 @@
 #include <gtest/gtest.h>
+#include "core/game/RankTiers.hpp"
 
 #include <algorithm>
 #include <array>
@@ -84,23 +85,23 @@ TEST(RankProgressTest, PlacementAndMissingDataProduceNoDistances) {
 }
 
 TEST(RankProgressTest, PlaylistTablesAreSelectedPerPlaylist) {
-    EXPECT_TRUE(MmrService::RankThresholdsForPlaylist("best").empty());
-    EXPECT_TRUE(MmrService::RankThresholdsForPlaylist("casual").empty());
-    EXPECT_TRUE(MmrService::RankThresholdsForPlaylist("not-a-playlist").empty());
+    EXPECT_TRUE(RankTiers::RankThresholdsForPlaylist("best").empty());
+    EXPECT_TRUE(RankTiers::RankThresholdsForPlaylist("casual").empty());
+    EXPECT_TRUE(RankTiers::RankThresholdsForPlaylist("not-a-playlist").empty());
 
-    const auto duel = RankProgress::Compute(MmrService::RankThresholdsForPlaylist("1v1"), 1000, "");
-    const auto doubles = RankProgress::Compute(MmrService::RankThresholdsForPlaylist("2v2"), 1000, "");
+    const auto duel = RankProgress::Compute(RankTiers::RankThresholdsForPlaylist("1v1"), 1000, "");
+    const auto doubles = RankProgress::Compute(RankTiers::RankThresholdsForPlaylist("2v2"), 1000, "");
     ASSERT_EQ(duel.status, RankProgress::Status::Ranked);
     ASSERT_EQ(doubles.status, RankProgress::Status::Ranked);
     ASSERT_TRUE(duel.next && doubles.next);
-    EXPECT_EQ(duel.rank, MmrService::GetRankTierForPlaylistMmr("1v1", 1000));
-    EXPECT_EQ(doubles.rank, MmrService::GetRankTierForPlaylistMmr("2v2", 1000));
+    EXPECT_EQ(duel.rank, RankTiers::GetRankTierForPlaylistMmr("1v1", 1000));
+    EXPECT_EQ(doubles.rank, RankTiers::GetRankTierForPlaylistMmr("2v2", 1000));
     EXPECT_NE(duel.rank, doubles.rank);
     EXPECT_NE(duel.next->mmr, doubles.next->mmr);
 }
 
 TEST(RankProgressTest, GrandChampionAndSupersonicLegendUseTheirOwnRungs) {
-    const auto table = MmrService::RankThresholdsForPlaylist("2v2");
+    const auto table = RankTiers::RankThresholdsForPlaylist("2v2");
     const auto ssl = std::find_if(table.begin(), table.end(), [](const auto& t) { return std::string_view(t.tier) == "Supersonic Legend"; });
     ASSERT_NE(ssl, table.end());
     const auto gc3d4 = ssl - 1;
@@ -148,7 +149,7 @@ TEST(RankProgressTest, GraphBoundariesMapOntoThePlotAndSkipTheLadderFloor) {
 }
 
 TEST(RankProgressTest, CrowdedGraphsKeepTierStartsAndAdjacentDivisionsWithoutLabelOverlap) {
-    const auto table = MmrService::RankThresholdsForPlaylist("2v2");
+    const auto table = RankTiers::RankThresholdsForPlaylist("2v2");
     RankProgress::GraphLayoutOptions options;
     options.reserved = {{0.0f, 8.0f}, {87.0f, 100.0f}};
     const float current = 1200.0f;

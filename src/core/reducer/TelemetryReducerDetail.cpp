@@ -22,18 +22,6 @@ namespace TelemetryReducerDetail {
         return MmrCategory::Best;
     }
 
-    MmrCategory CategoryFromMode(const std::string& mode) {
-        if (mode == "1v1") return MmrCategory::OneVOne;
-        if (mode == "2v2") return MmrCategory::TwoVTwo;
-        if (mode == "3v3") return MmrCategory::ThreeVThree;
-        if (mode == "hoops") return MmrCategory::Hoops;
-        if (mode == "rumble") return MmrCategory::Rumble;
-        if (mode == "dropshot") return MmrCategory::Dropshot;
-        if (mode == "snowday") return MmrCategory::SnowDay;
-        if (mode == "heatseeker") return MmrCategory::Heatseeker;
-        return MmrCategory::Best;
-    }
-
     template <typename T>
     static std::string InferModeImpl(const T& match, MmrCategory rosterCategory) {
         if (PlaylistMetadata::HasAuthoritativeId(match.playlistId)) {
@@ -69,7 +57,7 @@ namespace TelemetryReducerDetail {
         if (match.fallbackNonRecordableContext) return MmrCategory::Best;
         if (match.fallbackCasualContext) return MmrCategory::Casual;
         std::string arenaKey = !match.arenaAsset.empty() ? match.arenaAsset : match.arenaName;
-        MmrCategory arenaCategory = CategoryFromMode(GamemodeUtils::InferFromArenaName(arenaKey));
+        MmrCategory arenaCategory = StringToMmrCategory(GamemodeUtils::InferFromArenaName(arenaKey));
         if (arenaCategory != MmrCategory::Best) return arenaCategory;
         return CategoryFromTeamCounts(match.legacyMaxTeamPlayersSeen, match.roundEverStarted);
     }
@@ -83,29 +71,15 @@ namespace TelemetryReducerDetail {
     }
 
     bool IsSupportedMmrCategory(MmrCategory category) {
-        return category == MmrCategory::OneVOne ||
-               category == MmrCategory::TwoVTwo ||
-               category == MmrCategory::ThreeVThree ||
-               category == MmrCategory::Casual ||
-               category == MmrCategory::Tourny ||
-               IsExtraMmrCategory(category);
+        return category != MmrCategory::Best;
     }
 
     bool IsTrackedRankedEarlyExitMode(const std::string& mode) {
-        return mode == "1v1" || mode == "2v2" || mode == "3v3" ||
-               mode == "hoops" || mode == "rumble" || mode == "dropshot" ||
-               mode == "snowday" || mode == "heatseeker";
+        return PlaylistMetadata::IsRankedMode(mode);
     }
 
     std::string FormatPendingMatchHistoryMode(const std::string& mode) {
-        if (mode == "1v1") return "Duel";
-        if (mode == "2v2") return "Doubles";
-        if (mode == "3v3") return "Standard";
-        if (mode == "hoops") return "Hoops";
-        if (mode == "rumble") return "Rumble";
-        if (mode == "dropshot") return "Dropshot";
-        if (mode == "snowday") return "Snow Day";
-        if (mode == "heatseeker") return "Heatseeker";
+        if (PlaylistMetadata::IsRankedMode(mode)) return PlaylistMetadata::FindRatingMode(mode)->historyLabel;
         return mode.empty() ? "Unknown" : mode;
     }
 

@@ -1,4 +1,5 @@
 #include "core/game/GamemodeUtils.hpp"
+#include "core/game/MmrCategories.hpp"
 #include <algorithm>
 #include <cctype>
 #include <unordered_map>
@@ -73,8 +74,7 @@ namespace GamemodeUtils {
     }
 
     bool IsTrackedCompetitiveMode(const std::string& mode) {
-        return mode == "1v1" || mode == "2v2" || mode == "3v3" || mode == "t" ||
-               mode == "hoops" || mode == "rumble" || mode == "dropshot" || mode == "snowday" || mode == "heatseeker";
+        return PlaylistMetadata::IsRankedMode(mode) || mode == "t";
     }
 
 } // namespace GamemodeUtils

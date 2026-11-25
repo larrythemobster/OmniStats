@@ -95,18 +95,10 @@ std::string SettingsPresenter::RenderCards(const ConfigData& config, bool showDe
         << ToggleControl("show_account_wins_overlay", "Account wins", "", config.show_account_wins_overlay)
         << SectionEnd();
 
-    out << SectionStart("Lobby rank playlists")
-        << ToggleControl("show_lobby_rank_1v1", "1v1", "", config.show_lobby_rank_1v1, !config.show_lobby_ranks_overlay)
-        << ToggleControl("show_lobby_rank_2v2", "2v2", "", config.show_lobby_rank_2v2, !config.show_lobby_ranks_overlay)
-        << ToggleControl("show_lobby_rank_3v3", "3v3", "", config.show_lobby_rank_3v3, !config.show_lobby_ranks_overlay)
-        << ToggleControl("show_lobby_rank_casual", "Casual", "", config.show_lobby_rank_casual, !config.show_lobby_ranks_overlay)
-        << ToggleControl("show_lobby_rank_tourny", "Tournament", "", config.show_lobby_rank_tourny, !config.show_lobby_ranks_overlay);
-    if (config.show_extra_playlists) {
-        out << ToggleControl("show_lobby_rank_hoops", "Hoops", "", config.show_lobby_rank_hoops, !config.show_lobby_ranks_overlay)
-            << ToggleControl("show_lobby_rank_rumble", "Rumble", "", config.show_lobby_rank_rumble, !config.show_lobby_ranks_overlay)
-            << ToggleControl("show_lobby_rank_dropshot", "Dropshot", "", config.show_lobby_rank_dropshot, !config.show_lobby_ranks_overlay)
-            << ToggleControl("show_lobby_rank_snowday", "Snow Day", "", config.show_lobby_rank_snowday, !config.show_lobby_ranks_overlay)
-            << ToggleControl("show_lobby_rank_heatseeker", "Heatseeker", "", config.show_lobby_rank_heatseeker, !config.show_lobby_ranks_overlay);
+    out << SectionStart("Lobby rank playlists");
+    for (const auto& mode : PlaylistMetadata::kRatingModes) {
+        if (!*mode.lobbySetting || (mode.extra && !config.show_extra_playlists)) continue;
+        out << ToggleControl(mode.lobbySetting, mode.label, "", config.LobbyRankColumn(mode.category), !config.show_lobby_ranks_overlay);
     }
     out << SectionEnd();
 

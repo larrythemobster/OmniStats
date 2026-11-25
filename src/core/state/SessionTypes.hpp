@@ -1,5 +1,6 @@
 #pragma once
 
+#include "core/game/MmrCategories.hpp"
 #include "core/accounts/PlayerNotes.hpp"
 #include "core/accounts/PlayerScout.hpp"
 #include "core/game/Insights.hpp"
@@ -89,24 +90,6 @@ struct AccountMmrHistory {
 inline constexpr int kPreviousGamesDefaultLimit = 20;
 inline constexpr int kPreviousGamesMaxLimit = 50;
 
-enum class MmrCategory : int {
-    Best = 0,
-    OneVOne = 1,
-    TwoVTwo = 2,
-    ThreeVThree = 3,
-    Casual = 4,
-    Tourny = 5,
-    Hoops = 6,
-    Rumble = 7,
-    Dropshot = 8,
-    SnowDay = 9,
-    Heatseeker = 10
-};
-
-std::string MmrCategoryToString(MmrCategory cat);
-MmrCategory StringToMmrCategory(const std::string& str);
-bool IsExtraMmrCategory(MmrCategory cat);
-
 struct GamemodeStat {
     int wins = 0;
     int losses = 0;
@@ -126,9 +109,7 @@ struct CachedDbStats {
 inline int CalculateTrackedSessionMmrChange(const std::map<std::string, int>& changes) {
     int total = 0;
     for (const auto& [playlist, change] : changes) {
-        if (playlist == "1v1" || playlist == "2v2" || playlist == "3v3" ||
-            playlist == "hoops" || playlist == "rumble" || playlist == "dropshot" ||
-            playlist == "snowday" || playlist == "heatseeker") {
+        if (PlaylistMetadata::IsRankedMode(playlist)) {
             total += change;
         }
     }

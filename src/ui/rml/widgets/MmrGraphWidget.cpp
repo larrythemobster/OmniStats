@@ -1,4 +1,5 @@
 #include "ui/rml/RmlUiPch.hpp"
+#include "core/game/RankTiers.hpp"
 #include "ui/rml/controller/RmlUiController.hpp"
 #include <shobjidl.h>
 #include <commdlg.h>
@@ -70,7 +71,7 @@ std::string RenderMmrGraphImpl(bool showCategoryBadge, bool showPanControls, con
     const auto series = ResolveGraphSeries(snap, state);
     const int offset = state ? state->ui.graphOffset.load() : 0;
     const auto window = ComputeGraphWindow(static_cast<int>(series.ratings.size()), offset, kVisibleGraphMatches);
-    const auto rankTable = MmrService::RankThresholdsForPlaylist(series.playlist);
+    const auto rankTable = RankTiers::RankThresholdsForPlaylist(series.playlist);
 
     std::ostringstream header;
     const std::string pan = showPanControls ? RenderGraphPanControlsImpl(window) : std::string{};

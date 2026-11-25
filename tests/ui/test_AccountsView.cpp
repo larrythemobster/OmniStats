@@ -1,4 +1,5 @@
 #include <gtest/gtest.h>
+#include "core/game/RankTiers.hpp"
 #include <RmlUi/Core/Element.h>
 #include <RmlUi/Core/ElementDocument.h>
 #include <d3d11.h>
@@ -112,8 +113,8 @@ TEST(AccountsViewTiers, PlacementRanksWithMmrShowTheTierForThatMmr) {
     ASSERT_EQ(view.Rows().size(), 1u);
     const auto& cells = view.Rows()[0].ranks;
     ASSERT_EQ(cells.size(), 3u);
-    const std::string solo = MmrService::GetRankTierForPlaylistMmr("1v1", 642);
-    const std::string standard = MmrService::GetRankTierForPlaylistMmr("3v3", 879);
+    const std::string solo = RankTiers::GetRankTierForPlaylistMmr("1v1", 642);
+    const std::string standard = RankTiers::GetRankTierForPlaylistMmr("3v3", 879);
     ASSERT_NE(solo, "Unranked");
     ASSERT_NE(standard, "Unranked");
     EXPECT_EQ(cells[0].tier, Format::AbbreviateRank(solo));

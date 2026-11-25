@@ -1,4 +1,5 @@
 #include "ui/rml/widgets/TournamentWidget.hpp"
+#include "core/game/RankTiers.hpp"
 #include "core/state/LiveMatchStore.hpp"
 #include <gtest/gtest.h>
 #include <RmlUi/Core/Core.h>
@@ -514,11 +515,11 @@ TEST_F(RmlUiControllerStateTest, RosterSortFallsBackToBestMmrWhenSelectedPlaylis
 TEST_F(RmlUiControllerStateTest, LobbyRanksKeepsEnabledPlaylistColumnHeaders) {
     auto state = std::make_shared<SessionState>();
     ConfigData config = Config::Read();
-    config.show_lobby_rank_1v1 = true;
-    config.show_lobby_rank_2v2 = true;
-    config.show_lobby_rank_3v3 = false;
-    config.show_lobby_rank_casual = true;
-    config.show_lobby_rank_tourny = true;
+    config.LobbyRankColumn(MmrCategory::OneVOne) = true;
+    config.LobbyRankColumn(MmrCategory::TwoVTwo) = true;
+    config.LobbyRankColumn(MmrCategory::ThreeVThree) = false;
+    config.LobbyRankColumn(MmrCategory::Casual) = true;
+    config.LobbyRankColumn(MmrCategory::Tourny) = true;
     config.show_extra_playlists = false;
 
     RmlUiController controller(state, nullptr);
@@ -617,11 +618,11 @@ TEST_F(RmlUiControllerStateTest, LobbyRanksCalculatesRanksPerPlaylistForUnranked
     });
 
     ConfigData config = Config::Read();
-    config.show_lobby_rank_1v1 = true;
-    config.show_lobby_rank_2v2 = true;
-    config.show_lobby_rank_3v3 = true;
-    config.show_lobby_rank_casual = true;
-    config.show_lobby_rank_tourny = true;
+    config.LobbyRankColumn(MmrCategory::OneVOne) = true;
+    config.LobbyRankColumn(MmrCategory::TwoVTwo) = true;
+    config.LobbyRankColumn(MmrCategory::ThreeVThree) = true;
+    config.LobbyRankColumn(MmrCategory::Casual) = true;
+    config.LobbyRankColumn(MmrCategory::Tourny) = true;
     RmlUiController controller(state, nullptr);
     controller.Update(config);
     const std::string html = RenderLobbyRanks(controller);
@@ -1297,38 +1298,38 @@ TEST_F(RmlUiControllerStateTest, LobbyRanksContainerWidthGrowsWithEnabledColumns
     ConfigData config = Config::Read();
     config.show_lobby_ranks_overlay = true;
     config.show_extra_playlists = false;
-    config.show_lobby_rank_1v1 = true;
-    config.show_lobby_rank_2v2 = true;
-    config.show_lobby_rank_3v3 = true;
-    config.show_lobby_rank_casual = true;
-    config.show_lobby_rank_tourny = true;
+    config.LobbyRankColumn(MmrCategory::OneVOne) = true;
+    config.LobbyRankColumn(MmrCategory::TwoVTwo) = true;
+    config.LobbyRankColumn(MmrCategory::ThreeVThree) = true;
+    config.LobbyRankColumn(MmrCategory::Casual) = true;
+    config.LobbyRankColumn(MmrCategory::Tourny) = true;
     controller.Update(config);
     const float fiveColumns = widthOf(RenderOverlayContainer(controller, container));
     ASSERT_GT(fiveColumns, 0.0f);
     EXPECT_LE(fiveColumns, 520.0f);
 
-    config.show_lobby_rank_1v1 = false;
-    config.show_lobby_rank_2v2 = true;
-    config.show_lobby_rank_3v3 = false;
-    config.show_lobby_rank_casual = false;
-    config.show_lobby_rank_tourny = false;
+    config.LobbyRankColumn(MmrCategory::OneVOne) = false;
+    config.LobbyRankColumn(MmrCategory::TwoVTwo) = true;
+    config.LobbyRankColumn(MmrCategory::ThreeVThree) = false;
+    config.LobbyRankColumn(MmrCategory::Casual) = false;
+    config.LobbyRankColumn(MmrCategory::Tourny) = false;
     controller.Update(config);
     const float oneColumn = widthOf(RenderOverlayContainer(controller, container));
     EXPECT_LT(oneColumn, fiveColumns);
     EXPECT_LE(oneColumn, 240.0f);
 
-    config.show_lobby_rank_1v1 = true;
-    config.show_lobby_rank_2v2 = true;
-    config.show_lobby_rank_3v3 = true;
-    config.show_lobby_rank_casual = true;
-    config.show_lobby_rank_tourny = true;
+    config.LobbyRankColumn(MmrCategory::OneVOne) = true;
+    config.LobbyRankColumn(MmrCategory::TwoVTwo) = true;
+    config.LobbyRankColumn(MmrCategory::ThreeVThree) = true;
+    config.LobbyRankColumn(MmrCategory::Casual) = true;
+    config.LobbyRankColumn(MmrCategory::Tourny) = true;
 
     config.show_extra_playlists = true;
-    config.show_lobby_rank_hoops = true;
-    config.show_lobby_rank_rumble = true;
-    config.show_lobby_rank_dropshot = true;
-    config.show_lobby_rank_snowday = true;
-    config.show_lobby_rank_heatseeker = true;
+    config.LobbyRankColumn(MmrCategory::Hoops) = true;
+    config.LobbyRankColumn(MmrCategory::Rumble) = true;
+    config.LobbyRankColumn(MmrCategory::Dropshot) = true;
+    config.LobbyRankColumn(MmrCategory::SnowDay) = true;
+    config.LobbyRankColumn(MmrCategory::Heatseeker) = true;
     controller.Update(config);
     const float tenColumns = widthOf(RenderOverlayContainer(controller, container));
     EXPECT_GT(tenColumns, fiveColumns) << "ten rank columns must reserve more width than five";
@@ -3470,8 +3471,8 @@ TEST_F(RmlUiControllerStateTest, CardTextSizeScalesOnlyTheSelectedCardAcrossDisp
         c.ui_scale = 1.0f;
         c.card_text_percent.fill(100);
         c.show_lobby_ranks_overlay = true;
-        c.show_lobby_rank_2v2 = true;
-        c.show_lobby_rank_tourny = true;
+        c.LobbyRankColumn(MmrCategory::TwoVTwo) = true;
+        c.LobbyRankColumn(MmrCategory::Tourny) = true;
         c.show_session_record = true;
         OverlayLayout::ContainerConfig stack;
         stack.id = "text-size-stack";
@@ -3867,7 +3868,7 @@ TEST_F(RmlUiControllerStateTest, MmrGraphShowsLabeledDivisionBoundariesPerPlayli
     RmlUiController controller(state, nullptr);
     controller.Update(Config::Read());
 
-    const auto doubles = RankProgress::Compute(MmrService::RankThresholdsForPlaylist("2v2"), 1200, "Champion II Div I");
+    const auto doubles = RankProgress::Compute(RankTiers::RankThresholdsForPlaylist("2v2"), 1200, "Champion II Div I");
     ASSERT_TRUE(doubles.next);
     std::string html = RenderGraph(controller);
     EXPECT_EQ(html.find("rank-progress"), std::string::npos);
@@ -3880,7 +3881,7 @@ TEST_F(RmlUiControllerStateTest, MmrGraphShowsLabeledDivisionBoundariesPerPlayli
     SeedGraph(*state, "3v3", {1180.0f, 1190.0f, 1200.0f}, 0, "");
     state->ui.graphMmrCategory.store(MmrCategory::ThreeVThree);
     controller.Update(Config::Read());
-    const auto standard = RankProgress::Compute(MmrService::RankThresholdsForPlaylist("3v3"), 1200, "");
+    const auto standard = RankProgress::Compute(RankTiers::RankThresholdsForPlaylist("3v3"), 1200, "");
     ASSERT_TRUE(standard.next);
     html = RenderGraph(controller);
     EXPECT_NE(html.find(" starts at " + std::to_string(standard.next->mmr) + " MMR"), std::string::npos);
@@ -3941,8 +3942,8 @@ TEST_F(RmlUiControllerStateTest, DashboardLobbyRanksFitANarrowColumnWithoutScrol
         [](ConfigData& c) {
             c.second_monitor_mode = true;
             c.show_lobby_ranks_overlay = true;
-            c.show_lobby_rank_1v1 = c.show_lobby_rank_2v2 = c.show_lobby_rank_3v3 = true;
-            c.show_lobby_rank_casual = c.show_lobby_rank_tourny = true;
+            c.LobbyRankColumn(MmrCategory::OneVOne) = c.LobbyRankColumn(MmrCategory::TwoVTwo) = c.LobbyRankColumn(MmrCategory::ThreeVThree) = true;
+            c.LobbyRankColumn(MmrCategory::Casual) = c.LobbyRankColumn(MmrCategory::Tourny) = true;
             c.dashboard_layout = DashboardLayout::DefaultLayout();
         },
         true);

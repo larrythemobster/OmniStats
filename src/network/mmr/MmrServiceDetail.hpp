@@ -59,7 +59,6 @@ namespace MmrServiceDetail {
     std::vector<int> BuildDirectionalMmrPath(int initialMmr, int finalMmr, const std::vector<bool>& results);
     std::vector<int> ReconcileEstimatedPath(int initialMmr, int finalMmr, const std::vector<int>& estimatedPath, const std::vector<bool>& results);
     bool TryParseCustomApiTarget(const std::string& primaryId, CustomApiPlayerTarget& outTarget);
-    int CustomApiPlaylistIdForName(const std::string& playlist);
     AssembledBatch AssembleCustomApiBatch(
         const std::vector<MMRRequest>& candidates,
         std::chrono::steady_clock::time_point now = std::chrono::steady_clock::time_point::max(),

@@ -1,4 +1,6 @@
 #include <gtest/gtest.h>
+#include "core/game/PlaylistMetadata.hpp"
+#include "core/game/RankTiers.hpp"
 #include "network/omninet/OmniNet.hpp"
 #include "network/mmr/MmrService.hpp"
 #include "MmrTestTimings.hpp"
@@ -412,69 +414,69 @@ TEST_F(MmrServiceTest, FetchProfileRateLimitedPausesQueue) {
 }
 
 TEST(MmrServiceTournamentRankTest, UsesTournamentMmrThresholds) {
-    EXPECT_EQ(MmrService::GetTournamentTierForMmr(1421), "Grand Champion I Div I");
-    EXPECT_EQ(MmrService::GetTournamentTierForMmr(1537), "Grand Champion I Div IV");
-    EXPECT_EQ(MmrService::GetTournamentTierForMmr(1561), "Grand Champion II Div I");
-    EXPECT_EQ(MmrService::GetTournamentTierForMmr(1701), "Grand Champion III Div I");
-    EXPECT_EQ(MmrService::GetTournamentTierForMmr(1861), "Supersonic Legend");
+    EXPECT_EQ(RankTiers::GetTournamentTierForMmr(1421), "Grand Champion I Div I");
+    EXPECT_EQ(RankTiers::GetTournamentTierForMmr(1537), "Grand Champion I Div IV");
+    EXPECT_EQ(RankTiers::GetTournamentTierForMmr(1561), "Grand Champion II Div I");
+    EXPECT_EQ(RankTiers::GetTournamentTierForMmr(1701), "Grand Champion III Div I");
+    EXPECT_EQ(RankTiers::GetTournamentTierForMmr(1861), "Supersonic Legend");
 }
 
 TEST(MmrServiceTournamentRankTest, KeepsBoundaryGapsInPreviousDivision) {
-    EXPECT_EQ(MmrService::GetTournamentTierForMmr(1560), "Grand Champion I Div IV");
-    EXPECT_EQ(MmrService::GetTournamentTierForMmr(1530), "Grand Champion I Div III");
-    EXPECT_EQ(MmrService::GetTournamentTierForMmr(0), "Unranked");
+    EXPECT_EQ(RankTiers::GetTournamentTierForMmr(1560), "Grand Champion I Div IV");
+    EXPECT_EQ(RankTiers::GetTournamentTierForMmr(1530), "Grand Champion I Div III");
+    EXPECT_EQ(RankTiers::GetTournamentTierForMmr(0), "Unranked");
 }
 
 TEST(MmrServicePlaylistRankThresholdsTest, UsesPlaylistSpecificMmrThresholds) {
     // Casual has no ranks
-    EXPECT_EQ(MmrService::GetRankTierForPlaylistMmr("casual", 1500), "Unranked");
-    EXPECT_EQ(MmrService::GetRankTierForPlaylistMmr("casual", 698), "Unranked");
+    EXPECT_EQ(RankTiers::GetRankTierForPlaylistMmr("casual", 1500), "Unranked");
+    EXPECT_EQ(RankTiers::GetRankTierForPlaylistMmr("casual", 698), "Unranked");
 
     // 1v1 specific thresholds (playlist 10)
-    EXPECT_EQ(MmrService::GetRankTierForPlaylistMmr("1v1", 586), "Gold III Div II");
-    EXPECT_EQ(MmrService::GetRankTierForPlaylistMmr("1v1", 815), "Diamond I Div I");
-    EXPECT_EQ(MmrService::GetRankTierForPlaylistMmr("1v1", 995), "Champion I Div I");
-    EXPECT_EQ(MmrService::GetRankTierForPlaylistMmr("1v1", 1341), "Supersonic Legend");
+    EXPECT_EQ(RankTiers::GetRankTierForPlaylistMmr("1v1", 586), "Gold III Div II");
+    EXPECT_EQ(RankTiers::GetRankTierForPlaylistMmr("1v1", 815), "Diamond I Div I");
+    EXPECT_EQ(RankTiers::GetRankTierForPlaylistMmr("1v1", 995), "Champion I Div I");
+    EXPECT_EQ(RankTiers::GetRankTierForPlaylistMmr("1v1", 1341), "Supersonic Legend");
 
     // 2v2 specific thresholds (playlist 11)
-    EXPECT_EQ(MmrService::GetRankTierForPlaylistMmr("2v2", 1075), "Champion I Div I");
-    EXPECT_EQ(MmrService::GetRankTierForPlaylistMmr("2v2", 1114), "Champion I Div II");
-    EXPECT_EQ(MmrService::GetRankTierForPlaylistMmr("2v2", 1860), "Supersonic Legend");
+    EXPECT_EQ(RankTiers::GetRankTierForPlaylistMmr("2v2", 1075), "Champion I Div I");
+    EXPECT_EQ(RankTiers::GetRankTierForPlaylistMmr("2v2", 1114), "Champion I Div II");
+    EXPECT_EQ(RankTiers::GetRankTierForPlaylistMmr("2v2", 1860), "Supersonic Legend");
 
     // 3v3 specific thresholds (playlist 13)
-    EXPECT_EQ(MmrService::GetRankTierForPlaylistMmr("3v3", 699), "Platinum I Div IV");
-    EXPECT_EQ(MmrService::GetRankTierForPlaylistMmr("3v3", 1075), "Champion I Div I");
+    EXPECT_EQ(RankTiers::GetRankTierForPlaylistMmr("3v3", 699), "Platinum I Div IV");
+    EXPECT_EQ(RankTiers::GetRankTierForPlaylistMmr("3v3", 1075), "Champion I Div I");
 
     // Tournament thresholds (playlist 34)
-    EXPECT_EQ(MmrService::GetRankTierForPlaylistMmr("t", 1061), "Champion I Div I");
-    EXPECT_EQ(MmrService::GetRankTierForPlaylistMmr("t", 1122), "Champion I Div II");
+    EXPECT_EQ(RankTiers::GetRankTierForPlaylistMmr("t", 1061), "Champion I Div I");
+    EXPECT_EQ(RankTiers::GetRankTierForPlaylistMmr("t", 1122), "Champion I Div II");
 
     // Extra modes thresholds (hoops, rumble, dropshot, snowday, heatseeker)
-    EXPECT_EQ(MmrService::GetRankTierForPlaylistMmr("hoops", 880), "Diamond III Div II");
-    EXPECT_EQ(MmrService::GetRankTierForPlaylistMmr("rumble", 995), "Champion I Div I");
-    EXPECT_EQ(MmrService::GetRankTierForPlaylistMmr("dropshot", 895), "Champion I Div I");
-    EXPECT_EQ(MmrService::GetRankTierForPlaylistMmr("snowday", 921), "Champion I Div I");
-    EXPECT_EQ(MmrService::GetRankTierForPlaylistMmr("heatseeker", 955), "Champion I Div I");
+    EXPECT_EQ(RankTiers::GetRankTierForPlaylistMmr("hoops", 880), "Diamond III Div II");
+    EXPECT_EQ(RankTiers::GetRankTierForPlaylistMmr("rumble", 995), "Champion I Div I");
+    EXPECT_EQ(RankTiers::GetRankTierForPlaylistMmr("dropshot", 895), "Champion I Div I");
+    EXPECT_EQ(RankTiers::GetRankTierForPlaylistMmr("snowday", 921), "Champion I Div I");
+    EXPECT_EQ(RankTiers::GetRankTierForPlaylistMmr("heatseeker", 955), "Champion I Div I");
     // Zero or negative MMR
-    EXPECT_EQ(MmrService::GetRankTierForPlaylistMmr("2v2", 0), "Unranked");
-    EXPECT_EQ(MmrService::GetRankTierForPlaylistMmr("1v1", -10), "Unranked");
+    EXPECT_EQ(RankTiers::GetRankTierForPlaylistMmr("2v2", 0), "Unranked");
+    EXPECT_EQ(RankTiers::GetRankTierForPlaylistMmr("1v1", -10), "Unranked");
 }
 
 TEST(MmrServicePlaylistMappingTest, MapsExtraModesToSeparatePlaylists) {
-    EXPECT_EQ(MmrService::PlaylistNameForTrackerId(10), "1v1");
-    EXPECT_EQ(MmrService::PlaylistNameForTrackerId(11), "2v2");
-    EXPECT_EQ(MmrService::PlaylistNameForTrackerId(13), "3v3");
-    EXPECT_EQ(MmrService::PlaylistNameForTrackerId(27), "hoops");
-    EXPECT_EQ(MmrService::PlaylistNameForTrackerId(28), "rumble");
-    EXPECT_EQ(MmrService::PlaylistNameForTrackerId(29), "dropshot");
-    EXPECT_EQ(MmrService::PlaylistNameForTrackerId(30), "snowday");
-    EXPECT_EQ(MmrService::PlaylistNameForTrackerId(34), "t");
-    EXPECT_EQ(MmrService::PlaylistNameForTrackerId(43), "heatseeker");
-    EXPECT_EQ(MmrService::PlaylistNameForTrackerId(63), "heatseeker");
-    EXPECT_EQ(MmrService::PlaylistNameForTrackerId(0), "casual");
+    EXPECT_EQ(PlaylistMetadata::TrackerKey(10), "1v1");
+    EXPECT_EQ(PlaylistMetadata::TrackerKey(11), "2v2");
+    EXPECT_EQ(PlaylistMetadata::TrackerKey(13), "3v3");
+    EXPECT_EQ(PlaylistMetadata::TrackerKey(27), "hoops");
+    EXPECT_EQ(PlaylistMetadata::TrackerKey(28), "rumble");
+    EXPECT_EQ(PlaylistMetadata::TrackerKey(29), "dropshot");
+    EXPECT_EQ(PlaylistMetadata::TrackerKey(30), "snowday");
+    EXPECT_EQ(PlaylistMetadata::TrackerKey(34), "t");
+    EXPECT_EQ(PlaylistMetadata::TrackerKey(43), "heatseeker");
+    EXPECT_EQ(PlaylistMetadata::TrackerKey(63), "heatseeker");
+    EXPECT_EQ(PlaylistMetadata::TrackerKey(0), "casual");
     // Gameplay playlist IDs are not automatically Tracker segment IDs.
-    EXPECT_EQ(MmrService::PlaylistNameForTrackerId(2), "");
-    EXPECT_EQ(MmrService::PlaylistNameForTrackerId(999), "");
+    EXPECT_EQ(PlaylistMetadata::TrackerKey(2), "");
+    EXPECT_EQ(PlaylistMetadata::TrackerKey(999), "");
 }
 
 TEST(MmrServiceProfileTotalsTest, ExtractsOverviewWins) {
@@ -1451,7 +1453,7 @@ TEST_F(MmrServiceTest, CustomApiMultipleSkillsParsesAllAndSetsBest) {
     EXPECT_EQ(player.mmr, 1250);
     EXPECT_EQ(player.rankTier, "Diamond II Div III");
     EXPECT_EQ(player.playlistTiers.at("best"), "Diamond II Div III");
-    EXPECT_EQ(player.playlistTiers.at("t"), MmrService::GetTournamentTierForMmr(1300));
+    EXPECT_EQ(player.playlistTiers.at("t"), RankTiers::GetTournamentTierForMmr(1300));
 }
 
 TEST_F(MmrServiceTest, CustomApiSingleSkillParsesCorrectly) {

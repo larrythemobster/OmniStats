@@ -1,6 +1,6 @@
 #pragma once
 
-#include "core/state/SessionState.hpp"
+#include "core/game/MmrCategories.hpp"
 #include <string>
 
 namespace PlaylistMetadata {

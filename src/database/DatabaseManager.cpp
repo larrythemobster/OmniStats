@@ -1,4 +1,5 @@
 #include "DatabaseManager.hpp"
+#include "core/game/RankTiers.hpp"
 #include "core/state/LiveMatchStore.hpp"
 #include "DatabaseDetail.hpp"
 #include "core/config/Config.hpp"
@@ -1375,7 +1376,7 @@ std::vector<SeasonSummary> DatabaseManager::GetSeasonSummaries(const std::string
                     ratings[key].push_back({matches.Get<int64_t>(3), mmr});
                     if (mmr > summary.peakMmr) {
                         summary.peakMmr = mmr;
-                        summary.peakRank = MmrService::GetRankTierForPlaylistMmr(key, mmr);
+                        summary.peakRank = RankTiers::GetRankTierForPlaylistMmr(key, mmr);
                         summary.peakPlaylist = key;
                     }
                 }
@@ -1400,7 +1401,7 @@ std::vector<SeasonSummary> DatabaseManager::GetSeasonSummaries(const std::string
                 }
             }
             if (summary.peakMmr > 0 && summary.peakRank.empty()) {
-                summary.peakRank = MmrService::GetRankTierForPlaylistMmr(summary.peakPlaylist, summary.peakMmr);
+                summary.peakRank = RankTiers::GetRankTierForPlaylistMmr(summary.peakPlaylist, summary.peakMmr);
             }
             for (auto& [key, points] : ratings) {
                 std::stable_sort(points.begin(), points.end(), [](const Rating& a, const Rating& b) { return a.time < b.time; });

@@ -169,66 +169,66 @@ TEST_F(ConfigTest, ConcurrencyReadUpdate) {
 
 TEST_F(ConfigTest, LobbyRanksConfigVisibility) {
     Config::Update([](ConfigData& c) {
-        c.show_lobby_rank_1v1 = false;
-        c.show_lobby_rank_2v2 = true;
-        c.show_lobby_rank_3v3 = false;
-        c.show_lobby_rank_casual = true;
-        c.show_lobby_rank_tourny = false;
-        c.show_lobby_rank_hoops = true;
-        c.show_lobby_rank_rumble = false;
-        c.show_lobby_rank_dropshot = true;
-        c.show_lobby_rank_snowday = false;
-        c.show_lobby_rank_heatseeker = true;
+        c.LobbyRankColumn(MmrCategory::OneVOne) = false;
+        c.LobbyRankColumn(MmrCategory::TwoVTwo) = true;
+        c.LobbyRankColumn(MmrCategory::ThreeVThree) = false;
+        c.LobbyRankColumn(MmrCategory::Casual) = true;
+        c.LobbyRankColumn(MmrCategory::Tourny) = false;
+        c.LobbyRankColumn(MmrCategory::Hoops) = true;
+        c.LobbyRankColumn(MmrCategory::Rumble) = false;
+        c.LobbyRankColumn(MmrCategory::Dropshot) = true;
+        c.LobbyRankColumn(MmrCategory::SnowDay) = false;
+        c.LobbyRankColumn(MmrCategory::Heatseeker) = true;
     });
     Config::Save();
 
     // Reset values in memory
     Config::Update([](ConfigData& c) {
-        c.show_lobby_rank_1v1 = true;
-        c.show_lobby_rank_2v2 = false;
-        c.show_lobby_rank_3v3 = true;
-        c.show_lobby_rank_casual = false;
-        c.show_lobby_rank_tourny = true;
-        c.show_lobby_rank_hoops = false;
-        c.show_lobby_rank_rumble = true;
-        c.show_lobby_rank_dropshot = false;
-        c.show_lobby_rank_snowday = true;
-        c.show_lobby_rank_heatseeker = false;
+        c.LobbyRankColumn(MmrCategory::OneVOne) = true;
+        c.LobbyRankColumn(MmrCategory::TwoVTwo) = false;
+        c.LobbyRankColumn(MmrCategory::ThreeVThree) = true;
+        c.LobbyRankColumn(MmrCategory::Casual) = false;
+        c.LobbyRankColumn(MmrCategory::Tourny) = true;
+        c.LobbyRankColumn(MmrCategory::Hoops) = false;
+        c.LobbyRankColumn(MmrCategory::Rumble) = true;
+        c.LobbyRankColumn(MmrCategory::Dropshot) = false;
+        c.LobbyRankColumn(MmrCategory::SnowDay) = true;
+        c.LobbyRankColumn(MmrCategory::Heatseeker) = false;
     },
                    false);
 
     Config::Load();
     ConfigData loaded = Config::Read();
-    EXPECT_FALSE(loaded.show_lobby_rank_1v1);
-    EXPECT_TRUE(loaded.show_lobby_rank_2v2);
-    EXPECT_FALSE(loaded.show_lobby_rank_3v3);
-    EXPECT_TRUE(loaded.show_lobby_rank_casual);
-    EXPECT_FALSE(loaded.show_lobby_rank_tourny);
-    EXPECT_TRUE(loaded.show_lobby_rank_hoops);
-    EXPECT_FALSE(loaded.show_lobby_rank_rumble);
-    EXPECT_TRUE(loaded.show_lobby_rank_dropshot);
-    EXPECT_FALSE(loaded.show_lobby_rank_snowday);
-    EXPECT_TRUE(loaded.show_lobby_rank_heatseeker);
+    EXPECT_FALSE(loaded.LobbyRankColumn(MmrCategory::OneVOne));
+    EXPECT_TRUE(loaded.LobbyRankColumn(MmrCategory::TwoVTwo));
+    EXPECT_FALSE(loaded.LobbyRankColumn(MmrCategory::ThreeVThree));
+    EXPECT_TRUE(loaded.LobbyRankColumn(MmrCategory::Casual));
+    EXPECT_FALSE(loaded.LobbyRankColumn(MmrCategory::Tourny));
+    EXPECT_TRUE(loaded.LobbyRankColumn(MmrCategory::Hoops));
+    EXPECT_FALSE(loaded.LobbyRankColumn(MmrCategory::Rumble));
+    EXPECT_TRUE(loaded.LobbyRankColumn(MmrCategory::Dropshot));
+    EXPECT_FALSE(loaded.LobbyRankColumn(MmrCategory::SnowDay));
+    EXPECT_TRUE(loaded.LobbyRankColumn(MmrCategory::Heatseeker));
 }
 
 TEST_F(ConfigTest, LobbyRanksConfigFallback) {
     // Attempting to set all to false should trigger fallback to enable "2v2"
     Config::Update([](ConfigData& c) {
-        c.show_lobby_rank_1v1 = false;
-        c.show_lobby_rank_2v2 = false;
-        c.show_lobby_rank_3v3 = false;
-        c.show_lobby_rank_casual = false;
-        c.show_lobby_rank_tourny = false;
-        c.show_lobby_rank_hoops = false;
-        c.show_lobby_rank_rumble = false;
-        c.show_lobby_rank_dropshot = false;
-        c.show_lobby_rank_snowday = false;
-        c.show_lobby_rank_heatseeker = false;
+        c.LobbyRankColumn(MmrCategory::OneVOne) = false;
+        c.LobbyRankColumn(MmrCategory::TwoVTwo) = false;
+        c.LobbyRankColumn(MmrCategory::ThreeVThree) = false;
+        c.LobbyRankColumn(MmrCategory::Casual) = false;
+        c.LobbyRankColumn(MmrCategory::Tourny) = false;
+        c.LobbyRankColumn(MmrCategory::Hoops) = false;
+        c.LobbyRankColumn(MmrCategory::Rumble) = false;
+        c.LobbyRankColumn(MmrCategory::Dropshot) = false;
+        c.LobbyRankColumn(MmrCategory::SnowDay) = false;
+        c.LobbyRankColumn(MmrCategory::Heatseeker) = false;
     },
                    false);
 
     ConfigData loaded = Config::Read();
-    EXPECT_TRUE(loaded.show_lobby_rank_2v2);
+    EXPECT_TRUE(loaded.LobbyRankColumn(MmrCategory::TwoVTwo));
 }
 
 TEST_F(ConfigTest, MigratesLegacySharedMmrCategory) {

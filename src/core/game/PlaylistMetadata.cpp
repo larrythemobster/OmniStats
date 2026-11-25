@@ -8,7 +8,7 @@ namespace PlaylistMetadata {
         // the current Game.PlaylistId. trackerKey is populated only for IDs Tracker's
         // profile segments expose directly; gameplay IDs can still share an MMR key
         // without being Tracker segment IDs themselves.
-        constexpr std::array<Info, 71> kPlaylists{{
+        constexpr Info kPlaylists[]{
             {-2, "intermission", "intermission", "", "Intermission", PlaylistClass::NonRecordable, MmrCategory::Best, "", "intermission_playlist"},
             {0, "casual", "casual", "casual", "Casual", PlaylistClass::Casual, MmrCategory::Casual, "casual", nullptr},
             {1, "casual", "casual", "casual", "Duel", PlaylistClass::Casual, MmrCategory::Casual, "", nullptr},
@@ -80,7 +80,7 @@ namespace PlaylistMetadata {
             {86, "casual", "casual", "casual", "FC Showdown", PlaylistClass::Casual, MmrCategory::Casual, "", nullptr},
             {87, "casual", "casual", "casual", "Sacrifice", PlaylistClass::Casual, MmrCategory::Casual, "", nullptr},
             {88, "casual", "casual", "casual", "Jump Jam", PlaylistClass::Casual, MmrCategory::Casual, "", nullptr},
-        }};
+        };
 
     } // namespace
 

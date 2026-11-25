@@ -1,5 +1,6 @@
 #pragma once
 #include <array>
+#include "core/game/MmrCategories.hpp"
 #include <string>
 #include <cstdint>
 #ifndef WIN32_LEAN_AND_MEAN
@@ -165,16 +166,23 @@ struct ConfigData {
     bool show_session_mmr_change = true;
     bool show_session_boost = true;
     bool show_lobby_ranks_overlay = false;
-    bool show_lobby_rank_1v1 = true;
-    bool show_lobby_rank_2v2 = true;
-    bool show_lobby_rank_3v3 = true;
-    bool show_lobby_rank_casual = true;
-    bool show_lobby_rank_tourny = true;
-    bool show_lobby_rank_hoops = false;
-    bool show_lobby_rank_rumble = false;
-    bool show_lobby_rank_dropshot = false;
-    bool show_lobby_rank_snowday = false;
-    bool show_lobby_rank_heatseeker = false;
+    std::array<bool, PlaylistMetadata::kRatingModes.size()> lobby_rank_columns = [] {
+        std::array<bool, PlaylistMetadata::kRatingModes.size()> columns{};
+        for (const auto& mode : PlaylistMetadata::kRatingModes) {
+            columns[static_cast<size_t>(mode.category)] = *mode.lobbySetting && !mode.extra;
+        }
+        return columns;
+    }();
+
+    bool& LobbyRankColumn(MmrCategory category) {
+        return lobby_rank_columns[static_cast<size_t>(category)];
+    }
+    bool LobbyRankColumn(MmrCategory category) const {
+        return lobby_rank_columns[static_cast<size_t>(category)];
+    }
+    bool ShowsLobbyRankColumn(const PlaylistMetadata::RatingMode& mode) const {
+        return *mode.lobbySetting && (!mode.extra || show_extra_playlists) && LobbyRankColumn(mode.category);
+    }
     bool show_account_wins_overlay = true;
     bool show_demo_tracker_overlay = false;
     bool show_rank_progress = true;

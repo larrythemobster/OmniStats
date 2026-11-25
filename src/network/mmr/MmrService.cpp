@@ -17,24 +17,6 @@
 #include <unordered_set>
 
 using namespace MmrServiceDetail;
-#include "network/mmr/PlaylistRankThresholds.inl"
-
-namespace {
-
-    std::string LookupTierFromThresholds(std::span<const RankThreshold> table, int mmr) {
-        if (mmr <= 0) return "Unranked";
-        const RankThreshold* threshold = nullptr;
-        for (const auto& entry : table) {
-            if (mmr < entry.minMmr) break;
-            threshold = &entry;
-        }
-        if (!threshold) return "Unranked";
-        if (threshold->division[0] == '\0') return threshold->tier;
-        return std::string(threshold->tier) + " " + threshold->division;
-    }
-
-} // namespace
-
 MmrService::MmrService(std::shared_ptr<SessionState> state,
                        std::shared_ptr<DatabaseManager> dbManager,
                        std::shared_ptr<AccountClient> accountClient,
@@ -561,7 +543,7 @@ CustomApiFetchResult MmrService::FetchProfileFromCustomApi(const MMRRequest& req
     if (!m_customProvider) return CustomApiFetchResult::DisabledOrNotReady;
     MmrServiceDetail::AssembledBatch batch;
     batch.playlist = req.playlist;
-    batch.playlistId = MmrServiceDetail::CustomApiPlaylistIdForName(req.playlist);
+    batch.playlistId = PlaylistMetadata::ApiPlaylistId(req.playlist);
     batch.requests.push_back(req);
     auto res = m_customProvider->FetchBatch(batch);
     if (res.httpResult == CustomApiFetchResult::SuccessFinished) {
@@ -1058,54 +1040,6 @@ void MmrService::DispatchSingle(RankProvider /*provider*/) {
     }
     std::unique_lock<std::mutex> lock(m_cvMutex);
     m_cv.wait_for(lock, m_timings.queueSpacing, [this] { return !m_isRunning; });
-}
-
-std::string MmrService::GetTournamentTierForMmr(int mmr) {
-    if (mmr <= 0) return "Unranked";
-    return LookupTierFromThresholds(TournamentRankThresholds, mmr);
-}
-
-std::span<const RankProgress::Threshold> MmrService::RankThresholdsForPlaylist(std::string_view playlist) {
-    if (playlist == "1v1") return SoloDuelRankThresholds;
-    if (playlist == "2v2") return DoublesRankThresholds;
-    if (playlist == "3v3") return StandardRankThresholds;
-    if (playlist == "hoops") return HoopsRankThresholds;
-    if (playlist == "rumble") return RumbleRankThresholds;
-    if (playlist == "dropshot") return DropshotRankThresholds;
-    if (playlist == "snowday") return SnowdayRankThresholds;
-    if (playlist == "heatseeker") return HeatseekerRankThresholds;
-    if (playlist == "t") return TournamentRankThresholds;
-    return {};
-}
-
-std::string MmrService::GetRankTierForPlaylistMmr(const std::string& playlist, int mmr) {
-    if (mmr <= 0 || playlist == "casual") return "Unranked";
-    const auto table = RankThresholdsForPlaylist(playlist);
-    return table.empty() ? GetTournamentTierForMmr(mmr) : LookupTierFromThresholds(table, mmr);
-}
-
-std::string MmrService::PlaylistNameForTrackerId(int playlistId) {
-    return PlaylistMetadata::TrackerKey(playlistId);
-}
-
-std::string MmrService::RankTierName(int tier, int division) {
-    static constexpr std::array<const char*, 23> kTiers = {
-        "Unranked", "Bronze I", "Bronze II", "Bronze III",
-        "Silver I", "Silver II", "Silver III",
-        "Gold I", "Gold II", "Gold III",
-        "Platinum I", "Platinum II", "Platinum III",
-        "Diamond I", "Diamond II", "Diamond III",
-        "Champion I", "Champion II", "Champion III",
-        "Grand Champion I", "Grand Champion II", "Grand Champion III",
-        "Supersonic Legend"};
-    if (tier < 0 || static_cast<size_t>(tier) >= kTiers.size()) return "Unranked";
-    std::string result = kTiers[static_cast<size_t>(tier)];
-    if (tier > 0 && tier < 22 && division >= 0 && division < 4) {
-        static constexpr std::array<const char*, 4> kDivisions = {"I", "II", "III", "IV"};
-        result += " Div ";
-        result += kDivisions[static_cast<size_t>(division)];
-    }
-    return result;
 }
 
 MMRProfileTotals MmrService::ExtractProfileTotals(const nlohmann::json& jsonResp) {

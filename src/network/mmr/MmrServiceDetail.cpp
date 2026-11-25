@@ -1,4 +1,6 @@
 #include "network/mmr/MmrServiceDetail.hpp"
+#include "core/game/PlaylistMetadata.hpp"
+#include "core/game/RankTiers.hpp"
 #include "network/mmr/MmrService.hpp"
 
 #include <algorithm>
@@ -194,19 +196,6 @@ namespace MmrServiceDetail {
         return true;
     }
 
-    int CustomApiPlaylistIdForName(const std::string& playlist) {
-        if (playlist == "1v1") return 10;
-        if (playlist == "2v2") return 11;
-        if (playlist == "3v3") return 13;
-        if (playlist == "hoops") return 27;
-        if (playlist == "rumble") return 28;
-        if (playlist == "dropshot") return 29;
-        if (playlist == "snowday") return 30;
-        if (playlist == "t") return 34;
-        if (playlist == "heatseeker") return 63;
-        return 0;
-    }
-
     AssembledBatch AssembleCustomApiBatch(
         const std::vector<MMRRequest>& candidates,
         std::chrono::steady_clock::time_point now,
@@ -230,7 +219,7 @@ namespace MmrServiceDetail {
             if (!foundFirst) {
                 targetPlaylist = req.playlist;
                 batch.playlist = targetPlaylist;
-                batch.playlistId = CustomApiPlaylistIdForName(targetPlaylist);
+                batch.playlistId = PlaylistMetadata::ApiPlaylistId(targetPlaylist);
                 foundFirst = true;
             }
 
@@ -301,7 +290,7 @@ namespace MmrServiceDetail {
                 continue;
             }
             int pid = skill["playlist"].get<int>();
-            std::string plName = MmrService::PlaylistNameForTrackerId(pid);
+            std::string plName = PlaylistMetadata::TrackerKey(pid);
             if (plName.empty()) {
                 continue;
             }
@@ -321,8 +310,8 @@ namespace MmrServiceDetail {
             int div = skill.value("division", 0);
 
             std::string tierName = (plName == "t")
-                                       ? MmrService::GetTournamentTierForMmr(mmrInt)
-                                       : MmrService::RankTierName(tier, div);
+                                       ? RankTiers::GetTournamentTierForMmr(mmrInt)
+                                       : RankTiers::RankTierName(tier, div);
 
             if (ShouldReplacePlaylistBucket(playlistMMRs, plName, mmrInt)) {
                 playlistMMRs[plName] = mmrInt;

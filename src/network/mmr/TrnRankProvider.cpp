@@ -1,4 +1,6 @@
 #include "network/mmr/TrnRankProvider.hpp"
+#include "core/game/PlaylistMetadata.hpp"
+#include "core/game/RankTiers.hpp"
 #include "network/http/CurlImpersonateHttpClient.hpp"
 #include "network/mmr/MmrServiceDetail.hpp"
 #include "core/config/Config.hpp"
@@ -158,7 +160,7 @@ bool TrnRankProvider::FetchProfile(const MMRRequest& req,
             const auto& attrs = seg["attributes"];
             if (!attrs.contains("playlistId") || !attrs["playlistId"].is_number_integer()) continue;
 
-            const std::string playlistName = MmrService::PlaylistNameForTrackerId(attrs["playlistId"].get<int>());
+            const std::string playlistName = PlaylistMetadata::TrackerKey(attrs["playlistId"].get<int>());
             if (playlistName.empty() || !seg.contains("stats") || !seg["stats"].is_object()) continue;
 
             const auto& stats = seg["stats"];
@@ -211,7 +213,7 @@ bool TrnRankProvider::FetchProfile(const MMRRequest& req,
                 if (pos != std::string::npos) division.replace(pos, 9, "Div ");
                 if (tier != "Unranked") tier += " " + division;
             }
-            if (playlistName == "t") tier = MmrService::GetTournamentTierForMmr(mmr);
+            if (playlistName == "t") tier = RankTiers::GetTournamentTierForMmr(mmr);
 
             int matches = -1;
             if (stats.contains("matchesPlayed") && stats["matchesPlayed"].is_object() &&

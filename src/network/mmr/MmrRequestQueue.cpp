@@ -1,4 +1,5 @@
 #include "network/mmr/MmrRequestQueue.hpp"
+#include "core/game/PlaylistMetadata.hpp"
 #include <algorithm>
 #include <iostream>
 
@@ -146,7 +147,7 @@ MmrServiceDetail::AssembledBatch MmrRequestQueue::DrainBatch(MMRRequestReason re
     std::lock_guard<std::mutex> lock(m_mutex);
     MmrServiceDetail::AssembledBatch batch;
     batch.playlist = playlist;
-    batch.playlistId = MmrServiceDetail::CustomApiPlaylistIdForName(playlist);
+    batch.playlistId = PlaylistMetadata::ApiPlaylistId(playlist);
 
     for (auto it = m_queue.begin(); it != m_queue.end() && batch.requests.size() < maxBatch;) {
         if (it->reason == reason && it->playlist == playlist && it->notBefore <= now) {
@@ -174,7 +175,7 @@ MmrServiceDetail::AssembledBatch MmrRequestQueue::DrainBatchForReason(MMRRequest
 
     MmrServiceDetail::AssembledBatch batch;
     batch.playlist = playlist;
-    batch.playlistId = MmrServiceDetail::CustomApiPlaylistIdForName(playlist);
+    batch.playlistId = PlaylistMetadata::ApiPlaylistId(playlist);
 
     for (auto it = m_queue.begin(); it != m_queue.end() && batch.requests.size() < maxBatch;) {
         if (it->reason == reason && it->playlist == playlist && it->notBefore <= now) {
