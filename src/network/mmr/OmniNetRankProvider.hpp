@@ -6,22 +6,14 @@
 
 class AccountClient;
 
-class OmniNetRankProvider : public IRankProvider {
+class OmniNetRankProvider : public IBatchRankProvider {
   public:
     explicit OmniNetRankProvider(std::shared_ptr<AccountClient> accountClient,
                                  std::function<bool()> abortCheck = nullptr,
                                  MmrTimings timings = {});
     ~OmniNetRankProvider() override = default;
 
-    RankProvider ProviderType() const override {
-        return RankProvider::OmniStatsApi;
-    }
-
-    bool IsAvailable() const override;
-
-    bool FetchProfile(const MMRRequest& req,
-                      NormalizedProfileResult& outProfile,
-                      std::string& outDetail) override;
+    bool IsAvailable() const;
 
     MmrServiceDetail::CustomApiBatchResult FetchBatch(
         const MmrServiceDetail::AssembledBatch& batch) override;

@@ -1,6 +1,7 @@
 #include "network/api/DeviceAuthFlow.hpp"
 #include "network/api/DeviceIdentity.hpp"
 #include "network/api/TokenStore.hpp"
+#include "network/api/AuthJson.hpp"
 #include "core/config/AppVersion.hpp"
 #include "core/config/Config.hpp"
 #include "network/http/HttpSecurity.hpp"
@@ -62,21 +63,6 @@ namespace {
         } catch (...) {
         }
         return out;
-    }
-
-    std::string ExtractDisplayName(const nlohmann::json& j, const std::string& fallback) {
-        if (j.is_object() && j.contains("account") && j["account"].is_object()) {
-            const auto& acct = j["account"];
-            if (acct.contains("display_name") && acct["display_name"].is_string()) {
-                std::string name = TrimWhitespace(acct["display_name"].get<std::string>());
-                if (!name.empty()) return name;
-            }
-            if (acct.contains("email") && acct["email"].is_string()) {
-                std::string email = TrimWhitespace(acct["email"].get<std::string>());
-                if (!email.empty()) return email;
-            }
-        }
-        return fallback.empty() ? "OmniStats User" : fallback;
     }
 
 } // namespace
@@ -316,7 +302,7 @@ DeviceAuthFlow::PollResult DeviceAuthFlow::PollTokenOnce(DeviceIdentity& identit
     const nlohmann::json reqJson = {
         {"device_code", deviceCode},
         {"device_public_id", keyPair.publicId},
-        {"proof", {{"timestamp", proof.timestamp}, {"nonce", proof.nonce}, {"signature", proof.signature}}}};
+        {"proof", AuthJson::Proof(proof)}};
 
     OmniNet::Request omniReq;
     omniReq.op = OmniNet::Op::AuthToken;
@@ -353,10 +339,11 @@ DeviceAuthFlow::PollResult DeviceAuthFlow::PollTokenOnce(DeviceIdentity& identit
     if (resp.status == 200) {
         try {
             const auto j = nlohmann::json::parse(resp.body);
-            const std::string accessToken = j.value("access_token", "");
-            const std::string refreshToken = j.value("refresh_token", "");
-            const int expiresIn = (std::max)(1, j.value("expires_in", 900));
-            const std::string displayName = ExtractDisplayName(j, "");
+            const auto tokens = AuthJson::ParseTokens(j, 900);
+            const auto& accessToken = tokens.access;
+            const auto& refreshToken = tokens.refresh;
+            const int expiresIn = (std::max)(1, tokens.expiresIn);
+            const std::string displayName = AuthJson::DisplayName(j, "", true);
             if (accessToken.empty() || refreshToken.empty()) {
                 throw std::runtime_error("missing token");
             }

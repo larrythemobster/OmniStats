@@ -12,14 +12,32 @@ enum class RankProvider {
     OmniStatsApiWithTrackerFallback
 };
 
-class IRankProvider {
+enum class TrackerFetchFailure { None,
+                                 Unavailable,
+                                 Unsupported,
+                                 Http,
+                                 Incomplete,
+                                 Invalid };
+
+struct TrackerFetchResult {
+    TrackerFetchFailure failure = TrackerFetchFailure::None;
+    int statusCode = 0;
+    int transportError = 0;
+    long retryAfterSeconds = 0;
+    bool success = false;
+    NormalizedProfileResult profile;
+    std::string detail;
+};
+
+class ITrackerRankProvider {
   public:
-    virtual ~IRankProvider() = default;
-    virtual RankProvider ProviderType() const = 0;
-    virtual bool IsAvailable() const = 0;
-    virtual bool FetchProfile(const MMRRequest& req,
-                              NormalizedProfileResult& outProfile,
-                              std::string& outDetail) = 0;
+    virtual ~ITrackerRankProvider() = default;
+    virtual TrackerFetchResult FetchProfile(const MMRRequest& req) = 0;
+};
+
+class IBatchRankProvider {
+  public:
+    virtual ~IBatchRankProvider() = default;
     virtual MmrServiceDetail::CustomApiBatchResult FetchBatch(const MmrServiceDetail::AssembledBatch& batch) = 0;
 };
 

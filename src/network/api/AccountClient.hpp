@@ -3,6 +3,7 @@
 #include "network/api/DeviceIdentity.hpp"
 #include "network/api/DeviceAuthFlow.hpp"
 #include "network/api/TokenStore.hpp"
+#include "network/omninet/OmniNet.hpp"
 
 #include <atomic>
 #include <condition_variable>
@@ -104,6 +105,15 @@ class AccountClient {
     bool Refresh();
     std::string AccessToken();
     std::string DevicePublicId();
+    enum class AuthenticatedRequestPolicy { Ranks,
+                                            Schedule };
+    struct AuthenticatedResponse {
+        OmniNet::Response response;
+        bool missingCredentials = false;
+        bool refreshFailed = false;
+        bool signedOut = false;
+    };
+    AuthenticatedResponse SendAuthenticated(OmniNet::Request request, AuthenticatedRequestPolicy policy);
     bool Logout();
 
     void BeginSignInAsync(bool openBrowser = true);

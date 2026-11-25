@@ -141,34 +141,17 @@ namespace Tournaments {
     bool TournamentScheduleService::Fetch(ScheduleSnapshot& snapshot) {
         if (!OmniNet::Available()) return false;
         if (!m_accountClient) return false;
-        auto& account = *m_accountClient;
-        for (int attempt = 0; attempt < 2 && !m_stop; ++attempt) {
-            const std::string token = account.AccessToken();
-            const std::string device = account.DevicePublicId();
-            if (token.empty() || device.empty()) return false;
-
-            OmniNet::Request req;
-            req.op = OmniNet::Op::TournamentSchedule;
-            req.accessToken = token;
-            req.devicePublicId = device;
-            req.query["region"] = snapshot.region;
-            req.shouldAbort = [this]() { return m_stop.load(); };
-
-            const auto resp = OmniNet::Send(req);
-            if (resp.updateRequired) {
-                return false;
-            }
-            if (resp.transportError != 0) return false;
-            if (resp.status == 401) {
-                if (attempt == 0 && account.Refresh()) continue;
-                if (attempt != 0) account.MarkSignedOut("Your OmniStats session expired. Sign in again in Settings > Accounts & services.");
-                return false;
-            }
-            if (resp.status != 200 || !ParseSchedule(resp.body, snapshot)) return false;
-            snapshot.fetchedAtUnix = static_cast<int64_t>(std::time(nullptr));
-            return true;
-        }
-        return false;
+        OmniNet::Request req;
+        req.op = OmniNet::Op::TournamentSchedule;
+        req.query["region"] = snapshot.region;
+        req.shouldAbort = [this]() { return m_stop.load(); };
+        const auto auth = m_accountClient->SendAuthenticated(std::move(req), AccountClient::AuthenticatedRequestPolicy::Schedule);
+        const auto& resp = auth.response;
+        if (auth.missingCredentials || auth.refreshFailed || auth.signedOut ||
+            resp.updateRequired || resp.transportError != 0 || resp.status != 200 ||
+            !ParseSchedule(resp.body, snapshot)) return false;
+        snapshot.fetchedAtUnix = static_cast<int64_t>(std::time(nullptr));
+        return true;
     }
 
     void TournamentScheduleService::Worker() {

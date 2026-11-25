@@ -28,8 +28,8 @@ class MmrService {
     explicit MmrService(std::shared_ptr<SessionState> state,
                         std::shared_ptr<DatabaseManager> dbManager = nullptr,
                         std::shared_ptr<AccountClient> accountClient = nullptr,
-                        std::shared_ptr<IRankProvider> customProvider = nullptr,
-                        std::shared_ptr<IRankProvider> trackerProvider = nullptr,
+                        std::shared_ptr<IBatchRankProvider> customProvider = nullptr,
+                        std::shared_ptr<ITrackerRankProvider> trackerProvider = nullptr,
                         MmrTimings timings = {},
                         std::shared_ptr<CurlImpersonate> curl = nullptr);
     virtual ~MmrService();
@@ -37,9 +37,6 @@ class MmrService {
     MmrService(const MmrService&) = delete;
     MmrService& operator=(const MmrService&) = delete;
 
-    void SetAccountClient(std::shared_ptr<AccountClient> accountClient);
-    void SetCustomProvider(std::shared_ptr<IRankProvider> provider);
-    void SetTrackerProvider(std::shared_ptr<IRankProvider> provider);
     std::shared_ptr<CurlImpersonate> GetCurlImpersonate() const;
     void Start();
     void Stop();
@@ -88,10 +85,10 @@ class MmrService {
     std::optional<MMRRequest> TakeNextTrackerRequest();
     void FinishRequest(const MMRRequest& req);
 
-    std::shared_ptr<IRankProvider> CustomProvider() const {
+    std::shared_ptr<IBatchRankProvider> CustomProvider() const {
         return m_customProvider;
     }
-    std::shared_ptr<IRankProvider> TrackerProvider() const {
+    std::shared_ptr<ITrackerRankProvider> TrackerProvider() const {
         return m_trackerProvider;
     }
     MmrRequestQueue& Queue() {
@@ -135,8 +132,8 @@ class MmrService {
     std::shared_ptr<SessionState> m_state;
     std::weak_ptr<DatabaseManager> m_dbManager;
     std::shared_ptr<AccountClient> m_accountClient;
-    std::shared_ptr<IRankProvider> m_customProvider;
-    std::shared_ptr<IRankProvider> m_trackerProvider;
+    std::shared_ptr<IBatchRankProvider> m_customProvider;
+    std::shared_ptr<ITrackerRankProvider> m_trackerProvider;
     std::shared_ptr<CurlImpersonate> m_curlImpersonate;
     MmrTimings m_timings;
     MmrRequestQueue m_queue;

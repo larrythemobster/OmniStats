@@ -44,33 +44,27 @@ bool TrnRankProvider::IsAvailable() const {
     return m_httpClient && m_httpClient->IsAvailable();
 }
 
-MmrServiceDetail::CustomApiBatchResult TrnRankProvider::FetchBatch(const AssembledBatch&) {
-    CustomApiBatchResult res;
-    res.httpResult = CustomApiFetchResult::DisabledOrNotReady;
-    return res;
-}
-
-bool TrnRankProvider::FetchProfile(const MMRRequest& req,
-                                   NormalizedProfileResult& outProfile,
-                                   std::string& outDetail) {
-    m_lastResult = {};
+TrackerFetchResult TrnRankProvider::FetchProfile(const MMRRequest& req) {
+    TrackerFetchResult result;
+    auto& outProfile = result.profile;
+    auto& outDetail = result.detail;
     if (!IsAvailable()) {
-        m_lastResult.failure = Failure::Unavailable;
+        result.failure = TrackerFetchFailure::Unavailable;
         outDetail = "The rank lookup component is not available.";
-        return false;
+        return result;
     }
 
     const std::string plat = GetTRNPlatform(req.primaryId);
     if (plat.empty()) {
-        m_lastResult.failure = Failure::Unsupported;
+        result.failure = TrackerFetchFailure::Unsupported;
         outDetail = "Tracker does not support this platform.";
-        return false;
+        return result;
     }
     if (req.reason == MMRRequestReason::TrackedAccount && plat != "steam" &&
         req.name.find_first_not_of(" \t") == std::string::npos) {
-        m_lastResult.failure = Failure::Unsupported;
+        result.failure = TrackerFetchFailure::Unsupported;
         outDetail = "Tracker looks up this platform by in-game name. Play once on this account with OmniStats running, or use the OmniStats rank API.";
-        return false;
+        return result;
     }
 
     const size_t delim = req.primaryId.find('|');
@@ -118,9 +112,9 @@ bool TrnRankProvider::FetchProfile(const MMRRequest& req,
     Http::HttpResponse httpResp;
     for (int attempt = 1; attempt <= kTrackerForbiddenAttempts; ++attempt) {
         httpResp = m_httpClient->Request(httpReq);
-        m_lastResult.statusCode = httpResp.statusCode;
-        m_lastResult.transportError = httpResp.transportError;
-        m_lastResult.retryAfterSeconds = httpResp.retryAfterSeconds;
+        result.statusCode = httpResp.statusCode;
+        result.transportError = httpResp.transportError;
+        result.retryAfterSeconds = httpResp.retryAfterSeconds;
         if (httpResp.transportError != 0 || httpResp.statusCode != 403 || attempt == kTrackerForbiddenAttempts) {
             break;
         }
@@ -130,8 +124,8 @@ bool TrnRankProvider::FetchProfile(const MMRRequest& req,
     }
 
     if (httpResp.transportError != 0 || httpResp.statusCode != 200) {
-        m_lastResult.failure = Failure::Http;
-        return false;
+        result.failure = TrackerFetchFailure::Http;
+        return result;
     }
 
     try {
@@ -139,9 +133,9 @@ bool TrnRankProvider::FetchProfile(const MMRRequest& req,
 
         if (!jsonResp.contains("data") || !jsonResp["data"].is_object() ||
             !jsonResp["data"].contains("segments") || !jsonResp["data"]["segments"].is_array()) {
-            m_lastResult.failure = Failure::Incomplete;
+            result.failure = TrackerFetchFailure::Incomplete;
             outDetail = "Tracker response contains no segment data";
-            return false;
+            return result;
         }
 
         int bestMMR = 0;
@@ -255,11 +249,12 @@ bool TrnRankProvider::FetchProfile(const MMRRequest& req,
             }
         }
 
-        return true;
+        result.success = true;
+        return result;
     } catch (const std::exception& e) {
         std::cout << "[MmrService] JSON Parse Error: " << e.what() << "\n";
-        m_lastResult.failure = Failure::Invalid;
+        result.failure = TrackerFetchFailure::Invalid;
         outDetail = "Tracker returned an invalid response.";
-        return false;
+        return result;
     }
 }

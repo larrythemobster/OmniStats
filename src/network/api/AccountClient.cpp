@@ -1,4 +1,5 @@
 #include "network/api/AccountClient.hpp"
+#include "network/api/AuthJson.hpp"
 #include "core/config/Config.hpp"
 #include "core/config/AppVersion.hpp"
 #include "network/omninet/OmniNet.hpp"
@@ -9,23 +10,6 @@
 #include <chrono>
 #include <ctime>
 #include <iostream>
-
-namespace {
-    std::string ExtractDisplayName(const nlohmann::json& j, const std::string& fallback) {
-        if (j.is_object() && j.contains("account") && j["account"].is_object()) {
-            const auto& acct = j["account"];
-            if (acct.contains("display_name") && acct["display_name"].is_string()) {
-                std::string name = acct["display_name"].get<std::string>();
-                if (!name.empty()) return name;
-            }
-            if (acct.contains("email") && acct["email"].is_string()) {
-                std::string email = acct["email"].get<std::string>();
-                if (!email.empty()) return email;
-            }
-        }
-        return fallback.empty() ? "OmniStats User" : fallback;
-    }
-} // namespace
 
 AccountClient::AccountClient() {
     EnsureSodiumInitialized();
@@ -106,6 +90,38 @@ std::string AccountClient::DevicePublicId() {
         }
     }
     return id;
+}
+
+AccountClient::AuthenticatedResponse AccountClient::SendAuthenticated(
+    OmniNet::Request request, AuthenticatedRequestPolicy policy) {
+    AuthenticatedResponse result;
+    for (int attempt = 0; attempt < 2; ++attempt) {
+        if (policy == AuthenticatedRequestPolicy::Schedule && request.shouldAbort && request.shouldAbort()) return result;
+        request.accessToken = AccessToken();
+        request.devicePublicId = DevicePublicId();
+        if (request.accessToken.empty() || request.devicePublicId.empty()) {
+            result.missingCredentials = true;
+            if (attempt != 0 && policy == AuthenticatedRequestPolicy::Ranks) {
+                MarkSignedOut("Your OmniStats session expired or this device was revoked. Sign in again in Settings > Accounts & services.");
+                result.signedOut = true;
+            }
+            return result;
+        }
+        result.response = OmniNet::Send(request);
+        if (result.response.updateRequired || result.response.transportError != 0 || result.response.status != 401) return result;
+        if (attempt == 0) {
+            if (!Refresh()) {
+                result.refreshFailed = true;
+                return result;
+            }
+            continue;
+        }
+        MarkSignedOut(policy == AuthenticatedRequestPolicy::Ranks
+                          ? "Your OmniStats session expired or this device was revoked. Sign in again in Settings > Accounts & services."
+                          : "Your OmniStats session expired. Sign in again in Settings > Accounts & services.");
+        result.signedOut = true;
+    }
+    return result;
 }
 
 bool AccountClient::Logout() {
@@ -279,7 +295,7 @@ bool AccountClient::SendLogoutRequest(const std::string& refreshToken) {
     const nlohmann::json reqJson = {
         {"refresh_token", refreshToken},
         {"device_public_id", keyPair.publicId},
-        {"proof", {{"timestamp", proof.timestamp}, {"nonce", proof.nonce}, {"signature", proof.signature}}}};
+        {"proof", AuthJson::Proof(proof)}};
 
     OmniNet::Request omniReq;
     omniReq.op = OmniNet::Op::AuthLogout;
@@ -316,7 +332,7 @@ bool AccountClient::ExchangeAPIKey(uint64_t generation) {
         {"platform", "windows"},
         {"app_version", AppVersion::Current},
         {"public_key", keyPair.publicKeyBase64Url},
-        {"proof", {{"timestamp", proof.timestamp}, {"nonce", proof.nonce}, {"signature", proof.signature}}}};
+        {"proof", AuthJson::Proof(proof)}};
 
     OmniNet::Request omniReq;
     omniReq.op = OmniNet::Op::AuthExchangeKey;
@@ -331,29 +347,26 @@ bool AccountClient::ExchangeAPIKey(uint64_t generation) {
         return fail("Unable to link your saved API key right now. It is still saved. Restart OmniStats to retry, or sign in in Settings > Accounts & services.");
     }
     if (resp.status != 200) {
-        try {
-            const auto body = nlohmann::json::parse(resp.body);
-            const std::string code = body.value("error", nlohmann::json{}).value("code", "");
-            if (code == "device_limit_reached") {
-                return fail("Your account's device limit was reached. Remove an unused device with Manage devices, then restart OmniStats or sign in again.");
-            }
-            if (code == "email_verification_required") {
-                return fail("Verify your OmniStats email, then sign in in Settings > Accounts & services to link this device.");
-            }
-            if (code == "device_revoked") {
-                return fail("This device was revoked. Sign in again and approve it in your browser to reconnect.");
-            }
-        } catch (...) {
+        const std::string code = AuthJson::ErrorCode(resp.body);
+        if (code == "device_limit_reached") {
+            return fail("Your account's device limit was reached. Remove an unused device with Manage devices, then restart OmniStats or sign in again.");
+        }
+        if (code == "email_verification_required") {
+            return fail("Verify your OmniStats email, then sign in in Settings > Accounts & services to link this device.");
+        }
+        if (code == "device_revoked") {
+            return fail("This device was revoked. Sign in again and approve it in your browser to reconnect.");
         }
         return fail("Your saved API key could not link this device. Sign in in Settings > Accounts & services.");
     }
 
     try {
         const auto j = nlohmann::json::parse(resp.body);
-        const std::string accessToken = j.value("access_token", "");
-        const std::string refreshToken = j.value("refresh_token", "");
-        const int expiresIn = j.value("expires_in", 0);
-        const std::string displayName = ExtractDisplayName(j, "");
+        const auto tokens = AuthJson::ParseTokens(j, 0);
+        const auto& accessToken = tokens.access;
+        const auto& refreshToken = tokens.refresh;
+        const int expiresIn = tokens.expiresIn;
+        const std::string displayName = AuthJson::DisplayName(j, "", false);
         if (accessToken.empty() || refreshToken.empty() || expiresIn <= 0) {
             return fail("OmniStats returned an incomplete device session. Restart to retry, or sign in in Settings > Accounts & services.");
         }

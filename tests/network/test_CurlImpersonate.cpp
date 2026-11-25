@@ -11,6 +11,7 @@
 #include "network/http/IHttpClient.hpp"
 #include "network/http/CurlHttpClient.hpp"
 #include "network/http/CurlImpersonateHttpClient.hpp"
+#include "network/http/CurlRequest.hpp"
 #include <string>
 #include <vector>
 
@@ -167,6 +168,23 @@ TEST_F(CurlRealNetworkTest, InstanceIsReady_ReflectsLoadState) {
     CurlImpersonate inst;
     (void)inst.IsReady();
     SUCCEED();
+}
+
+TEST(HttpClientTest, SharedCallbacksEnforceLimitAndKeepBackendRetrySemantics) {
+    Http::HttpResponse response;
+    Http::Detail::ResponseState state{&response, 3, false};
+    char body[] = "abcd";
+    EXPECT_EQ(Http::Detail::WriteResponse(body, 1, 3, &state), 3u);
+    EXPECT_EQ(Http::Detail::WriteResponse(body + 3, 1, 1, &state), 0u);
+    EXPECT_EQ(response.body, "abc");
+
+    char negative[] = "Retry-After: -2\r\n";
+    Http::Detail::ReadHeader(negative, 1, sizeof(negative) - 1, &state);
+    EXPECT_EQ(response.retryAfterSeconds, -2);
+    state.positiveRetryOnly = true;
+    response.retryAfterSeconds = 0;
+    Http::Detail::ReadHeader(negative, 1, sizeof(negative) - 1, &state);
+    EXPECT_EQ(response.retryAfterSeconds, 0);
 }
 
 TEST(HttpClientTest, StandardCurlClientIsAvailable) {

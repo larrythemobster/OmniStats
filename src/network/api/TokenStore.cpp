@@ -1,5 +1,6 @@
 #include "network/api/TokenStore.hpp"
 #include "network/api/DeviceIdentity.hpp"
+#include "network/api/AuthJson.hpp"
 #include "core/config/Config.hpp"
 #include "network/omninet/OmniNet.hpp"
 
@@ -12,45 +13,13 @@
 
 namespace {
 
-    std::string TrimWhitespace(std::string_view value) {
-        while (!value.empty() && std::isspace(static_cast<unsigned char>(value.front()))) {
-            value.remove_prefix(1);
-        }
-        while (!value.empty() && std::isspace(static_cast<unsigned char>(value.back()))) {
-            value.remove_suffix(1);
-        }
-        return std::string(value);
-    }
-
-    std::string ExtractDisplayName(const nlohmann::json& j, const std::string& fallback) {
-        if (j.is_object() && j.contains("account") && j["account"].is_object()) {
-            const auto& acct = j["account"];
-            if (acct.contains("display_name") && acct["display_name"].is_string()) {
-                std::string name = TrimWhitespace(acct["display_name"].get<std::string>());
-                if (!name.empty()) return name;
-            }
-            if (acct.contains("email") && acct["email"].is_string()) {
-                std::string email = TrimWhitespace(acct["email"].get<std::string>());
-                if (!email.empty()) return email;
-            }
-        }
-        return fallback.empty() ? "OmniStats User" : fallback;
-    }
-
     int64_t CurrentUnix() {
         return static_cast<int64_t>(std::time(nullptr));
     }
 
     std::string ServerErrorCode(const std::string& body) {
-        try {
-            const auto j = nlohmann::json::parse(body);
-            if (j.contains("error") && j["error"].is_object()) {
-                const std::string code = j["error"].value("code", "");
-                if (!code.empty()) return " (" + code + ")";
-            }
-        } catch (...) {
-        }
-        return {};
+        const std::string code = AuthJson::ErrorCode(body);
+        return code.empty() ? std::string{} : " (" + code + ")";
     }
 
 } // namespace
@@ -198,7 +167,7 @@ bool TokenStore::Refresh(DeviceIdentity& identity,
     const nlohmann::json reqJson = {
         {"refresh_token", conf.account_refresh_token},
         {"device_public_id", keyPair.publicId},
-        {"proof", {{"timestamp", proof.timestamp}, {"nonce", proof.nonce}, {"signature", proof.signature}}}};
+        {"proof", AuthJson::Proof(proof)}};
 
     OmniNet::Request omniReq;
     omniReq.op = OmniNet::Op::AuthRefresh;
@@ -229,10 +198,11 @@ bool TokenStore::Refresh(DeviceIdentity& identity,
 
     try {
         const auto j = nlohmann::json::parse(resp.body);
-        const std::string accessToken = j.value("access_token", "");
-        const std::string newRefreshToken = j.value("refresh_token", "");
-        const int expiresIn = std::max(1, j.value("expires_in", 900));
-        const std::string displayName = ExtractDisplayName(j, conf.account_signed_in_name);
+        const auto tokens = AuthJson::ParseTokens(j, 900);
+        const auto& accessToken = tokens.access;
+        const auto& newRefreshToken = tokens.refresh;
+        const int expiresIn = std::max(1, tokens.expiresIn);
+        const std::string displayName = AuthJson::DisplayName(j, conf.account_signed_in_name, true);
         if (accessToken.empty() || newRefreshToken.empty()) {
             return finish(false);
         }

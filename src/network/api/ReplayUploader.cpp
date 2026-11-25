@@ -14,7 +14,7 @@
 #include <algorithm>
 #include <cctype>
 #include <random>
-#include <curl/curl.h>
+#include "network/http/CurlHttpClient.hpp"
 #include <windows.h>
 #include <filesystem>
 #include <vector>
@@ -23,47 +23,6 @@
 namespace fs = std::filesystem;
 
 static constexpr int64_t kMatchResultWaitLimitSeconds = 30 * 60;
-
-static size_t CurlWriteCallback(void* contents, size_t size, size_t nmemb, void* userp) {
-    constexpr size_t kMaxResponseBytes = 1024 * 1024;
-    const size_t total = size * nmemb;
-    if (userp) {
-        auto* response = static_cast<std::string*>(userp);
-        if (response->size() + total > kMaxResponseBytes) return 0;
-        response->append(static_cast<char*>(contents), total);
-    }
-    return total;
-}
-
-static size_t CurlHeaderCallback(char* buffer, size_t size, size_t nitems, void* userdata) {
-    size_t total = size * nitems;
-    if (userdata && buffer) {
-        std::string header(buffer, total);
-        auto* retryAfter = static_cast<int*>(userdata);
-        std::string lower = header;
-        std::transform(lower.begin(), lower.end(), lower.begin(), [](unsigned char c) { return std::tolower(c); });
-        if (lower.rfind("retry-after:", 0) == 0) {
-            std::string val = header.substr(12);
-            while (!val.empty() && (val.front() == ' ' || val.front() == '\t'))
-                val.erase(0, 1);
-            while (!val.empty() && (val.back() == '\r' || val.back() == '\n' || val.back() == ' '))
-                val.pop_back();
-            try {
-                *retryAfter = std::stoi(val);
-            } catch (...) {
-            }
-        }
-    }
-    return total;
-}
-
-static int ProgressCallback(void* clientp, curl_off_t /*dltotal*/, curl_off_t /*dlnow*/, curl_off_t /*ultotal*/, curl_off_t /*ulnow*/) {
-    auto* running = static_cast<std::atomic<bool>*>(clientp);
-    if (running && !running->load()) {
-        return 1;
-    }
-    return 0;
-}
 
 static std::string NormalizeVisibility(const std::string& visibility) {
     if (visibility == "private" || visibility == "unlisted" || visibility == "public") {
@@ -389,67 +348,34 @@ void ReplayUploader::UploadReplayRecord(int64_t id, const std::string& path, con
     ConfigData conf = Config::Read();
     if (conf.ballchasing_token.empty()) return;
 
-    CURL* curl = curl_easy_init();
-    if (!curl) return;
+    Http::HttpRequest request;
+    request.url = "https://ballchasing.com/api/v2/upload?visibility=" + NormalizeVisibility(conf.ballchasing_visibility);
+    request.headers.emplace_back("Authorization: " + conf.ballchasing_token);
+    request.multipartFile = true;
+    request.multipartFilePath = path;
+    request.timeout = std::chrono::seconds(60);
+    request.lowSpeedLimit = 1000;
+    request.lowSpeedTime = 10;
+    request.nativeCa = true;
+    request.httpsOnly = true;
+    request.followLocation = false;
+    request.maxResponseBytes = 1024 * 1024;
+    request.shouldAbort = [this]() { return !m_running.load(); };
 
-    std::string url = "https://ballchasing.com/api/v2/upload?visibility=" + NormalizeVisibility(conf.ballchasing_visibility);
-
-    struct curl_slist* headers = nullptr;
-    std::string auth = "Authorization: " + conf.ballchasing_token;
-    headers = curl_slist_append(headers, auth.c_str());
-
-    curl_mime* mime = curl_mime_init(curl);
-    curl_mimepart* part = mime ? curl_mime_addpart(mime) : nullptr;
-    if (!part || !headers) {
-        curl_mime_free(mime);
-        curl_slist_free_all(headers);
-        curl_easy_cleanup(curl);
-        return;
-    }
-    curl_mime_name(part, "file");
-    curl_mime_filedata(part, path.c_str());
-
-    std::string response;
-    int retryAfterSeconds = -1;
-
-    curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
-    curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
-    curl_easy_setopt(curl, CURLOPT_MIMEPOST, mime);
-    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, CurlWriteCallback);
-    curl_easy_setopt(curl, CURLOPT_WRITEDATA, &response);
-    curl_easy_setopt(curl, CURLOPT_HEADERFUNCTION, CurlHeaderCallback);
-    curl_easy_setopt(curl, CURLOPT_HEADERDATA, &retryAfterSeconds);
-    curl_easy_setopt(curl, CURLOPT_TIMEOUT, 60L);
-    curl_easy_setopt(curl, CURLOPT_LOW_SPEED_LIMIT, 1000L);
-    curl_easy_setopt(curl, CURLOPT_LOW_SPEED_TIME, 10L);
-    curl_easy_setopt(curl, CURLOPT_SSL_OPTIONS, CURLSSLOPT_NATIVE_CA);
-    curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 1L);
-    curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 2L);
-    curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 0L);
-    curl_easy_setopt(curl, CURLOPT_PROTOCOLS_STR, "https");
-    curl_easy_setopt(curl, CURLOPT_REDIR_PROTOCOLS_STR, "https");
-    curl_easy_setopt(curl, CURLOPT_XFERINFOFUNCTION, ProgressCallback);
-    curl_easy_setopt(curl, CURLOPT_XFERINFODATA, &m_running);
-    curl_easy_setopt(curl, CURLOPT_NOPROGRESS, 0L);
-
-    CURLcode res = curl_easy_perform(curl);
-    long http_code = 0;
-    curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &http_code);
-
-    if (res != CURLE_OK) {
+    Http::CurlHttpClient client;
+    const auto response = client.Request(request);
+    if (response.transportError == -1) return;
+    long http_code = response.statusCode;
+    if (response.transportError != 0) {
         http_code = 0;
-        std::cout << "[ReplayUploader] curl error: " << curl_easy_strerror(res) << "\n";
+        std::cout << "[ReplayUploader] curl error: " << response.errorMessage << "\n";
     }
-
-    curl_slist_free_all(headers);
-    curl_mime_free(mime);
-    curl_easy_cleanup(curl);
 
     static thread_local std::mt19937 rng(std::random_device{}());
     std::uniform_int_distribution<int> dist(0, 3);
     int jitter = dist(rng);
 
-    auto decision = EvaluateUploadResponse(http_code, response, currentAttempts, 5, retryAfterSeconds, jitter);
+    auto decision = EvaluateUploadResponse(http_code, response.body, currentAttempts, 5, static_cast<int>(response.retryAfterSeconds), jitter);
 
     if (decision.tokenInvalid && m_state) {
         m_state->ui.ballchasingTokenRejected.store(true);

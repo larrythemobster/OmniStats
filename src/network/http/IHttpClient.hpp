@@ -29,6 +29,13 @@ namespace Http {
         bool followLocation = true;
         std::string impersonateTarget;
         std::function<bool()> shouldAbort;
+        bool multipartFile = false;
+        std::string multipartFilePath;
+        size_t maxResponseBytes = kMaxResponseBodyBytes;
+        long lowSpeedLimit = 0;
+        long lowSpeedTime = 0;
+        bool nativeCa = false;
+        bool httpsOnly = false;
     };
 
     struct HttpResponse {

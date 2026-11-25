@@ -301,6 +301,70 @@ TEST_F(AccountClientTest, PollStateMachineHandlesDeniedAndExpired) {
     EXPECT_EQ(client.GetStatus().state, AccountAuthState::Error);
 }
 
+TEST_F(AccountClientTest, AuthenticatedRequestRefreshesOnceAndRetriesWithRotatedToken) {
+    AccountClient client;
+    AccountClient::DeviceKeyPair keyPair;
+    ASSERT_TRUE(client.EnsureDeviceKey(&keyPair));
+    Config::Update([&](ConfigData& c) {
+        c.account_refresh_token = "refresh-v1";
+        c.account_device_public_id = keyPair.publicId;
+    });
+    client.SyncFromConfig();
+    client.SetClockForTests([] { return int64_t{1700000000}; });
+    client.SetCachedAccessTokenForTests("access-v1", 1700000900);
+    int requests = 0;
+    int refreshes = 0;
+    OmniNet::SetTransportForTesting([&](const OmniNet::Request& request) {
+        OmniNet::Response response;
+        if (request.op == OmniNet::Op::AuthRefresh) {
+            ++refreshes;
+            response.status = 200;
+            response.body = R"({"access_token":"access-v2","refresh_token":"refresh-v2","expires_in":900})";
+        } else {
+            ++requests;
+            EXPECT_EQ(request.devicePublicId, keyPair.publicId);
+            EXPECT_EQ(request.accessToken, requests == 1 ? "access-v1" : "access-v2");
+            response.status = requests == 1 ? 401 : 200;
+        }
+        return response;
+    });
+    OmniNet::Request request;
+    request.op = OmniNet::Op::Ranks;
+    const auto result = client.SendAuthenticated(request, AccountClient::AuthenticatedRequestPolicy::Ranks);
+    EXPECT_EQ(result.response.status, 200);
+    EXPECT_FALSE(result.missingCredentials);
+    EXPECT_FALSE(result.refreshFailed);
+    EXPECT_FALSE(result.signedOut);
+    EXPECT_EQ(requests, 2);
+    EXPECT_EQ(refreshes, 1);
+}
+
+TEST_F(AccountClientTest, AuthenticatedRequestDoesNotRefreshOnUpdateRequired) {
+    AccountClient client;
+    Config::Update([](ConfigData& c) {
+        c.account_refresh_token = "refresh";
+        c.account_device_public_id = "device";
+    });
+    client.SyncFromConfig();
+    client.SetClockForTests([] { return int64_t{1700000000}; });
+    client.SetCachedAccessTokenForTests("access", 1700000900);
+    int calls = 0;
+    OmniNet::SetTransportForTesting([&](const OmniNet::Request&) {
+        ++calls;
+        OmniNet::Response response;
+        response.status = 401;
+        response.updateRequired = true;
+        return response;
+    });
+    OmniNet::Request request;
+    request.op = OmniNet::Op::TournamentSchedule;
+    const auto result = client.SendAuthenticated(request, AccountClient::AuthenticatedRequestPolicy::Schedule);
+    EXPECT_TRUE(result.response.updateRequired);
+    EXPECT_FALSE(result.signedOut);
+    EXPECT_EQ(calls, 1);
+    EXPECT_EQ(Config::Read().account_refresh_token, "refresh");
+}
+
 TEST_F(AccountClientTest, RefreshRotationPersistsNewTokenAndCachesAccessToken) {
     AccountClient client;
     int64_t nowUnix = 1700000000;

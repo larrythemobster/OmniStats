@@ -51,76 +51,27 @@ CustomApiBatchResult OmniNetRankProvider::FetchBatch(const AssembledBatch& batch
         return result;
     }
 
-    const auto performRequest = [&](const std::string& bearerToken, const std::string& deviceId) -> OmniNet::Response {
-        OmniNet::Request req;
-        req.op = OmniNet::Op::Ranks;
-        req.payload = reqBodyStr;
-        req.accessToken = bearerToken;
-        req.devicePublicId = deviceId;
-        req.shouldAbort = m_abortCheck;
-        return OmniNet::Send(req);
-    };
-
-    std::string accessToken = accountClient.AccessToken();
-    std::string deviceId = accountClient.DevicePublicId();
-    if (accessToken.empty() || deviceId.empty()) {
-        if (!accountClient.IsSignedIn()) {
-            result.httpResult = CustomApiFetchResult::AuthFailure;
-            return result;
-        }
-        result.httpResult = CustomApiFetchResult::TransientError;
-        return result;
-    }
-
-    OmniNet::Response resp = performRequest(accessToken, deviceId);
+    OmniNet::Request req;
+    req.op = OmniNet::Op::Ranks;
+    req.payload = reqBodyStr;
+    req.shouldAbort = m_abortCheck;
+    const auto auth = accountClient.SendAuthenticated(std::move(req), AccountClient::AuthenticatedRequestPolicy::Ranks);
+    const auto& resp = auth.response;
     result.httpCode = resp.status;
     if (resp.updateRequired) {
         result.updateRequired = true;
-        result.httpCode = resp.status;
         result.httpResult = CustomApiFetchResult::DisabledOrNotReady;
         return result;
     }
-
-    if (resp.transportError == 0 && resp.status == 401) {
-        if (!accountClient.Refresh()) {
-            if (!accountClient.IsSignedIn()) {
-                result.httpResult = CustomApiFetchResult::AuthFailure;
-            } else {
-                result.httpResult = CustomApiFetchResult::TransientError;
-            }
-            return result;
-        }
-        accessToken = accountClient.AccessToken();
-        deviceId = accountClient.DevicePublicId();
-        if (accessToken.empty() || deviceId.empty()) {
-            accountClient.MarkSignedOut("Your OmniStats session expired or this device was revoked. Sign in again in Settings > Accounts & services.");
-            result.httpResult = CustomApiFetchResult::AuthFailure;
-            return result;
-        }
-        resp = performRequest(accessToken, deviceId);
-        result.httpCode = resp.status;
-        if (resp.updateRequired) {
-            result.updateRequired = true;
-            result.httpCode = resp.status;
-            result.httpResult = CustomApiFetchResult::DisabledOrNotReady;
-            return result;
-        }
-        if (resp.transportError == 0 && resp.status == 401) {
-            accountClient.MarkSignedOut("Your OmniStats session expired or this device was revoked. Sign in again in Settings > Accounts & services.");
-            result.httpResult = CustomApiFetchResult::AuthFailure;
-            return result;
-        }
+    if (auth.missingCredentials || auth.refreshFailed || auth.signedOut) {
+        result.httpResult = auth.signedOut || !accountClient.IsSignedIn()
+                                ? CustomApiFetchResult::AuthFailure
+                                : CustomApiFetchResult::TransientError;
+        return result;
     }
-
-    result.httpCode = resp.status;
 
     if (resp.transportError != 0) {
         result.httpResult = CustomApiFetchResult::TransientError;
-        return result;
-    }
-    if (resp.status == 401) {
-        accountClient.MarkSignedOut("Your OmniStats session expired or this device was revoked. Sign in again in Settings > Accounts & services.");
-        result.httpResult = CustomApiFetchResult::AuthFailure;
         return result;
     }
     if (resp.status == 403) {
@@ -168,33 +119,4 @@ CustomApiBatchResult OmniNetRankProvider::FetchBatch(const AssembledBatch& batch
     result.playerResults = ParseCustomApiBatchResponse(batch.requests, jsonResp);
     result.httpResult = CustomApiFetchResult::SuccessFinished;
     return result;
-}
-
-bool OmniNetRankProvider::FetchProfile(const MMRRequest& req,
-                                       NormalizedProfileResult& outProfile,
-                                       std::string& outDetail) {
-    AssembledBatch batch;
-    batch.playlist = req.playlist;
-    batch.playlistId = CustomApiPlaylistIdForName(req.playlist);
-    batch.requests.push_back(req);
-
-    CustomApiBatchResult res = FetchBatch(batch);
-    if (res.httpResult != CustomApiFetchResult::SuccessFinished) {
-        outDetail = "OmniNet rank fetch failed with HTTP " + std::to_string(res.httpCode);
-        return false;
-    }
-
-    for (const auto& playerRes : res.playerResults) {
-        if (playerRes.request.primaryId == req.primaryId) {
-            if (playerRes.status == BatchPlayerStatus::Success) {
-                outProfile = playerRes.profile;
-                return true;
-            }
-            outDetail = playerRes.errorMessage.empty() ? playerRes.errorCode : playerRes.errorMessage;
-            return false;
-        }
-    }
-
-    outDetail = "Player not found in OmniNet response";
-    return false;
 }
