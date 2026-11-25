@@ -2243,6 +2243,31 @@ TEST(MmrServiceBatchTest, ResponseParsingExtractsSeasonRewards) {
     EXPECT_EQ(results[0].profile.seasonRewards->wins, 3);
 }
 
+TEST_F(MmrServiceTest, CustomApiStalePostMatchKeepsRetryWithoutProvisionalPoint) {
+    SetUpSignedInDeviceAuth(false);
+    fetcher->Queue().SetRunningCheck([] { return true; });
+    const std::string playerId = "Steam|76561198000000001";
+    fetcher->EnqueuePostMatch(playerId, "Player", "batch-stale", "2v2", 1200, 50, true, true);
+    AssembledBatch batch;
+    MMRRequest req;
+    req.primaryId = playerId;
+    req.name = "Player";
+    req.matchGuid = "batch-stale";
+    req.playlist = "2v2";
+    req.previousMmr = 1200;
+    req.previousMatches = 50;
+    req.previousMmrIsPlaylistSpecific = true;
+    req.won = true;
+    req.reason = MMRRequestReason::PostMatch;
+    batch.requests.push_back(req);
+    g_mock_custom_api_response_code = 200;
+    g_mock_custom_api_response = R"({"players":[{"platform":"Steam","account_id":"76561198000000001","skills":[{"playlist":11,"mmr":1200,"tier":17,"division":1,"matches_played":50}]}]})";
+
+    fetcher->ProcessCustomApiBatch(batch);
+
+    EXPECT_TRUE(fetcher->PlaylistMatchPoints("2v2").empty());
+}
+
 TEST_F(MmrServiceTest, WholeBatchHttpFailureYieldsPerPlayerFailures) {
     SetUpSignedInDeviceAuth(false);
 

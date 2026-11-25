@@ -539,7 +539,7 @@ void MmrService::ProcessCustomApiBatch(MmrServiceDetail::AssembledBatch batch) {
     if (batch.requests.empty()) return;
     if (!m_customProvider) {
         for (const auto& req : batch.requests) {
-            FinishRequest(req);
+            m_queue.Finish(req);
         }
         return;
     }
@@ -567,13 +567,19 @@ void MmrService::ProcessCustomApiBatch(MmrServiceDetail::AssembledBatch batch) {
             NotifyTracked(req, std::move(event));
         }
     };
-    auto fallbackOrFinish = [&](const MMRRequest& req, TrackedAccountFetchStatus status, const std::string& detail) {
+    // Only a batch-wide failure gives up post-match reconciliation when the Tracker fallback also fails.
+    auto fallbackOrFinish = [&](const MMRRequest& req, TrackedAccountFetchStatus status, const std::string& detail,
+                                bool batchFailed) {
         if (config.enable_mmr_tracking && !m_queue.IsRateLimited(now)) {
-            if (!FetchProfileTracker(req)) FinishRequest(req);
+            if (FetchProfileTracker(req)) return;
+            if (batchFailed) {
+                FinishRequest(req);
+                return;
+            }
         } else {
             reportFailure(req, status, detail);
-            FinishRequest(req);
         }
+        m_queue.Finish(req);
     };
 
     if (res.updateRequired || res.httpResult == CustomApiFetchResult::AuthFailure ||
@@ -593,7 +599,7 @@ void MmrService::ProcessCustomApiBatch(MmrServiceDetail::AssembledBatch batch) {
             status = TrackedAccountFetchStatus::ProviderUnavailable;
         }
         for (const auto& req : batch.requests)
-            fallbackOrFinish(req, status, detail);
+            fallbackOrFinish(req, status, detail, true);
         return;
     }
 
@@ -607,7 +613,7 @@ void MmrService::ProcessCustomApiBatch(MmrServiceDetail::AssembledBatch batch) {
                 reportFailure(req,
                               res.httpCode == 429 ? TrackedAccountFetchStatus::RateLimited : TrackedAccountFetchStatus::Failed,
                               res.httpCode == 429 ? "The rank API is rate limiting requests." : "The rank API is temporarily unavailable.");
-                FinishRequest(req);
+                m_queue.Finish(req);
             }
         }
         return;
@@ -634,10 +640,10 @@ void MmrService::ProcessCustomApiBatch(MmrServiceDetail::AssembledBatch batch) {
                 const std::string msg = (pRes.errorCode == "update_required" && pRes.errorMessage.empty())
                                             ? "Update OmniStats to keep live ranks."
                                             : pRes.errorMessage;
-                fallbackOrFinish(*reqIt, status, msg);
+                fallbackOrFinish(*reqIt, status, msg, false);
                 continue;
             }
-            FinishRequest(*reqIt);
+            m_queue.Finish(*reqIt);
         }
     }
     return;
@@ -835,7 +841,7 @@ void MmrService::FetchTrackedAccount(const std::string& primaryId, const std::st
     auto req = m_queue.TakeTrackedAccount(primaryId, generation);
     if (!req) return;
     req->sessionGeneration = m_state && m_state->liveMatch ? m_state->liveMatch->GetSnapshot()->sessionGeneration : 0;
-    if (!FetchProfile(*req)) FinishRequest(*req);
+    if (!FetchProfile(*req)) m_queue.Finish(*req);
 }
 
 bool MmrService::IsCustomApiActiveSource() const {
@@ -965,7 +971,7 @@ void MmrService::DispatchSingle(RankProvider /*provider*/) {
     }
     const bool requeued = FetchProfile(req);
     if (!requeued) {
-        FinishRequest(req);
+        m_queue.Finish(req);
     }
     std::unique_lock<std::mutex> lock(m_cvMutex);
     m_cv.wait_for(lock, m_timings.queueSpacing, [this] { return !m_isRunning; });
